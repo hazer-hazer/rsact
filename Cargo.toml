@@ -1,0 +1,12 @@
+[package]
+name = "rsact"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+spin = { version = "0.9.8" }
+embedded-graphics-simulator = "0.6.0"
+futures = "0.3.30"
+futures-signals = "0.3.34"
+lazy_static = { version = "1.5.0", features = ["spin", "spin_no_std"] }
+log = { version = "0.4.22", default-features = false }
