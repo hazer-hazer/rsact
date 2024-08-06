@@ -1,13 +1,22 @@
+use rsact::prelude::*;
 use std::println;
 
-use rsact::{effect::create_effect, signal::create_signal};
+fn foo(signal: Signal<i32>) {
+    signal.set(123);
+}
 
 fn main() {
-    let signal = create_signal(1);
+    let signal = use_signal(1);
 
-    create_effect(move |_| {
+    use_effect(move |_| {
         println!("Updated to {}", signal.get());
     });
 
-    // signal.set(123);
+    let comp = use_computed(move || signal.get());
+
+    foo(signal);
+
+    println!("Computed {}", comp.get());
+
+    // println!("{}", use_static(1) + use_static(2))
 }

@@ -1,16 +1,19 @@
+use alloc::{
+    boxed::Box, collections::btree_map::BTreeMap, format, rc::Rc, vec::Vec,
+};
 use core::{
     any::{type_name, Any},
-    cell::RefCell,
+    cell::{Ref, RefCell},
     fmt::Debug,
     marker::PhantomData,
 };
-
-use alloc::{format, rc::Rc};
 use slotmap::SlotMap;
 
 use crate::{
-    effect::{AnyCallback, EffectCallback},
-    runtime::Runtime,
+    callback::AnyCallback,
+    effect::EffectCallback,
+    operator::{AnyOperator, Operation, OperatorState},
+    runtime::{Observer, Runtime},
 };
 
 slotmap::new_key_type! {
@@ -18,19 +21,37 @@ slotmap::new_key_type! {
 }
 
 impl ValueId {
-    pub fn get_untracked(&self, runtime: &Runtime) -> Rc<RefCell<dyn Any>> {
+    pub(crate) fn take_operator_diff<O: Operation>(&self, runtime: &Runtime) -> Vec<BTreeMap<Observer, O>> {
+        match runtime.storage.values.borrow().get(self).expect("Failed to take operator").kind {
+            ValueKind::Operator { scheduled, operator } => {
+                
+            },
+        }
+    }
+
+    pub(crate) fn get_untracked(
+        &self,
+        runtime: &Runtime,
+    ) -> Rc<RefCell<dyn Any>> {
         let values = &runtime.storage.values.borrow();
         let value = values.get(*self).unwrap().value();
 
         value
     }
 
-    #[inline(always)]
-    pub fn with<T: 'static, U>(&self, runtime: &Runtime, f: impl FnOnce(&T) -> U) -> U {
-        runtime.subscribe(*self);
+    pub(crate) fn subscribe(&self, rt: &Runtime) {
+        rt.subscribe(*self);
+    }
 
-        let value = self.get_untracked(runtime);
-        let value = RefCell::try_borrow(&value).expect("Failed to borrow value");
+    #[inline(always)]
+    pub(crate) fn with_untracked<T: 'static, U>(
+        &self,
+        rt: &Runtime,
+        f: impl FnOnce(&T) -> U,
+    ) -> U {
+        let value = self.get_untracked(rt);
+        let value =
+            RefCell::try_borrow(&value).expect("Failed to borrow value");
         let value = value
             .downcast_ref::<T>()
             .expect(&format!("Failed to cast value to {}", type_name::<T>()));
@@ -38,20 +59,27 @@ impl ValueId {
         f(value)
     }
 
+    pub(crate) fn notify(&self, rt: &Runtime) {
+        rt.mark_dirty(*self);
+        rt.run_effects();
+    }
+
     #[inline(always)]
-    pub fn update<T: 'static, U>(&self, rt: &Runtime, f: impl FnOnce(&mut T) -> U) -> U {
+    pub(crate) fn update_untracked<T: 'static, U>(
+        &self,
+        rt: &Runtime,
+        f: impl FnOnce(&mut T) -> U,
+    ) -> U {
         let result = {
             let value = self.get_untracked(rt);
             let mut value = RefCell::borrow_mut(&value);
 
-            let value = value
-                .downcast_mut::<T>()
-                .expect(&format!("Failed to mut cast value to {}", type_name::<T>()));
+            let value = value.downcast_mut::<T>().expect(&format!(
+                "Failed to mut cast value to {}",
+                type_name::<T>()
+            ));
             f(value)
         };
-
-        rt.mark_dirty(*self);
-        rt.run_effects();
 
         result
     }
@@ -60,7 +88,14 @@ impl ValueId {
 #[derive(Clone)]
 pub enum ValueKind {
     Signal,
-    Effect { f: Rc<dyn AnyCallback> },
+    Effect {
+        f: Rc<dyn AnyCallback>,
+    },
+    // Computed { f: Rc<dyn AnyCallback> },
+    Operator {
+        scheduled: BTreeMap<Observer, Vec<Rc<dyn Operation>>>,
+        operator: Rc<dyn AnyOperator>,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -100,7 +135,11 @@ impl Storage {
         })
     }
 
-    pub fn create_effect<T: 'static, F>(&self, f: impl Fn(Option<T>) -> T + 'static) -> ValueId {
+    pub fn create_effect<T, F>(&self, f: F) -> ValueId
+    where
+        T: 'static,
+        F: Fn(Option<T>) -> T + 'static,
+    {
         self.values.borrow_mut().insert(StoredValue {
             value: Rc::new(RefCell::new(None::<T>)),
             kind: ValueKind::Effect {
@@ -109,6 +148,34 @@ impl Storage {
             state: ValueState::Dirty,
         })
     }
+
+    pub fn create_operator<T, F, O>(&self, f: F) -> ValueId
+    where
+        T: Default + 'static,
+        F: for<'a, 'b> Fn(&'a O, &'b mut T) + 'static,
+        O: Operation + 'static,
+    {
+        self.values.borrow_mut().insert(StoredValue {
+            value: Rc::new(RefCell::new(<T as Default>::default())),
+            kind: ValueKind::Operator {
+                scheduled: Default::default(),
+                operator: Rc::new(OperatorState {
+                    ty: PhantomData,
+                    op: PhantomData,
+                    f,
+                }),
+            },
+            state: ValueState::Clean,
+        })
+    }
+
+    // pub fn create_computed<T: 'static, F>(&self, f: impl Fn() -> T + 'static)
+    // -> ValueId {     self.values.borrow_mut().insert(StoredValue {
+    //         value: Rc::new(RefCell::new(None::<T>)),
+    //         kind: ValueKind::Computed { f:  },
+    //         state: ValueState::Clean,
+    //     })
+    // }
 
     pub(crate) fn get(&self, id: ValueId) -> StoredValue {
         self.values.borrow().get(id).unwrap().clone()
@@ -125,8 +192,8 @@ impl Storage {
     // }
 
     // #[track_caller]
-    // fn store<T: Sync + Send + 'static>(&mut self, value: T) -> ValueLocation {
-    //     let location = ValueLocation::new();
+    // fn store<T: Sync + Send + 'static>(&mut self, value: T) -> ValueLocation
+    // {     let location = ValueLocation::new();
 
     //     assert!(self
     //         .values
@@ -137,8 +204,8 @@ impl Storage {
     //     location
     // }
 
-    // fn read<'a, T: 'static>(&'a self, location: ValueLocation) -> &dyn Fn() -> &'a T {
-    //     &move || {
+    // fn read<'a, T: 'static>(&'a self, location: ValueLocation) -> &dyn Fn()
+    // -> &'a T {     &move || {
     //         self.values[&location]
     //             .borrow()
     //             .inner

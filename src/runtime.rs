@@ -1,42 +1,38 @@
-use core::cell::{Cell, RefCell};
-
-use alloc::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
-use lazy_static::lazy_static;
-use slotmap::SlotMap;
-
 use crate::storage::{Storage, ValueId, ValueKind, ValueState};
+use alloc::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
+use core::{
+    cell::{Cell, RefCell},
+    default,
+};
+use slotmap::SlotMap;
 
 slotmap::new_key_type! {
     pub struct RuntimeId;
 }
 
+// TODO: Maybe better use Slab instead of SlotMap for efficiency
+
 impl RuntimeId {
     pub fn leave(&self) {
-        critical_section::with(|cs| {
-            let rt = RUNTIMES
-                .borrow_ref_mut(cs)
-                .remove(*self)
-                .expect("Attempt to leave non-existent runtime");
+        let rt = RUNTIMES
+            .borrow_mut()
+            .remove(*self)
+            .expect("Attempt to leave non-existent runtime");
 
-            if CURRENT_RUNTIME.borrow(cs).get() == Some(*self) {
-                CURRENT_RUNTIME.borrow(cs).take();
-            }
+        if CURRENT_RUNTIME.get() == Some(*self) {
+            CURRENT_RUNTIME.take();
+        }
 
-            drop(rt);
-        });
+        drop(rt);
     }
 }
 
 #[inline(always)]
 pub fn with_current_runtime<T>(f: impl FnOnce(&Runtime) -> T) -> T {
-    critical_section::with(|cs| {
-        let runtimes = RUNTIMES.borrow_ref(cs);
-        let rt = runtimes
-            .get(CURRENT_RUNTIME.borrow(cs).get().unwrap())
-            .unwrap();
+    let runtimes = RUNTIMES.borrow();
+    let rt = runtimes.get(CURRENT_RUNTIME.get().unwrap()).unwrap();
 
-        f(rt)
-    })
+    f(rt)
 }
 
 #[inline(always)]
@@ -50,38 +46,46 @@ pub fn with_scoped_runtime<T>(f: impl FnOnce(&Runtime) -> T) -> T {
 #[must_use]
 #[inline(always)]
 pub fn create_runtime() -> RuntimeId {
-    critical_section::with(|cs| RUNTIMES.borrow_ref_mut(cs).insert(Runtime::new()))
+    RUNTIMES.borrow_mut().insert(Runtime::new())
 }
 
-// Note: Multiple runtimes are now only used in tests
-lazy_static! {
-    static ref RUNTIMES: critical_section::Mutex<RefCell<SlotMap<RuntimeId, Runtime>>> = {
+#[thread_local]
+static CURRENT_RUNTIME: Cell<Option<RuntimeId>> = Cell::new(None);
+
+#[thread_local]
+static RUNTIMES: once_cell::unsync::Lazy<RefCell<SlotMap<RuntimeId, Runtime>>> =
+    once_cell::unsync::Lazy::new(|| {
         let mut runtimes = SlotMap::default();
-        let primary_rt = runtimes.insert(Runtime::new());
-        critical_section::with(|cs| {
-            CURRENT_RUNTIME.borrow(cs).set(Some(primary_rt));
-        });
-        critical_section::Mutex::new(RefCell::new(runtimes))
-    };
-    static ref CURRENT_RUNTIME: critical_section::Mutex<Cell<Option<RuntimeId>>> =
-        critical_section::Mutex::new(Cell::new(None));
-}
 
-// #[derive(Clone, Copy)]
-// pub struct ScopeId(usize);
+        CURRENT_RUNTIME.set(Some(runtimes.insert(Runtime::new())));
+
+        RefCell::new(runtimes)
+    });
+
+// #[derive(Clone, Copy, Default)]
+// pub enum Observer {
+//     /// Should only be used outside of actual reactive context.
+//     #[default]
+//     None,
+//     Effect(ValueId),
+// }
+
+#[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Observer {
+    /// TODO: Remove? Useless unreachable
+    None,
+    #[default]
+    Root,
+    Effect(ValueId),
+}
 
 #[derive(Default)]
 pub struct Runtime {
     pub(crate) storage: Storage,
-    pub(crate) observer: Cell<Option<ValueId>>,
-    // pub(crate) watchers: SlotMap<ValueId, Vec<ScopeId>>,
-    // TODO: Use slotmap
+    pub(crate) observer: Cell<Observer>,
     pub(crate) subscribers: RefCell<BTreeMap<ValueId, BTreeSet<ValueId>>>,
     pub(crate) pending_effects: RefCell<BTreeSet<ValueId>>,
 }
-
-// AHAHAHAHAHAHHAHAAH
-unsafe impl Send for Runtime {}
 
 impl Runtime {
     fn new() -> Self {
@@ -93,10 +97,14 @@ impl Runtime {
         }
     }
 
-    pub(crate) fn with_observer<T>(&self, observer: ValueId, f: impl FnOnce(&Self) -> T) -> T {
+    pub(crate) fn with_observer<T>(
+        &self,
+        observer: Observer,
+        f: impl FnOnce(&Self) -> T,
+    ) -> T {
         let prev_observer = self.observer.get();
 
-        self.observer.set(Some(observer));
+        self.observer.set(observer);
 
         let result = f(self);
 
@@ -106,34 +114,50 @@ impl Runtime {
     }
 
     pub(crate) fn subscribe(&self, id: ValueId) {
-        self.subscribers
-            .borrow_mut()
-            .entry(id)
-            .or_default()
-            .insert(self.observer.get().expect(
+        match self.observer.get() {
+            Observer::None => panic!(
                 "[BUG] Attempt to subscribe to reactive value updates out of reactive context.",
-            ));
+            ),
+            Observer::Root => todo!(),
+            Observer::Effect(observer) => {
+                self.subscribers
+                    .borrow_mut()
+                    .entry(id)
+                    .or_default()
+                    .insert(observer);
+            },
+        }
     }
 
     pub(crate) fn maybe_update(&self, id: ValueId) {
         if self.storage.get(id).state == ValueState::Dirty {
-            self.update(id);
+            self.notify_updated(id);
         }
 
         self.mark_clean(id);
     }
 
-    pub(crate) fn update(&self, id: ValueId) {
+    pub(crate) fn notify_updated(&self, id: ValueId) {
         let value = self.storage.get(id);
 
         match value.kind {
-            ValueKind::Signal => {}
+            ValueKind::Signal => {},
             ValueKind::Effect { f } => {
                 let effect_value = value.value;
-                self.with_observer(id, move |_rt| {
+                self.with_observer(Observer::Effect(id), move |_rt| {
                     f.run(effect_value);
                 })
-            }
+            },
+            ValueKind::Operator { mut scheduled, operator } => {
+                let value = value.value;
+                scheduled.entry(self.observer).or_default().push(value)
+                if let Some(scheduled) = scheduled.remove(&self.observer.get())
+                {
+                    scheduled.into_iter().for_each(|op| {
+                        operator.operate(op, value.clone());
+                    });
+                }
+            },
         }
 
         self.mark_dirty(id);
@@ -152,9 +176,10 @@ impl Runtime {
         self.storage.mark(id, ValueState::Dirty);
 
         if matches!(self.storage.get(id).kind, ValueKind::Effect { .. })
-            && self.observer.get() != Some(id)
+            && self.observer.get() != Observer::Effect(id)
         {
-            let mut pending_effects = RefCell::borrow_mut(&self.pending_effects);
+            let mut pending_effects =
+                RefCell::borrow_mut(&self.pending_effects);
             pending_effects.insert(id);
         }
 
@@ -166,13 +191,9 @@ impl Runtime {
     }
 
     pub(crate) fn run_effects(&self) {
-        self.pending_effects
-            .take()
-            .iter()
-            .copied()
-            .for_each(|effect| {
-                self.maybe_update(effect);
-            });
+        self.pending_effects.take().iter().copied().for_each(|effect| {
+            self.maybe_update(effect);
+        });
     }
 }
 
@@ -184,14 +205,11 @@ mod tests {
 
     #[test]
     fn primary_runtime() {
-        critical_section::with(|cs| {
-            assert!(
-                RUNTIMES
-                    .borrow(cs)
-                    .borrow()
-                    .contains_key(CURRENT_RUNTIME.borrow(cs).get().unwrap()),
-                "First insertion into RUNTIMES does not have key of RuntimeId::default()"
-            );
-        });
+        assert!(
+            RUNTIMES
+                .borrow()
+                .contains_key(CURRENT_RUNTIME.get().unwrap()),
+            "First insertion into RUNTIMES does not have key of RuntimeId::default()"
+        );
     }
 }

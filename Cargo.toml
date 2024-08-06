@@ -4,22 +4,17 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-spin = { version = "0.9.8" }
-embedded-graphics-simulator = "0.6.0"
-futures = "0.3.30"
-futures-signals = "0.3.34"
-lazy_static = { version = "1.5.0", features = ["spin", "spin_no_std"] }
+lazy_static = { version = "1.5.0", default-features = false }
 log = { version = "0.4.22", default-features = false }
 slotmap = { version = "1.0.7", default-features = false }
 once_cell = { version = "1.19.0", default-features = false }
-critical-section = { version = "1.1.2", default-features = false }
 
 [dev-dependencies]
 criterion = "0.5.1"
 
 [features]
-default = ["std"]
-std = ["critical-section/std"]
+default = []
+std = []
 
 [[bench]]
 name = "reactivity"
