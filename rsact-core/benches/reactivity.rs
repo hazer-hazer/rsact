@@ -1,7 +1,7 @@
-use criterion::{criterion_group, criterion_main, Criterion};
-use rsact::{
+use crate::{
     effect::use_effect, runtime::with_scoped_runtime, signal::use_signal,
 };
+use criterion::{criterion_group, criterion_main, Criterion};
 
 fn single_effect_single_signal() {
     with_scoped_runtime(|_| {

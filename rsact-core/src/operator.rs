@@ -11,7 +11,7 @@
 
 use core::{any::Any, cell::RefCell, marker::PhantomData};
 
-use alloc::rc::Rc;
+use alloc::{rc::Rc, vec::Vec};
 
 use crate::{runtime::with_current_runtime, storage::ValueId};
 
@@ -56,7 +56,7 @@ pub struct Operator<T, O> {
 impl<T, O> Operator<T, O>
 where
     T: Default + 'static,
-    O: Operation,
+    O: Operation + Clone,
 {
     pub fn new<F>(f: F) -> Self
     where
@@ -68,12 +68,21 @@ where
             op: PhantomData,
         }
     }
+
+    pub fn diff(&self) -> Vec<O> {
+        with_current_runtime(|rt| {
+            rt.take_observer_diff(self.id)
+                .into_iter()
+                .map(|op| Rc::downcast::<O>(op).unwrap().as_ref().clone())
+                .collect()
+        })
+    }
 }
 
 pub fn use_operator<T, F, O>(f: F) -> Operator<T, O>
 where
     T: Default + 'static,
-    O: Operation,
+    O: Operation + Clone,
     F: Fn(&O, &mut T) + 'static,
 {
     Operator::new(f)

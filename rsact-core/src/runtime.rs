@@ -1,6 +1,14 @@
-use crate::storage::{Storage, ValueId, ValueKind, ValueState};
-use alloc::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
+use crate::{
+    operator::Operation,
+    storage::{Storage, ValueId, ValueKind, ValueState},
+};
+use alloc::{
+    collections::{btree_map::BTreeMap, btree_set::BTreeSet},
+    rc::Rc,
+    vec::Vec,
+};
 use core::{
+    any::Any,
     cell::{Cell, RefCell},
     default,
 };
@@ -83,7 +91,7 @@ pub enum Observer {
 pub struct Runtime {
     pub(crate) storage: Storage,
     pub(crate) observer: Cell<Observer>,
-    pub(crate) subscribers: RefCell<BTreeMap<ValueId, BTreeSet<ValueId>>>,
+    pub(crate) subscribers: RefCell<BTreeMap<ValueId, BTreeSet<Observer>>>,
     pub(crate) pending_effects: RefCell<BTreeSet<ValueId>>,
 }
 
@@ -118,13 +126,13 @@ impl Runtime {
             Observer::None => panic!(
                 "[BUG] Attempt to subscribe to reactive value updates out of reactive context.",
             ),
-            Observer::Root => todo!(),
+            Observer::Root => {self.subscribers.borrow_mut().entry(id).or_default().insert(Observer::Root);},
             Observer::Effect(observer) => {
                 self.subscribers
                     .borrow_mut()
                     .entry(id)
                     .or_default()
-                    .insert(observer);
+                    .insert(Observer::Effect(observer));
             },
         }
     }
@@ -148,16 +156,17 @@ impl Runtime {
                     f.run(effect_value);
                 })
             },
-            ValueKind::Operator { mut scheduled, operator } => {
-                let value = value.value;
-                scheduled.entry(self.observer).or_default().push(value)
-                if let Some(scheduled) = scheduled.remove(&self.observer.get())
-                {
-                    scheduled.into_iter().for_each(|op| {
-                        operator.operate(op, value.clone());
-                    });
-                }
-            },
+            ValueKind::Operator { .. } => {},
+            // ValueKind::Operator { mut scheduled, operator } => {
+            //     let value = value.value;
+            //     scheduled.entry(self.observer).or_default().push(value)
+            //     if let Some(scheduled) =
+            // scheduled.remove(&self.observer.get())     {
+            //         scheduled.into_iter().for_each(|op| {
+            //             operator.operate(op, value.clone());
+            //         });
+            //     }
+            // },
         }
 
         self.mark_dirty(id);
@@ -175,18 +184,41 @@ impl Runtime {
     fn mark_dirty_recursive(&self, id: ValueId) {
         self.storage.mark(id, ValueState::Dirty);
 
-        if matches!(self.storage.get(id).kind, ValueKind::Effect { .. })
-            && self.observer.get() != Observer::Effect(id)
-        {
-            let mut pending_effects =
-                RefCell::borrow_mut(&self.pending_effects);
-            pending_effects.insert(id);
+        match self.storage.get(id).kind {
+            ValueKind::Signal => {},
+            ValueKind::Effect { .. }
+                if self.observer.get() != Observer::Effect(id) =>
+            {
+                let mut pending_effects =
+                    RefCell::borrow_mut(&self.pending_effects);
+                pending_effects.insert(id);
+            },
+            ValueKind::Effect { .. } => {},
+            ValueKind::Operator { scheduled, operator } => todo!(),
         }
 
         if let Some(subscribers) = self.subscribers.borrow().get(&id) {
-            subscribers.iter().copied().for_each(|sub| {
-                self.mark_dirty_recursive(sub);
+            subscribers.iter().copied().for_each(|sub| match sub {
+                Observer::None => {
+                    // TODO: panic?
+                },
+                Observer::Root => {
+                    // Root means "outside of reactive context" so don't mark it
+                    // dirty
+                },
+                Observer::Effect(effect) => {
+                    self.mark_dirty_recursive(effect);
+                },
             });
+        }
+    }
+
+    pub(crate) fn take_observer_diff(&self, id: ValueId) -> Vec<Rc<dyn Any>> {
+        match self.storage.get(id).kind {
+            ValueKind::Operator { mut scheduled, .. } => scheduled
+                .remove(&self.observer.get())
+                .unwrap_or(Default::default()),
+            _ => panic!("Cannot get diff from non-operator value"),
         }
     }
 

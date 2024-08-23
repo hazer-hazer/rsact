@@ -21,14 +21,6 @@ slotmap::new_key_type! {
 }
 
 impl ValueId {
-    pub(crate) fn take_operator_diff<O: Operation>(&self, runtime: &Runtime) -> Vec<BTreeMap<Observer, O>> {
-        match runtime.storage.values.borrow().get(self).expect("Failed to take operator").kind {
-            ValueKind::Operator { scheduled, operator } => {
-                
-            },
-        }
-    }
-
     pub(crate) fn get_untracked(
         &self,
         runtime: &Runtime,
@@ -93,7 +85,8 @@ pub enum ValueKind {
     },
     // Computed { f: Rc<dyn AnyCallback> },
     Operator {
-        scheduled: BTreeMap<Observer, Vec<Rc<dyn Operation>>>,
+        // TODO: Really clone? Store separately
+        scheduled: BTreeMap<Observer, Vec<Rc<dyn Any>>>,
         operator: Rc<dyn AnyOperator>,
     },
 }

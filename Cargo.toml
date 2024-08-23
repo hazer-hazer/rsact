@@ -4,18 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-lazy_static = { version = "1.5.0", default-features = false }
-log = { version = "0.4.22", default-features = false }
-slotmap = { version = "1.0.7", default-features = false }
-once_cell = { version = "1.19.0", default-features = false }
-
-[dev-dependencies]
-criterion = "0.5.1"
+rsact-core = { path = "./rsact-core" }
+rsact-ui = { path = "./rsact-ui" }
 
 [features]
-default = []
-std = []
 
-[[bench]]
-name = "reactivity"
-harness = false
+[workspace]
+members = ["rsact-ui", "rsact-core"]
