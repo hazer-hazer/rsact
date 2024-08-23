@@ -1,0 +1,20 @@
+[package]
+name = "rsact-ui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rsact-core = { path = "../rsact-core" }
+defmt = { version = "0.3.8", optional = true }
+embedded-graphics = "0.8.1"
+embedded-graphics-core = "0.4.0"
+embedded-text = "0.7.2"
+
+[features]
+default = []
+defmt = ["dep:defmt"]
+std = []
+
+[dev-dependencies]
+embedded-graphics-simulator = "0.6.0"
+rand = "0.8.5"

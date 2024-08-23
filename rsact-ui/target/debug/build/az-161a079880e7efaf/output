@@ -1,0 +1,6 @@
+$ mkdir -p "/Users/hazer_hazer/dev/rsact/rsact-ui/target/debug/build/az-161a079880e7efaf/out/try_track_caller"
+$ cd "/Users/hazer_hazer/dev/rsact/rsact-ui/target/debug/build/az-161a079880e7efaf/out/try_track_caller"
+$ printf '%s' "// try_tra"... > "/Users/hazer_hazer/dev/rsact/rsact-ui/target/debug/build/az-161a079880e7efaf/out/try_track_caller/try_track_caller.rs"
+$ cd "/Users/hazer_hazer/dev/rsact/rsact-ui/target/debug/build/az-161a079880e7efaf/out/try_track_caller" && "/Users/hazer_hazer/.rustup/toolchains/nightly-aarch64-apple-darwin/bin/rustc" "try_track_caller.rs" "--emit=dep-info,metadata" >& /dev/null
+cargo:rustc-cfg=track_caller
+$ rm -r "/Users/hazer_hazer/dev/rsact/rsact-ui/target/debug/build/az-161a079880e7efaf/out/try_track_caller"
