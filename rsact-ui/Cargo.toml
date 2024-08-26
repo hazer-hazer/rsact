@@ -9,11 +9,20 @@ defmt = { version = "0.3.8", optional = true }
 embedded-graphics = "0.8.1"
 embedded-graphics-core = "0.4.0"
 embedded-text = "0.7.2"
+log = { version = "0.4.22", default-features = false, features = [
+    "max_level_off",
+] }
+env_logger = "0.11.5"
+num = "0.4.3"
 
 [features]
 default = []
 defmt = ["dep:defmt"]
-std = []
+std = ["log/std"]
+
+[profile.dev]
+opt-level = 0
+debug = 2
 
 [dev-dependencies]
 embedded-graphics-simulator = "0.6.0"

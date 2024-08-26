@@ -1,11 +1,135 @@
-use core::ops::{Add, Div, Mul, Sub};
+use core::ops::{Add, AddAssign, Div, Mul, Rem, Sub, SubAssign};
 
 use embedded_graphics::geometry::Point;
+use num::Integer;
 
 use crate::{
     axis::{Axial, Axis},
     padding::Padding,
 };
+
+#[derive(Clone, Copy, Debug)]
+pub struct DivFactors {
+    pub width: u16,
+    pub height: u16,
+}
+
+impl DivFactors {
+    pub fn new(width: u16, height: u16) -> Self {
+        Self { width, height }
+    }
+
+    pub fn zero() -> Self {
+        Self { width: 0, height: 0 }
+    }
+
+    // pub fn take_rem(&self, rem: Size, container_div_factors: Self) -> Size {
+    //     let rem = rem.map(|l| l as f32);
+    //     Size::new(
+    //         rem.width * self.width as f32 / container_div_factors.width as
+    // f32,         rem.height * self.height as f32
+    //             / container_div_factors.height as f32,
+    //     )
+    //     .map(|l| l as u32)
+    // }
+
+    // pub fn gcd(&self, other: Self) -> Self {
+    //     Self::new(self.width.gcd(&other.width),
+    // self.height.gcd(&other.height)) }
+}
+
+impl Axial for DivFactors {
+    type Data = u16;
+
+    fn x(&self) -> Self::Data {
+        self.width
+    }
+
+    fn y(&self) -> Self::Data {
+        self.height
+    }
+
+    fn x_mut(&mut self) -> &mut Self::Data {
+        &mut self.width
+    }
+
+    fn y_mut(&mut self) -> &mut Self::Data {
+        &mut self.height
+    }
+
+    fn new(x: Self::Data, y: Self::Data) -> Self {
+        Self::new(x, y)
+    }
+}
+
+impl Into<Size> for DivFactors {
+    fn into(self) -> Size {
+        Size::new(self.width as u32, self.height as u32)
+    }
+}
+
+impl Add for DivFactors {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self::new(self.width + rhs.width, self.height + rhs.height)
+    }
+}
+
+impl AddAssign for DivFactors {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = *self + rhs;
+    }
+}
+
+impl Div for DivFactors {
+    type Output = Self;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        Self::new(
+            self.width.checked_div(rhs.width).unwrap_or(0),
+            self.height.checked_div(rhs.height).unwrap_or(0),
+        )
+    }
+}
+
+impl Div<DivFactors> for Size {
+    type Output = Size;
+
+    fn div(self, rhs: DivFactors) -> Self::Output {
+        Size::new(
+            self.width.checked_div(rhs.width as u32).unwrap_or(0),
+            self.height.checked_div(rhs.height as u32).unwrap_or(0),
+        )
+    }
+}
+
+impl Rem<DivFactors> for Size {
+    type Output = Size;
+
+    fn rem(self, rhs: DivFactors) -> Self::Output {
+        Size::new(
+            self.width.checked_rem(rhs.width as u32).unwrap_or(0),
+            self.height.checked_rem(rhs.height as u32).unwrap_or(0),
+        )
+    }
+}
+
+// impl Div<u16> for DivFactors {
+//     type Output = Self;
+
+//     fn div(self, rhs: u16) -> Self::Output {
+//         Self::new(self.width / rhs, self.height / rhs)
+//     }
+// }
+
+// impl Rem<u16> for DivFactors {
+//     type Output = Self;
+
+//     fn rem(self, rhs: u16) -> Self::Output {
+//         Self::new(self.width % rhs, self.height % rhs)
+//     }
+// }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "defmt", derive(::defmt::Format))]
@@ -44,6 +168,24 @@ impl Length {
     pub fn is_fill(&self) -> bool {
         self.div_factor() != 0
     }
+
+    pub fn into_fixed(&self, base_div: u32) -> u32 {
+        match self {
+            Length::Fill => base_div,
+            Length::Shrink => base_div,
+            &Length::Div(div) => base_div * div as u32,
+            &Length::Fixed(fixed) => fixed,
+        }
+    }
+
+    pub fn max_fixed(&self, fixed: u32) -> u32 {
+        match self {
+            Length::Fill => fixed,
+            Length::Shrink => fixed,
+            Length::Div(_) => fixed,
+            &Length::Fixed(this) => this.max(fixed),
+        }
+    }
 }
 
 impl From<u32> for Length {
@@ -71,6 +213,14 @@ impl<T> Size<T> {
         Self { width: equal, height: equal }
     }
 
+    pub fn map<F, U>(&self, f: F) -> Size<U>
+    where
+        F: Fn(T) -> U,
+        T: Copy,
+    {
+        Size::new(f(self.width), f(self.height))
+    }
+
     pub fn with_width(self, width: T) -> Self {
         Self { width, height: self.height }
     }
@@ -87,6 +237,27 @@ impl Size<Length> {
 
     pub fn is_fill(&self) -> bool {
         self.width.is_fill() && self.height.is_fill()
+    }
+
+    pub fn div_factors(&self) -> DivFactors {
+        DivFactors {
+            width: self.width.div_factor(),
+            height: self.height.div_factor(),
+        }
+    }
+
+    pub fn max_fixed(&self, fixed: Size) -> Size {
+        Size::new(
+            self.width.max_fixed(fixed.width),
+            self.height().max_fixed(fixed.height),
+        )
+    }
+
+    pub fn into_fixed(&self, base_divs: Size) -> Size {
+        Size::new(
+            self.width.into_fixed(base_divs.width),
+            self.height.into_fixed(base_divs.height),
+        )
     }
 }
 
@@ -143,6 +314,12 @@ impl Add for Size<u32> {
     }
 }
 
+impl AddAssign for Size<u32> {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = *self + rhs;
+    }
+}
+
 impl Sub for Size<u32> {
     type Output = Self;
 
@@ -154,6 +331,18 @@ impl Sub for Size<u32> {
     }
 }
 
+impl SubAssign for Size<u32> {
+    fn sub_assign(&mut self, rhs: Self) {
+        *self = *self - rhs;
+    }
+}
+
+impl SubAssign<u32> for Size<u32> {
+    fn sub_assign(&mut self, rhs: u32) {
+        *self = *self - Size::new_equal(rhs)
+    }
+}
+
 impl Sub<Padding> for Size {
     type Output = Self;
 
@@ -162,27 +351,46 @@ impl Sub<Padding> for Size {
     }
 }
 
-impl Add<u32> for Size<u32> {
+// impl Add<u32> for Size<u32> {
+//     type Output = Self;
+
+//     fn add(self, rhs: u32) -> Self::Output {
+//         self + Size::new_equal(rhs)
+//     }
+// }
+
+// impl Sub<u32> for Size<u32> {
+//     type Output = Self;
+
+//     fn sub(self, rhs: u32) -> Self::Output {
+//         self - Size::new_equal(rhs)
+//     }
+// }
+
+// impl Div<u32> for Size<u32> {
+//     type Output = Self;
+
+//     fn div(self, rhs: u32) -> Self::Output {
+//         Self::new(self.width / rhs, self.height / rhs)
+//     }
+// }
+
+// impl Rem<u32> for Size<u32> {
+//     type Output = Self;
+
+//     fn rem(self, rhs: u32) -> Self::Output {
+//         Self::new(self.width / rhs, self.height / rhs)
+//     }
+// }
+
+impl Mul<DivFactors> for Size<u32> {
     type Output = Self;
 
-    fn add(self, rhs: u32) -> Self::Output {
-        self + Size::new_equal(rhs)
-    }
-}
-
-impl Sub<u32> for Size<u32> {
-    type Output = Self;
-
-    fn sub(self, rhs: u32) -> Self::Output {
-        self - Size::new_equal(rhs)
-    }
-}
-
-impl Div<u32> for Size<u32> {
-    type Output = Self;
-
-    fn div(self, rhs: u32) -> Self::Output {
-        Self::new(self.width / rhs, self.height / rhs)
+    fn mul(self, rhs: DivFactors) -> Self::Output {
+        Self::new(
+            self.width * rhs.width as u32,
+            self.height * rhs.height as u32,
+        )
     }
 }
 
@@ -257,6 +465,14 @@ impl<S: Copy> Axial for Size<S> {
     #[inline]
     fn y(&self) -> Self::Data {
         self.height
+    }
+
+    fn x_mut(&mut self) -> &mut Self::Data {
+        &mut self.width
+    }
+
+    fn y_mut(&mut self) -> &mut Self::Data {
+        &mut self.height
     }
 
     #[inline]

@@ -78,24 +78,28 @@ impl From<[u32; 4]> for Padding {
     }
 }
 
-impl Axial for Padding {
-    type Data = u32;
+// impl Axial for Padding {
+//     type Data = u32;
 
-    #[inline]
-    fn x(&self) -> Self::Data {
-        self.total_x()
-    }
+//     #[inline]
+//     fn x(&self) -> Self::Data {
+//         self.total_x()
+//     }
 
-    #[inline]
-    fn y(&self) -> Self::Data {
-        self.total_y()
-    }
+//     #[inline]
+//     fn y(&self) -> Self::Data {
+//         self.total_y()
+//     }
 
-    #[inline]
-    fn new(x: Self::Data, y: Self::Data) -> Self {
-        Self::new_axis(y, x)
-    }
-}
+//     fn x_mut(&mut self) -> &mut Self::Data {
+//         self.
+//     }
+
+//     #[inline]
+//     fn new(x: Self::Data, y: Self::Data) -> Self {
+//         Self::new_axis(y, x)
+//     }
+// }
 
 impl Add for Padding {
     type Output = Self;

@@ -32,10 +32,38 @@ pub trait Axial {
 
     fn x(&self) -> Self::Data;
     fn y(&self) -> Self::Data;
+    fn x_mut(&mut self) -> &mut Self::Data;
+    fn y_mut(&mut self) -> &mut Self::Data;
     fn new(x: Self::Data, y: Self::Data) -> Self;
 
+    fn axial_map<F, U>(&self, f: F) -> (U, U)
+    where
+        Self: Sized,
+        F: Fn(Self::Data) -> U,
+    {
+        (f(self.x()), f(self.y()))
+    }
+
+    fn destruct(&self) -> (Self::Data, Self::Data) {
+        (self.x(), self.y())
+    }
+
+    // fn with_main(self, axis: Axis, main: Self::Data) -> Self
+    // where
+    //     Self: Sized,
+    // {
+    //     axis.canon(main, self.cross_for(axis))
+    // }
+
+    // fn with_cross(self, axis: Axis, cross: Self::Data) -> Self
+    // where
+    //     Self: Sized,
+    // {
+    //     axis.canon(self.main_for(axis), cross)
+    // }
+
     #[inline]
-    fn main_for(&self, axis: Axis) -> Self::Data {
+    fn main(&self, axis: Axis) -> Self::Data {
         match axis {
             Axis::X => self.x(),
             Axis::Y => self.y(),
@@ -43,10 +71,26 @@ pub trait Axial {
     }
 
     #[inline]
-    fn cross_for(&self, axis: Axis) -> Self::Data {
+    fn cross(&self, axis: Axis) -> Self::Data {
         match axis {
             Axis::X => self.y(),
             Axis::Y => self.x(),
+        }
+    }
+
+    #[inline]
+    fn main_mut(&mut self, axis: Axis) -> &mut Self::Data {
+        match axis {
+            Axis::X => self.x_mut(),
+            Axis::Y => self.y_mut(),
+        }
+    }
+
+    #[inline]
+    fn cross_mut(&mut self, axis: Axis) -> &mut Self::Data {
+        match axis {
+            Axis::X => self.y_mut(),
+            Axis::Y => self.x_mut(),
         }
     }
 
@@ -80,14 +124,20 @@ pub trait Axial {
 impl Axial for Point {
     type Data = i32;
 
-    #[inline]
     fn x(&self) -> Self::Data {
         self.x
     }
 
-    #[inline]
     fn y(&self) -> Self::Data {
         self.y
+    }
+
+    fn x_mut(&mut self) -> &mut Self::Data {
+        &mut self.x
+    }
+
+    fn y_mut(&mut self) -> &mut Self::Data {
+        &mut self.y
     }
 
     #[inline]
@@ -109,6 +159,14 @@ impl Axial for embedded_graphics_core::geometry::Size {
         self.height
     }
 
+    fn x_mut(&mut self) -> &mut Self::Data {
+        &mut self.width
+    }
+
+    fn y_mut(&mut self) -> &mut Self::Data {
+        &mut self.height
+    }
+
     #[inline]
     fn new(x: Self::Data, y: Self::Data) -> Self {
         Self::new(x, y)
@@ -126,6 +184,14 @@ impl<T: Copy> Axial for (T, T) {
     #[inline]
     fn y(&self) -> Self::Data {
         self.1
+    }
+
+    fn x_mut(&mut self) -> &mut Self::Data {
+        &mut self.0
+    }
+
+    fn y_mut(&mut self) -> &mut Self::Data {
+        &mut self.1
     }
 
     #[inline]

@@ -13,3 +13,6 @@ pub mod render;
 pub mod size;
 pub mod ui;
 pub mod widget;
+
+#[macro_use]
+extern crate log;

@@ -5,27 +5,29 @@ use embedded_graphics::{
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
-use rand::random;
+use rand::{random, Rng};
 use rsact_ui::{
-    axis::Axis,
+    axis::{Axial, Axis},
     block::{Block, Border, BoxModel},
     el::El,
     event::{EventStub, Propagate},
-    layout::{Align, Layout, LayoutKind, LayoutTree},
+    layout::{Align, Layout, LayoutTree, Limits},
     render::{color::Color, Renderer},
     size::{Length, Size},
     ui::UI,
-    widget::{Widget, WidgetCtx},
+    widget::{DrawCtx, LayoutCtx, Widget, WidgetCtx},
 };
+use std::array;
 
 struct FlexBox<C: WidgetCtx> {
     size: Size<Length>,
+    wrap: bool,
     axis: Axis,
-    gap: u32,
+    gap: Size,
     horizontal_align: Align,
     vertical_align: Align,
     children: Vec<El<C>>,
-    color: <C::Renderer as Renderer>::Color,
+    color: C::Color,
 }
 
 impl<C: WidgetCtx> Widget<C> for FlexBox<C> {
@@ -37,41 +39,44 @@ impl<C: WidgetCtx> Widget<C> for FlexBox<C> {
         self.size
     }
 
-    fn layout(&self, ctx: &rsact_ui::widget::Ctx<C>) -> Layout {
-        LayoutKind::Flex {
+    fn content_size(&self) -> Limits {
+        let children_limits = self
+            .children
+            .iter()
+            .map(|child| child.content_size())
+            .collect::<Vec<_>>();
+        let min_content = children_limits
+            .iter()
+            .fold(Size::zero(), |min, child| min.min(child.min()));
+        let max_content =
+            children_limits.iter().fold(Size::zero(), |max, child| {
+                self.axis.canon(
+                    max.main(self.axis) + child.max().main(self.axis),
+                    max.cross(self.axis).max(child.max().cross(self.axis)),
+                )
+            });
+        Limits::new(min_content, max_content)
+    }
+
+    fn layout(&self, _ctx: &LayoutCtx<'_, C>) -> Layout {
+        Layout::Flex {
+            wrap: self.wrap,
             axis: self.axis,
             gap: self.gap,
             box_model: BoxModel::new().padding(0).border(0),
             horizontal_align: self.horizontal_align,
             vertical_align: self.vertical_align,
         }
-        .into_layout(self.size)
     }
 
-    fn draw(
-        &self,
-        ctx: &rsact_ui::widget::Ctx<C>,
-        renderer: &mut <C as WidgetCtx>::Renderer,
-        layout: &LayoutTree,
-    ) -> rsact_ui::widget::DrawResult {
-        renderer.block(Block {
+    fn draw(&self, ctx: &mut DrawCtx<'_, C>) -> rsact_ui::widget::DrawResult {
+        ctx.renderer.block(Block {
             border: Border::zero(),
-            rect: layout.area,
+            rect: ctx.layout.area,
             background: Some(self.color),
         })?;
 
-        self.children
-            .iter()
-            .zip(layout.children())
-            .try_for_each(|child| child.0.draw(ctx, renderer, &child.1))
-    }
-
-    fn on_event(
-        &mut self,
-        ctx: &mut rsact_ui::widget::Ctx<C>,
-        event: <C as WidgetCtx>::Event,
-    ) -> rsact_ui::event::EventResponse<<C as WidgetCtx>::Event> {
-        Propagate::Ignored.into()
+        ctx.draw_children(&self.children)
     }
 }
 
@@ -81,48 +86,48 @@ struct Item<C: WidgetCtx> {
 }
 
 impl<C: WidgetCtx> Widget<C> for Item<C> {
-    fn children(&self) -> &[rsact_ui::el::El<C>] {
-        &[]
-    }
-
     fn size(&self) -> Size<Length> {
         self.size
     }
 
-    fn layout(
-        &self,
-        ctx: &rsact_ui::widget::Ctx<C>,
-    ) -> rsact_ui::layout::Layout {
-        LayoutKind::Edge.into_layout(self.size)
+    fn content_size(&self) -> Limits {
+        Limits::unknown()
     }
 
-    fn draw(
-        &self,
-        ctx: &rsact_ui::widget::Ctx<C>,
-        renderer: &mut C::Renderer,
-        layout: &LayoutTree,
-    ) -> rsact_ui::widget::DrawResult {
-        renderer.block(Block::new_filled(layout.area, Some(self.color)))
+    fn layout(&self, _ctx: &LayoutCtx<'_, C>) -> Layout {
+        Layout::Edge
     }
 
-    fn on_event(
-        &mut self,
-        ctx: &mut rsact_ui::widget::Ctx<C>,
-        event: C::Event,
-    ) -> rsact_ui::event::EventResponse<C::Event> {
-        Propagate::Ignored.into()
+    fn draw(&self, ctx: &mut DrawCtx<'_, C>) -> rsact_ui::widget::DrawResult {
+        ctx.renderer.block(Block::new_filled(ctx.layout.area, Some(self.color)))
     }
 }
 
 fn main() {
-    let items = [(50.into(), 50.into()); 15];
+    let mut rng = rand::thread_rng();
+
+    // let items: [_; 50] = array::from_fn(|_| {
+    //     (rng.gen_range(10..=50).into(), rng.gen_range(10..=50).into())
+    // });
+
+    let items = [(Length::Fixed(50), 50.into()); 5];
+    // let items = [(Length::Div(5), 50.into()), (Length::Div(6), 50.into())];
+    // let items = [
+    //     (Length::Div(5), 50.into()),
+    //     (Length::Div(4), 50.into()),
+    //     (Length::Div(3), 50.into()),
+    //     (Length::Div(2), 50.into()),
+    //     (Length::Div(2), 50.into()),
+    //     (Length::Div(1), 50.into()),
+    // ];
 
     let flexbox = FlexBox {
+        wrap: true,
         size: Size::new(250.into(), 250.into()),
         axis: Axis::X,
-        gap: 0,
+        gap: Size::new(5, 5),
         horizontal_align: Align::Start,
-        vertical_align: Align::Center,
+        vertical_align: Align::End,
         children: items
             .into_iter()
             .map(|size| {

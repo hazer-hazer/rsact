@@ -1,6 +1,7 @@
 use core::sync::atomic::AtomicUsize;
 
 use alloc::boxed::Box;
+use rsact_core::signal::ReadSignal;
 
 use crate::{
     layout::LayoutTree,
@@ -63,24 +64,28 @@ where
         self.widget.size()
     }
 
-    fn layout(&self, ctx: &crate::widget::Ctx<C>) -> crate::layout::Layout {
+    fn content_size(&self) -> crate::layout::Limits {
+        self.widget.content_size()
+    }
+
+    fn layout(
+        &self,
+        ctx: &crate::widget::LayoutCtx<'_, C>,
+    ) -> crate::layout::Layout {
         self.widget.layout(ctx)
     }
 
     fn draw(
         &self,
-        ctx: &crate::widget::Ctx<C>,
-        renderer: &mut C::Renderer,
-        layout: &LayoutTree,
+        ctx: &mut crate::widget::DrawCtx<'_, C>,
     ) -> crate::widget::DrawResult {
-        self.widget.draw(ctx, renderer, layout)
+        self.widget.draw(ctx)
     }
 
     fn on_event(
         &mut self,
-        ctx: &mut crate::widget::Ctx<C>,
-        event: C::Event,
-    ) -> crate::event::EventResponse<C::Event> {
-        self.widget.on_event(ctx, event)
+        ctx: &mut crate::widget::EventCtx<'_, C>,
+    ) -> crate::event::EventResponse<<C as WidgetCtx>::Event> {
+        self.widget.on_event(ctx)
     }
 }

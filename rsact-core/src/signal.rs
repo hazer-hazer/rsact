@@ -1,3 +1,5 @@
+use marker::Rw;
+
 use crate::{
     prelude::use_computed, runtime::with_current_runtime, storage::ValueId,
 };
@@ -158,7 +160,7 @@ impl<T> Deref for StaticSignal<T> {
     }
 }
 
-pub fn use_signal<T: 'static, M: marker::Any>(value: T) -> Signal<T, M> {
+pub fn use_signal<T: 'static>(value: T) -> Signal<T, Rw> {
     Signal::new(value)
 }
 
