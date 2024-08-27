@@ -138,7 +138,8 @@ impl Storage {
             kind: ValueKind::Effect {
                 f: Rc::new(EffectCallback { f, ty: PhantomData }),
             },
-            state: ValueState::Dirty,
+            // Note: Check this, might need to be Dirty
+            state: ValueState::Clean,
         })
     }
 

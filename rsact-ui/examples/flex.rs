@@ -1,6 +1,6 @@
 use std::{
     array, thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use embedded_graphics::{pixelcolor::Rgb888, prelude::Dimensions as _};
@@ -80,9 +80,9 @@ fn main() {
     let mut ui = UI::new(flexbox.el(), display.bounding_box().size);
 
     let mut fps = 0;
-    let mut last_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+    let mut last_time = Instant::now();
     loop {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+        let now = Instant::now();
         if now - last_time >= Duration::from_secs(1) {
             println!("{fps}FPS");
             fps = 0;

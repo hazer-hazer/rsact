@@ -2,6 +2,7 @@ use crate::{
     el::{El, ElId},
     event::{Event, EventResponse, Propagate},
     layout::{
+        padding::Padding,
         size::{Length, Size},
         Layout, LayoutKind, LayoutModelTree, Limits,
     },
@@ -10,8 +11,8 @@ use crate::{
 use alloc::boxed::Box;
 use core::marker::PhantomData;
 use rsact_core::{
-    effect::use_effect,
-    signal::{EcoSignal, ReadSignal, Signal, WriteSignal},
+    prelude::use_memo,
+    signal::{EcoSignal, ReadSignal, Signal, SignalTree, WriteSignal},
 };
 
 pub type DrawResult = Result<(), ()>;
@@ -73,14 +74,24 @@ pub struct DrawCtx<'a, C: WidgetCtx> {
     pub layout: &'a LayoutModelTree<'a>,
 }
 
-impl<'a, C: WidgetCtx> DrawCtx<'a, C> {
-    pub fn draw_children(&mut self, children: &[El<C>]) -> DrawResult {
+impl<'a, C: WidgetCtx + 'static> DrawCtx<'a, C> {
+    pub fn draw_child(&mut self, child: &El<C>) -> DrawResult {
+        child.draw(&mut DrawCtx {
+            state: &self.state,
+            renderer: &mut self.renderer,
+            layout: self.layout.children().next().as_ref().unwrap(),
+        })
+    }
+
+    pub fn draw_children(&mut self, children: &[Signal<El<C>>]) -> DrawResult {
         children.iter().zip(self.layout.children()).try_for_each(
             |(child, child_layout)| {
-                child.draw(&mut DrawCtx {
-                    state: self.state,
-                    renderer: &mut self.renderer,
-                    layout: &child_layout,
+                child.with(|child| {
+                    child.draw(&mut DrawCtx {
+                        state: self.state,
+                        renderer: &mut self.renderer,
+                        layout: &child_layout,
+                    })
                 })
             },
         )
@@ -92,13 +103,13 @@ pub struct EventCtx<'a, C: WidgetCtx> {
     pub page_state: &'a mut PageState<C>,
 }
 
-impl<'a, C: WidgetCtx> EventCtx<'a, C> {
+impl<'a, C: WidgetCtx + 'static> EventCtx<'a, C> {
     pub fn pass_to_children(
         &mut self,
-        children: &mut [El<C>],
+        children: &mut [Signal<El<C>>],
     ) -> EventResponse<C::Event> {
         for child in children.iter_mut() {
-            child.on_event(self)?;
+            child.maybe_update(|child| child.on_event(self))?;
         }
         Propagate::Ignored.into()
     }
@@ -123,16 +134,15 @@ where
     //     Signal::new(self.el())
     // }
 
-    fn children(&self) -> &[El<C>] {
-        &[]
-    }
-    fn children_mut(&mut self) -> &mut [El<C>] {
-        &mut []
-    }
+    // fn children(&self) -> Signal<Vec<El<C>>>;
+    // fn children_mut(&mut self) -> &mut [El<C>] {
+    //     &mut []
+    // }
     // fn size(&self) -> Size<Length>;
     // fn content_size(&self) -> Limits;
     // fn layout(&self, ctx: &LayoutCtx<'_, C>) -> LayoutKind;
     fn layout(&self) -> Signal<Layout>;
+    fn build_layout_tree(&self) -> SignalTree<Layout>;
 
     fn width<L: Into<Length> + Copy + 'static>(
         self,
@@ -143,9 +153,10 @@ where
     {
         let layout = self.layout();
         let width = width.eco_signal();
-        use_effect(move |_| {
+        use_memo(move || {
             let width = width.get().into();
-            layout.update(move |layout| layout.size.width = width)
+            layout.update_untracked(move |layout| layout.size.width = width);
+            width
         });
         self
     }
@@ -159,9 +170,45 @@ where
     {
         let layout = self.layout();
         let height = height.eco_signal();
-        use_effect(move |_| {
+        use_memo(move || {
             let height = height.get().into();
-            layout.update(move |layout| layout.size.height = height)
+            layout.update_untracked(move |layout| layout.size.height = height);
+            height
+        });
+        self
+    }
+
+    fn border_width(self, border_width: impl EcoSignal<u32> + 'static) -> Self
+    where
+        Self: Sized + 'static,
+    {
+        let layout = self.layout();
+        let border_width = border_width.eco_signal();
+        use_memo(move || {
+            let border_width = border_width.get();
+            layout.update_untracked(move |layout| {
+                layout.box_model.border_width = border_width
+            });
+            border_width
+        });
+        self
+    }
+
+    fn padding<P: Into<Padding> + Copy + 'static>(
+        self,
+        padding: impl EcoSignal<P> + 'static,
+    ) -> Self
+    where
+        Self: Sized + 'static,
+    {
+        let layout = self.layout();
+        let padding = padding.eco_signal();
+        use_memo(move || {
+            let padding = padding.get().into();
+            layout.update_untracked(move |layout| {
+                layout.box_model.padding = padding
+            });
+            padding
         });
         self
     }
@@ -170,7 +217,5 @@ where
     fn on_event(
         &mut self,
         ctx: &mut EventCtx<'_, C>,
-    ) -> EventResponse<C::Event> {
-        ctx.pass_to_children(self.children_mut())
-    }
+    ) -> EventResponse<C::Event>;
 }

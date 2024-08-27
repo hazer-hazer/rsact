@@ -2,7 +2,7 @@ use crate::{
     effect::use_effect,
     signal::{
         marker::{self, Rw},
-        Signal, StaticSignal, WriteSignal as _,
+        ReadSignal, Signal, StaticSignal, WriteSignal as _,
     },
 };
 

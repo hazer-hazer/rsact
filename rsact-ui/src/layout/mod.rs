@@ -7,7 +7,10 @@ use box_model::BoxModel;
 use core::u32;
 use embedded_graphics::{prelude::Point, primitives::Rectangle};
 use padding::Padding;
-use rsact_core::{prelude::*, signal::marker::ReadOnly};
+use rsact_core::{
+    prelude::*,
+    signal::{marker::ReadOnly, SignalTree},
+};
 use size::{DivFactors, Length, Size};
 
 pub mod axis;
@@ -19,7 +22,7 @@ pub mod size;
 pub use axis::{Axial as _, Axis};
 pub use limits::Limits;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum Align {
     Start,
     Center,
@@ -50,7 +53,8 @@ impl ContainerLayout {
 #[derive(Clone, Copy)]
 pub struct FlexLayout {
     pub wrap: bool,
-    pub axis: Axis,
+    // Readonly
+    pub(self) axis: Axis,
     pub gap: Size,
     pub horizontal_align: Align,
     pub vertical_align: Align,
@@ -84,19 +88,35 @@ pub struct Layout {
     pub content_size: Signal<Limits, ReadOnly>,
 }
 
-pub struct LayoutTree {
-    layout: Signal<Layout>,
-    children: Vec<LayoutTree>,
-}
+impl Layout {
+    pub fn expect_container_mut(&mut self) -> &mut ContainerLayout {
+        match &mut self.kind {
+            LayoutKind::Container(container) => container,
+            _ => unreachable!(),
+        }
+    }
 
-impl LayoutTree {
-    pub fn build<C: WidgetCtx>(el: &El<C>) -> Self {
-        Self {
-            layout: el.layout(),
-            children: el.children().iter().map(Self::build).collect(),
+    pub fn expect_flex_mut(&mut self) -> &mut FlexLayout {
+        match &mut self.kind {
+            LayoutKind::Flex(flex) => flex,
+            _ => unreachable!(),
         }
     }
 }
+
+// pub struct LayoutTree {
+//     layout: Signal<Layout>,
+//     children: Vec<LayoutTree>,
+// }
+
+// impl LayoutTree {
+//     pub fn build<C: WidgetCtx>(el: &El<C>) -> Self {
+//         Self {
+//             layout: el.layout(),
+//             children: el.children().iter().map(Self::build).collect(),
+//         }
+//     }
+// }
 
 // pub struct Layout<K> {
 //     pub size: Signal<Size<Length>>,
@@ -221,8 +241,11 @@ impl LayoutModel {
     }
 }
 
-pub fn model_layout(tree: &LayoutTree, parent_limits: Limits) -> LayoutModel {
-    let layout = tree.layout.get();
+pub fn model_layout(
+    tree: &SignalTree<Layout>,
+    parent_limits: Limits,
+) -> LayoutModel {
+    let layout = tree.data.get();
     let size = layout.size;
     let box_model = layout.box_model;
     // TODO: Resolve size container against `content_size` (limits)
@@ -297,9 +320,7 @@ pub fn model_layout(tree: &LayoutTree, parent_limits: Limits) -> LayoutModel {
             let children_content_sizes = tree
                 .children
                 .iter()
-                .map(|child| {
-                    child.layout.with(|child| child.content_size.get())
-                })
+                .map(|child| child.data.with(|child| child.content_size.get()))
                 .collect::<Vec<_>>();
 
             let mut children_layouts = Vec::with_capacity(tree.children.len());
@@ -310,7 +331,7 @@ pub fn model_layout(tree: &LayoutTree, parent_limits: Limits) -> LayoutModel {
             for ((i, child), child_content_size) in
                 tree.children.iter().enumerate().zip(children_content_sizes)
             {
-                let child_size = child.layout.with(|child| child.size);
+                let child_size = child.data.with(|child| child.size);
                 let min_item_size =
                     child_size.max_fixed(child_content_size.min());
 
@@ -438,7 +459,7 @@ pub fn model_layout(tree: &LayoutTree, parent_limits: Limits) -> LayoutModel {
             for ((i, child), item) in
                 tree.children.iter().enumerate().zip(items.iter())
             {
-                let child_size = child.layout.with(|child| child.size);
+                let child_size = child.data.with(|child| child.size);
                 let model_line = &mut model_lines[item.line];
 
                 let child_div_factors = child_size.div_factors();

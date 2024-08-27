@@ -7,7 +7,7 @@ use crate::{
 };
 use alloc::boxed::Box;
 use core::sync::atomic::AtomicUsize;
-use rsact_core::signal::Signal;
+use rsact_core::signal::{Signal, SignalTree};
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -57,9 +57,9 @@ impl<C> Widget<C> for El<C>
 where
     C: WidgetCtx,
 {
-    fn children(&self) -> &[El<C>] {
-        self.widget.children()
-    }
+    // fn children(&self) -> &[El<C>] {
+    //     self.widget.children()
+    // }
 
     // fn size(&self) -> Size<Length> {
     //     self.widget.size()
@@ -78,6 +78,10 @@ where
 
     fn layout(&self) -> Signal<Layout> {
         self.widget.layout()
+    }
+
+    fn build_layout_tree(&self) -> SignalTree<Layout> {
+        self.widget.build_layout_tree()
     }
 
     fn draw(

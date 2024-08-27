@@ -5,7 +5,7 @@ use super::{axis::Axis, size::Size};
 
 // TODO: Outline -- outer bounds border that does not take any space
 
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
 pub struct Padding {
     pub left: u32,
     pub right: u32,

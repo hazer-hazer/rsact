@@ -1,3 +1,5 @@
+use rsact_core::signal::UpdateNotification;
+
 use crate::el::ElId;
 use core::fmt::Debug;
 use core::ops::ControlFlow;

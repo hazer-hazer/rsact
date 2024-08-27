@@ -1,9 +1,5 @@
-use rsact_core::{
-    prelude::*,
-    signal::{EcoSignal, ReadSignal},
-};
-
 use crate::{
+    event::Propagate,
     layout::{
         box_model::BoxModel,
         size::{Length, Size},
@@ -12,6 +8,10 @@ use crate::{
     render::{Block, Renderer},
     style::BoxStyle,
     widget::{DrawCtx, DrawResult, Widget, WidgetCtx},
+};
+use rsact_core::{
+    prelude::*,
+    signal::{EcoSignal, ReadSignal, SignalTree},
 };
 
 pub struct Edge<C: WidgetCtx> {
@@ -55,6 +55,10 @@ impl<C: WidgetCtx + 'static> Widget<C> for Edge<C> {
         self.layout
     }
 
+    fn build_layout_tree(&self) -> rsact_core::signal::SignalTree<Layout> {
+        SignalTree { data: self.layout, children: vec![] }
+    }
+
     fn draw(&self, ctx: &mut DrawCtx<'_, C>) -> DrawResult {
         let style = self.style.get();
 
@@ -63,5 +67,12 @@ impl<C: WidgetCtx + 'static> Widget<C> for Edge<C> {
             self.layout.get().box_model,
             style,
         ))
+    }
+
+    fn on_event(
+        &mut self,
+        ctx: &mut crate::widget::EventCtx<'_, C>,
+    ) -> crate::event::EventResponse<<C as WidgetCtx>::Event> {
+        Propagate::Ignored.into()
     }
 }

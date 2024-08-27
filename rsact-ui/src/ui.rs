@@ -1,7 +1,7 @@
 use crate::{
     el::El,
     event::Event,
-    layout::{model_layout, size::Size, LayoutModel, LayoutTree, Limits},
+    layout::{model_layout, size::Size, Layout, LayoutModel, Limits},
     render::Renderer,
     widget::{
         DrawCtx, DrawResult, EventCtx, LayoutCtx, PageState, PhantomWidgetCtx,
@@ -26,8 +26,11 @@ impl<C: WidgetCtx + 'static> Page<C> {
         let state = PageState::new();
         let limits = Limits::only_max(viewport);
 
-        let layout_tree = LayoutTree::build(&root);
-        let layout = use_computed(move || model_layout(&layout_tree, limits));
+        let layout_tree = root.build_layout_tree();
+        let layout = use_computed(move || {
+            println!("Relayout");
+            model_layout(&layout_tree, limits)
+        });
 
         Self { root, layout, state }
     }

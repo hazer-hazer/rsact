@@ -1,7 +1,8 @@
+use alloc::vec::Vec;
 use marker::Rw;
 
 use crate::{
-    prelude::{use_computed, use_static},
+    prelude::{use_computed, use_signal, use_static},
     runtime::with_current_runtime,
     storage::ValueId,
 };
@@ -10,8 +11,8 @@ use core::{
     marker::PhantomData,
     ops::{
         Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor,
-        BitXorAssign, Deref, Div, DivAssign, Mul, MulAssign, Neg, Not, Rem,
-        RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub, SubAssign,
+        BitXorAssign, ControlFlow, Deref, Div, DivAssign, Mul, MulAssign, Neg,
+        Not, Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub, SubAssign,
     },
 };
 
@@ -19,6 +20,17 @@ use core::{
  * TODO: SmartSignal -- the structure that is just a stack-allocated data
  * until its first write, then it allocates new signal in runtime.
  */
+
+pub trait UpdateNotification {
+    fn is_updated(&self) -> bool;
+}
+
+// Maybe better only add this to ControlFlow without `UpdateNotification` trait
+impl<B, C> UpdateNotification for ControlFlow<B, C> {
+    fn is_updated(&self) -> bool {
+        matches!(self, ControlFlow::Break(_))
+    }
+}
 
 pub trait ReadSignal<T> {
     fn track(&self);
@@ -47,6 +59,17 @@ pub trait ReadSignal<T> {
 pub trait WriteSignal<T> {
     fn notify(&self);
     fn update_untracked<U>(&self, f: impl FnOnce(&mut T) -> U) -> U;
+
+    fn maybe_update<U: UpdateNotification>(
+        &self,
+        f: impl FnOnce(&mut T) -> U,
+    ) -> U {
+        let result = self.update_untracked(f);
+        if result.is_updated() {
+            self.notify();
+        }
+        result
+    }
 
     fn update<U>(&self, f: impl FnOnce(&mut T) -> U) -> U {
         let result = self.update_untracked(f);
@@ -339,6 +362,15 @@ where
     }
 }
 
+// impl<T: 'static, M: marker::CanRead, I: 'static> Signal<T, M>
+// where
+//     T: Deref<Target = [I]>,
+// {
+//     pub fn iter(&self) -> impl Iterator<Item = &I> {
+//         self.with(|this| this.iter())
+//     }
+// }
+
 pub trait EcoSignal<T> {
     type S: ReadSignal<T>;
 
@@ -359,4 +391,25 @@ impl<T: 'static> EcoSignal<T> for T {
     fn eco_signal(self) -> Self::S {
         use_static(self)
     }
+}
+
+pub trait IntoSignal<T: 'static> {
+    fn signal(self) -> Signal<T>;
+}
+
+impl<T: 'static> IntoSignal<T> for Signal<T> {
+    fn signal(self) -> Signal<T> {
+        self
+    }
+}
+
+impl<T: 'static> IntoSignal<T> for T {
+    fn signal(self) -> Signal<T> {
+        use_signal(self)
+    }
+}
+
+pub struct SignalTree<T> {
+    pub data: Signal<T>,
+    pub children: Vec<SignalTree<T>>,
 }
