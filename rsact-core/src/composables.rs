@@ -1,10 +1,23 @@
 use crate::{
     effect::use_effect,
-    signal::{marker, use_signal, Signal, WriteSignal as _},
+    signal::{
+        marker::{self, Rw},
+        Signal, StaticSignal, WriteSignal as _,
+    },
 };
 
+pub fn use_signal<T: 'static>(value: T) -> Signal<T> {
+    Signal::new(value)
+}
+
+pub fn use_static<T: 'static>(value: T) -> StaticSignal<T> {
+    StaticSignal::new(value)
+}
+
+pub type Computed<T> = Signal<T, marker::ReadOnly>;
+
 /// Recomputes every time reactive values inside change
-pub fn use_computed<T, F>(f: F) -> Signal<T, marker::Rw>
+pub fn use_computed<T, F>(f: F) -> Computed<T>
 where
     T: 'static,
     F: Fn() -> T + 'static,
@@ -15,7 +28,7 @@ where
         signal.set(f());
     });
 
-    signal
+    signal.read_only()
 }
 
 /// Recomputes every time reactive values inside change and don't equal to

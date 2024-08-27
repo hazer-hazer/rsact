@@ -8,15 +8,28 @@ pub enum Axis {
 }
 
 impl Axis {
-    pub fn axial<T: Axial>(&self, data: T) -> AxialData<T> {
-        AxialData { axis: *self, data }
+    pub fn axial<T: Axial>(self, data: T) -> AxialData<T> {
+        AxialData { axis: self, data }
     }
 
-    pub fn canon<T: Axial>(&self, main: T::Data, cross: T::Data) -> T {
+    pub fn canon<T: Axial>(self, main: T::Data, cross: T::Data) -> T {
         match self {
             Axis::X => T::new(main, cross),
             Axis::Y => T::new(cross, main),
         }
+    }
+
+    // Apply some infix operation (e.g. operator) on two axial structures
+    pub fn infix<T, M, C>(self, lhs: T, rhs: T, main: M, cross: C) -> T
+    where
+        T: Axial,
+        M: Fn(T::Data, T::Data) -> T::Data,
+        C: Fn(T::Data, T::Data) -> T::Data,
+    {
+        self.canon(
+            main(lhs.main(self), rhs.main(self)),
+            cross(lhs.cross(self), rhs.cross(self)),
+        )
     }
 
     pub fn invert(self) -> Self {

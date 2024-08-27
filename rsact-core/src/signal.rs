@@ -1,10 +1,12 @@
 use marker::Rw;
 
 use crate::{
-    prelude::use_computed, runtime::with_current_runtime, storage::ValueId,
+    prelude::{use_computed, use_static},
+    runtime::with_current_runtime,
+    storage::ValueId,
 };
 use core::{
-    fmt::{Debug, Display, Pointer},
+    fmt::{Debug, Display},
     marker::PhantomData,
     ops::{
         Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor,
@@ -12,6 +14,11 @@ use core::{
         RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub, SubAssign,
     },
 };
+
+/**
+ * TODO: SmartSignal -- the structure that is just a stack-allocated data
+ * until its first write, then it allocates new signal in runtime.
+ */
 
 pub trait ReadSignal<T> {
     fn track(&self);
@@ -145,7 +152,10 @@ impl<T> StaticSignal<T> {
 }
 
 impl<T> ReadSignal<T> for StaticSignal<T> {
-    fn track(&self) {}
+    fn track(&self) {
+        // Static signal never changes thus scope does not need to subscribe to
+        // its changes
+    }
 
     fn with_untracked<U>(&self, f: impl FnOnce(&T) -> U) -> U {
         f(&self.value)
@@ -160,16 +170,49 @@ impl<T> Deref for StaticSignal<T> {
     }
 }
 
-pub fn use_signal<T: 'static>(value: T) -> Signal<T, Rw> {
-    Signal::new(value)
-}
+// SmartSignal won't work, requires mutable captures in closures :(
 
-pub fn use_static<T: 'static, M: marker::Any>(value: T) -> StaticSignal<T> {
-    StaticSignal::new(value)
-}
+// pub enum SmartSignal<T> {
+//     Static(StaticSignal<T>),
+//     Dynamic(Signal<T>),
+// }
+
+// impl<T> WriteSignal<T> for SmartSignal<T> {
+//     fn notify(&self) {
+//         if matches!(self, SmartSignal::Static(_)) {
+//             *se
+//         }
+//     }
+
+//     fn update_untracked<U>(&self, f: impl FnOnce(&mut T) -> U) -> U {
+//         todo!()
+//     }
+// }
+
+// impl<T: 'static> ReadSignal<T> for SmartSignal<T> {
+//     fn track(&self) {
+//         match self {
+//             SmartSignal::Static(stat) => stat.track(),
+//             SmartSignal::Dynamic(dynamic) => dynamic.track(),
+//         }
+//     }
+
+//     fn with_untracked<U>(&self, f: impl FnOnce(&T) -> U) -> U {
+//         match self {
+//             SmartSignal::Static(stat) => stat.with_untracked(f),
+//             SmartSignal::Dynamic(dynamic) => dynamic.with_untracked(f),
+//         }
+//     }
+// }
+
+// impl<T> SmartSignal<T> {
+//     pub fn new(value: T) -> Self {
+//         Self::Static(StaticSignal::new(value))
+//     }
+// }
 
 // Impl's //
-macro_rules! impl_arith_with_output {
+macro_rules! impl_arith_with_assign {
     ($($trait: ident: $method: ident, $assign_trait: ident: $assign_method: ident);* $(;)?) => {
         $(
             impl<T, M> $trait for Signal<T, M>
@@ -177,7 +220,7 @@ macro_rules! impl_arith_with_output {
                 T: $trait<Output = T> + Clone + 'static,
                 M: marker::CanRead + 'static,
             {
-                type Output = Signal<T>;
+                type Output = Signal<T, marker::ReadOnly>;
 
                 fn $method(self, rhs: Self) -> Self::Output {
                     use_computed(move || self.get_cloned().$method(rhs.get_cloned()))
@@ -193,11 +236,33 @@ macro_rules! impl_arith_with_output {
                     self.set(self.get_cloned().$method(rhs.get_cloned()))
                 }
             }
+
+            impl<T, M> $trait<T> for Signal<T, M>
+            where
+                T: $trait<Output = T> + Clone + 'static,
+                M: marker::CanRead + 'static,
+            {
+                type Output = T;
+
+                fn $method(self, rhs: T) -> Self::Output {
+                    self.get_cloned().$method(rhs)
+                }
+            }
+
+            impl<T, M> $assign_trait<T> for Signal<T, M>
+            where
+                T: $trait<Output = T> + Clone + 'static,
+                M: marker::CanRead + marker::CanWrite + 'static,
+            {
+                fn $assign_method(&mut self, rhs: T) {
+                    self.set(self.get_cloned().$method(rhs))
+                }
+            }
         )*
     };
 }
 
-impl_arith_with_output! {
+impl_arith_with_assign! {
     Add: add, AddAssign: add_assign;
     Sub: sub, SubAssign: sub_assign;
     Mul: mul, MulAssign: mul_assign;
@@ -215,7 +280,7 @@ where
     T: Neg<Output = T> + Clone + 'static,
     M: marker::CanRead + 'static,
 {
-    type Output = Signal<T>;
+    type Output = Signal<T, marker::ReadOnly>;
 
     fn neg(self) -> Self::Output {
         use_computed(move || self.get_cloned().neg())
@@ -227,7 +292,7 @@ where
     T: Not<Output = T> + Clone + 'static,
     M: marker::CanRead + 'static,
 {
-    type Output = Signal<T>;
+    type Output = Signal<T, marker::ReadOnly>;
 
     fn not(self) -> Self::Output {
         use_computed(move || self.get_cloned().not())
@@ -271,5 +336,27 @@ where
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.with(|this| this.fmt(f))
+    }
+}
+
+pub trait EcoSignal<T> {
+    type S: ReadSignal<T>;
+
+    fn eco_signal(self) -> Self::S;
+}
+
+impl<T: 'static> EcoSignal<T> for Signal<T> {
+    type S = Signal<T>;
+
+    fn eco_signal(self) -> Self::S {
+        self
+    }
+}
+
+impl<T: 'static> EcoSignal<T> for T {
+    type S = StaticSignal<T>;
+
+    fn eco_signal(self) -> Self::S {
+        use_static(self)
     }
 }

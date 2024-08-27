@@ -1,13 +1,10 @@
-use core::fmt::Debug;
-use core::{marker::PhantomData, ops::ControlFlow};
-
-use alloc::vec::Vec;
-
 use crate::el::ElId;
+use core::fmt::Debug;
+use core::ops::ControlFlow;
 
 #[derive(Clone, Debug)]
 pub enum Capture {
-    /// Event is captured by element and should not be accepted by its parents
+    /// Event is captured by element and should not be handled by its parents
     Captured,
 }
 
@@ -55,15 +52,8 @@ pub enum CommonEvent {
     Exit,
 }
 
-// Unused
-// impl Event for CommonEvent {
-//     fn as_common(&self) -> Option<CommonEvent> {
-//         Some(*self)
-//     }
-// }
-
 // FIXME: Do we really need From<CommonEvent>???
-pub trait Event: Clone + From<CommonEvent> + Debug {
+pub trait Event {
     // fn is_focus_move(&self) -> Option<i32>;
 
     // fn is_focus_click(&self) -> bool;
@@ -82,9 +72,9 @@ pub trait Event: Clone + From<CommonEvent> + Debug {
 }
 
 #[derive(Clone, Debug)]
-pub struct EventStub;
+pub struct NullEvent;
 
-impl Event for EventStub {
+impl Event for NullEvent {
     fn as_common(&self) -> Option<CommonEvent> {
         None
     }
@@ -110,45 +100,8 @@ impl Event for EventStub {
     }
 }
 
-impl From<CommonEvent> for EventStub {
+impl From<CommonEvent> for NullEvent {
     fn from(_: CommonEvent) -> Self {
         Self
     }
-}
-
-pub trait Controls<E: Event> {
-    // TODO: Pass state to event collector of platform. Is should include:
-    //  - Focus target (widget id). For example, encoder click in common case is
-    //    FocusClick, but on other page its logic differs
-    fn events(&mut self) -> Vec<E>;
-}
-
-impl<F, E: Event> Controls<E> for F
-where
-    F: FnMut() -> Vec<E>,
-{
-    fn events(&mut self) -> Vec<E> {
-        self()
-    }
-}
-
-pub struct NullControls<E: Event> {
-    marker: PhantomData<E>,
-}
-
-impl<E: Event> Controls<E> for NullControls<E> {
-    fn events(&mut self) -> Vec<E> {
-        vec![]
-    }
-}
-
-impl<E: Event> Default for NullControls<E> {
-    fn default() -> Self {
-        Self { marker: PhantomData }
-    }
-}
-
-#[derive(Clone)]
-pub enum UiEvent {
-    DataChange,
 }

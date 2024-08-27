@@ -1,12 +1,7 @@
 use core::ops::{Add, AddAssign, Div, Mul, Rem, Sub, SubAssign};
-
 use embedded_graphics::geometry::Point;
-use num::Integer;
 
-use crate::{
-    axis::{Axial, Axis},
-    padding::Padding,
-};
+use super::{axis::Axial, padding::Padding};
 
 #[derive(Clone, Copy, Debug)]
 pub struct DivFactors {
@@ -134,9 +129,8 @@ impl Rem<DivFactors> for Size {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "defmt", derive(::defmt::Format))]
 pub enum Length {
-    /// Fills all the remaining space
-    Fill,
-
+    // /// Fills all the remaining space
+    // Fill,
     /// Shrink to the minimum space
     Shrink,
 
@@ -148,9 +142,12 @@ pub enum Length {
 }
 
 impl Length {
+    pub fn fill(&self) -> Self {
+        Self::Div(1)
+    }
+
     pub fn div_factor(&self) -> u16 {
         match self {
-            Length::Fill => 1,
             Length::Fixed(_) | Length::Shrink => 0,
             Length::Div(div) => *div,
         }
@@ -171,7 +168,6 @@ impl Length {
 
     pub fn into_fixed(&self, base_div: u32) -> u32 {
         match self {
-            Length::Fill => base_div,
             Length::Shrink => base_div,
             &Length::Div(div) => base_div * div as u32,
             &Length::Fixed(fixed) => fixed,
@@ -180,7 +176,6 @@ impl Length {
 
     pub fn max_fixed(&self, fixed: u32) -> u32 {
         match self {
-            Length::Fill => fixed,
             Length::Shrink => fixed,
             Length::Div(_) => fixed,
             &Length::Fixed(this) => this.max(fixed),
@@ -426,7 +421,7 @@ impl Size<Length> {
     }
 
     pub fn fill() -> Self {
-        Self { width: Length::Fill, height: Length::Fill }
+        Self { width: Length::Div(1), height: Length::Div(1) }
     }
 }
 

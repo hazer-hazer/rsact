@@ -1,8 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use rsact_core::{
-    effect::use_effect,
-    runtime::with_scoped_runtime,
-    signal::{use_signal, ReadSignal, WriteSignal},
+    effect::use_effect, prelude::*, runtime::with_scoped_runtime,
 };
 
 fn single_effect_single_signal() {

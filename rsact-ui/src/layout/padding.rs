@@ -1,11 +1,7 @@
 use core::ops::{Add, Sub};
-
 use embedded_graphics::geometry::Point;
 
-use crate::{
-    axis::{Axial, Axis},
-    size::Size,
-};
+use super::{axis::Axis, size::Size};
 
 // TODO: Outline -- outer bounds border that does not take any space
 

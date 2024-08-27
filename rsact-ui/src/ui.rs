@@ -1,54 +1,85 @@
-use embedded_graphics::prelude::DrawTarget;
-
 use crate::{
     el::El,
     event::Event,
-    layout::{model_layout, LayoutModel, Limits, Viewport},
+    layout::{model_layout, size::Size, LayoutModel, LayoutTree, Limits},
     render::Renderer,
-    size::Size,
     widget::{
-        AppState, DrawCtx, DrawResult, LayoutCtx, PhantomWidgetCtx, Widget,
-        WidgetCtx,
+        DrawCtx, DrawResult, EventCtx, LayoutCtx, PageState, PhantomWidgetCtx,
+        Widget, WidgetCtx,
     },
 };
+use alloc::vec::Vec;
+use embedded_graphics::prelude::DrawTarget;
+use rsact_core::{
+    prelude::use_computed,
+    signal::{marker::ReadOnly, ReadSignal, Signal},
+};
 
-pub struct UI<R: Renderer, E: Event> {
-    root: El<PhantomWidgetCtx<R, E>>,
-    state: AppState<PhantomWidgetCtx<R, E>>,
-    layout: LayoutModel,
+struct Page<C: WidgetCtx> {
+    root: El<C>,
+    layout: Signal<LayoutModel, ReadOnly>,
+    state: PageState<C>,
 }
 
-impl<R: Renderer, E: Event> UI<R, E> {
+impl<C: WidgetCtx + 'static> Page<C> {
+    fn new(root: El<C>, viewport: Size) -> Self {
+        let state = PageState::new();
+        let limits = Limits::only_max(viewport);
+
+        let layout_tree = LayoutTree::build(&root);
+        let layout = use_computed(move || model_layout(&layout_tree, limits));
+
+        Self { root, layout, state }
+    }
+
+    pub fn handle_events(&mut self, events: impl Iterator<Item = C::Event>) {
+        events.for_each(|event| {
+            self.root.on_event(&mut EventCtx {
+                event: &event,
+                page_state: &mut self.state,
+            });
+        });
+    }
+
+    pub fn draw(&self, renderer: &mut C::Renderer) -> DrawResult {
+        self.layout.with(|layout| {
+            self.root.draw(&mut DrawCtx {
+                state: &self.state,
+                renderer,
+                layout: &layout.tree_root(),
+            })
+        })
+    }
+}
+
+pub struct UI<R: Renderer, E: Event> {
+    active_page: usize,
+    pages: Vec<Page<PhantomWidgetCtx<R, E>>>,
+}
+
+impl<R, E> UI<R, E>
+where
+    R: Renderer + 'static,
+    E: Event + 'static,
+{
     pub fn new(
         root: El<PhantomWidgetCtx<R, E>>,
         viewport: impl Into<Size>,
     ) -> Self {
-        let ctx = AppState::new();
-        let layout = model_layout(
-            &root,
-            &LayoutCtx { state: &ctx },
-            &Limits::only_max(viewport.into()),
-        );
-
-        Self { root, state: ctx, layout }
+        Self { active_page: 0, pages: vec![Page::new(root, viewport.into())] }
     }
 
     pub fn tick(&mut self, events: impl Iterator<Item = E>) {
-        events.for_each(|event| {
-            // TODO
-        });
+        self.pages[self.active_page].handle_events(events)
     }
 }
 
-impl<R: Renderer, E: Event> UI<R, E>
+impl<R, E> UI<R, E>
 where
-    R: DrawTarget,
+    R: DrawTarget + Renderer + 'static,
+    E: Event + 'static,
 {
     pub fn draw(&self, target: &mut R) -> DrawResult {
-        self.root.draw(&mut DrawCtx {
-            state: &self.state,
-            renderer: target,
-            layout: &self.layout.tree_root(),
-        })
+        self.pages[self.active_page].draw(target)
     }
 }

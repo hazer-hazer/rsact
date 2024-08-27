@@ -1,12 +1,13 @@
-use core::sync::atomic::AtomicUsize;
-
-use alloc::boxed::Box;
-use rsact_core::signal::ReadSignal;
-
 use crate::{
-    layout::LayoutTree,
-    widget::{Widget, WidgetCtx},
+    layout::{
+        size::{Length, Size},
+        Layout, Limits,
+    },
+    widget::{LayoutCtx, Widget, WidgetCtx},
 };
+use alloc::boxed::Box;
+use core::sync::atomic::AtomicUsize;
+use rsact_core::signal::Signal;
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -60,19 +61,23 @@ where
         self.widget.children()
     }
 
-    fn size(&self) -> crate::size::Size<crate::size::Length> {
-        self.widget.size()
-    }
+    // fn size(&self) -> Size<Length> {
+    //     self.widget.size()
+    // }
 
-    fn content_size(&self) -> crate::layout::Limits {
-        self.widget.content_size()
-    }
+    // fn content_size(&self) -> Limits {
+    //     self.widget.content_size()
+    // }
 
-    fn layout(
-        &self,
-        ctx: &crate::widget::LayoutCtx<'_, C>,
-    ) -> crate::layout::Layout {
-        self.widget.layout(ctx)
+    // fn layout(
+    //     &self,
+    //     ctx: &crate::widget::LayoutCtx<'_, C>,
+    // ) -> crate::layout::LayoutKind {
+    //     self.widget.layout(ctx)
+    // }
+
+    fn layout(&self) -> Signal<Layout> {
+        self.widget.layout()
     }
 
     fn draw(

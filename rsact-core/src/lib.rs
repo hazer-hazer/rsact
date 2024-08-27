@@ -19,7 +19,7 @@ pub mod prelude {
         create_runtime, with_current_runtime, with_scoped_runtime,
     };
     pub use super::signal::{
-        use_signal, use_static, ReadSignal as _, RwSignal as _, Signal,
+        EcoSignal as _, ReadSignal as _, RwSignal as _, Signal,
         WriteSignal as _,
     };
 }

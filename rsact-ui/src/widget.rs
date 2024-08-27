@@ -1,12 +1,18 @@
 use crate::{
     el::{El, ElId},
-    event::{Event, EventResponse},
-    layout::{Layout, LayoutTree, Limits},
+    event::{Event, EventResponse, Propagate},
+    layout::{
+        size::{Length, Size},
+        Layout, LayoutKind, LayoutModelTree, Limits,
+    },
     render::{color::Color, Renderer},
-    size::{Length, Size},
 };
 use alloc::boxed::Box;
 use core::marker::PhantomData;
+use rsact_core::{
+    effect::use_effect,
+    signal::{EcoSignal, ReadSignal, Signal, WriteSignal},
+};
 
 pub type DrawResult = Result<(), ()>;
 
@@ -45,26 +51,26 @@ where
     type Color = R::Color;
 }
 
-pub struct AppState<C: WidgetCtx> {
+pub struct PageState<C: WidgetCtx> {
     focused: Option<ElId>,
 
     ctx: PhantomData<C>,
 }
 
-impl<C: WidgetCtx> AppState<C> {
+impl<C: WidgetCtx> PageState<C> {
     pub fn new() -> Self {
         Self { focused: None, ctx: PhantomData }
     }
 }
 
 pub struct LayoutCtx<'a, C: WidgetCtx> {
-    pub state: &'a AppState<C>,
+    pub page_state: &'a PageState<C>,
 }
 
 pub struct DrawCtx<'a, C: WidgetCtx> {
-    pub state: &'a AppState<C>,
+    pub state: &'a PageState<C>,
     pub renderer: &'a mut C::Renderer,
-    pub layout: &'a LayoutTree<'a>,
+    pub layout: &'a LayoutModelTree<'a>,
 }
 
 impl<'a, C: WidgetCtx> DrawCtx<'a, C> {
@@ -83,7 +89,19 @@ impl<'a, C: WidgetCtx> DrawCtx<'a, C> {
 
 pub struct EventCtx<'a, C: WidgetCtx> {
     pub event: &'a C::Event,
-    pub state: &'a AppState<C>,
+    pub page_state: &'a mut PageState<C>,
+}
+
+impl<'a, C: WidgetCtx> EventCtx<'a, C> {
+    pub fn pass_to_children(
+        &mut self,
+        children: &mut [El<C>],
+    ) -> EventResponse<C::Event> {
+        for child in children.iter_mut() {
+            child.on_event(self)?;
+        }
+        Propagate::Ignored.into()
+    }
 }
 
 pub trait Widget<C>
@@ -108,15 +126,51 @@ where
     fn children(&self) -> &[El<C>] {
         &[]
     }
-    fn size(&self) -> Size<Length>;
-    fn content_size(&self) -> Limits;
-    fn layout(&self, ctx: &LayoutCtx<'_, C>) -> Layout;
+    fn children_mut(&mut self) -> &mut [El<C>] {
+        &mut []
+    }
+    // fn size(&self) -> Size<Length>;
+    // fn content_size(&self) -> Limits;
+    // fn layout(&self, ctx: &LayoutCtx<'_, C>) -> LayoutKind;
+    fn layout(&self) -> Signal<Layout>;
+
+    fn width<L: Into<Length> + Copy + 'static>(
+        self,
+        width: impl EcoSignal<L> + 'static,
+    ) -> Self
+    where
+        Self: Sized + 'static,
+    {
+        let layout = self.layout();
+        let width = width.eco_signal();
+        use_effect(move |_| {
+            let width = width.get().into();
+            layout.update(move |layout| layout.size.width = width)
+        });
+        self
+    }
+
+    fn height<L: Into<Length> + Copy + 'static>(
+        self,
+        height: impl EcoSignal<L> + 'static,
+    ) -> Self
+    where
+        Self: Sized + 'static,
+    {
+        let layout = self.layout();
+        let height = height.eco_signal();
+        use_effect(move |_| {
+            let height = height.get().into();
+            layout.update(move |layout| layout.size.height = height)
+        });
+        self
+    }
+
     fn draw(&self, ctx: &mut DrawCtx<'_, C>) -> DrawResult;
     fn on_event(
         &mut self,
         ctx: &mut EventCtx<'_, C>,
     ) -> EventResponse<C::Event> {
-        let _ = ctx;
-        crate::event::Propagate::Ignored.into()
+        ctx.pass_to_children(self.children_mut())
     }
 }
