@@ -1,13 +1,6 @@
-use crate::{
-    layout::{
-        size::{Length, Size},
-        Layout, Limits,
-    },
-    widget::{LayoutCtx, Widget, WidgetCtx},
-};
+use crate::{event::Event, widget::prelude::*};
 use alloc::boxed::Box;
 use core::sync::atomic::AtomicUsize;
-use rsact_core::signal::{Signal, SignalTree};
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -55,26 +48,15 @@ where
 
 impl<C> Widget<C> for El<C>
 where
-    C: WidgetCtx,
+    C: WidgetCtx + 'static,
 {
-    // fn children(&self) -> &[El<C>] {
-    //     self.widget.children()
-    // }
-
-    // fn size(&self) -> Size<Length> {
-    //     self.widget.size()
-    // }
-
-    // fn content_size(&self) -> Limits {
-    //     self.widget.content_size()
-    // }
-
-    // fn layout(
-    //     &self,
-    //     ctx: &crate::widget::LayoutCtx<'_, C>,
-    // ) -> crate::layout::LayoutKind {
-    //     self.widget.layout(ctx)
-    // }
+    fn children_ids(&self) -> Signal<Vec<ElId>> {
+        let children_ids = self.widget.children_ids();
+        children_ids.update(|children_ids| {
+            children_ids.push(self.id);
+        });
+        children_ids
+    }
 
     fn layout(&self) -> Signal<Layout> {
         self.widget.layout()
@@ -84,17 +66,35 @@ where
         self.widget.build_layout_tree()
     }
 
-    fn draw(
-        &self,
-        ctx: &mut crate::widget::DrawCtx<'_, C>,
-    ) -> crate::widget::DrawResult {
+    fn draw(&self, ctx: &mut DrawCtx<'_, C>) -> crate::widget::DrawResult {
         self.widget.draw(ctx)
+    }
+
+    fn behavior(&self) -> Behavior {
+        self.widget.behavior()
     }
 
     fn on_event(
         &mut self,
-        ctx: &mut crate::widget::EventCtx<'_, C>,
-    ) -> crate::event::EventResponse<<C as WidgetCtx>::Event> {
+        ctx: &mut EventCtx<'_, C>,
+    ) -> EventResponse<<C as WidgetCtx>::Event> {
+        ctx.is_focused = Some(self.id) == ctx.page_state.focused;
+
+        let behavior = self.behavior();
+        if behavior.focusable {
+            if let Some(common) = ctx.event.as_common() {
+                match common {
+                    crate::event::CommonEvent::FocusMove(_)
+                        if ctx.is_focused =>
+                    {
+                        return Propagate::BubbleUp(self.id, ctx.event.clone())
+                            .into()
+                    },
+                    _ => {},
+                }
+            }
+        }
+
         self.widget.on_event(ctx)
     }
 }

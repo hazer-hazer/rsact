@@ -50,7 +50,6 @@ impl<C: Color> Border<C> {
     // Make Block for border used as outline. Background color is always removed
     // to avoid drawing above element.
     pub fn into_outline(self, bounds: Rectangle) -> Block<C> {
-        // FIXME: Wrong transparent
         Block { rect: bounds, background: None, border: self }
     }
 

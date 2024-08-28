@@ -1,76 +1,64 @@
-use crate::{
-    el::El,
-    event::Propagate,
-    layout::{
-        axis::{Axial as _, Axis},
-        box_model::BoxModel,
-        size::{Length, Size},
-        Align, FlexLayout, Layout, LayoutKind, Limits,
-    },
-    widget::{Widget, WidgetCtx},
-};
+use crate::widget::prelude::*;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 use num::traits::SaturatingAdd;
-use rsact_core::{
-    prelude::*,
-    signal::{EcoSignal, IntoSignal, ReadSignal, SignalTree},
-};
-
-pub trait FlexDir {
-    const AXIS: Axis;
-}
-
-pub struct RowDir;
-impl FlexDir for RowDir {
-    const AXIS: Axis = Axis::X;
-}
-
-pub struct ColDir;
-impl FlexDir for ColDir {
-    const AXIS: Axis = Axis::Y;
-}
 
 // pub type Row<C> = Flex<C, RowDir>;
 // pub type Col<C> = Flex<C, ColDir>;
 
-pub struct Flex<C: WidgetCtx, Dir: FlexDir> {
+pub trait IntoChildren<C: WidgetCtx> {
+    fn into_children(self) -> Signal<Vec<El<C>>>;
+}
+
+impl<C: WidgetCtx + 'static, const SIZE: usize> IntoChildren<C>
+    for [El<C>; SIZE]
+{
+    fn into_children(self) -> Signal<Vec<El<C>>> {
+        use_signal(self.into_iter().collect())
+    }
+}
+
+impl<C: WidgetCtx + 'static> IntoChildren<C> for Vec<El<C>> {
+    fn into_children(self) -> Signal<Vec<El<C>>> {
+        use_signal(self)
+    }
+}
+
+impl<C: WidgetCtx + 'static> IntoChildren<C> for Signal<Vec<El<C>>> {
+    fn into_children(self) -> Signal<Vec<El<C>>> {
+        self
+    }
+}
+
+pub struct Flex<C: WidgetCtx, Dir: Direction> {
     // TODO: Signal vector
-    children: Signal<Vec<Signal<El<C>>>>,
+    children: Signal<Vec<El<C>>>,
     layout: Signal<Layout>,
     dir: PhantomData<Dir>,
 }
 
 impl<C: WidgetCtx + 'static> Flex<C, RowDir> {
-    pub fn row<I: IntoSignal<El<C>> + 'static>(
-        children: impl IntoIterator<Item = I>,
-    ) -> Self {
+    pub fn row(children: impl IntoChildren<C>) -> Self {
         Self::new(children)
     }
 }
 
 impl<C: WidgetCtx + 'static> Flex<C, ColDir> {
-    pub fn col<I: IntoSignal<El<C>> + 'static>(
-        children: impl IntoIterator<Item = I>,
-    ) -> Self {
+    pub fn col(children: impl IntoChildren<C>) -> Self {
         Self::new(children)
     }
 }
 
-impl<C: WidgetCtx + 'static, Dir: FlexDir> Flex<C, Dir> {
-    pub fn new<I: IntoSignal<El<C>> + 'static>(
-        children: impl IntoIterator<Item = I>,
-    ) -> Self {
-        let children = use_signal(
-            children.into_iter().map(IntoSignal::signal).collect::<Vec<_>>(),
-        );
+impl<C: WidgetCtx + 'static, Dir: Direction> Flex<C, Dir> {
+    pub fn new(children: impl IntoChildren<C>) -> Self {
+        let children = children.into_children();
 
         let content_size = use_computed(move || {
+            // println!("Recompute content size");
             children.with(|children| {
                 children.iter().fold(Limits::unknown(), |limits, child| {
-                    let child_limits = child.with(|child| {
-                        child.layout().with(|child| child.content_size.get())
-                    });
+                    let child_limits =
+                        child.layout().with(|child| child.content_size.get());
                     // let child = child.get();
                     Limits::new(
                         limits.min().min(child_limits.min()),
@@ -89,7 +77,7 @@ impl<C: WidgetCtx + 'static, Dir: FlexDir> Flex<C, Dir> {
 
         Self {
             children,
-            layout: use_signal(Layout {
+            layout: use_computed(move || Layout {
                 kind: LayoutKind::Flex(FlexLayout::base(Dir::AXIS)),
                 size: Size::shrink(),
                 box_model: BoxModel::zero(),
@@ -157,39 +145,36 @@ impl<C: WidgetCtx + 'static, Dir: FlexDir> Flex<C, Dir> {
     }
 }
 
-impl<C: WidgetCtx + 'static, Dir: FlexDir> Widget<C> for Flex<C, Dir> {
-    // fn children(&self) -> &[El<C>] {
-    //     &self.children
-    // }
-
-    // fn children_mut(&mut self) -> &mut [El<C>] {
-    //     &mut self.children
-    // }
-
-    // fn size(&self) -> Size<Length> {
-    //     self.layout.size.get()
-    // }
-
-    // fn content_size(&self) -> Limits {
-    //     // TODO: Cache
-    // }
-
-    // fn layout(&self, _ctx: &crate::widget::LayoutCtx<'_, C>) -> LayoutKind {
-    //     LayoutKind::Flex(self.layout.kind.get())
-    // }
+impl<C: WidgetCtx + 'static, Dir: Direction> Widget<C> for Flex<C, Dir> {
+    fn children_ids(&self) -> Signal<Vec<ElId>> {
+        let children = self.children;
+        use_computed(move || {
+            children.with(|children| {
+                children
+                    .iter()
+                    .map(|child| {
+                        child
+                            .children_ids()
+                            .with(|ids| ids.iter().copied().collect::<Vec<_>>())
+                    })
+                    .flatten()
+                    .collect()
+            })
+        })
+    }
 
     fn layout(&self) -> Signal<Layout> {
         self.layout
     }
 
     fn build_layout_tree(&self) -> SignalTree<Layout> {
+        let children = self.children;
         SignalTree {
             data: self.layout,
-            children: self.children.with(|children| {
-                children
-                    .iter()
-                    .map(|child| child.with(Widget::build_layout_tree))
-                    .collect()
+            children: use_computed(move || {
+                children.with(|children| {
+                    children.iter().map(Widget::build_layout_tree).collect()
+                })
             }),
         }
     }
@@ -205,6 +190,6 @@ impl<C: WidgetCtx + 'static, Dir: FlexDir> Widget<C> for Flex<C, Dir> {
         &mut self,
         ctx: &mut crate::widget::EventCtx<'_, C>,
     ) -> crate::event::EventResponse<<C as WidgetCtx>::Event> {
-        self.children.maybe_update(|children| ctx.pass_to_children(children))
+        self.children.control_flow(|children| ctx.pass_to_children(children))
     }
 }

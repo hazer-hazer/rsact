@@ -11,11 +11,14 @@ use rand::random;
 use rsact_core::{prelude::*, signal::EcoSignal};
 use rsact_ui::{
     event::NullEvent,
-    layout::size::{Length, Size},
+    layout::{
+        size::{Length, Size},
+        Align,
+    },
     style::BoxStyle,
     ui::UI,
     widget::Widget as _,
-    widgets::{edge::Edge, flex::Flex},
+    widgets::{edge::Edge, flex::Flex, space::Space},
 };
 
 fn main() {
@@ -63,19 +66,44 @@ fn main() {
 
     let mut items_height = use_signal(50);
 
-    let items: [_; 5] = array::from_fn(|_| {
+    let items = use_signal(vec![
         Edge::new()
-            .width(Length::Div(5))
+            .width(Length::Fixed(20))
             .height::<u32>(items_height)
             .with_style(BoxStyle::base().background_color(Rgb888::new(
                 random(),
                 random(),
                 random(),
             )))
-            .el()
-    });
+            .el(),
+        Space::row(Length::Fixed(100)).el(),
+        Edge::new()
+            .width(Length::Fixed(20))
+            .height::<u32>(items_height)
+            .with_style(BoxStyle::base().background_color(Rgb888::new(
+                random(),
+                random(),
+                random(),
+            )))
+            .el(),
+    ]);
 
-    let flexbox = Flex::row(items);
+    // let items: [_; 5] = array::from_fn(|_| {
+    //     Edge::new()
+    //         .width(Length::Div(5))
+    //         .height::<u32>(items_height)
+    //         .with_style(BoxStyle::base().background_color(Rgb888::new(
+    //             random(),
+    //             random(),
+    //             random(),
+    //         )))
+    //         .el()
+    // });
+
+    let flexbox = Flex::row(items)
+        .wrap(true)
+        .horizontal_align(Align::Center)
+        .width(Length::fill());
 
     let mut ui = UI::new(flexbox.el(), display.bounding_box().size);
 
@@ -90,6 +118,23 @@ fn main() {
         } else {
             fps += 1;
         }
+
+        // items.update(move |items| {
+        //     items.push(
+        //         Edge::new()
+        //             .width(Length::Fixed(20))
+        //             .height::<u32>(items_height)
+        //
+        // .with_style(BoxStyle::base().background_color(Rgb888::new(
+        //                 random(),
+        //                 random(),
+        //                 random(),
+        //             )))
+        //             .el(),
+        //     )
+        // });
+
+        // thread::sleep(Duration::from_millis(100));
 
         window.events().for_each(|e| {});
         ui.tick([NullEvent].into_iter());

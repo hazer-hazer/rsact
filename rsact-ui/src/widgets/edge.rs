@@ -1,18 +1,4 @@
-use crate::{
-    event::Propagate,
-    layout::{
-        box_model::BoxModel,
-        size::{Length, Size},
-        EdgeLayout, Layout, LayoutKind, Limits,
-    },
-    render::{Block, Renderer},
-    style::BoxStyle,
-    widget::{DrawCtx, DrawResult, Widget, WidgetCtx},
-};
-use rsact_core::{
-    prelude::*,
-    signal::{EcoSignal, ReadSignal, SignalTree},
-};
+use crate::widget::prelude::*;
 
 pub struct Edge<C: WidgetCtx> {
     pub layout: Signal<Layout>,
@@ -26,7 +12,7 @@ impl<C: WidgetCtx + 'static> Edge<C> {
                 kind: LayoutKind::Edge(EdgeLayout {}),
                 size: Size::shrink(),
                 box_model: BoxModel::zero(),
-                content_size: use_signal(Limits::unknown()).read_only(),
+                content_size: use_signal(Limits::unknown()),
             }),
             style: use_signal(BoxStyle::base()),
         }
@@ -39,24 +25,12 @@ impl<C: WidgetCtx + 'static> Edge<C> {
 }
 
 impl<C: WidgetCtx + 'static> Widget<C> for Edge<C> {
-    // fn size(&self) -> Size<Length> {
-    //     self.layout.size.get()
-    // }
-
-    // fn content_size(&self) -> Limits {
-    //     Limits::unknown()
-    // }
-
-    // fn layout(&self, _ctx: &LayoutCtx<'_, C>) -> LayoutKind {
-    //     LayoutKind::Edge(self.layout.kind.get())
-    // }
-
     fn layout(&self) -> Signal<Layout> {
         self.layout
     }
 
     fn build_layout_tree(&self) -> rsact_core::signal::SignalTree<Layout> {
-        SignalTree { data: self.layout, children: vec![] }
+        SignalTree { data: self.layout, children: use_computed(Vec::new) }
     }
 
     fn draw(&self, ctx: &mut DrawCtx<'_, C>) -> DrawResult {

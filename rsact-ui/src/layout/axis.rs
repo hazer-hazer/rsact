@@ -238,6 +238,20 @@ impl<T: Axial> AxialData<T> {
     }
 }
 
+pub trait Direction {
+    const AXIS: Axis;
+}
+
+pub struct RowDir;
+impl Direction for RowDir {
+    const AXIS: Axis = Axis::X;
+}
+
+pub struct ColDir;
+impl Direction for ColDir {
+    const AXIS: Axis = Axis::Y;
+}
+
 #[cfg(test)]
 mod tests {
     use embedded_graphics::geometry::Point;

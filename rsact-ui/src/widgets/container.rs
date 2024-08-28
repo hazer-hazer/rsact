@@ -1,18 +1,4 @@
-use crate::{
-    el::El,
-    layout::{
-        box_model::BoxModel,
-        size::{Length, Size},
-        Align, ContainerLayout, Layout, LayoutKind, Limits,
-    },
-    render::{Block, Renderer},
-    style::BoxStyle,
-    widget::{DrawCtx, LayoutCtx, Widget, WidgetCtx},
-};
-use rsact_core::{
-    prelude::*,
-    signal::{marker::ReadOnly, EcoSignal, IntoSignal, ReadSignal, SignalTree},
-};
+use crate::widget::prelude::*;
 
 pub struct Container<C: WidgetCtx> {
     pub layout: Signal<Layout>,
@@ -26,7 +12,6 @@ impl<C: WidgetCtx + 'static> Container<C> {
 
         Self {
             layout: use_signal(Layout {
-                // TODO: Container layout settings
                 kind: LayoutKind::Container(ContainerLayout::base()),
                 size: Size::shrink(),
                 box_model: BoxModel::zero(),
@@ -76,38 +61,22 @@ impl<C: WidgetCtx + 'static> Container<C> {
 }
 
 impl<C: WidgetCtx + 'static> Widget<C> for Container<C> {
-    // fn children(&self) -> &[El<C>] {
-    //     core::slice::from_ref(&self.content)
-    // }
-
-    // fn children_mut(&mut self) -> &mut [El<C>] {
-    //     core::slice::from_mut(&mut self.content)
-    // }
-
-    // fn children(&self) -> Signal<Vec<El<C>>> {}
-
-    // fn size(&self) -> Size<Length> {
-    //     self.layout.size.get()
-    // }
-
-    // fn content_size(&self) -> Limits {
-    //     self.content.content_size()
-    // }
-
-    // fn layout(&self, _ctx: &LayoutCtx<'_, C>) -> LayoutKind {
-    //     LayoutKind::Container(self.layout.kind.get())
-    // }
+    fn children_ids(&self) -> Signal<Vec<ElId>> {
+        let content = self.content;
+        content.with(Widget::children_ids)
+    }
 
     fn layout(&self) -> Signal<Layout> {
         self.layout
     }
 
     fn build_layout_tree(&self) -> SignalTree<Layout> {
+        let content = self.content;
         SignalTree {
             data: self.layout,
-            children: vec![self
-                .content
-                .with(|content| content.build_layout_tree())],
+            children: use_computed(move || {
+                content.with(|content| vec![content.build_layout_tree()])
+            }),
         }
     }
 
@@ -127,6 +96,6 @@ impl<C: WidgetCtx + 'static> Widget<C> for Container<C> {
         &mut self,
         ctx: &mut crate::widget::EventCtx<'_, C>,
     ) -> crate::event::EventResponse<<C as WidgetCtx>::Event> {
-        self.content.maybe_update(|content| content.on_event(ctx))
+        self.content.control_flow(|content| content.on_event(ctx))
     }
 }

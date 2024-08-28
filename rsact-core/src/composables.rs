@@ -17,7 +17,7 @@ pub fn use_static<T: 'static>(value: T) -> StaticSignal<T> {
 pub type Computed<T> = Signal<T, marker::ReadOnly>;
 
 /// Recomputes every time reactive values inside change
-pub fn use_computed<T, F>(f: F) -> Computed<T>
+pub fn use_computed<T, F>(f: F) -> Signal<T>
 where
     T: 'static,
     F: Fn() -> T + 'static,
@@ -28,8 +28,20 @@ where
         signal.set(f());
     });
 
-    signal.read_only()
+    signal
 }
+
+// pub fn use_mapped<T: 'static, U: 'static, G, S>(g: G, s: S) -> Signal<T>
+// where
+//     G: Fn(T) -> U + 'static,
+//     S: Fn(&mut T) + 'static,
+// {
+//     let signal = use_signal(g());
+
+//     use_effect(move |_| s(g()));
+
+//     signal
+// }
 
 /// Recomputes every time reactive values inside change and don't equal to
 /// previous

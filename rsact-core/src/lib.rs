@@ -10,16 +10,18 @@ pub mod operator;
 pub mod runtime;
 pub mod signal;
 mod storage;
+pub mod trigger;
 pub mod vec;
 
 pub mod prelude {
     pub use super::composables::*;
-    pub use super::effect::use_effect;
+    pub use super::effect::{use_effect, Effect};
     pub use super::runtime::{
         create_runtime, with_current_runtime, with_scoped_runtime,
     };
     pub use super::signal::{
-        EcoSignal as _, ReadSignal as _, RwSignal as _, Signal,
-        WriteSignal as _,
+        EcoSignal, IntoSignal, ReadSignal, RwSignal, Signal, SignalTree,
+        WriteSignal,
     };
+    pub use super::trigger::{use_trigger, Trigger};
 }

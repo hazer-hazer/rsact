@@ -1,11 +1,9 @@
-use alloc::vec::Vec;
-use marker::Rw;
-
 use crate::{
     prelude::{use_computed, use_signal, use_static},
     runtime::with_current_runtime,
     storage::ValueId,
 };
+use alloc::vec::Vec;
 use core::{
     fmt::{Debug, Display},
     marker::PhantomData,
@@ -60,7 +58,7 @@ pub trait WriteSignal<T> {
     fn notify(&self);
     fn update_untracked<U>(&self, f: impl FnOnce(&mut T) -> U) -> U;
 
-    fn maybe_update<U: UpdateNotification>(
+    fn control_flow<U: UpdateNotification>(
         &self,
         f: impl FnOnce(&mut T) -> U,
     ) -> U {
@@ -243,7 +241,7 @@ macro_rules! impl_arith_with_assign {
                 T: $trait<Output = T> + Clone + 'static,
                 M: marker::CanRead + 'static,
             {
-                type Output = Signal<T, marker::ReadOnly>;
+                type Output = Signal<T>;
 
                 fn $method(self, rhs: Self) -> Self::Output {
                     use_computed(move || self.get_cloned().$method(rhs.get_cloned()))
@@ -303,7 +301,7 @@ where
     T: Neg<Output = T> + Clone + 'static,
     M: marker::CanRead + 'static,
 {
-    type Output = Signal<T, marker::ReadOnly>;
+    type Output = Signal<T>;
 
     fn neg(self) -> Self::Output {
         use_computed(move || self.get_cloned().neg())
@@ -315,7 +313,7 @@ where
     T: Not<Output = T> + Clone + 'static,
     M: marker::CanRead + 'static,
 {
-    type Output = Signal<T, marker::ReadOnly>;
+    type Output = Signal<T>;
 
     fn not(self) -> Self::Output {
         use_computed(move || self.get_cloned().not())
@@ -409,7 +407,14 @@ impl<T: 'static> IntoSignal<T> for T {
     }
 }
 
-pub struct SignalTree<T> {
+#[derive(Clone, Copy)]
+pub struct SignalTree<T: 'static> {
     pub data: Signal<T>,
-    pub children: Vec<SignalTree<T>>,
+    pub children: Signal<Vec<SignalTree<T>>>,
+}
+
+impl<T: 'static> SignalTree<T> {
+    pub fn childless(data: Signal<T>) -> Self {
+        Self { data, children: use_computed(Vec::new) }
+    }
 }

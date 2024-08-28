@@ -139,7 +139,7 @@ impl Storage {
                 f: Rc::new(EffectCallback { f, ty: PhantomData }),
             },
             // Note: Check this, might need to be Dirty
-            state: ValueState::Clean,
+            state: ValueState::Dirty,
         })
     }
 

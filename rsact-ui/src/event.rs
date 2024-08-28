@@ -46,16 +46,16 @@ pub enum CommonEvent {
     /// Moves focus starting from back (internal usage only)
     // FocusMoveRev(i32),
     /// Focus button (e.g. enter key) is down
-    FocusButtonDown,
+    // FocusButtonDown,
     /// Focus button is up
-    FocusButtonUp,
+    // FocusButtonUp,
     /// Quit the UI. Can be captured by for example some dialog like
     /// "Are you sure you wan't to quit?"
     Exit,
 }
 
 // FIXME: Do we really need From<CommonEvent>???
-pub trait Event {
+pub trait Event: Clone {
     // fn is_focus_move(&self) -> Option<i32>;
 
     // fn is_focus_click(&self) -> bool;

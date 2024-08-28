@@ -17,7 +17,7 @@ use rsact_core::{
 
 struct Page<C: WidgetCtx> {
     root: El<C>,
-    layout: Signal<LayoutModel, ReadOnly>,
+    layout: Signal<LayoutModel>,
     state: PageState<C>,
 }
 
@@ -28,8 +28,8 @@ impl<C: WidgetCtx + 'static> Page<C> {
 
         let layout_tree = root.build_layout_tree();
         let layout = use_computed(move || {
-            println!("Relayout");
-            model_layout(&layout_tree, limits)
+            // println!("Relayout");
+            model_layout(layout_tree, limits)
         });
 
         Self { root, layout, state }
@@ -40,6 +40,7 @@ impl<C: WidgetCtx + 'static> Page<C> {
             self.root.on_event(&mut EventCtx {
                 event: &event,
                 page_state: &mut self.state,
+                is_focused: todo!(),
             });
         });
     }

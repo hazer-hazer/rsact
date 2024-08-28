@@ -11,7 +11,7 @@ use crate::{
 use alloc::boxed::Box;
 use core::marker::PhantomData;
 use rsact_core::{
-    prelude::use_memo,
+    prelude::{use_computed, use_memo},
     signal::{EcoSignal, ReadSignal, Signal, SignalTree, WriteSignal},
 };
 
@@ -30,6 +30,17 @@ pub trait WidgetCtx {
 
     fn default_foreground() -> Self::Color {
         Self::Color::default_foreground()
+    }
+}
+
+// TODO: Think if it should be a Signal
+pub struct Behavior {
+    pub focusable: bool,
+}
+
+impl Behavior {
+    pub fn none() -> Self {
+        Self { focusable: false }
     }
 }
 
@@ -53,7 +64,7 @@ where
 }
 
 pub struct PageState<C: WidgetCtx> {
-    focused: Option<ElId>,
+    pub focused: Option<ElId>,
 
     ctx: PhantomData<C>,
 }
@@ -83,15 +94,13 @@ impl<'a, C: WidgetCtx + 'static> DrawCtx<'a, C> {
         })
     }
 
-    pub fn draw_children(&mut self, children: &[Signal<El<C>>]) -> DrawResult {
+    pub fn draw_children(&mut self, children: &[El<C>]) -> DrawResult {
         children.iter().zip(self.layout.children()).try_for_each(
             |(child, child_layout)| {
-                child.with(|child| {
-                    child.draw(&mut DrawCtx {
-                        state: self.state,
-                        renderer: &mut self.renderer,
-                        layout: &child_layout,
-                    })
+                child.draw(&mut DrawCtx {
+                    state: self.state,
+                    renderer: &mut self.renderer,
+                    layout: &child_layout,
                 })
             },
         )
@@ -101,18 +110,25 @@ impl<'a, C: WidgetCtx + 'static> DrawCtx<'a, C> {
 pub struct EventCtx<'a, C: WidgetCtx> {
     pub event: &'a C::Event,
     pub page_state: &'a mut PageState<C>,
+    pub is_focused: bool,
+    // TODO: Instant now
 }
 
 impl<'a, C: WidgetCtx + 'static> EventCtx<'a, C> {
     pub fn pass_to_children(
         &mut self,
-        children: &mut [Signal<El<C>>],
+        children: &mut [El<C>],
     ) -> EventResponse<C::Event> {
         for child in children.iter_mut() {
-            child.maybe_update(|child| child.on_event(self))?;
+            child.on_event(self)?;
         }
         Propagate::Ignored.into()
     }
+}
+
+pub struct IdTree {
+    pub id: ElId,
+    pub children: Signal<Vec<IdTree>>,
 }
 
 pub trait Widget<C>
@@ -126,21 +142,9 @@ where
         El::new(Box::new(self))
     }
 
-    // fn signal_el(self) -> Signal<El<C>>
-    // where
-    //     Self: Sized + 'static,
-    //     C: 'static,
-    // {
-    //     Signal::new(self.el())
-    // }
-
-    // fn children(&self) -> Signal<Vec<El<C>>>;
-    // fn children_mut(&mut self) -> &mut [El<C>] {
-    //     &mut []
-    // }
-    // fn size(&self) -> Size<Length>;
-    // fn content_size(&self) -> Limits;
-    // fn layout(&self, ctx: &LayoutCtx<'_, C>) -> LayoutKind;
+    fn children_ids(&self) -> Signal<Vec<ElId>> {
+        use_computed(Vec::new)
+    }
     fn layout(&self) -> Signal<Layout>;
     fn build_layout_tree(&self) -> SignalTree<Layout>;
 
@@ -214,8 +218,33 @@ where
     }
 
     fn draw(&self, ctx: &mut DrawCtx<'_, C>) -> DrawResult;
+    fn behavior(&self) -> Behavior {
+        Behavior::none()
+    }
     fn on_event(
         &mut self,
         ctx: &mut EventCtx<'_, C>,
     ) -> EventResponse<C::Event>;
+}
+
+pub mod prelude {
+    pub use crate::{
+        el::{El, ElId},
+        event::{Capture, EventResponse, Propagate},
+        layout::{
+            self,
+            axis::{Axial as _, Axis, ColDir, Direction, RowDir},
+            box_model::BoxModel,
+            size::{Length, Size},
+            Align, ContainerLayout, EdgeLayout, FlexLayout, Layout, LayoutKind,
+            Limits,
+        },
+        render::{Block, Renderer},
+        style::BoxStyle,
+        widget::{
+            Behavior, DrawCtx, DrawResult, EventCtx, LayoutCtx, Widget,
+            WidgetCtx,
+        },
+    };
+    pub use rsact_core::prelude::*;
 }

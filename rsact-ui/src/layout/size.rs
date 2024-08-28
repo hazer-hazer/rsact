@@ -142,7 +142,7 @@ pub enum Length {
 }
 
 impl Length {
-    pub fn fill(&self) -> Self {
+    pub fn fill() -> Self {
         Self::Div(1)
     }
 
