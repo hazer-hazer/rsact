@@ -33,7 +33,6 @@ pub struct El<C>
 where
     C: WidgetCtx,
 {
-    id: ElId,
     widget: Box<dyn Widget<C>>,
 }
 
@@ -42,7 +41,7 @@ where
     C: WidgetCtx,
 {
     pub(crate) fn new(widget: Box<dyn Widget<C>>) -> Self {
-        Self { id: ElId::unique(), widget }
+        Self { widget }
     }
 }
 
@@ -51,11 +50,7 @@ where
     C: WidgetCtx + 'static,
 {
     fn children_ids(&self) -> Signal<Vec<ElId>> {
-        let children_ids = self.widget.children_ids();
-        children_ids.update(|children_ids| {
-            children_ids.push(self.id);
-        });
-        children_ids
+        self.widget.children_ids()
     }
 
     fn layout(&self) -> Signal<Layout> {
@@ -78,23 +73,24 @@ where
         &mut self,
         ctx: &mut EventCtx<'_, C>,
     ) -> EventResponse<<C as WidgetCtx>::Event> {
-        ctx.is_focused = Some(self.id) == ctx.page_state.focused;
+        Propagate::Ignored.into()
+        //     ctx.is_focused = Some(self.id) == ctx.page_state.focused;
 
-        let behavior = self.behavior();
-        if behavior.focusable {
-            if let Some(common) = ctx.event.as_common() {
-                match common {
-                    crate::event::CommonEvent::FocusMove(_)
-                        if ctx.is_focused =>
-                    {
-                        return Propagate::BubbleUp(self.id, ctx.event.clone())
-                            .into()
-                    },
-                    _ => {},
-                }
-            }
-        }
+        //     let behavior = self.behavior();
+        //     if behavior.focusable {
+        //         if let Some(common) = ctx.event.as_common() {
+        //             match common {
+        //                 crate::event::CommonEvent::FocusMove(_)
+        //                     if ctx.is_focused =>
+        //                 {
+        //                     return Propagate::BubbleUp(self.id,
+        // ctx.event.clone())                         .into()
+        //                 },
+        //                 _ => {},
+        //             }
+        //         }
+        //     }
 
-        self.widget.on_event(ctx)
+        //     self.widget.on_event(ctx)
     }
 }

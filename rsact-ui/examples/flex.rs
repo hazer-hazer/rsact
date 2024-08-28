@@ -105,7 +105,8 @@ fn main() {
         .horizontal_align(Align::Center)
         .width(Length::fill());
 
-    let mut ui = UI::new(flexbox.el(), display.bounding_box().size);
+    let mut ui = UI::new(flexbox.el(), display.bounding_box().size)
+        .on_exit(|| std::process::exit(1));
 
     let mut fps = 0;
     let mut last_time = Instant::now();

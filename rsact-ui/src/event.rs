@@ -107,3 +107,53 @@ impl From<CommonEvent> for NullEvent {
         Self
     }
 }
+
+#[cfg(feature = "simulator")]
+pub mod simulator {
+    use super::{CommonEvent, Event};
+
+    pub enum SimulatorEvent {
+        FocusMove(i32),
+        FocusedPress,
+        FocusedRelease,
+        Exit,
+    }
+
+    impl Event for SimulatorEvent {
+        fn as_common(&self) -> Option<super::CommonEvent> {
+            match self {
+                &SimulatorEvent::FocusMove(offset) => {
+                    Some(CommonEvent::FocusMove(offset))
+                },
+                SimulatorEvent::FocusedPress => CommonEvent::,
+                SimulatorEvent::FocusedRelease => todo!(),
+                SimulatorEvent::Exit => todo!(),
+            }
+        }
+
+        fn as_select_shift(&self) -> Option<i32> {
+            todo!()
+        }
+
+        fn as_slider_shift(&self) -> Option<i32> {
+            todo!()
+        }
+
+        fn as_knob_rotation(&self) -> Option<i32> {
+            todo!()
+        }
+
+        fn as_input_letter_scroll(&self) -> Option<i32> {
+            todo!()
+        }
+
+        fn as_scroll_offset(&self) -> Option<i32> {
+            todo!()
+        }
+    }
+
+    pub fn from_simulator(
+        event: embedded_graphics_simulator::SimulatorEvent,
+    ) -> SimulatorEvent {
+    }
+}

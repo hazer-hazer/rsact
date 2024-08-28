@@ -110,7 +110,6 @@ impl<'a, C: WidgetCtx + 'static> DrawCtx<'a, C> {
 pub struct EventCtx<'a, C: WidgetCtx> {
     pub event: &'a C::Event,
     pub page_state: &'a mut PageState<C>,
-    pub is_focused: bool,
     // TODO: Instant now
 }
 
@@ -121,6 +120,20 @@ impl<'a, C: WidgetCtx + 'static> EventCtx<'a, C> {
     ) -> EventResponse<C::Event> {
         for child in children.iter_mut() {
             child.on_event(self)?;
+        }
+        Propagate::Ignored.into()
+    }
+
+    pub fn handle_focusable(&self, id: ElId) -> EventResponse<C::Event> {
+        if let Some(common) = self.event.as_common() {
+            match common {
+                crate::event::CommonEvent::FocusMove(_)
+                    if Some(id) == self.page_state.focused =>
+                {
+                    return Propagate::BubbleUp(id, self.event.clone()).into()
+                },
+                _ => {},
+            }
         }
         Propagate::Ignored.into()
     }

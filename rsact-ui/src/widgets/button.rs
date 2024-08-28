@@ -22,6 +22,7 @@ pub struct ButtonStyle {
 }
 
 pub struct Button<C: WidgetCtx> {
+    id: ElId,
     pub container: Container<C>,
     state: Signal<ButtonState>,
     on_click: Option<Box<dyn Fn()>>,
@@ -38,6 +39,7 @@ impl<C: WidgetCtx + 'static> Button<C> {
         });
 
         Self {
+            id: ElId::unique(),
             container,
             state: use_signal(ButtonState::none()),
             on_click: None,
@@ -57,6 +59,11 @@ impl<C: WidgetCtx + 'static> Widget<C> for Button<C>
 where
     C::Event: ButtonEvent,
 {
+    fn children_ids(&self) -> Signal<Vec<ElId>> {
+        let id = self.id;
+        use_computed(move || vec![id])
+    }
+
     fn layout(&self) -> Signal<Layout> {
         self.container.layout
     }
@@ -77,6 +84,8 @@ where
         &mut self,
         ctx: &mut crate::widget::EventCtx<'_, C>,
     ) -> EventResponse<<C as WidgetCtx>::Event> {
+        ctx.handle_focusable(self.id)?;
+
         let current_state = self.state.get();
 
         let button_event = if ctx.event.is_button_press() {
