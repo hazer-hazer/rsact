@@ -12,6 +12,7 @@ pub mod signal;
 mod storage;
 pub mod trigger;
 pub mod vec;
+pub mod memo;
 
 pub mod prelude {
     pub use super::composables::*;

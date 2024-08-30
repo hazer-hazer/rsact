@@ -12,10 +12,12 @@ impl Trigger {
         Self { inner: use_signal(()) }
     }
 
+    #[track_caller]
     pub fn track(&self) {
         self.inner.track();
     }
 
+    #[track_caller]
     pub fn notify(&self) {
         self.inner.notify();
     }

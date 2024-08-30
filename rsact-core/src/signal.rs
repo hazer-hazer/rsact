@@ -1,4 +1,5 @@
 use crate::{
+    effect::use_effect,
     prelude::{use_computed, use_signal, use_static},
     runtime::with_current_runtime,
     storage::ValueId,
@@ -12,6 +13,7 @@ use core::{
         BitXorAssign, ControlFlow, Deref, Div, DivAssign, Mul, MulAssign, Neg,
         Not, Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub, SubAssign,
     },
+    panic::Location,
 };
 
 /**
@@ -34,11 +36,13 @@ pub trait ReadSignal<T> {
     fn track(&self);
     fn with_untracked<U>(&self, f: impl FnOnce(&T) -> U) -> U;
 
+    #[track_caller]
     fn with<U>(&self, f: impl FnOnce(&T) -> U) -> U {
         self.track();
         self.with_untracked(f)
     }
 
+    #[track_caller]
     fn get(&self) -> T
     where
         T: Copy,
@@ -46,11 +50,21 @@ pub trait ReadSignal<T> {
         self.with(|value| *value)
     }
 
+    #[track_caller]
     fn get_cloned(&self) -> T
     where
         T: Clone,
     {
         self.with(T::clone)
+    }
+
+    #[track_caller]
+    fn mapped<U: 'static>(self, f: impl Fn(&T) -> U + 'static) -> Signal<U>
+    where
+        Self: Sized + 'static,
+    {
+        let this = self;
+        use_computed(move || this.with(|this| f(this)))
     }
 }
 
@@ -58,6 +72,7 @@ pub trait WriteSignal<T> {
     fn notify(&self);
     fn update_untracked<U>(&self, f: impl FnOnce(&mut T) -> U) -> U;
 
+    #[track_caller]
     fn control_flow<U: UpdateNotification>(
         &self,
         f: impl FnOnce(&mut T) -> U,
@@ -69,12 +84,14 @@ pub trait WriteSignal<T> {
         result
     }
 
+    #[track_caller]
     fn update<U>(&self, f: impl FnOnce(&mut T) -> U) -> U {
         let result = self.update_untracked(f);
         self.notify();
         result
     }
 
+    #[track_caller]
     fn set(&self, new: T) {
         self.update(|value| *value = new)
     }
@@ -109,11 +126,42 @@ pub struct Signal<T, M: marker::Any = marker::Rw> {
     rw: PhantomData<M>,
 }
 
+impl<T, M: marker::CanRead + marker::CanWrite> Signal<T, M> {
+    // pub fn bound(&self, other: Signal<T>) -> Signal<T> {
+    //     use_effect(move || {
+    //         self.update_untracked(other.)
+    //     });
+    // }
+
+    // pub fn aliased(&self, other: Signal<T>) -> Self {
+    //     // with_current_runtime(|rt| rt.s)
+    //     self
+    // }
+
+    #[track_caller]
+    pub fn sync_with(self, other: Signal<T>) -> Self
+    where
+        Self: Sized + 'static,
+        T: Copy + 'static,
+    {
+        use_effect(move |_| {
+            self.update(|this| *this = other.get());
+        });
+        use_effect(move |_| {
+            other.update(|other| *other = self.get());
+        });
+        self
+    }
+}
+
 impl<T: 'static, M: marker::Any> Signal<T, M> {
+    #[track_caller]
     pub fn new(value: T) -> Self {
+        let caller = Location::caller();
+
         Self {
             id: with_current_runtime(|runtime| {
-                runtime.storage.create_signal(value)
+                runtime.storage.create_signal(value, caller)
             }),
             ty: PhantomData,
             rw: PhantomData,
@@ -134,20 +182,36 @@ impl<T: 'static, M: marker::CanWrite> Signal<T, M> {
 }
 
 impl<T: 'static, M: marker::CanRead> ReadSignal<T> for Signal<T, M> {
+    #[track_caller]
     fn with_untracked<U>(&self, f: impl FnOnce(&T) -> U) -> U {
         with_current_runtime(|runtime| self.id.with_untracked(runtime, f))
     }
 
+    #[track_caller]
     fn track(&self) {
         with_current_runtime(|rt| self.id.subscribe(rt))
     }
 }
 
 impl<T: 'static, M: marker::CanWrite> WriteSignal<T> for Signal<T, M> {
+    #[track_caller]
     fn notify(&self) {
-        with_current_runtime(|rt| self.id.notify(rt))
+        let caller = Location::caller();
+        let result = with_current_runtime(|rt| self.id.notify(rt, caller));
+
+        if let Err(err) = result {
+            match err {
+                crate::storage::NotifyError::Cycle(_) => {},
+                // crate::storage::NotifyError::Cycle(debug_info) => panic!(
+                //     "Reactivity cycle at {}\nValue {}",
+                //     core::panic::Location::caller(),
+                //     debug_info
+                // ),
+            }
+        }
     }
 
+    #[track_caller]
     fn update_untracked<U>(&self, f: impl FnOnce(&mut T) -> U) -> U {
         with_current_runtime(|rt| self.id.update_untracked(rt, f))
     }
@@ -243,6 +307,7 @@ macro_rules! impl_arith_with_assign {
             {
                 type Output = Signal<T>;
 
+                #[track_caller]
                 fn $method(self, rhs: Self) -> Self::Output {
                     use_computed(move || self.get_cloned().$method(rhs.get_cloned()))
                 }
@@ -253,6 +318,7 @@ macro_rules! impl_arith_with_assign {
                 T: $trait<Output = T> + Clone + 'static,
                 M: marker::CanRead + marker::CanWrite + 'static,
             {
+                #[track_caller]
                 fn $assign_method(&mut self, rhs: Self) {
                     self.set(self.get_cloned().$method(rhs.get_cloned()))
                 }
@@ -265,6 +331,7 @@ macro_rules! impl_arith_with_assign {
             {
                 type Output = T;
 
+                #[track_caller]
                 fn $method(self, rhs: T) -> Self::Output {
                     self.get_cloned().$method(rhs)
                 }
@@ -275,6 +342,7 @@ macro_rules! impl_arith_with_assign {
                 T: $trait<Output = T> + Clone + 'static,
                 M: marker::CanRead + marker::CanWrite + 'static,
             {
+                #[track_caller]
                 fn $assign_method(&mut self, rhs: T) {
                     self.set(self.get_cloned().$method(rhs))
                 }
@@ -303,6 +371,7 @@ where
 {
     type Output = Signal<T>;
 
+    #[track_caller]
     fn neg(self) -> Self::Output {
         use_computed(move || self.get_cloned().neg())
     }
@@ -315,6 +384,7 @@ where
 {
     type Output = Signal<T>;
 
+    #[track_caller]
     fn not(self) -> Self::Output {
         use_computed(move || self.get_cloned().not())
     }
@@ -325,6 +395,7 @@ where
     T: PartialEq + Clone + 'static,
     M: marker::CanRead + 'static,
 {
+    #[track_caller]
     fn eq(&self, other: &Self) -> bool {
         self.get_cloned() == other.get_cloned()
     }
@@ -335,6 +406,7 @@ where
     T: PartialEq + PartialOrd + Clone + 'static,
     M: marker::CanRead + 'static,
 {
+    #[track_caller]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         self.with(|this| other.with(|other| this.partial_cmp(other)))
     }
@@ -345,6 +417,7 @@ where
     T: Debug + 'static,
     M: marker::CanRead + 'static,
 {
+    #[track_caller]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.with(|this| this.fmt(f))
     }
@@ -355,6 +428,7 @@ where
     T: Display + 'static,
     M: marker::CanRead + 'static,
 {
+    #[track_caller]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.with(|this| this.fmt(f))
     }
@@ -416,5 +490,67 @@ pub struct SignalTree<T: 'static> {
 impl<T: 'static> SignalTree<T> {
     pub fn childless(data: Signal<T>) -> Self {
         Self { data, children: use_computed(Vec::new) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ReadSignal, WriteSignal};
+    use crate::{effect::use_effect, prelude::use_signal, signal::Signal};
+
+    // #[test]
+    // fn codependency() {
+    //     let signal1 = use_signal(1);
+    //     let signal2 = use_signal(2);
+
+    //     use_effect(move |_| {
+    //         signal1.update_untracked(move |signal1| *signal1 =
+    // signal2.get());     });
+
+    //     use_effect(move |_| {
+    //         signal2.update_untracked(move |signal2| *signal2 =
+    // signal1.get());     });
+
+    //     signal1.set(3);
+
+    //     assert_eq!(signal1.get(), 3);
+    //     assert_eq!(signal1.get(), signal2.get());
+
+    //     signal2.set(4);
+
+    //     assert_eq!(signal2.get(), 4);
+    //     assert_eq!(signal1.get(), signal2.get());
+    // }
+
+    #[test]
+    fn sync_with() {
+        let signal1 = use_signal(1);
+        let signal2 = use_signal(2);
+        signal2.sync_with(signal1);
+
+        signal1.set(3);
+        assert_eq!(signal1.get(), 3);
+        assert_eq!(signal1.get(), signal2.get());
+
+        signal2.set(4);
+        assert_eq!(signal2.get(), 4);
+        assert_eq!(signal1.get(), signal2.get());
+    }
+
+    #[test]
+    fn sync_with_reactivity() {
+        let main = use_signal(1);
+        let secondary = use_signal(0);
+
+        secondary.sync_with(main);
+
+        let affected = use_signal(0);
+        use_effect(move |_| {
+            affected.set(secondary.get());
+        });
+
+        main.set(123);
+
+        assert_eq!(affected.get(), 123);
     }
 }

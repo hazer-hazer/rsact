@@ -6,6 +6,7 @@ use core::{
     cell::{Ref, RefCell},
     fmt::Debug,
     marker::PhantomData,
+    panic::Location,
 };
 use slotmap::SlotMap;
 
@@ -20,7 +21,20 @@ slotmap::new_key_type! {
     pub struct ValueId;
 }
 
+#[derive(Clone, Copy)]
+pub enum NotifyError {
+    Cycle(ValueDebugInfo),
+}
+pub type NotifyResult = Result<(), NotifyError>;
+
 impl ValueId {
+    fn debug_info(&self, rt: &Runtime) -> ValueDebugInfo {
+        match rt.storage.get(*self).kind {
+            ValueKind::Signal(debug_info) => debug_info,
+            _ => ValueDebugInfo::none(),
+        }
+    }
+
     pub(crate) fn get_untracked(
         &self,
         runtime: &Runtime,
@@ -42,8 +56,15 @@ impl ValueId {
         f: impl FnOnce(&T) -> U,
     ) -> U {
         let value = self.get_untracked(rt);
-        let value =
-            RefCell::try_borrow(&value).expect("Failed to borrow value");
+        let value = match RefCell::try_borrow(&value) {
+            Ok(value) => value,
+            Err(err) => {
+                panic!(
+                    "Failed to borrow reactive value: {err} {}",
+                    self.debug_info(rt)
+                )
+            },
+        };
         let value = value
             .downcast_ref::<T>()
             .expect(&format!("Failed to cast value to {}", type_name::<T>()));
@@ -51,9 +72,21 @@ impl ValueId {
         f(value)
     }
 
-    pub(crate) fn notify(&self, rt: &Runtime) {
-        rt.mark_dirty(*self);
+    #[track_caller]
+    pub(crate) fn notify(
+        &self,
+        rt: &Runtime,
+        caller: &'static Location<'static>,
+    ) -> NotifyResult {
+        if rt.is_dirty(*self) {
+            return Err(NotifyError::Cycle(self.debug_info(rt)));
+        }
+
+        rt.mark_dirty(*self, Some(caller));
         rt.run_effects();
+        rt.mark_clean(*self);
+
+        Ok(())
     }
 
     #[inline(always)]
@@ -77,10 +110,37 @@ impl ValueId {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct ValueDebugInfo {
+    creator: Option<&'static Location<'static>>,
+    dirten: Option<&'static Location<'static>>,
+}
+
+impl ValueDebugInfo {
+    pub fn none() -> Self {
+        Self { creator: None, dirten: None }
+    }
+}
+
+impl core::fmt::Display for ValueDebugInfo {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        if let Some(creator) = self.creator {
+            write!(f, "Created at {}\n", creator)?;
+        }
+        if let Some(dirten) = self.dirten {
+            write!(f, "Dirten at {}\n", dirten)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone)]
 pub enum ValueKind {
-    Signal,
+    Signal(ValueDebugInfo),
     Effect {
+        f: Rc<dyn AnyCallback>,
+    },
+    Memo {
         f: Rc<dyn AnyCallback>,
     },
     // Computed { f: Rc<dyn AnyCallback> },
@@ -120,14 +180,23 @@ pub struct Storage {
 }
 
 impl Storage {
-    pub fn create_signal<T: 'static>(&self, value: T) -> ValueId {
+    #[track_caller]
+    pub fn create_signal<T: 'static>(
+        &self,
+        value: T,
+        caller: &'static Location<'static>,
+    ) -> ValueId {
         self.values.borrow_mut().insert(StoredValue {
             value: Rc::new(RefCell::new(value)),
-            kind: ValueKind::Signal,
+            kind: ValueKind::Signal(ValueDebugInfo {
+                creator: Some(caller),
+                dirten: None,
+            }),
             state: ValueState::Clean,
         })
     }
 
+    #[track_caller]
     pub fn create_effect<T, F>(&self, f: F) -> ValueId
     where
         T: 'static,
@@ -175,10 +244,26 @@ impl Storage {
         self.values.borrow().get(id).unwrap().clone()
     }
 
-    pub(crate) fn mark(&self, id: ValueId, state: ValueState) {
+    pub(crate) fn mark(
+        &self,
+        id: ValueId,
+        state: ValueState,
+        caller: Option<&'static Location<'static>>,
+    ) {
         let mut values = self.values.borrow_mut();
         let value = values.get_mut(id).unwrap();
-        value.mark(state)
+        value.mark(state);
+
+        match (&mut value.kind, state, caller) {
+            (
+                ValueKind::Signal(ValueDebugInfo { creator: _, dirten }),
+                ValueState::Dirty,
+                Some(caller),
+            ) => {
+                dirten.replace(caller);
+            },
+            _ => {},
+        }
     }
 
     // pub fn get(&self, id: ValueId) -> &StoredValue {

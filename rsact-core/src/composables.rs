@@ -1,34 +1,30 @@
 use crate::{
     effect::use_effect,
+    memo::Memo,
     signal::{
         marker::{self, Rw},
         ReadSignal, Signal, StaticSignal, WriteSignal as _,
     },
 };
 
+#[track_caller]
 pub fn use_signal<T: 'static>(value: T) -> Signal<T> {
     Signal::new(value)
 }
 
+#[track_caller]
 pub fn use_static<T: 'static>(value: T) -> StaticSignal<T> {
     StaticSignal::new(value)
 }
 
 pub type Computed<T> = Signal<T, marker::ReadOnly>;
 
-/// Recomputes every time reactive values inside change
-pub fn use_computed<T, F>(f: F) -> Signal<T>
-where
-    T: 'static,
-    F: Fn() -> T + 'static,
-{
-    let signal = use_signal(f());
-
-    use_effect(move |_| {
-        signal.set(f());
-    });
-
-    signal
+#[track_caller]
+pub fn use_memo<T: PartialEq + 'static>(
+    f: impl Fn(Option<&T>) -> T,
+) -> Memo<T> {
+    // Memo::
+    todo!()
 }
 
 // pub fn use_mapped<T: 'static, U: 'static, G, S>(g: G, s: S) -> Signal<T>
@@ -42,26 +38,6 @@ where
 
 //     signal
 // }
-
-/// Recomputes every time reactive values inside change and don't equal to
-/// previous
-pub fn use_memo<T, F>(f: F) -> Signal<T, marker::Rw>
-where
-    T: 'static + PartialEq + Clone,
-    F: Fn() -> T + 'static,
-{
-    let signal = use_signal(f());
-
-    use_effect(move |prev| {
-        let value = f();
-        if prev.map(|prev| prev == value).unwrap_or(false) {
-            signal.set(value.clone());
-        }
-        value
-    });
-
-    signal
-}
 
 // TODO:
 // - `use_reactive`

@@ -1,4 +1,5 @@
 use crate::{
+    callback::CallbackResult,
     operator::Operation,
     storage::{Storage, ValueId, ValueKind, ValueState},
 };
@@ -11,6 +12,7 @@ use core::{
     any::Any,
     cell::{Cell, RefCell},
     default,
+    panic::Location,
 };
 use slotmap::SlotMap;
 
@@ -36,6 +38,7 @@ impl RuntimeId {
 }
 
 #[inline(always)]
+#[track_caller]
 pub fn with_current_runtime<T>(f: impl FnOnce(&Runtime) -> T) -> T {
     let runtimes = RUNTIMES.borrow();
     let rt = runtimes.get(CURRENT_RUNTIME.get().unwrap()).unwrap();
@@ -105,6 +108,7 @@ impl Runtime {
         }
     }
 
+    #[track_caller]
     pub(crate) fn with_observer<T>(
         &self,
         observer: Observer,
@@ -126,7 +130,9 @@ impl Runtime {
             Observer::None => panic!(
                 "[BUG] Attempt to subscribe to reactive value updates out of reactive context.",
             ),
-            Observer::Root => {self.subscribers.borrow_mut().entry(id).or_default().insert(Observer::Root);},
+            Observer::Root => {
+                self.subscribers.borrow_mut().entry(id).or_default().insert(Observer::Root);
+            },
             Observer::Effect(observer) => {
                 self.subscribers
                     .borrow_mut()
@@ -139,24 +145,24 @@ impl Runtime {
 
     pub(crate) fn maybe_update(&self, id: ValueId) {
         if self.storage.get(id).state == ValueState::Dirty {
-            self.notify_updated(id);
+            self.update(id);
         }
 
         self.mark_clean(id);
     }
 
-    pub(crate) fn notify_updated(&self, id: ValueId) {
+    pub(crate) fn update(&self, id: ValueId) {
         let value = self.storage.get(id);
 
-        match value.kind {
-            ValueKind::Signal => {},
-            ValueKind::Effect { f } => {
+        let result = match value.kind {
+            ValueKind::Memo { f } | ValueKind::Effect { f } => {
                 let effect_value = value.value;
                 self.with_observer(Observer::Effect(id), move |_rt| {
-                    f.run(effect_value);
+                    f.run(effect_value)
                 })
             },
-            ValueKind::Operator { .. } => {},
+            ValueKind::Signal { .. } => CallbackResult::Changed,
+            ValueKind::Operator { .. } => todo!(),
             // ValueKind::Operator { mut scheduled, operator } => {
             //     let value = value.value;
             //     scheduled.entry(self.observer).or_default().push(value)
@@ -167,34 +173,53 @@ impl Runtime {
             //         });
             //     }
             // },
+        };
+
+        match result {
+            CallbackResult::None => {},
+            CallbackResult::Changed => {
+                self.mark_deep_dirty(id, None);
+            },
         }
 
-        self.mark_dirty(id);
+        self.mark_clean(id);
     }
 
-    fn mark_clean(&self, id: ValueId) {
-        self.storage.mark(id, ValueState::Clean);
+    #[track_caller]
+    pub(crate) fn mark_clean(&self, id: ValueId) {
+        self.storage.mark(id, ValueState::Clean, None);
         // TODO: Cleanup subs?
     }
 
-    pub(crate) fn mark_dirty(&self, id: ValueId) {
-        self.mark_dirty_recursive(id)
+    #[track_caller]
+    pub(crate) fn mark_dirty(
+        &self,
+        id: ValueId,
+        caller: Option<&'static Location<'static>>,
+    ) {
+        self.mark_deep_dirty(id, caller);
     }
 
-    fn mark_dirty_recursive(&self, id: ValueId) {
-        self.storage.mark(id, ValueState::Dirty);
+    #[track_caller]
+    pub(crate) fn is_dirty(&self, id: ValueId) -> bool {
+        self.storage.get(id).state == ValueState::Dirty
+    }
 
-        match self.storage.get(id).kind {
-            ValueKind::Signal => {},
-            ValueKind::Effect { .. }
-                if self.observer.get() != Observer::Effect(id) =>
-            {
-                let mut pending_effects =
-                    RefCell::borrow_mut(&self.pending_effects);
-                pending_effects.insert(id);
-            },
-            ValueKind::Effect { .. } => {},
-            ValueKind::Operator { scheduled, operator } => todo!(),
+    #[track_caller]
+    fn mark_deep_dirty(
+        &self,
+        id: ValueId,
+        caller: Option<&'static Location<'static>>,
+    ) {
+        self.storage.mark(id, ValueState::Dirty, caller);
+
+        if let (ValueKind::Effect { .. }, true) = (
+            self.storage.get(id).kind,
+            self.observer.get() != Observer::Effect(id),
+        ) {
+            let mut pending_effects =
+                RefCell::borrow_mut(&self.pending_effects);
+            pending_effects.insert(id);
         }
 
         if let Some(subscribers) = self.subscribers.borrow().get(&id) {
@@ -207,7 +232,7 @@ impl Runtime {
                     // dirty
                 },
                 Observer::Effect(effect) => {
-                    self.mark_dirty_recursive(effect);
+                    self.mark_deep_dirty(effect, caller);
                 },
             });
         }
@@ -222,6 +247,7 @@ impl Runtime {
         }
     }
 
+    #[track_caller]
     pub(crate) fn run_effects(&self) {
         self.pending_effects.take().iter().copied().for_each(|effect| {
             self.maybe_update(effect);

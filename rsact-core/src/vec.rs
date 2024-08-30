@@ -1,4 +1,4 @@
-use core::{marker::PhantomData, ops::Deref};
+use core::{marker::PhantomData, ops::Deref, panic::Location};
 
 use alloc::{collections::btree_map::BTreeMap, vec::Vec};
 
@@ -37,14 +37,19 @@ pub struct SignalVec<T, M: marker::Any = marker::Rw> {
 }
 
 impl<T: 'static, M: marker::Any + 'static> SignalVec<T, M> {
+    #[track_caller]
     pub fn with_values(values: Vec<T>) -> Self {
+        let caller = Location::caller();
         Self {
             id: with_current_runtime(|rt| {
-                rt.storage.create_signal(SignalVecState {
-                    values,
-                    ops: Default::default(),
-                    rw: PhantomData::<M>,
-                })
+                rt.storage.create_signal(
+                    SignalVecState {
+                        values,
+                        ops: Default::default(),
+                        rw: PhantomData::<M>,
+                    },
+                    caller,
+                )
             }),
             ty: PhantomData,
             rw: PhantomData,
@@ -71,8 +76,10 @@ impl<T: 'static, M: marker::CanRead> ReadSignal<Vec<T>> for SignalVec<T, M> {
 }
 
 impl<T: 'static, M: marker::CanWrite> WriteSignal<Vec<T>> for SignalVec<T, M> {
+    #[track_caller]
     fn notify(&self) {
-        with_current_runtime(|rt| self.id.notify(rt))
+        let caller = Location::caller();
+        with_current_runtime(|rt| self.id.notify(rt, caller)).ok().unwrap();
     }
 
     fn update_untracked<U>(&self, f: impl FnOnce(&mut Vec<T>) -> U) -> U {

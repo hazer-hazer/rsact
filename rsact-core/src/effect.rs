@@ -1,5 +1,7 @@
 use crate::{
-    callback::AnyCallback, runtime::with_current_runtime, storage::ValueId,
+    callback::{AnyCallback, CallbackResult},
+    runtime::with_current_runtime,
+    storage::ValueId,
 };
 use alloc::rc::Rc;
 use core::{any::Any, cell::RefCell, marker::PhantomData};
@@ -10,6 +12,7 @@ pub struct Effect<T> {
 }
 
 impl<T> Effect<T> {
+    #[track_caller]
     fn new<F>(f: F) -> Self
     where
         T: 'static,
@@ -33,7 +36,7 @@ impl<T: 'static, F> AnyCallback for EffectCallback<T, F>
 where
     F: Fn(Option<T>) -> T,
 {
-    fn run(&self, value: Rc<RefCell<dyn Any>>) {
+    fn run(&self, value: Rc<RefCell<dyn Any>>) -> CallbackResult {
         let pass_value = {
             // Create RefMut dropped in this scope and take it to avoid mutual
             // exclusion problem
@@ -47,6 +50,8 @@ where
 
         let mut value = RefCell::borrow_mut(&value);
         value.downcast_mut::<Option<T>>().unwrap().replace(new_value);
+
+        CallbackResult::Changed
     }
 }
 
