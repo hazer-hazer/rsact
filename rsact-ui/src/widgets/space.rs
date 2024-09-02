@@ -1,11 +1,6 @@
-use core::marker::PhantomData;
-
-use rsact_core::{
-    prelude::{use_computed, use_signal},
-    signal::{Signal, SignalTree},
-};
-
+use crate::widget::prelude::*;
 use crate::{
+    el::El,
     event::{EventResponse, Propagate},
     layout::{
         axis::{ColDir, Direction, RowDir},
@@ -15,6 +10,7 @@ use crate::{
     },
     widget::{DrawCtx, DrawResult, EventCtx, Widget, WidgetCtx},
 };
+use core::marker::PhantomData;
 
 pub struct Space<C: WidgetCtx, Dir: Direction> {
     layout: Signal<Layout>,
@@ -37,14 +33,12 @@ impl<C: WidgetCtx> Space<C, ColDir> {
 impl<C: WidgetCtx, Dir: Direction> Space<C, Dir> {
     pub fn new(length: impl Into<Length>) -> Self {
         Self {
-            layout: use_signal(Layout {
-                kind: crate::layout::LayoutKind::Edge(
-                    crate::layout::EdgeLayout {},
-                ),
-                size: Dir::AXIS.canon(length.into(), Length::fill()),
-                box_model: BoxModel::zero(),
-                content_size: use_computed(Limits::unknown),
-            }),
+            layout: Layout::new(
+                crate::layout::LayoutKind::Edge,
+                Limits::zero().into_memo(),
+            )
+            .size(Dir::AXIS.canon(length.into(), Length::fill()))
+            .into_signal(),
             ctx: PhantomData,
             dir: PhantomData,
         }
@@ -56,8 +50,8 @@ impl<C: WidgetCtx, Dir: Direction> Widget<C> for Space<C, Dir> {
         self.layout
     }
 
-    fn build_layout_tree(&self) -> rsact_core::signal::SignalTree<Layout> {
-        SignalTree::childless(self.layout)
+    fn build_layout_tree(&self) -> MemoTree<Layout> {
+        MemoTree::childless(self.layout.into_memo())
     }
 
     fn draw(&self, _ctx: &mut DrawCtx<'_, C>) -> DrawResult {
@@ -66,8 +60,18 @@ impl<C: WidgetCtx, Dir: Direction> Widget<C> for Space<C, Dir> {
 
     fn on_event(
         &mut self,
-        ctx: &mut EventCtx<'_, C>,
+        _ctx: &mut EventCtx<'_, C>,
     ) -> EventResponse<<C as WidgetCtx>::Event> {
         Propagate::Ignored.into()
+    }
+}
+
+impl<C, Dir> From<Space<C, Dir>> for El<C>
+where
+    C: WidgetCtx + 'static,
+    Dir: Direction + 'static,
+{
+    fn from(value: Space<C, Dir>) -> Self {
+        El::new(value)
     }
 }

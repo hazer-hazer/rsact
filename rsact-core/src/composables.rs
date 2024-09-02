@@ -17,14 +17,11 @@ pub fn use_static<T: 'static>(value: T) -> StaticSignal<T> {
     StaticSignal::new(value)
 }
 
-pub type Computed<T> = Signal<T, marker::ReadOnly>;
-
 #[track_caller]
 pub fn use_memo<T: PartialEq + 'static>(
-    f: impl Fn(Option<&T>) -> T,
+    f: impl Fn(Option<&T>) -> T + 'static,
 ) -> Memo<T> {
-    // Memo::
-    todo!()
+    Memo::new(f)
 }
 
 // pub fn use_mapped<T: 'static, U: 'static, G, S>(g: G, s: S) -> Signal<T>

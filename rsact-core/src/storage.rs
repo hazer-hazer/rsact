@@ -13,6 +13,7 @@ use slotmap::SlotMap;
 use crate::{
     callback::AnyCallback,
     effect::EffectCallback,
+    memo::MemoCallback,
     operator::{AnyOperator, Operation, OperatorState},
     runtime::{Observer, Runtime},
 };
@@ -55,6 +56,8 @@ impl ValueId {
         rt: &Runtime,
         f: impl FnOnce(&T) -> U,
     ) -> U {
+        rt.maybe_update(*self);
+
         let value = self.get_untracked(rt);
         let value = match RefCell::try_borrow(&value) {
             Ok(value) => value,
@@ -208,6 +211,21 @@ impl Storage {
                 f: Rc::new(EffectCallback { f, ty: PhantomData }),
             },
             // Note: Check this, might need to be Dirty
+            state: ValueState::Dirty,
+        })
+    }
+
+    #[track_caller]
+    pub fn create_memo<T, F>(&self, f: F) -> ValueId
+    where
+        T: PartialEq + 'static,
+        F: Fn(Option<&T>) -> T + 'static,
+    {
+        self.values.borrow_mut().insert(StoredValue {
+            value: Rc::new(RefCell::new(None::<T>)),
+            kind: ValueKind::Memo {
+                f: Rc::new(MemoCallback { f, ty: PhantomData }),
+            },
             state: ValueState::Dirty,
         })
     }

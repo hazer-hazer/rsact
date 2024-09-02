@@ -1,17 +1,19 @@
 use crate::{
-    layout::{box_model::BoxModel, padding::Padding},
-    style::{BorderRadius, BorderStyle, BoxStyle},
+    layout::{box_model::BoxModel, padding::Padding, size::Size, Layout},
+    style::block::{BorderRadius, BorderStyle, BoxStyle},
     widget::DrawResult,
 };
 use color::Color;
+use embedded_canvas::CanvasAt;
 use embedded_graphics::{
+    mono_font::MonoTextStyle,
     prelude::DrawTarget,
-    primitives::{
-        PrimitiveStyleBuilder, Rectangle, RoundedRectangle, StyledDrawable,
-    },
+    primitives::{Line, PrimitiveStyle, Rectangle, RoundedRectangle, Styled},
 };
+use embedded_text::TextBox;
 
 pub mod color;
+pub mod draw_target;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Border<C: Color>
@@ -27,6 +29,14 @@ impl<C: Color> Border<C> {
     // pub fn new() -> Self {
     //     Self { color: None, width: 1, radius: BorderRadius::zero() }
     // }
+
+    pub fn new(box_style: BoxStyle<C>, box_model: BoxModel) -> Self {
+        Self {
+            color: box_style.border.color,
+            width: box_model.border_width,
+            radius: box_style.border.radius,
+        }
+    }
 
     pub fn zero() -> Self {
         Self { color: None, width: 0, radius: 0.into() }
@@ -100,41 +110,29 @@ impl<C: Color + Copy> Block<C> {
 pub trait Renderer {
     type Color: Color;
 
+    fn new(viewport: Size) -> Self;
+
+    // TODO: Generic targets
+    fn finish(&self, target: &mut impl DrawTarget<Color = Self::Color>);
+
+    fn clear(&mut self, color: Self::Color) -> DrawResult;
+    fn clipped(
+        &mut self,
+        area: Rectangle,
+        f: impl FnOnce(&mut Self) -> DrawResult,
+    ) -> DrawResult;
+
+    fn line(
+        &mut self,
+        line: Styled<Line, PrimitiveStyle<Self::Color>>,
+    ) -> DrawResult;
+    fn rect(
+        &mut self,
+        rect: Styled<RoundedRectangle, PrimitiveStyle<Self::Color>>,
+    ) -> DrawResult;
     fn block(&mut self, block: Block<Self::Color>) -> DrawResult;
-}
-
-impl<D> Renderer for D
-where
-    D: DrawTarget,
-    D::Color: Color,
-{
-    type Color = D::Color;
-
-    fn block(&mut self, block: Block<Self::Color>) -> DrawResult {
-        let style =
-            PrimitiveStyleBuilder::new().stroke_width(block.border.width);
-
-        let style = if let Some(border_color) = block.border.color {
-            style.stroke_color(border_color)
-        } else {
-            style
-        };
-
-        let style = if let Some(background) = block.background {
-            style.fill_color(background)
-        } else {
-            style
-        };
-
-        RoundedRectangle::new(
-            block.rect,
-            block.border.radius.into_corner_radii(block.rect.size.into()),
-        )
-        .draw_styled(&style.build(), self)
-        .ok()
-        .unwrap();
-
-        // TODO: Errors
-        Ok(())
-    }
+    fn mono_text<'a>(
+        &mut self,
+        text_box: TextBox<'a, MonoTextStyle<'a, Self::Color>>,
+    ) -> DrawResult;
 }

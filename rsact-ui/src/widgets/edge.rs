@@ -8,18 +8,15 @@ pub struct Edge<C: WidgetCtx> {
 impl<C: WidgetCtx + 'static> Edge<C> {
     pub fn new() -> Self {
         Self {
-            layout: use_signal(Layout {
-                kind: LayoutKind::Edge(EdgeLayout {}),
-                size: Size::shrink(),
-                box_model: BoxModel::zero(),
-                content_size: use_signal(Limits::unknown()),
-            }),
-            style: use_signal(BoxStyle::base()),
+            layout: Layout::new(LayoutKind::Edge, Limits::zero().into_memo())
+                .size(Size::fill())
+                .into_signal(),
+            style: BoxStyle::base().into_signal(),
         }
     }
 
-    pub fn with_style(self, new: BoxStyle<C::Color>) -> Self {
-        self.style.update_untracked(|style| *style = new);
+    pub fn style(self, style: impl IntoMemo<BoxStyle<C::Color>>) -> Self {
+        self.style.set_from(style.into_memo());
         self
     }
 }
@@ -29,8 +26,8 @@ impl<C: WidgetCtx + 'static> Widget<C> for Edge<C> {
         self.layout
     }
 
-    fn build_layout_tree(&self) -> rsact_core::signal::SignalTree<Layout> {
-        SignalTree { data: self.layout, children: use_computed(Vec::new) }
+    fn build_layout_tree(&self) -> MemoTree<Layout> {
+        MemoTree::childless(self.layout.into_memo())
     }
 
     fn draw(&self, ctx: &mut DrawCtx<'_, C>) -> DrawResult {
@@ -48,5 +45,14 @@ impl<C: WidgetCtx + 'static> Widget<C> for Edge<C> {
         ctx: &mut crate::widget::EventCtx<'_, C>,
     ) -> crate::event::EventResponse<<C as WidgetCtx>::Event> {
         Propagate::Ignored.into()
+    }
+}
+
+impl<C> From<Edge<C>> for El<C>
+where
+    C: WidgetCtx + 'static,
+{
+    fn from(value: Edge<C>) -> Self {
+        El::new(value)
     }
 }

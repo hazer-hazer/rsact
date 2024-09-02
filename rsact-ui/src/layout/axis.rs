@@ -1,6 +1,6 @@
 use embedded_graphics::geometry::Point;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(::defmt::Format))]
 pub enum Axis {
     X,
@@ -19,6 +19,13 @@ impl Axis {
         }
     }
 
+    pub const fn length_name(&self) -> &str {
+        match self {
+            Axis::X => "width",
+            Axis::Y => "height",
+        }
+    }
+
     // Apply some infix operation (e.g. operator) on two axial structures
     pub fn infix<T, M, C>(self, lhs: T, rhs: T, main: M, cross: C) -> T
     where
@@ -32,7 +39,7 @@ impl Axis {
         )
     }
 
-    pub fn invert(self) -> Self {
+    pub fn inverted(self) -> Self {
         match self {
             Axis::X => Axis::Y,
             Axis::Y => Axis::X,

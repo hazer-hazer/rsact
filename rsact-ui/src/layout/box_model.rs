@@ -1,7 +1,6 @@
-
 use super::padding::Padding;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct BoxModel {
     // TODO: Do we need non-equal border widths?
     // pub border: Padding,

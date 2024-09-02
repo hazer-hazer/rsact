@@ -1,13 +1,13 @@
 use alloc::vec::Vec;
 use box_model::BoxModel;
 use core::u32;
-use embedded_graphics::{prelude::Point, primitives::Rectangle};
-use padding::Padding;
-use rsact_core::{
-    prelude::*,
-    signal::{marker::ReadOnly, SignalTree},
+use embedded_graphics::{
+    prelude::{Point, Transform},
+    primitives::Rectangle,
 };
-use size::{DivFactors, Length, Size};
+use padding::Padding;
+use rsact_core::prelude::*;
+use size::{DivFactors, Length, Size, SubTake};
 
 pub mod axis;
 pub mod box_model;
@@ -25,16 +25,16 @@ pub enum Align {
     End,
 }
 
-#[derive(Clone, Copy)]
-pub struct EdgeLayout {}
+// #[derive(Clone, Copy, PartialEq)]
+// pub struct EdgeLayout {}
 
-impl EdgeLayout {
-    pub fn base() -> Self {
-        Self {}
-    }
-}
+// impl EdgeLayout {
+//     pub fn base() -> Self {
+//         Self {}
+//     }
+// }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct ContainerLayout {
     pub horizontal_align: Align,
     pub vertical_align: Align,
@@ -46,7 +46,7 @@ impl ContainerLayout {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct FlexLayout {
     pub wrap: bool,
     // Readonly
@@ -69,22 +69,51 @@ impl FlexLayout {
     }
 }
 
-#[derive(Clone, Copy)]
-pub enum LayoutKind {
-    Edge(EdgeLayout),
-    Container(ContainerLayout),
-    Flex(FlexLayout),
+#[derive(Clone, Copy, PartialEq)]
+pub struct ScrollableLayout {
+    pub axis: Axis,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
+pub enum LayoutKind {
+    Edge,
+    Container(ContainerLayout),
+    Flex(FlexLayout),
+    Scrollable,
+}
+
+#[derive(Clone, Copy, PartialEq)]
 pub struct Layout {
     pub kind: LayoutKind,
     pub size: Size<Length>,
     pub box_model: BoxModel,
-    pub content_size: Signal<Limits>,
+    pub content_size: Memo<Limits>,
 }
 
 impl Layout {
+    pub fn new(kind: LayoutKind, content_size: Memo<Limits>) -> Self {
+        Self {
+            kind,
+            size: Size::shrink(),
+            box_model: BoxModel::zero(),
+            content_size,
+        }
+    }
+
+    pub fn set_size(&mut self, size: Size<Length>) {
+        self.size = size;
+    }
+
+    pub fn size(mut self, size: Size<Length>) -> Self {
+        self.size = size;
+        self
+    }
+
+    pub fn box_model(mut self, box_model: BoxModel) -> Self {
+        self.box_model = box_model;
+        self
+    }
+
     pub fn expect_container_mut(&mut self) -> &mut ContainerLayout {
         match &mut self.kind {
             LayoutKind::Container(container) => container,
@@ -145,6 +174,10 @@ pub struct LayoutModelTree<'a> {
 }
 
 impl<'a> LayoutModelTree<'a> {
+    pub fn translate(&self, by: Point) -> Self {
+        Self { area: self.area.translate(by), model: self.model }
+    }
+
     pub fn children(&self) -> impl Iterator<Item = LayoutModelTree> {
         self.model.children.iter().map(|child| LayoutModelTree {
             area: Rectangle::new(
@@ -157,7 +190,7 @@ impl<'a> LayoutModelTree<'a> {
 }
 
 /// Layout tree representation with relative positions
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct LayoutModel {
     relative_area: Rectangle,
     children: Vec<LayoutModel>,
@@ -238,28 +271,35 @@ impl LayoutModel {
 }
 
 pub fn model_layout(
-    tree: SignalTree<Layout>,
+    tree: MemoTree<Layout>,
     parent_limits: Limits,
+    // TODO: is_growing and is_shrinking
 ) -> LayoutModel {
     let layout = tree.data.get();
     let size = layout.size;
     let box_model = layout.box_model;
-    // TODO: Resolve size container against `content_size` (limits)
+    let content_size = layout.content_size.get();
+
+    let full_padding =
+        box_model.padding + Padding::new_equal(box_model.border_width);
+    // TODO: Resolve size container against `content_size` (limits), not only
+    // min
 
     match layout.kind {
-        LayoutKind::Edge(EdgeLayout {}) => {
-            let full_padding =
-                box_model.padding + Padding::new_equal(box_model.border_width);
+        LayoutKind::Edge => {
             let limits = parent_limits.limit_by(size).shrink(full_padding);
 
-            LayoutModel::new(limits.resolve_size(size, Size::zero()), vec![])
+            LayoutModel::new(
+                limits
+                    .resolve_size(size, content_size.min())
+                    .expand(full_padding),
+                vec![],
+            )
         },
         LayoutKind::Container(ContainerLayout {
             horizontal_align,
             vertical_align,
         }) => {
-            let full_padding =
-                box_model.padding + Padding::new_equal(box_model.border_width);
             let limits =
                 parent_limits.limit_by(layout.size).shrink(full_padding);
 
@@ -267,16 +307,43 @@ pub fn model_layout(
             // child
 
             let content_layout = model_layout(
-                tree.children.with(move |children| children[0]),
+                tree.children.with(|children| children[0]),
                 limits,
             );
 
-            let real_size = limits.resolve_size(size, content_layout.size());
-            let content_layout = content_layout
-                .moved(full_padding.top_left())
-                .aligned(horizontal_align, vertical_align, real_size);
+            let content_size = content_layout.size();
+            let real_size = limits.resolve_size(size, content_size);
+            let content_layout =
+                content_layout.moved(full_padding.top_left()).aligned(
+                    horizontal_align,
+                    vertical_align,
+                    real_size - content_size,
+                );
 
-            LayoutModel::new(real_size, vec![content_layout])
+            LayoutModel::new(
+                real_size.expand(full_padding),
+                vec![content_layout],
+            )
+        },
+        LayoutKind::Scrollable => {
+            let limits = parent_limits.limit_by(size).shrink(full_padding);
+
+            let content_layout = model_layout(
+                tree.children.with(|children| children[0]),
+                limits,
+            );
+
+            // Note: For [`LayoutKind::Scrollable`], parent_limits are used as
+            // content limits are unlimited on one axis
+            let real_size = parent_limits
+                .shrink(full_padding)
+                .resolve_size(size, content_layout.size());
+            let content_layout = content_layout.moved(full_padding.top_left());
+
+            LayoutModel::new(
+                real_size.expand(full_padding),
+                vec![content_layout],
+            )
         },
         LayoutKind::Flex(FlexLayout {
             wrap,
@@ -296,11 +363,10 @@ pub fn model_layout(
             struct FlexLine {
                 div_factors: DivFactors,
                 items_count: u32,
-                fluid_space: Size,
+                free_main: u32,
+                max_fixed_cross: u32,
             }
 
-            let full_padding =
-                box_model.padding + Padding::new_equal(box_model.border_width);
             let limits = parent_limits.limit_by(size).shrink(full_padding);
 
             let children_count = tree.children.with(Vec::len);
@@ -310,7 +376,9 @@ pub fn model_layout(
             let new_line = FlexLine {
                 div_factors: DivFactors::zero(),
                 items_count: 0,
-                fluid_space: Size::new(max_main, 0),
+                // fluid_space: axis.canon(max_main, 0),
+                free_main: max_main,
+                max_fixed_cross: 0,
             };
 
             let mut items: Vec<FlexItem> = Vec::with_capacity(children_count);
@@ -340,7 +408,7 @@ pub fn model_layout(
 
                     let last_line = *lines.last().unwrap();
 
-                    let free_main = last_line.fluid_space.main(axis);
+                    let free_main = last_line.free_main;
 
                     // Allow fluid item to wrap the container even if it is a
                     // shrink length, so it fits its
@@ -351,41 +419,46 @@ pub fn model_layout(
                     {
                         // On wrap, set main axis to the max limit (the width or
                         // height of the container) and cross
-                        container_free_cross = container_free_cross
-                            .saturating_sub(last_line.fluid_space.cross(axis));
+                        // container_free_cross = container_free_cross
+                        //     .saturating_sub(last_line.fluid_space.
+                        // cross(axis));
+                        container_free_cross =
+                            container_free_cross - last_line.max_fixed_cross;
+
                         lines.push(new_line);
+
                         if let Some(last_item) = items.last_mut() {
                             last_item.last_in_line = true;
                         }
                     } else if i != 0 && gap.main(axis) > 0 {
-                        *lines.last_mut().unwrap().fluid_space.main_mut(axis) =
-                            lines
-                                .last()
-                                .unwrap()
-                                .fluid_space
-                                .main(axis)
-                                .saturating_sub(gap.main(axis));
+                        lines.last_mut().unwrap().free_main = lines
+                            .last()
+                            .unwrap()
+                            .free_main
+                            .saturating_sub(gap.main(axis));
                     }
 
                     let line_number = lines.len() - 1;
                     let line = lines.last_mut().unwrap();
 
-                    let max_cross = if child_size.main(axis).div_factor() == 0 {
-                        let child_layout = model_layout(
-                            *child,
-                            Limits::only_max(axis.canon(
-                                line.fluid_space.main(axis),
-                                container_free_cross,
-                            )),
-                        );
+                    let child_div_factors = child_size.div_factors();
+
+                    if child_div_factors.main(axis) == 0 {
+                        let child_layout =
+                            model_layout(
+                                *child,
+                                Limits::only_max(axis.canon(
+                                    line.free_main,
+                                    container_free_cross,
+                                )),
+                            );
 
                         // Min content size of child must have been less or
                         // equal to resulting size.
                         // FIXME: Remove, it MUST never happen because we set
                         // free_main as max limit
                         debug_assert!(
-                            child_layout.size().main(axis)
-                                <= line.fluid_space.main(axis)
+                            child_layout.size().main(axis) <= line.free_main
                         );
 
                         let child_layout_size = child_layout.size();
@@ -395,26 +468,21 @@ pub fn model_layout(
                         // Subtract known children main axis length from free
                         // space to overflow. Free cross
                         // axis is calculated on wrap
-                        *line.fluid_space.main_mut(axis) = line
-                            .fluid_space
-                            .main_mut(axis)
+                        line.free_main = line
+                            .free_main
                             .saturating_sub(child_layout_size.main(axis));
 
                         // Subtract actual cross axis length from remaining
                         // space
-                        child_layout_size.cross(axis)
-                    } else {
-                        // Allow fluid-sized items to take minimum content size
-                        // on cross axis
-                        min_item_size.cross(axis)
-                    };
+                        line.max_fixed_cross = line
+                            .max_fixed_cross
+                            .max(child_layout_size.cross(axis));
+                    }
 
                     // Calculate total divisions for a line, even for fixed
                     // items, where main axis div factor is
                     // 0 but cross axis div can be non-zero
-                    line.div_factors += child_size.div_factors();
-                    *line.fluid_space.cross_mut(axis) =
-                        line.fluid_space.cross(axis).max(max_cross);
+                    line.div_factors += child_div_factors;
                     line.items_count += 1;
 
                     items.push(FlexItem {
@@ -432,23 +500,74 @@ pub fn model_layout(
             struct ModelLine {
                 base_divs: Size,
                 line_div_remainder: Size,
-                line_div_remainder_rem: u32,
-                base_div_remainder_part: u32,
+                line_div_remainder_rem: Size,
+                base_div_remainder_part: Size,
                 used_main: u32,
-                max_cross: u32,
+                cross: u32,
             }
 
+            let lines_count = lines.len() as u32;
+
+            let container_free_cross_div =
+                container_free_cross.checked_div(lines_count).unwrap_or(0);
+            let mut container_free_cross_rem =
+                container_free_cross.checked_rem(lines_count).unwrap_or(0);
             let mut model_lines = lines
                 .into_iter()
-                .filter(|line| line.items_count > 0)
                 .map(|line| {
-                    let base_divs = line.fluid_space / line.div_factors;
-                    let line_div_remainder =
-                        line.fluid_space % line.div_factors;
-                    let base_div_remainder_part =
-                        line_div_remainder.main(axis) / line.items_count;
-                    let line_div_remainder_rem =
-                        line_div_remainder.main(axis) % line.items_count;
+                    // let base_divs = if line.has_fluid {
+                    //     line.fluid_space / line.div_factors
+                    // } else {
+                    //     axis.canon(
+                    //         line.fluid_space.main(axis)
+                    //             / line.div_factors.main(axis) as u32,
+                    //         max_cross,
+                    //     )
+                    // };
+                    let mut div_factors = line.div_factors;
+                    let cross = if lines_count == 1 {
+                        *div_factors.cross_mut(axis) = 1;
+                        max_cross
+                    } else {
+                        line.max_fixed_cross
+                            + container_free_cross_div
+                            + if container_free_cross_rem > 0 {
+                                container_free_cross_rem -= 1;
+                                1
+                            } else {
+                                0
+                            }
+                    };
+
+                    let fluid_space = axis.canon::<Size>(line.free_main, cross);
+
+                    // let main_base_div =
+                    //     line.free_main / line.div_factors.main(axis) as u32;
+                    // let line_div_remainder =
+                    //     line.fluid_space % line.div_factors;
+                    let base_divs = fluid_space / div_factors;
+                    let line_div_remainder = fluid_space % div_factors;
+
+                    let base_div_remainder_part = axis.canon(
+                        line_div_remainder
+                            .main(axis)
+                            .checked_div(line.items_count)
+                            .unwrap_or(0),
+                        line_div_remainder
+                            .cross(axis)
+                            .checked_div(lines_count)
+                            .unwrap_or(0),
+                    );
+                    let line_div_remainder_rem = axis.canon(
+                        line_div_remainder
+                            .main(axis)
+                            .checked_rem(line.items_count)
+                            .unwrap_or(0),
+                        line_div_remainder
+                            .cross(axis)
+                            .checked_rem(lines_count)
+                            .unwrap_or(0),
+                    );
 
                     ModelLine {
                         base_divs,
@@ -456,7 +575,7 @@ pub fn model_layout(
                         line_div_remainder_rem,
                         base_div_remainder_part,
                         used_main: 0,
-                        max_cross: line.fluid_space.cross(axis),
+                        cross,
                     }
                 })
                 .collect::<Vec<_>>();
@@ -474,16 +593,11 @@ pub fn model_layout(
                     let child_div_factors = child_size.div_factors();
                     if child_div_factors.main(axis) != 0 {
                         let child_rem_part = model_line.base_div_remainder_part
-                            + if model_line.line_div_remainder_rem > 0 {
-                                model_line.line_div_remainder_rem -= 1;
-                                1
-                            } else {
-                                0
-                            };
+                            + model_line.line_div_remainder_rem.sub_take(1);
 
                         let child_max_size = child_size
                             .into_fixed(model_line.base_divs)
-                            + axis.canon::<Size>(child_rem_part, 0);
+                            + child_rem_part;
 
                         model_line.line_div_remainder -= child_rem_part;
 
@@ -503,10 +617,11 @@ pub fn model_layout(
                     if item.last_in_line {
                         *next_pos.main_mut(axis) = 0;
                         *next_pos.cross_mut(axis) +=
-                            (model_line.max_cross + gap.cross(axis)) as i32;
+                            (model_line.cross.saturating_add(gap.cross(axis)))
+                                as i32;
 
                         longest_line = longest_line.max(model_line.used_main);
-                        used_cross += model_line.max_cross
+                        used_cross += model_line.cross
                             + if item.line < model_lines.len() - 1 {
                                 gap.cross(axis)
                             } else {
@@ -535,7 +650,7 @@ pub fn model_layout(
                 );
             }
 
-            LayoutModel::new(size, children_layouts)
+            LayoutModel::new(size.expand(full_padding), children_layouts)
         },
     }
 }

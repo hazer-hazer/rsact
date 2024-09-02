@@ -13,12 +13,14 @@ pub trait IntoChildren<C: WidgetCtx> {
 impl<C: WidgetCtx + 'static, const SIZE: usize> IntoChildren<C>
     for [El<C>; SIZE]
 {
+    #[track_caller]
     fn into_children(self) -> Signal<Vec<El<C>>> {
         use_signal(self.into_iter().collect())
     }
 }
 
 impl<C: WidgetCtx + 'static> IntoChildren<C> for Vec<El<C>> {
+    #[track_caller]
     fn into_children(self) -> Signal<Vec<El<C>>> {
         use_signal(self)
     }
@@ -38,63 +40,59 @@ pub struct Flex<C: WidgetCtx, Dir: Direction> {
 }
 
 impl<C: WidgetCtx + 'static> Flex<C, RowDir> {
+    #[track_caller]
     pub fn row(children: impl IntoChildren<C>) -> Self {
         Self::new(children)
     }
 }
 
 impl<C: WidgetCtx + 'static> Flex<C, ColDir> {
+    #[track_caller]
     pub fn col(children: impl IntoChildren<C>) -> Self {
         Self::new(children)
     }
 }
 
 impl<C: WidgetCtx + 'static, Dir: Direction> Flex<C, Dir> {
+    #[track_caller]
     pub fn new(children: impl IntoChildren<C>) -> Self {
         let children = children.into_children();
 
-        let content_size = use_computed(move || {
-            // println!("Recompute content size");
-            children.with(|children| {
-                children.iter().fold(Limits::unknown(), |limits, child| {
-                    let child_limits =
-                        child.layout().with(|child| child.content_size.get());
-                    // let child = child.get();
-                    Limits::new(
-                        limits.min().min(child_limits.min()),
-                        Dir::AXIS.infix(
-                            limits.max(),
-                            child_limits.max(),
-                            |arg0: u32, v: u32| {
-                                SaturatingAdd::saturating_add(&arg0, &v)
-                            },
-                            core::cmp::max,
-                        ),
-                    )
-                })
+        let content_size = children.mapped(|children| {
+            children.iter().fold(Limits::unlimited(), |limits, child| {
+                let child_limits =
+                    child.layout().with(|child| child.content_size.get());
+                // let child = child.get();
+                Limits::new(
+                    limits.min().min(child_limits.min()),
+                    Dir::AXIS.infix(
+                        limits.max(),
+                        child_limits.max(),
+                        |arg0: u32, v: u32| {
+                            SaturatingAdd::saturating_add(&arg0, &v)
+                        },
+                        core::cmp::max,
+                    ),
+                )
             })
         });
 
         Self {
             children,
-            layout: use_computed(move || Layout {
+            layout: Layout {
                 kind: LayoutKind::Flex(FlexLayout::base(Dir::AXIS)),
                 size: Size::shrink(),
                 box_model: BoxModel::zero(),
                 content_size,
-            }),
+            }
+            .into_signal(),
             dir: PhantomData,
         }
     }
 
     pub fn wrap(self, wrap: impl EcoSignal<bool> + 'static) -> Self {
-        let wrap = wrap.eco_signal();
-        use_memo(move || {
-            let wrap = wrap.get();
-            self.layout.update(move |layout| {
-                layout.expect_flex_mut().wrap = wrap;
-            });
-            wrap
+        self.layout.setter(wrap.eco_signal(), |&wrap, layout| {
+            layout.expect_flex_mut().wrap = wrap
         });
         self
     }
@@ -103,14 +101,10 @@ impl<C: WidgetCtx + 'static, Dir: Direction> Flex<C, Dir> {
         self,
         gap: impl EcoSignal<G> + 'static,
     ) -> Self {
-        let gap = gap.eco_signal();
-        use_memo(move || {
-            let gap = gap.get().into();
-            self.layout.update(move |layout| {
-                layout.expect_flex_mut().gap = gap;
-            });
-            gap
+        self.layout.setter(gap.eco_signal(), |&gap, layout| {
+            layout.expect_flex_mut().gap = gap.into();
         });
+
         self
     }
 
@@ -118,14 +112,12 @@ impl<C: WidgetCtx + 'static, Dir: Direction> Flex<C, Dir> {
         self,
         vertical_align: impl EcoSignal<Align> + 'static,
     ) -> Self {
-        let vertical_align = vertical_align.eco_signal();
-        use_memo(move || {
-            let vertical_align = vertical_align.get();
-            self.layout.update(move |layout| {
+        self.layout.setter(
+            vertical_align.eco_signal(),
+            |&vertical_align, layout| {
                 layout.expect_flex_mut().vertical_align = vertical_align
-            });
-            vertical_align
-        });
+            },
+        );
         self
     }
 
@@ -133,22 +125,20 @@ impl<C: WidgetCtx + 'static, Dir: Direction> Flex<C, Dir> {
         self,
         horizontal_align: impl EcoSignal<Align> + 'static,
     ) -> Self {
-        let horizontal_align = horizontal_align.eco_signal();
-        use_memo(move || {
-            let horizontal_align = horizontal_align.get();
-            self.layout.update(move |layout| {
+        self.layout.setter(
+            horizontal_align.eco_signal(),
+            |&horizontal_align, layout| {
                 layout.expect_flex_mut().horizontal_align = horizontal_align
-            });
-            horizontal_align
-        });
+            },
+        );
         self
     }
 }
 
 impl<C: WidgetCtx + 'static, Dir: Direction> Widget<C> for Flex<C, Dir> {
-    fn children_ids(&self) -> Signal<Vec<ElId>> {
+    fn children_ids(&self) -> Memo<Vec<ElId>> {
         let children = self.children;
-        use_computed(move || {
+        use_memo(move |_| {
             children.with(|children| {
                 children
                     .iter()
@@ -167,11 +157,11 @@ impl<C: WidgetCtx + 'static, Dir: Direction> Widget<C> for Flex<C, Dir> {
         self.layout
     }
 
-    fn build_layout_tree(&self) -> SignalTree<Layout> {
+    fn build_layout_tree(&self) -> MemoTree<Layout> {
         let children = self.children;
-        SignalTree {
-            data: self.layout,
-            children: use_computed(move || {
+        MemoTree {
+            data: self.layout.into_memo(),
+            children: use_memo(move |_| {
                 children.with(|children| {
                     children.iter().map(Widget::build_layout_tree).collect()
                 })
@@ -193,3 +183,24 @@ impl<C: WidgetCtx + 'static, Dir: Direction> Widget<C> for Flex<C, Dir> {
         self.children.control_flow(|children| ctx.pass_to_children(children))
     }
 }
+
+impl<C, Dir> From<Flex<C, Dir>> for El<C>
+where
+    C: WidgetCtx + 'static,
+    Dir: Direction + 'static,
+{
+    fn from(value: Flex<C, Dir>) -> Self {
+        El::new(value)
+    }
+}
+
+// macro_rules! row {
+//     ($($el: expr),* $(,)?) => [
+//         Flex::row(vec![$($el.el()),*])
+//     ];
+
+//     (let ($var: ident, $flex: ident) = $($el: expr),* $(,)?) => {
+//         let $var = use_signal(vec![$($el.el()),*]);
+//         let flex =
+//     };
+// }

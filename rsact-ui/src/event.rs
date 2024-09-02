@@ -1,16 +1,22 @@
-use rsact_core::signal::UpdateNotification;
-
 use crate::el::ElId;
+use crate::layout::Axis;
+use crate::widgets::button::ButtonEvent;
+use crate::widgets::scrollable::ScrollEvent;
 use core::fmt::Debug;
 use core::ops::ControlFlow;
 
 #[derive(Clone, Debug)]
-pub enum Capture {
+pub enum Capture<E: Event> {
     /// Event is captured by element and should not be handled by its parents
     Captured,
+
+    // TODO: Maybe here should not be event but some mapped type to allow user
+    // to change the logic?
+    /// BubbleUp captured by parent
+    Bubbled(ElId, E),
 }
 
-impl<E: Event> Into<EventResponse<E>> for Capture {
+impl<E: Event> Into<EventResponse<E>> for Capture<E> {
     #[inline]
     fn into(self) -> EventResponse<E> {
         EventResponse::Break(self)
@@ -37,81 +43,85 @@ impl<E: Event> Into<EventResponse<E>> for Propagate<E> {
     }
 }
 
-pub type EventResponse<E> = ControlFlow<Capture, Propagate<E>>;
+pub type EventResponse<E> = ControlFlow<Capture<E>, Propagate<E>>;
 
-#[derive(Clone, Copy, Debug)]
-pub enum CommonEvent {
-    /// Moves focus by current ±offset
-    FocusMove(i32),
-    /// Moves focus starting from back (internal usage only)
-    // FocusMoveRev(i32),
-    /// Focus button (e.g. enter key) is down
-    // FocusButtonDown,
-    /// Focus button is up
-    // FocusButtonUp,
-    /// Quit the UI. Can be captured by for example some dialog like
-    /// "Are you sure you wan't to quit?"
-    Exit,
+#[derive(Clone, Copy)]
+pub enum ButtonEdge {
+    None,
+    Rising,
+    Falling,
+}
+
+impl ButtonEdge {
+    pub fn new(from: bool, to: bool) -> Self {
+        match (from, to) {
+            (true, false) => Self::Falling,
+            (false, true) => Self::Rising,
+            (true, true) | (false, false) => Self::None,
+        }
+    }
+}
+
+pub trait FocusEvent {
+    fn as_focus_move(&self) -> Option<i32>;
+    fn as_focus_press(&self) -> bool;
+    fn as_focus_release(&self) -> bool;
+}
+
+pub trait ExitEvent {
+    fn as_exit(&self) -> bool;
 }
 
 // FIXME: Do we really need From<CommonEvent>???
-pub trait Event: Clone {
-    // fn is_focus_move(&self) -> Option<i32>;
-
-    // fn is_focus_click(&self) -> bool;
-
-    fn as_common(&self) -> Option<CommonEvent>;
-
-    // TODO: This might better be split and moved to separate traits such as
-    // `AsSelectShift`, etc. so if user don't want to use Slider for example,
-    // these methods don't need to be implemented.  Or the easier way is to
-    // make these methods return `None` or use `FocusMove` by default.
-    fn as_select_shift(&self) -> Option<i32>;
-    fn as_slider_shift(&self) -> Option<i32>;
-    fn as_knob_rotation(&self) -> Option<i32>;
-    fn as_input_letter_scroll(&self) -> Option<i32>;
-    fn as_scroll_offset(&self) -> Option<i32>;
-}
+pub trait Event: FocusEvent + ExitEvent + Clone {}
 
 #[derive(Clone, Debug)]
 pub struct NullEvent;
 
-impl Event for NullEvent {
-    fn as_common(&self) -> Option<CommonEvent> {
-        None
+impl Event for NullEvent {}
+impl ButtonEvent for NullEvent {
+    fn as_button_press(&self) -> bool {
+        false
     }
 
-    fn as_select_shift(&self) -> Option<i32> {
-        None
-    }
-
-    fn as_slider_shift(&self) -> Option<i32> {
-        None
-    }
-
-    fn as_knob_rotation(&self) -> Option<i32> {
-        None
-    }
-
-    fn as_input_letter_scroll(&self) -> Option<i32> {
-        None
-    }
-
-    fn as_scroll_offset(&self) -> Option<i32> {
-        None
+    fn as_button_release(&self) -> bool {
+        false
     }
 }
 
-impl From<CommonEvent> for NullEvent {
-    fn from(_: CommonEvent) -> Self {
-        Self
+impl ExitEvent for NullEvent {
+    fn as_exit(&self) -> bool {
+        false
+    }
+}
+
+impl FocusEvent for NullEvent {
+    fn as_focus_move(&self) -> Option<i32> {
+        None
+    }
+
+    fn as_focus_press(&self) -> bool {
+        false
+    }
+
+    fn as_focus_release(&self) -> bool {
+        false
+    }
+}
+
+impl ScrollEvent for NullEvent {
+    fn as_scroll(&self, _axis: Axis) -> Option<i32> {
+        None
     }
 }
 
 #[cfg(feature = "simulator")]
 pub mod simulator {
-    use super::{CommonEvent, Event};
+    use crate::widgets::{button::ButtonEvent, scrollable::ScrollEvent};
 
+    use super::{Event, ExitEvent, FocusEvent};
+
+    #[derive(Clone, Debug)]
     pub enum SimulatorEvent {
         FocusMove(i32),
         FocusedPress,
@@ -119,41 +129,117 @@ pub mod simulator {
         Exit,
     }
 
-    impl Event for SimulatorEvent {
-        fn as_common(&self) -> Option<super::CommonEvent> {
-            match self {
-                &SimulatorEvent::FocusMove(offset) => {
-                    Some(CommonEvent::FocusMove(offset))
-                },
-                SimulatorEvent::FocusedPress => CommonEvent::,
-                SimulatorEvent::FocusedRelease => todo!(),
-                SimulatorEvent::Exit => todo!(),
-            }
+    impl ButtonEvent for SimulatorEvent {
+        fn as_button_press(&self) -> bool {
+            self.as_focus_press()
         }
 
-        fn as_select_shift(&self) -> Option<i32> {
-            todo!()
-        }
-
-        fn as_slider_shift(&self) -> Option<i32> {
-            todo!()
-        }
-
-        fn as_knob_rotation(&self) -> Option<i32> {
-            todo!()
-        }
-
-        fn as_input_letter_scroll(&self) -> Option<i32> {
-            todo!()
-        }
-
-        fn as_scroll_offset(&self) -> Option<i32> {
-            todo!()
+        fn as_button_release(&self) -> bool {
+            self.as_focus_release()
         }
     }
 
-    pub fn from_simulator(
+    impl FocusEvent for SimulatorEvent {
+        fn as_focus_move(&self) -> Option<i32> {
+            match self {
+                &SimulatorEvent::FocusMove(offset) => Some(offset),
+                _ => None,
+            }
+        }
+
+        fn as_focus_press(&self) -> bool {
+            match self {
+                SimulatorEvent::FocusedPress => true,
+                _ => false,
+            }
+        }
+
+        fn as_focus_release(&self) -> bool {
+            match self {
+                SimulatorEvent::FocusedRelease => true,
+                _ => false,
+            }
+        }
+    }
+
+    impl ExitEvent for SimulatorEvent {
+        fn as_exit(&self) -> bool {
+            match self {
+                SimulatorEvent::Exit => true,
+                _ => false,
+            }
+        }
+    }
+
+    impl ScrollEvent for SimulatorEvent {
+        // Encoder
+        fn as_scroll(&self, _axis: crate::layout::Axis) -> Option<i32> {
+            self.as_focus_move().map(|offset| offset * 5)
+        }
+    }
+
+    impl Event for SimulatorEvent {}
+
+    pub fn simulator_single_encoder(
         event: embedded_graphics_simulator::SimulatorEvent,
-    ) -> SimulatorEvent {
+    ) -> Option<SimulatorEvent> {
+        match event {
+            embedded_graphics_simulator::SimulatorEvent::KeyUp {
+                keycode,
+                ..
+            } => match keycode {
+                embedded_graphics_simulator::sdl2::Keycode::Return
+                | embedded_graphics_simulator::sdl2::Keycode::Space => {
+                    Some(SimulatorEvent::FocusedRelease)
+                },
+                embedded_graphics_simulator::sdl2::Keycode::Right
+                | embedded_graphics_simulator::sdl2::Keycode::Down => {
+                    Some(SimulatorEvent::FocusMove(1))
+                },
+                embedded_graphics_simulator::sdl2::Keycode::Left
+                | embedded_graphics_simulator::sdl2::Keycode::Up => {
+                    Some(SimulatorEvent::FocusMove(-1))
+                },
+                _ => None,
+            },
+            embedded_graphics_simulator::SimulatorEvent::KeyDown {
+                keycode,
+                ..
+            } => match keycode {
+                embedded_graphics_simulator::sdl2::Keycode::Return
+                | embedded_graphics_simulator::sdl2::Keycode::Space => {
+                    Some(SimulatorEvent::FocusedPress)
+                },
+                _ => None,
+            },
+            embedded_graphics_simulator::SimulatorEvent::MouseButtonUp {
+                mouse_btn,
+                ..
+            } => match mouse_btn {
+                embedded_graphics_simulator::sdl2::MouseButton::Left => Some(SimulatorEvent::FocusedRelease),
+                _ => None
+            },
+            embedded_graphics_simulator::SimulatorEvent::MouseButtonDown {
+                mouse_btn,
+                ..
+            } => match mouse_btn {
+                embedded_graphics_simulator::sdl2::MouseButton::Left => Some(SimulatorEvent::FocusedPress),
+                _ => None
+            },
+            embedded_graphics_simulator::SimulatorEvent::MouseWheel {
+                scroll_delta,
+                direction,
+            } => Some(SimulatorEvent::FocusMove(match direction {
+                embedded_graphics_simulator::sdl2::MouseWheelDirection::Normal => 1,
+                embedded_graphics_simulator::sdl2::MouseWheelDirection::Flipped => -1,
+                embedded_graphics_simulator::sdl2::MouseWheelDirection::Unknown(_) => 0,
+            } * scroll_delta.y)),
+            embedded_graphics_simulator::SimulatorEvent::MouseMove {
+                ..
+            } => None,
+            embedded_graphics_simulator::SimulatorEvent::Quit => {
+                Some(SimulatorEvent::Exit)
+            },
+        }
     }
 }

@@ -1,25 +1,51 @@
+use embedded_graphics::{
+    pixelcolor::Rgb888,
+    prelude::{Dimensions as _, RgbColor, WebColors},
+};
+use embedded_graphics_simulator::{
+    OutputSettingsBuilder, SimulatorDisplay, Window,
+};
+use rand::random;
+use rsact_core::prelude::*;
+use rsact_ui::{
+    el::El,
+    event::{simulator::simulator_single_encoder, NullEvent},
+    layout::{
+        size::{Length, Size},
+        Align,
+    },
+    render::Border,
+    style::{
+        block::{BorderStyle, BoxStyle},
+        text::MonoTextStyle,
+    },
+    ui::UI,
+    widget::{Widget as _, WidgetCtx},
+    widgets::{
+        button::{Button, ButtonState, ButtonStyle},
+        edge::Edge,
+        flex::Flex,
+        mono_text::MonoText,
+        scrollable::{Scrollable, ScrollableState, ScrollableStyle},
+        space::Space,
+    },
+};
 use std::{
     array, thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use embedded_graphics::{pixelcolor::Rgb888, prelude::Dimensions as _};
-use embedded_graphics_simulator::{
-    OutputSettingsBuilder, SimulatorDisplay, Window,
-};
-use rand::random;
-use rsact_core::{prelude::*, signal::EcoSignal};
-use rsact_ui::{
-    event::NullEvent,
-    layout::{
-        size::{Length, Size},
-        Align,
-    },
-    style::BoxStyle,
-    ui::UI,
-    widget::Widget as _,
-    widgets::{edge::Edge, flex::Flex, space::Space},
-};
+fn edge<C: WidgetCtx<Color = Rgb888>>() -> El<C> {
+    Edge::new()
+        .style(BoxStyle::base().background_color(Rgb888::new(
+            random(),
+            random(),
+            random(),
+        )))
+        .fill()
+        .width(50)
+        .el()
+}
 
 fn main() {
     let rng = rand::thread_rng();
@@ -64,49 +90,84 @@ fn main() {
 
     window.update(&display);
 
-    let mut items_height = use_signal(50);
+    // let mut items_height = use_signal(50);
 
-    let items = use_signal(vec![
-        Edge::new()
-            .width(Length::Fixed(20))
-            .height::<u32>(items_height)
-            .with_style(BoxStyle::base().background_color(Rgb888::new(
-                random(),
-                random(),
-                random(),
-            )))
+    let button_style = |state| {
+        let base = ButtonStyle::base();
+        match state {
+            ButtonState { pressed: true, .. } => base.container(
+                BoxStyle::base()
+                    .border(BorderStyle::base().color(Rgb888::MAGENTA)),
+            ),
+            ButtonState { .. } => base,
+        }
+    };
+
+    let scrollable_style = |state| {
+        let base = ScrollableStyle::base()
+            .show(rsact_ui::widgets::scrollable::ScrollbarShow::Always);
+
+        match state {
+            ScrollableState { active: true, .. } => base
+                .container(
+                    BoxStyle::base()
+                        .border(BorderStyle::base().color(Rgb888::MAGENTA)),
+                )
+                .thumb_color(Some(Rgb888::CSS_GRAY))
+                .track_color(Some(Rgb888::CSS_BROWN)),
+            ScrollableState { .. } => base,
+        }
+    };
+
+    let items = use_signal(vec![]);
+
+    let buttons = Flex::row(vec![
+        Button::new("Add")
+            .style(button_style)
+            .width(Length::fill())
+            .height(Length::fill())
+            .on_click(move || {
+                items.update(|items| {
+                    items.push(
+                        MonoText::new(items.len().to_string()).shrink().el(),
+                    )
+                })
+            })
             .el(),
-        Space::row(Length::Fixed(100)).el(),
-        Edge::new()
-            .width(Length::Fixed(20))
-            .height::<u32>(items_height)
-            .with_style(BoxStyle::base().background_color(Rgb888::new(
-                random(),
-                random(),
-                random(),
-            )))
+        Button::new("Remove")
+            .style(button_style)
+            .width(Length::fill())
+            .height(Length::fill())
+            .on_click(move || {
+                items.update(|items| {
+                    items.pop();
+                })
+            })
             .el(),
     ]);
 
-    // let items: [_; 5] = array::from_fn(|_| {
-    //     Edge::new()
-    //         .width(Length::Div(5))
-    //         .height::<u32>(items_height)
-    //         .with_style(BoxStyle::base().background_color(Rgb888::new(
-    //             random(),
-    //             random(),
-    //             random(),
-    //         )))
-    //         .el()
-    // });
+    // TODO: Fix Flex::row in Scrollable::vertical
 
-    let flexbox = Flex::row(items)
-        .wrap(true)
-        .horizontal_align(Align::Center)
-        .width(Length::fill());
+    let flexbox = Flex::col(vec![
+        // Flex::row(core::array::from_fn::<_, 100, _>(|_| edge()))
+        //     .fill()
+        //     .wrap(true)
+        //     .el(),
+        buttons.width(Length::fill()).height(Length::fill()).el(),
+        Scrollable::horizontal(
+            Flex::row(items).shrink().gap(5).wrap(true).el(),
+        )
+        .style(scrollable_style)
+        .el(),
+        // Flex::row([edge(), edge()]).fill().el(),
+    ])
+    .wrap(true)
+    .fill();
 
-    let mut ui = UI::new(flexbox.el(), display.bounding_box().size)
+    let mut ui = UI::new(flexbox, display.bounding_box().size)
         .on_exit(|| std::process::exit(1));
+
+    ui.current_page().auto_focus();
 
     let mut fps = 0;
     let mut last_time = Instant::now();
@@ -137,8 +198,13 @@ fn main() {
 
         // thread::sleep(Duration::from_millis(100));
 
-        window.events().for_each(|e| {});
-        ui.tick([NullEvent].into_iter());
+        ui.tick(
+            window
+                .events()
+                .map(simulator_single_encoder)
+                .filter_map(|e| e)
+                .inspect(|e| println!("Event: {e:?}")),
+        );
         ui.draw(&mut display).unwrap();
 
         window.update(&display);

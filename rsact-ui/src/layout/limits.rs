@@ -1,11 +1,13 @@
+use core::{ops::Div, u32};
+
 use embedded_graphics::primitives::Rectangle;
 
 use super::{
-    axis::Axis,
-    size::{Length, Size},
+    axis::{Axial, Axis},
+    size::{DeterministicLength, Length, Size, SizeExt},
 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct Limits {
     min: Size<u32>,
     max: Size<u32>,
@@ -16,12 +18,16 @@ impl Limits {
         Self { min, max }
     }
 
-    pub fn unknown() -> Self {
+    pub fn unlimited() -> Self {
         Self { min: Size::zero(), max: Size::new(u32::MAX, u32::MAX) }
     }
 
     pub fn only_max(max: Size<u32>) -> Self {
         Self { min: Size::zero(), max }
+    }
+
+    pub fn zero() -> Self {
+        Self { min: Size::zero(), max: Size::zero() }
     }
 
     pub fn min(&self) -> Size<u32> {
@@ -32,13 +38,13 @@ impl Limits {
         self.max
     }
 
-    pub fn min_square(&self) -> u32 {
-        self.min().width.min(self.min().height)
-    }
+    // pub fn min_square(&self) -> u32 {
+    //     self.min().width.min(self.min().height)
+    // }
 
-    pub fn max_square(&self) -> u32 {
-        self.max().width.min(self.max().height)
-    }
+    // pub fn max_square(&self) -> u32 {
+    //     self.max().width.min(self.max().height)
+    // }
 
     pub fn with_max(self, max: Size) -> Self {
         Self::new(self.min, max)
@@ -50,39 +56,21 @@ impl Limits {
         self.limit_axis(Axis::X, size.width).limit_axis(Axis::Y, size.height)
     }
 
-    pub fn limit_width(self, width: impl Into<Length>) -> Self {
-        match width.into() {
-            Length::Shrink | Length::Div(_) => self,
-            Length::Fixed(fixed) => {
-                let new_width = fixed.min(self.max.width).max(self.min.width);
-
-                Self::new(
-                    self.min.with_width(new_width),
-                    self.max.with_width(new_width),
-                )
-            },
-        }
-    }
-
-    pub fn limit_height(self, height: impl Into<Length>) -> Self {
-        match height.into() {
-            Length::Shrink | Length::Div(_) => self,
-            Length::Fixed(fixed) => {
-                let new_height =
-                    fixed.min(self.max.height).max(self.min.height);
-
-                Self::new(
-                    self.min.with_height(new_height),
-                    self.max.with_height(new_height),
-                )
-            },
-        }
-    }
-
     pub fn limit_axis(self, axis: Axis, length: impl Into<Length>) -> Self {
-        match axis {
-            Axis::X => self.limit_width(length),
-            Axis::Y => self.limit_height(length),
+        match length.into() {
+            Length::InfiniteWindow(_) => {
+                self.with_max(axis.canon(u32::MAX, self.max.cross(axis)))
+            },
+            Length::Div(_) | Length::Shrink => self,
+            Length::Fixed(fixed) => {
+                let new_length =
+                    fixed.min(self.max.main(axis)).max(self.min.main(axis));
+
+                Self::new(
+                    axis.canon(new_length, self.min.cross(axis)),
+                    axis.canon(new_length, self.max.cross(axis)),
+                )
+            },
         }
     }
 
@@ -92,44 +80,53 @@ impl Limits {
         Limits::new(self.min() - by, self.max() - by)
     }
 
+    fn resolve_axis(
+        &self,
+        axis: Axis,
+        container_size: Size<Length>,
+        content_size: Size,
+    ) -> u32 {
+        match container_size.main(axis) {
+            Length::Shrink
+            | Length::InfiniteWindow(DeterministicLength::Shrink) => {
+                content_size
+                    .main(axis)
+                    .min(self.max.main(axis))
+                    .max(self.min.main(axis))
+            },
+            Length::Div(_)
+            | Length::InfiniteWindow(DeterministicLength::Div(_)) => {
+                self.max.main(axis)
+            },
+            Length::Fixed(fixed)
+            | Length::InfiniteWindow(DeterministicLength::Fixed(fixed)) => {
+                fixed.min(self.max.main(axis)).max(self.min.main(axis))
+            },
+        }
+    }
+
     pub fn resolve_size(
         &self,
         container_size: Size<Length>,
         content_size: Size<u32>,
     ) -> Size<u32> {
-        let width = match container_size.width {
-            Length::Div(_) => self.max.width,
-            Length::Fixed(fixed) => {
-                fixed.min(self.max.width).max(self.min.width)
-            },
-            Length::Shrink => {
-                content_size.width.min(self.max.width).max(self.min.width)
-            },
-        };
-
-        let height = match container_size.height {
-            Length::Div(_) => self.max.height,
-            Length::Fixed(fixed) => {
-                fixed.min(self.max.height).max(self.min.height)
-            },
-            Length::Shrink => {
-                content_size.height.min(self.max.height).max(self.min.height)
-            },
-        };
-
-        Size::new(width, height)
+        Size::new(
+            self.resolve_axis(Axis::X, container_size, content_size),
+            self.resolve_axis(Axis::Y, container_size, content_size),
+        )
     }
 
-    pub fn resolve_square(&self, size: impl Into<Length>) -> u32 {
-        let min_square = self.min_square();
-        let max_square = self.max_square();
+    // pub fn resolve_square(&self, size: impl Into<Length>) -> u32 {
+    //     let min_square = self.min_square();
+    //     let max_square = self.max_square();
 
-        match size.into() {
-            Length::Div(_) => max_square,
-            Length::Fixed(fixed) => fixed.min(max_square).max(min_square),
-            Length::Shrink => min_square,
-        }
-    }
+    //     match size.into() {
+    //         Length::InfiniteWindow(_) => max_square,
+    //         Length::Div(_) => max_square,
+    //         Length::Fixed(fixed) => fixed.min(max_square).max(min_square),
+    //         Length::Shrink => min_square,
+    //     }
+    // }
 }
 
 impl From<Rectangle> for Limits {

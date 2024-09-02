@@ -8,38 +8,39 @@ pub struct Container<C: WidgetCtx> {
 
 impl<C: WidgetCtx + 'static> Container<C> {
     pub fn new(content: impl IntoSignal<El<C>>) -> Self {
-        let content = content.signal();
+        let content = content.into_signal();
 
         Self {
-            layout: use_signal(Layout {
-                kind: LayoutKind::Container(ContainerLayout::base()),
-                size: Size::shrink(),
-                box_model: BoxModel::zero(),
-                content_size: use_computed(move || {
-                    content.with(move |content| {
-                        content
-                            .layout()
-                            .with(move |content| content.content_size.get())
-                    })
+            layout: Layout::new(
+                LayoutKind::Container(ContainerLayout::base()),
+                content.mapped(|content| {
+                    content.layout().with(|layout| layout.content_size.get())
                 }),
-            }),
+            )
+            .into_signal(),
             content,
-            style: use_signal(BoxStyle::base()),
+            style: BoxStyle::base().into_signal(),
         }
+    }
+
+    pub fn style(
+        self,
+        style: impl IntoMemo<BoxStyle<C::Color>> + 'static,
+    ) -> Self {
+        self.style.set_from(style.into_memo());
+        self
     }
 
     pub fn vertical_align(
         self,
         vertical_align: impl EcoSignal<Align> + 'static,
     ) -> Self {
-        let vertical_align = vertical_align.eco_signal();
-        use_memo(move || {
-            let vertical_align = vertical_align.get();
-            self.layout.update(move |layout| {
+        self.layout.setter(
+            vertical_align.eco_signal(),
+            |&vertical_align, layout| {
                 layout.expect_container_mut().vertical_align = vertical_align
-            });
-            vertical_align
-        });
+            },
+        );
         self
     }
 
@@ -47,21 +48,19 @@ impl<C: WidgetCtx + 'static> Container<C> {
         self,
         horizontal_align: impl EcoSignal<Align> + 'static,
     ) -> Self {
-        let horizontal_align = horizontal_align.eco_signal();
-        use_memo(move || {
-            let horizontal_align = horizontal_align.get();
-            self.layout.update(move |layout| {
+        self.layout.setter(
+            horizontal_align.eco_signal(),
+            |&horizontal_align, layout| {
                 layout.expect_container_mut().horizontal_align =
                     horizontal_align
-            });
-            horizontal_align
-        });
+            },
+        );
         self
     }
 }
 
 impl<C: WidgetCtx + 'static> Widget<C> for Container<C> {
-    fn children_ids(&self) -> Signal<Vec<ElId>> {
+    fn children_ids(&self) -> Memo<Vec<ElId>> {
         let content = self.content;
         content.with(Widget::children_ids)
     }
@@ -70,11 +69,11 @@ impl<C: WidgetCtx + 'static> Widget<C> for Container<C> {
         self.layout
     }
 
-    fn build_layout_tree(&self) -> SignalTree<Layout> {
+    fn build_layout_tree(&self) -> MemoTree<Layout> {
         let content = self.content;
-        SignalTree {
-            data: self.layout,
-            children: use_computed(move || {
+        MemoTree {
+            data: self.layout.into_memo(),
+            children: use_memo(move |_| {
                 content.with(|content| vec![content.build_layout_tree()])
             }),
         }
@@ -97,5 +96,14 @@ impl<C: WidgetCtx + 'static> Widget<C> for Container<C> {
         ctx: &mut crate::widget::EventCtx<'_, C>,
     ) -> crate::event::EventResponse<<C as WidgetCtx>::Event> {
         self.content.control_flow(|content| content.on_event(ctx))
+    }
+}
+
+impl<C> From<Container<C>> for El<C>
+where
+    C: WidgetCtx + 'static,
+{
+    fn from(value: Container<C>) -> Self {
+        El::new(value)
     }
 }

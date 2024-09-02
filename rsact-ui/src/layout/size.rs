@@ -1,7 +1,25 @@
-use core::ops::{Add, AddAssign, Div, Mul, Rem, Sub, SubAssign};
+use core::{
+    fmt::Display,
+    ops::{Add, AddAssign, Div, Mul, Rem, Sub, SubAssign},
+};
 use embedded_graphics::geometry::Point;
 
 use super::{axis::Axial, padding::Padding};
+
+pub trait SubTake<Rhs = Self> {
+    fn sub_take(&mut self, sub: Rhs) -> Self;
+}
+
+impl SubTake for u32 {
+    fn sub_take(&mut self, sub: Self) -> Self {
+        if *self >= sub {
+            *self -= sub;
+            sub
+        } else {
+            0
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct DivFactors {
@@ -126,6 +144,46 @@ impl Rem<DivFactors> for Size {
 //     }
 // }
 
+// #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+// pub struct InfiniteLength;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "defmt", derive(::defmt::Format))]
+pub enum DeterministicLength {
+    Shrink,
+    Div(u16),
+    Fixed(u32),
+}
+
+impl TryFrom<Length> for DeterministicLength {
+    type Error = ();
+
+    fn try_from(value: Length) -> Result<Self, Self::Error> {
+        match value {
+            Length::Shrink => Ok(Self::Shrink),
+            Length::Div(div) => Ok(Self::Div(div)),
+            Length::Fixed(fixed) => Ok(Self::Fixed(fixed)),
+            Length::InfiniteWindow(_) => Err(()),
+        }
+    }
+}
+
+impl DeterministicLength {
+    pub fn into_length(self) -> Length {
+        self.into()
+    }
+}
+
+impl Into<Length> for DeterministicLength {
+    fn into(self) -> Length {
+        match self {
+            DeterministicLength::Shrink => Length::Shrink,
+            DeterministicLength::Div(div) => Length::Div(div),
+            DeterministicLength::Fixed(fixed) => Length::Fixed(fixed),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "defmt", derive(::defmt::Format))]
 pub enum Length {
@@ -139,6 +197,26 @@ pub enum Length {
 
     /// Fixed pixels count
     Fixed(u32),
+
+    /// Only available for special internal layouts such as Scrollable
+    #[non_exhaustive]
+    InfiniteWindow(DeterministicLength),
+    // /// Fixed scrollable window
+    // Scroll(Length),
+}
+
+impl Display for Length {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Length::Shrink => write!(f, "Length::Shrink"),
+            Length::Div(div) => write!(f, "Length::Div({div})"),
+            Length::Fixed(fixed) => write!(f, "Length::Fixed({fixed})"),
+            Length::InfiniteWindow(length) => {
+                write!(f, "Length::InfiniteWindow({length:?})")
+            },
+            // Length::Scroll(fixed) => write!(f, "Length::Scroll({fixed})"),
+        }
+    }
 }
 
 impl Length {
@@ -148,26 +226,53 @@ impl Length {
 
     pub fn div_factor(&self) -> u16 {
         match self {
+            Length::InfiniteWindow(length) => length.into_length().div_factor(),
             Length::Fixed(_) | Length::Shrink => 0,
             Length::Div(div) => *div,
         }
     }
 
-    pub fn infinite() -> Self {
-        // TODO: Do we need distinct `Length::Infinite`?
-        Self::Fixed(u32::MAX)
+    // pub fn infinite() -> Self {
+    //     // TODO: Do we need distinct `Length::Infinite`?
+    //     Self::Fixed(u32::MAX)
+    // }
+
+    // pub fn is_fixed(&self) -> bool {
+    //     matches!(self, Self::Fixed(_))
+    // }
+
+    // pub fn is_fill(&self) -> bool {
+    //     self.div_factor() != 0
+    // }
+
+    pub fn set_deterministic(&mut self, length: impl Into<Length>) {
+        let length = length.into();
+        if let Length::InfiniteWindow(_) = self {
+            *self = Length::InfiniteWindow(
+                length
+                    .try_into()
+                    .expect("Setting Length::InfiniteWindow is not allowed"),
+            );
+        } else {
+            *self = length;
+        }
     }
 
-    pub fn is_fixed(&self) -> bool {
-        matches!(self, Self::Fixed(_))
-    }
+    // TODO: Make these methods pub(crate)?
 
-    pub fn is_fill(&self) -> bool {
-        self.div_factor() != 0
+    pub fn is_grow(&self) -> bool {
+        match self {
+            Length::InfiniteWindow(length) => length.into_length().is_grow(),
+            Length::Div(_) => true,
+            Length::Shrink | Length::Fixed(_) => false,
+        }
     }
 
     pub fn into_fixed(&self, base_div: u32) -> u32 {
         match self {
+            Length::InfiniteWindow(length) => {
+                length.into_length().into_fixed(base_div)
+            },
             Length::Shrink => base_div,
             &Length::Div(div) => base_div * div as u32,
             &Length::Fixed(fixed) => fixed,
@@ -176,9 +281,11 @@ impl Length {
 
     pub fn max_fixed(&self, fixed: u32) -> u32 {
         match self {
-            Length::Shrink => fixed,
-            Length::Div(_) => fixed,
-            &Length::Fixed(this) => this.max(fixed),
+            Length::InfiniteWindow(length) => {
+                length.into_length().max_fixed(fixed)
+            },
+            Length::Shrink | Length::Div(_) => fixed,
+            &Length::Fixed(fixed) => fixed.max(fixed),
         }
     }
 }
@@ -226,13 +333,13 @@ impl<T> Size<T> {
 }
 
 impl Size<Length> {
-    pub fn is_fixed(&self) -> bool {
-        self.width.is_fixed() && self.height.is_fixed()
-    }
+    // pub fn is_fixed(&self) -> bool {
+    //     self.width.is_fixed() && self.height.is_fixed()
+    // }
 
-    pub fn is_fill(&self) -> bool {
-        self.width.is_fill() && self.height.is_fill()
-    }
+    // pub fn is_fill(&self) -> bool {
+    //     self.width.is_fill() && self.height.is_fill()
+    // }
 
     pub fn div_factors(&self) -> DivFactors {
         DivFactors {
@@ -269,6 +376,12 @@ impl Size<u32> {
 
     pub fn as_fixed_length(self) -> Size<Length> {
         Size::new(Length::Fixed(self.width), Length::Fixed(self.height))
+    }
+}
+
+impl SubTake<u32> for Size<u32> {
+    fn sub_take(&mut self, sub: u32) -> Self {
+        Self::new(self.width.sub_take(sub), self.height.sub_take(sub))
     }
 }
 

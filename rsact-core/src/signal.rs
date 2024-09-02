@@ -1,6 +1,8 @@
 use crate::{
+    composables::use_memo,
     effect::use_effect,
-    prelude::{use_computed, use_signal, use_static},
+    memo::Memo,
+    prelude::{use_signal, use_static},
     runtime::with_current_runtime,
     storage::ValueId,
 };
@@ -57,15 +59,6 @@ pub trait ReadSignal<T> {
     {
         self.with(T::clone)
     }
-
-    #[track_caller]
-    fn mapped<U: 'static>(self, f: impl Fn(&T) -> U + 'static) -> Signal<U>
-    where
-        Self: Sized + 'static,
-    {
-        let this = self;
-        use_computed(move || this.with(|this| f(this)))
-    }
 }
 
 pub trait WriteSignal<T> {
@@ -97,10 +90,6 @@ pub trait WriteSignal<T> {
     }
 }
 
-pub trait RwSignal<T>: ReadSignal<T> + WriteSignal<T> {}
-
-impl<S, T> RwSignal<T> for S where S: ReadSignal<T> + WriteSignal<T> {}
-
 pub mod marker {
     pub struct ReadOnly;
     pub struct WriteOnly;
@@ -126,34 +115,6 @@ pub struct Signal<T, M: marker::Any = marker::Rw> {
     rw: PhantomData<M>,
 }
 
-impl<T, M: marker::CanRead + marker::CanWrite> Signal<T, M> {
-    // pub fn bound(&self, other: Signal<T>) -> Signal<T> {
-    //     use_effect(move || {
-    //         self.update_untracked(other.)
-    //     });
-    // }
-
-    // pub fn aliased(&self, other: Signal<T>) -> Self {
-    //     // with_current_runtime(|rt| rt.s)
-    //     self
-    // }
-
-    #[track_caller]
-    pub fn sync_with(self, other: Signal<T>) -> Self
-    where
-        Self: Sized + 'static,
-        T: Copy + 'static,
-    {
-        use_effect(move |_| {
-            self.update(|this| *this = other.get());
-        });
-        use_effect(move |_| {
-            other.update(|other| *other = self.get());
-        });
-        self
-    }
-}
-
 impl<T: 'static, M: marker::Any> Signal<T, M> {
     #[track_caller]
     pub fn new(value: T) -> Self {
@@ -166,6 +127,69 @@ impl<T: 'static, M: marker::Any> Signal<T, M> {
             ty: PhantomData,
             rw: PhantomData,
         }
+    }
+}
+
+pub trait SignalSetter<T: 'static> {
+    fn setter<U: 'static>(
+        self,
+        other: impl ReadSignal<U> + 'static,
+        f: impl Fn(&U, &mut T) + 'static,
+    );
+    fn set_from(self, other: impl ReadSignal<T> + 'static)
+    where
+        T: Clone,
+        Self: Sized + 'static,
+    {
+        self.setter(other, |new, this| *this = new.clone());
+    }
+}
+
+impl<S, T> SignalSetter<T> for S
+where
+    S: WriteSignal<T> + 'static,
+    T: 'static,
+{
+    fn setter<U: 'static>(
+        self,
+        other: impl ReadSignal<U> + 'static,
+        f: impl Fn(&U, &mut T) + 'static,
+    ) {
+        use_effect(move |_| {
+            other.with(|other| {
+                self.update(|this| f(other, this));
+            });
+        });
+    }
+}
+
+pub trait SignalMapper<T: 'static> {
+    fn mapped<U: PartialEq + 'static>(
+        self,
+        map: impl Fn(&T) -> U + 'static,
+    ) -> Memo<U>;
+
+    fn mapped_clone<U: PartialEq + 'static>(
+        self,
+        map: impl Fn(T) -> U + 'static,
+    ) -> Memo<U>
+    where
+        Self: Sized + 'static,
+        T: Clone,
+    {
+        self.mapped(move |this| map(this.clone()))
+    }
+}
+
+impl<S, T: 'static> SignalMapper<T> for S
+where
+    S: ReadSignal<T> + 'static,
+{
+    fn mapped<U: PartialEq + 'static>(
+        self,
+        map: impl Fn(&T) -> U + 'static,
+    ) -> Memo<U> {
+        use_memo(move |_| self.with(|value| map(value)))
     }
 }
 
@@ -302,14 +326,14 @@ macro_rules! impl_arith_with_assign {
         $(
             impl<T, M> $trait for Signal<T, M>
             where
-                T: $trait<Output = T> + Clone + 'static,
+                T: $trait<Output = T> + PartialEq + Clone + 'static,
                 M: marker::CanRead + 'static,
             {
-                type Output = Signal<T>;
+                type Output = Memo<T>;
 
                 #[track_caller]
                 fn $method(self, rhs: Self) -> Self::Output {
-                    use_computed(move || self.get_cloned().$method(rhs.get_cloned()))
+                    use_memo(move |_| self.get_cloned().$method(rhs.get_cloned()))
                 }
             }
 
@@ -366,27 +390,27 @@ impl_arith_with_assign! {
 
 impl<T, M> Neg for Signal<T, M>
 where
-    T: Neg<Output = T> + Clone + 'static,
+    T: Neg<Output = T> + PartialEq + Clone + 'static,
     M: marker::CanRead + 'static,
 {
-    type Output = Signal<T>;
+    type Output = Memo<T>;
 
     #[track_caller]
     fn neg(self) -> Self::Output {
-        use_computed(move || self.get_cloned().neg())
+        use_memo(move |_| self.get_cloned().neg())
     }
 }
 
 impl<T, M> Not for Signal<T, M>
 where
-    T: Not<Output = T> + Clone + 'static,
+    T: Not<Output = T> + PartialEq + Clone + 'static,
     M: marker::CanRead + 'static,
 {
-    type Output = Signal<T>;
+    type Output = Memo<T>;
 
     #[track_caller]
     fn not(self) -> Self::Output {
-        use_computed(move || self.get_cloned().not())
+        use_memo(move |_| self.get_cloned().not())
     }
 }
 
@@ -466,17 +490,17 @@ impl<T: 'static> EcoSignal<T> for T {
 }
 
 pub trait IntoSignal<T: 'static> {
-    fn signal(self) -> Signal<T>;
+    fn into_signal(self) -> Signal<T>;
 }
 
 impl<T: 'static> IntoSignal<T> for Signal<T> {
-    fn signal(self) -> Signal<T> {
+    fn into_signal(self) -> Signal<T> {
         self
     }
 }
 
 impl<T: 'static> IntoSignal<T> for T {
-    fn signal(self) -> Signal<T> {
+    fn into_signal(self) -> Signal<T> {
         use_signal(self)
     }
 }
@@ -489,7 +513,7 @@ pub struct SignalTree<T: 'static> {
 
 impl<T: 'static> SignalTree<T> {
     pub fn childless(data: Signal<T>) -> Self {
-        Self { data, children: use_computed(Vec::new) }
+        Self { data, children: use_signal(Vec::new()) }
     }
 }
 
@@ -521,36 +545,4 @@ mod tests {
     //     assert_eq!(signal2.get(), 4);
     //     assert_eq!(signal1.get(), signal2.get());
     // }
-
-    #[test]
-    fn sync_with() {
-        let signal1 = use_signal(1);
-        let signal2 = use_signal(2);
-        signal2.sync_with(signal1);
-
-        signal1.set(3);
-        assert_eq!(signal1.get(), 3);
-        assert_eq!(signal1.get(), signal2.get());
-
-        signal2.set(4);
-        assert_eq!(signal2.get(), 4);
-        assert_eq!(signal1.get(), signal2.get());
-    }
-
-    #[test]
-    fn sync_with_reactivity() {
-        let main = use_signal(1);
-        let secondary = use_signal(0);
-
-        secondary.sync_with(main);
-
-        let affected = use_signal(0);
-        use_effect(move |_| {
-            affected.set(secondary.get());
-        });
-
-        main.set(123);
-
-        assert_eq!(affected.get(), 123);
-    }
 }

@@ -1,23 +1,12 @@
-use crate::{
-    el::{El, ElId},
-    event::{Event, EventResponse, Propagate},
-    layout::{
-        padding::Padding,
-        size::{Length, Size},
-        Layout, LayoutKind, LayoutModelTree, Limits,
-    },
-    render::{color::Color, Renderer},
-};
-use alloc::boxed::Box;
 use core::marker::PhantomData;
-use rsact_core::{
-    prelude::{use_computed, use_memo},
-    signal::{EcoSignal, ReadSignal, Signal, SignalTree, WriteSignal},
-};
+use embedded_graphics::primitives::Rectangle;
+use prelude::*;
+
+use crate::event::ButtonEdge;
 
 pub type DrawResult = Result<(), ()>;
 
-pub trait WidgetCtx {
+pub trait WidgetCtx: 'static {
     type Renderer: Renderer<Color = Self::Color>;
     type Event: Event;
 
@@ -33,17 +22,6 @@ pub trait WidgetCtx {
     }
 }
 
-// TODO: Think if it should be a Signal
-pub struct Behavior {
-    pub focusable: bool,
-}
-
-impl Behavior {
-    pub fn none() -> Self {
-        Self { focusable: false }
-    }
-}
-
 pub struct PhantomWidgetCtx<R, E>
 where
     R: Renderer,
@@ -55,8 +33,8 @@ where
 
 impl<R, E> WidgetCtx for PhantomWidgetCtx<R, E>
 where
-    R: Renderer,
-    E: Event,
+    R: Renderer + 'static,
+    E: Event + 'static,
 {
     type Renderer = R;
     type Event = E;
@@ -86,6 +64,7 @@ pub struct DrawCtx<'a, C: WidgetCtx> {
 }
 
 impl<'a, C: WidgetCtx + 'static> DrawCtx<'a, C> {
+    #[must_use]
     pub fn draw_child(&mut self, child: &El<C>) -> DrawResult {
         child.draw(&mut DrawCtx {
             state: &self.state,
@@ -94,6 +73,7 @@ impl<'a, C: WidgetCtx + 'static> DrawCtx<'a, C> {
         })
     }
 
+    #[must_use]
     pub fn draw_children(&mut self, children: &[El<C>]) -> DrawResult {
         children.iter().zip(self.layout.children()).try_for_each(
             |(child, child_layout)| {
@@ -105,37 +85,79 @@ impl<'a, C: WidgetCtx + 'static> DrawCtx<'a, C> {
             },
         )
     }
+
+    #[must_use]
+    pub fn draw_focus_outline(&mut self, id: ElId) -> DrawResult {
+        if self.state.focused == Some(id) {
+            self.renderer.block(Block {
+                border: Border::zero()
+                    .color(Some(<C::Color as Color>::default_foreground()))
+                    .width(2),
+                rect: self.layout.area,
+                background: None,
+            })
+        } else {
+            Ok(())
+        }
+    }
 }
 
 pub struct EventCtx<'a, C: WidgetCtx> {
     pub event: &'a C::Event,
     pub page_state: &'a mut PageState<C>,
+    pub layout: &'a LayoutModelTree<'a>,
     // TODO: Instant now
 }
 
 impl<'a, C: WidgetCtx + 'static> EventCtx<'a, C> {
+    #[must_use]
     pub fn pass_to_children(
         &mut self,
         children: &mut [El<C>],
     ) -> EventResponse<C::Event> {
-        for child in children.iter_mut() {
-            child.on_event(self)?;
+        for (child, child_layout) in
+            children.iter_mut().zip(self.layout.children())
+        {
+            child.on_event(&mut EventCtx {
+                event: &self.event,
+                page_state: &mut self.page_state,
+                layout: &child_layout,
+            })?;
         }
         Propagate::Ignored.into()
     }
 
-    pub fn handle_focusable(&self, id: ElId) -> EventResponse<C::Event> {
-        if let Some(common) = self.event.as_common() {
-            match common {
-                crate::event::CommonEvent::FocusMove(_)
-                    if Some(id) == self.page_state.focused =>
-                {
-                    return Propagate::BubbleUp(id, self.event.clone()).into()
-                },
-                _ => {},
+    pub fn is_focused(&self, id: ElId) -> bool {
+        self.page_state.focused == Some(id)
+    }
+
+    #[must_use]
+    pub fn handle_focusable(
+        &self,
+        id: ElId,
+        press: impl FnOnce(bool) -> EventResponse<C::Event>,
+    ) -> EventResponse<C::Event> {
+        if self.is_focused(id) {
+            if let Some(_) = self.event.as_focus_move() {
+                return Capture::Bubbled(id, self.event.clone()).into();
             }
+
+            let focus_click = if self.event.as_focus_press() {
+                Some(true)
+            } else if self.event.as_focus_release() {
+                Some(false)
+            } else {
+                None
+            };
+
+            if let Some(activate) = focus_click {
+                press(activate)
+            } else {
+                Propagate::Ignored.into()
+            }
+        } else {
+            Propagate::Ignored.into()
         }
-        Propagate::Ignored.into()
     }
 }
 
@@ -152,14 +174,30 @@ where
     where
         Self: Sized + 'static,
     {
-        El::new(Box::new(self))
+        El::new(self)
     }
 
-    fn children_ids(&self) -> Signal<Vec<ElId>> {
-        use_computed(Vec::new)
+    fn children_ids(&self) -> Memo<Vec<ElId>> {
+        Vec::new().into_memo()
     }
     fn layout(&self) -> Signal<Layout>;
-    fn build_layout_tree(&self) -> SignalTree<Layout>;
+    fn build_layout_tree(&self) -> MemoTree<Layout>;
+
+    // TODO: Move layout helper methods to separate trait to choose which
+    // widgets should be able to change size, etc.
+    fn fill(self) -> Self
+    where
+        Self: Sized + 'static,
+    {
+        self.width(Length::fill()).height(Length::fill())
+    }
+
+    fn shrink(self) -> Self
+    where
+        Self: Sized + 'static,
+    {
+        self.width(Length::Shrink).height(Length::Shrink)
+    }
 
     fn width<L: Into<Length> + Copy + 'static>(
         self,
@@ -168,12 +206,8 @@ where
     where
         Self: Sized + 'static,
     {
-        let layout = self.layout();
-        let width = width.eco_signal();
-        use_memo(move || {
-            let width = width.get().into();
-            layout.update_untracked(move |layout| layout.size.width = width);
-            width
+        self.layout().setter(width.eco_signal(), |&width, layout| {
+            layout.size.width = width.into();
         });
         self
     }
@@ -185,12 +219,8 @@ where
     where
         Self: Sized + 'static,
     {
-        let layout = self.layout();
-        let height = height.eco_signal();
-        use_memo(move || {
-            let height = height.get().into();
-            layout.update_untracked(move |layout| layout.size.height = height);
-            height
+        self.layout().setter(height.eco_signal(), |&height, layout| {
+            layout.size.height = height.into();
         });
         self
     }
@@ -199,15 +229,12 @@ where
     where
         Self: Sized + 'static,
     {
-        let layout = self.layout();
-        let border_width = border_width.eco_signal();
-        use_memo(move || {
-            let border_width = border_width.get();
-            layout.update_untracked(move |layout| {
-                layout.box_model.border_width = border_width
-            });
-            border_width
-        });
+        self.layout().setter(
+            border_width.eco_signal(),
+            |&border_width, layout| {
+                layout.box_model.border_width = border_width;
+            },
+        );
         self
     }
 
@@ -218,22 +245,13 @@ where
     where
         Self: Sized + 'static,
     {
-        let layout = self.layout();
-        let padding = padding.eco_signal();
-        use_memo(move || {
-            let padding = padding.get().into();
-            layout.update_untracked(move |layout| {
-                layout.box_model.padding = padding
-            });
-            padding
+        self.layout().setter(padding.eco_signal(), |&padding, layout| {
+            layout.box_model.padding = padding.into();
         });
         self
     }
 
     fn draw(&self, ctx: &mut DrawCtx<'_, C>) -> DrawResult;
-    fn behavior(&self) -> Behavior {
-        Behavior::none()
-    }
     fn on_event(
         &mut self,
         ctx: &mut EventCtx<'_, C>,
@@ -243,21 +261,23 @@ where
 pub mod prelude {
     pub use crate::{
         el::{El, ElId},
-        event::{Capture, EventResponse, Propagate},
+        event::{
+            Capture, Event, EventResponse, ExitEvent, FocusEvent, NullEvent,
+            Propagate,
+        },
         layout::{
             self,
             axis::{Axial as _, Axis, ColDir, Direction, RowDir},
             box_model::BoxModel,
+            padding::Padding,
             size::{Length, Size},
-            Align, ContainerLayout, EdgeLayout, FlexLayout, Layout, LayoutKind,
-            Limits,
+            Align, ContainerLayout, FlexLayout, Layout, LayoutKind,
+            LayoutModelTree, Limits,
         },
-        render::{Block, Renderer},
-        style::BoxStyle,
-        widget::{
-            Behavior, DrawCtx, DrawResult, EventCtx, LayoutCtx, Widget,
-            WidgetCtx,
-        },
+        render::{color::Color, Block, Border, Renderer},
+        style::block::*,
+        style::text::*,
+        widget::{DrawCtx, DrawResult, EventCtx, LayoutCtx, Widget, WidgetCtx},
     };
     pub use rsact_core::prelude::*;
 }

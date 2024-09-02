@@ -1,6 +1,7 @@
 use crate::{event::Event, widget::prelude::*};
 use alloc::boxed::Box;
 use core::sync::atomic::AtomicUsize;
+use rsact_core::prelude::*;
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -40,8 +41,8 @@ impl<C> El<C>
 where
     C: WidgetCtx,
 {
-    pub(crate) fn new(widget: Box<dyn Widget<C>>) -> Self {
-        Self { widget }
+    pub(crate) fn new(widget: impl Widget<C> + 'static) -> Self {
+        Self { widget: Box::new(widget) }
     }
 }
 
@@ -49,7 +50,7 @@ impl<C> Widget<C> for El<C>
 where
     C: WidgetCtx + 'static,
 {
-    fn children_ids(&self) -> Signal<Vec<ElId>> {
+    fn children_ids(&self) -> Memo<Vec<ElId>> {
         self.widget.children_ids()
     }
 
@@ -57,7 +58,7 @@ where
         self.widget.layout()
     }
 
-    fn build_layout_tree(&self) -> SignalTree<Layout> {
+    fn build_layout_tree(&self) -> MemoTree<Layout> {
         self.widget.build_layout_tree()
     }
 
@@ -65,15 +66,11 @@ where
         self.widget.draw(ctx)
     }
 
-    fn behavior(&self) -> Behavior {
-        self.widget.behavior()
-    }
-
     fn on_event(
         &mut self,
         ctx: &mut EventCtx<'_, C>,
     ) -> EventResponse<<C as WidgetCtx>::Event> {
-        Propagate::Ignored.into()
+        self.widget.on_event(ctx)
         //     ctx.is_focused = Some(self.id) == ctx.page_state.focused;
 
         //     let behavior = self.behavior();
