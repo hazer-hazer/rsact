@@ -4,8 +4,7 @@ use crate::{
     event::{EventResponse, Propagate},
     layout::{
         axis::{ColDir, Direction, RowDir},
-        box_model::BoxModel,
-        size::{Length, Size},
+        size::Length,
         Layout, Limits,
     },
     widget::{DrawCtx, DrawResult, EventCtx, Widget, WidgetCtx},
@@ -19,29 +18,38 @@ pub struct Space<C: WidgetCtx, Dir: Direction> {
 }
 
 impl<C: WidgetCtx> Space<C, RowDir> {
-    pub fn row(length: impl Into<Length>) -> Self {
+    pub fn row<L: Into<Length> + Clone + PartialEq + 'static>(
+        length: impl IntoMemo<L>,
+    ) -> Self {
         Self::new(length)
     }
 }
 
 impl<C: WidgetCtx> Space<C, ColDir> {
-    pub fn col(length: impl Into<Length>) -> Self {
+    pub fn col<L: Into<Length> + Clone + PartialEq + 'static>(
+        length: impl IntoMemo<L>,
+    ) -> Self {
         Self::new(length)
     }
 }
 
 impl<C: WidgetCtx, Dir: Direction> Space<C, Dir> {
-    pub fn new(length: impl Into<Length>) -> Self {
-        Self {
-            layout: Layout::new(
-                crate::layout::LayoutKind::Edge,
-                Limits::zero().into_memo(),
-            )
-            .size(Dir::AXIS.canon(length.into(), Length::fill()))
-            .into_signal(),
-            ctx: PhantomData,
-            dir: PhantomData,
-        }
+    pub fn new<L: Into<Length> + Clone + PartialEq + 'static>(
+        length: impl IntoMemo<L>,
+    ) -> Self {
+        let length = length.into_memo();
+        let layout = Layout::new(
+            crate::layout::LayoutKind::Edge,
+            Limits::zero().into_memo(),
+        )
+        .into_signal();
+
+        layout.setter(length, move |length, layout| {
+            layout.size =
+                Dir::AXIS.canon(length.clone().into(), Length::fill());
+        });
+
+        Self { layout, ctx: PhantomData, dir: PhantomData }
     }
 }
 

@@ -1,10 +1,16 @@
 use alloc::{
-    boxed::Box, collections::btree_map::BTreeMap, format, rc::Rc, vec::Vec,
+    boxed::Box,
+    collections::{
+        binary_heap::BinaryHeap, btree_map::BTreeMap, btree_set::BTreeSet,
+    },
+    format,
+    rc::Rc,
+    vec::Vec,
 };
 use core::{
     any::{type_name, Any},
     cell::{Ref, RefCell},
-    fmt::Debug,
+    fmt::{Debug, Display},
     marker::PhantomData,
     panic::Location,
 };
@@ -12,12 +18,13 @@ use slotmap::SlotMap;
 
 use crate::{
     callback::AnyCallback,
-    effect::EffectCallback,
+    effect::{EffectCallback, EffectOrder},
     memo::MemoCallback,
     operator::{AnyOperator, Operation, OperatorState},
     runtime::{Observer, Runtime},
 };
 
+// TODO: Add typed ValueId's
 slotmap::new_key_type! {
     pub struct ValueId;
 }
@@ -46,6 +53,7 @@ impl ValueId {
         value
     }
 
+    // TODO: Add `subscribe_with_current_rt` for simplicity
     pub(crate) fn subscribe(&self, rt: &Runtime) {
         rt.subscribe(*self);
     }
@@ -146,12 +154,34 @@ pub enum ValueKind {
     Memo {
         f: Rc<dyn AnyCallback>,
     },
+    MemoChain {
+        initial: Rc<dyn AnyCallback>,
+        // TODO: Optimize, don't use BtreeMap but fixed structure with each
+        // EffectOrder
+        fs: Rc<RefCell<BTreeMap<EffectOrder, Vec<Rc<dyn AnyCallback>>>>>,
+    },
     // Computed { f: Rc<dyn AnyCallback> },
     Operator {
         // TODO: Really clone? Store separately
         scheduled: BTreeMap<Observer, Vec<Rc<dyn Any>>>,
         operator: Rc<dyn AnyOperator>,
     },
+}
+
+impl Display for ValueKind {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                ValueKind::Effect { .. } => "effect",
+                ValueKind::Signal(_) => "signal",
+                ValueKind::Memo { .. } => "memo",
+                ValueKind::MemoChain { .. } => "memo chain",
+                ValueKind::Operator { .. } => "operator",
+            }
+        )
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -225,6 +255,21 @@ impl Storage {
             value: Rc::new(RefCell::new(None::<T>)),
             kind: ValueKind::Memo {
                 f: Rc::new(MemoCallback { f, ty: PhantomData }),
+            },
+            state: ValueState::Dirty,
+        })
+    }
+
+    pub fn create_memo_chain<T, F>(&self, f: F) -> ValueId
+    where
+        T: PartialEq + 'static,
+        F: Fn(Option<&T>) -> T + 'static,
+    {
+        self.values.borrow_mut().insert(StoredValue {
+            value: Rc::new(RefCell::new(None::<T>)),
+            kind: ValueKind::MemoChain {
+                initial: Rc::new(MemoCallback { f, ty: PhantomData }),
+                fs: Rc::new(RefCell::new(BTreeMap::new())),
             },
             state: ValueState::Dirty,
         })

@@ -1,6 +1,6 @@
 use crate::render::color::Color;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct MonoTextStyle<C: Color> {
     pub text_color: C,
 }

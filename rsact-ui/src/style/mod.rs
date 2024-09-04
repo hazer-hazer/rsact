@@ -1,3 +1,5 @@
+use crate::render::color::Color;
+
 pub mod block;
 pub mod text;
 pub mod theme;
@@ -11,3 +13,53 @@ pub mod theme;
 //         Self { style: use_signal(style) }
 //     }
 // }
+
+pub trait WidgetStyle {
+    type Color: Color;
+    type Inputs;
+}
+
+#[derive(Default)]
+pub struct NullStyler;
+
+impl<S: WidgetStyle> Styler<S> for NullStyler {
+    type Class = ();
+
+    fn default() -> Self::Class {
+        ()
+    }
+
+    fn style(
+        self,
+        _inputs: Self::Class,
+    ) -> impl Fn(S, <S as WidgetStyle>::Inputs) -> S + 'static {
+        move |style, _| style
+    }
+}
+
+pub trait Styler<S: WidgetStyle> {
+    type Class;
+
+    fn default() -> Self::Class;
+    fn style(self, class: Self::Class) -> impl Fn(S, S::Inputs) -> S + 'static;
+}
+
+// impl<S: WidgetStyle, F> Styler<S> for F
+// where
+//     F: Fn(S, S::Inputs) -> S + 'static,
+// {
+//     type Class = ();
+
+//     fn default() -> Self::Class {
+//         ()
+//     }
+
+//     fn style(
+//         self,
+//         _class: Self::Class,
+//     ) -> impl Fn(S, S::Inputs) -> S + 'static {
+//         self
+//     }
+// }
+
+// impl<S: WidgetStyle> Styler<S> for S {}

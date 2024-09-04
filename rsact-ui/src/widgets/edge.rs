@@ -1,8 +1,9 @@
 use crate::widget::prelude::*;
+use rsact_core::memo_chain::IntoMemoChain;
 
 pub struct Edge<C: WidgetCtx> {
     pub layout: Signal<Layout>,
-    style: Signal<BoxStyle<C::Color>>,
+    style: MemoChain<BoxStyle<C::Color>>,
 }
 
 impl<C: WidgetCtx + 'static> Edge<C> {
@@ -11,15 +12,21 @@ impl<C: WidgetCtx + 'static> Edge<C> {
             layout: Layout::new(LayoutKind::Edge, Limits::zero().into_memo())
                 .size(Size::fill())
                 .into_signal(),
-            style: BoxStyle::base().into_signal(),
+            style: BoxStyle::base().into_memo_chain(),
         }
     }
 
-    pub fn style(self, style: impl IntoMemo<BoxStyle<C::Color>>) -> Self {
-        self.style.set_from(style.into_memo());
+    pub fn style(
+        self,
+        styler: impl Fn(BoxStyle<C::Color>) -> BoxStyle<C::Color> + 'static,
+    ) -> Self {
+        self.style.last(move |prev_style| styler(*prev_style));
         self
     }
 }
+
+impl<C: WidgetCtx + 'static> SizedWidget<C> for Edge<C> {}
+impl<C: WidgetCtx + 'static> BoxModelWidget<C> for Edge<C> {}
 
 impl<C: WidgetCtx + 'static> Widget<C> for Edge<C> {
     fn layout(&self) -> Signal<Layout> {
@@ -42,7 +49,7 @@ impl<C: WidgetCtx + 'static> Widget<C> for Edge<C> {
 
     fn on_event(
         &mut self,
-        ctx: &mut crate::widget::EventCtx<'_, C>,
+        _ctx: &mut crate::widget::EventCtx<'_, C>,
     ) -> crate::event::EventResponse<<C as WidgetCtx>::Event> {
         Propagate::Ignored.into()
     }

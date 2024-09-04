@@ -1,10 +1,65 @@
 use crate::{
-    callback::{AnyCallback, CallbackResult},
-    runtime::with_current_runtime,
-    storage::ValueId,
+    callback::AnyCallback, runtime::with_current_runtime, storage::ValueId,
 };
 use alloc::rc::Rc;
 use core::{any::Any, cell::RefCell, marker::PhantomData};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum EffectOrder {
+    First,
+    #[default]
+    Normal,
+    Last,
+}
+
+// #[derive(Clone)]
+// pub struct OrderedCallback {
+//     order: EffectOrder,
+//     callback: Rc<dyn AnyCallback>,
+// }
+
+// impl AnyCallback for OrderedCallback {
+//     fn run(&self, value: Rc<RefCell<dyn Any>>) -> bool {
+//         self.callback.run(value)
+//     }
+// }
+
+// impl OrderedCallback {
+//     pub fn new(
+//         order: EffectOrder,
+//         callback: impl AnyCallback + 'static,
+//     ) -> Self {
+//         Self { order, callback: Rc::new(callback) }
+//     }
+
+//     pub fn with_default_order(callback: impl AnyCallback + 'static) -> Self {
+//         Self { order: EffectOrder::default(), callback: Rc::new(callback) }
+//     }
+
+//     pub fn order(&self) -> EffectOrder {
+//         self.order
+//     }
+// }
+
+// impl Eq for OrderedCallback {}
+
+// impl Ord for OrderedCallback {
+//     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+//         self.order.cmp(&other.order)
+//     }
+// }
+
+// impl PartialOrd for OrderedCallback {
+//     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+//         self.order.partial_cmp(&other.order)
+//     }
+// }
+
+// impl PartialEq for OrderedCallback {
+//     fn eq(&self, other: &Self) -> bool {
+//         self.order == other.order
+//     }
+// }
 
 pub struct Effect<T> {
     id: ValueId,
@@ -36,7 +91,7 @@ impl<T: 'static, F> AnyCallback for EffectCallback<T, F>
 where
     F: Fn(Option<T>) -> T,
 {
-    fn run(&self, value: Rc<RefCell<dyn Any>>) -> CallbackResult {
+    fn run(&self, value: Rc<RefCell<dyn Any>>) -> bool {
         let pass_value = {
             // Create RefMut dropped in this scope and take it to avoid mutual
             // exclusion problem
@@ -51,7 +106,7 @@ where
         let mut value = RefCell::borrow_mut(&value);
         value.downcast_mut::<Option<T>>().unwrap().replace(new_value);
 
-        CallbackResult::Changed
+        true
     }
 }
 

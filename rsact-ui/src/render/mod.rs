@@ -1,10 +1,9 @@
 use crate::{
-    layout::{box_model::BoxModel, padding::Padding, size::Size, Layout},
+    layout::{box_model::BoxModel, padding::Padding, size::Size},
     style::block::{BorderRadius, BorderStyle, BoxStyle},
     widget::DrawResult,
 };
 use color::Color;
-use embedded_canvas::CanvasAt;
 use embedded_graphics::{
     mono_font::MonoTextStyle,
     prelude::DrawTarget,

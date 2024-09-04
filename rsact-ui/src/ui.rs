@@ -1,17 +1,18 @@
 use crate::{
     el::{El, ElId},
-    event::{self, Capture, Event, EventResponse, FocusEvent, Propagate},
-    layout::{model_layout, size::Size, Layout, LayoutModel, Limits},
-    render::{
-        color::Color, draw_target::LayeringRenderer, Block, Border, Renderer,
+    event::{Capture, Event, EventResponse, FocusEvent, Propagate},
+    layout::{model_layout, size::Size, LayoutModel, Limits},
+    render::{color::Color, draw_target::LayeringRenderer, Renderer},
+    style::{
+        theme::{Theme, ThemeStyler},
+        NullStyler,
     },
-    style::block::BorderStyle,
     widget::{
-        DrawCtx, DrawResult, EventCtx, LayoutCtx, PageState, PhantomWidgetCtx,
-        Widget, WidgetCtx,
+        DrawCtx, DrawResult, EventCtx, PageState, PhantomWidgetCtx, Widget,
+        WidgetCtx,
     },
 };
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 use embedded_graphics::prelude::DrawTarget;
 use rsact_core::prelude::*;
 
@@ -37,6 +38,7 @@ pub struct Page<C: WidgetCtx> {
     ids: Memo<Vec<ElId>>,
     layout: Memo<LayoutModel>,
     state: PageState<C>,
+    // TODO: Should be Memo?
     style: Signal<PageStyle<C::Color>>,
     renderer: C::Renderer,
 }
@@ -121,6 +123,7 @@ impl<C: WidgetCtx> Page<C> {
                                         self.state.focused.replace(new);
                                     }
                                 });
+
                                 None
                             } else {
                                 Some(event)
@@ -136,6 +139,7 @@ impl<C: WidgetCtx> Page<C> {
     pub fn draw(
         &mut self,
         target: &mut impl DrawTarget<Color = <C::Renderer as Renderer>::Color>,
+        styler: &C::Styler,
     ) -> DrawResult {
         self.style.with(|style| {
             if let Some(background_color) = style.background_color {
@@ -150,6 +154,7 @@ impl<C: WidgetCtx> Page<C> {
                 state: &self.state,
                 renderer: &mut self.renderer,
                 layout: &layout.tree_root(),
+                styler,
             })
         })?;
 
@@ -170,36 +175,53 @@ impl<C: WidgetCtx> Page<C> {
     }
 }
 
-pub struct UI<R, E>
+pub struct UI<R, E, S>
 where
     R: Renderer + 'static,
     E: Event + 'static,
+    S: Default + 'static,
 {
     active_page: usize,
-    pages: Vec<Page<PhantomWidgetCtx<R, E>>>,
+    pages: Vec<Page<PhantomWidgetCtx<R, E, S>>>,
     viewport: Size,
     on_exit: Option<Box<dyn Fn()>>,
+    // TODO: Use `Option` instead of NullStyler to avoid useless allocation of
+    // Default ThemeStyler. ThemeStyler should only be set when theme is set
+    styler: Option<S>,
 }
 
-impl<C: Color + 'static, E> UI<LayeringRenderer<C>, E>
+impl<C, E, S> UI<LayeringRenderer<C>, E, S>
 where
     E: Event + 'static,
+    C: Color + 'static,
+    S: Default + 'static,
 {
     pub fn draw(
         &mut self,
         target: &mut impl DrawTarget<Color = C>,
     ) -> DrawResult {
-        self.pages[self.active_page].draw(target)
+        self.pages[self.active_page].draw(target, &self.styler)
     }
 }
 
-impl<R, E> UI<R, E>
+impl<R, E> UI<R, E, ThemeStyler<R::Color>>
+where
+    R: Renderer + 'static,
+    E: Event + 'static,
+{
+    pub fn theme(self, theme: Theme) -> Self {
+        self.styler.set_theme(theme);
+        self
+    }
+}
+
+impl<R, E> UI<R, E, NullStyler>
 where
     R: Renderer + 'static,
     E: Event + 'static,
 {
     pub fn new(
-        root: impl Into<El<PhantomWidgetCtx<R, E>>>,
+        root: impl Into<El<PhantomWidgetCtx<R, E, NullStyler>>>,
         viewport: impl Into<Size> + Copy,
     ) -> Self {
         Self {
@@ -207,27 +229,35 @@ where
             viewport: viewport.into(),
             pages: vec![Page::new(root, viewport.into())],
             on_exit: None,
+            styler: Default::default(),
         }
     }
+}
 
+impl<R, E, S> UI<R, E, S>
+where
+    R: Renderer + 'static,
+    E: Event + 'static,
+    S: Default + 'static,
+{
     /// Add ExitEvent handler that eats exit event
     pub fn on_exit(mut self, on_exit: impl Fn() + 'static) -> Self {
         self.on_exit = Some(Box::new(on_exit));
         self
     }
 
-    pub fn current_page(&mut self) -> &mut Page<PhantomWidgetCtx<R, E>> {
+    pub fn current_page(&mut self) -> &mut Page<PhantomWidgetCtx<R, E, S>> {
         &mut self.pages[self.active_page]
     }
 
-    pub fn add_page(&mut self, root: impl Into<El<PhantomWidgetCtx<R, E>>>) {
+    pub fn add_page(&mut self, root: impl Into<El<PhantomWidgetCtx<R, E, S>>>) {
         self.pages.push(Page::new(root, self.viewport))
     }
 
     pub fn with_page(
         mut self,
-        root: impl Into<El<PhantomWidgetCtx<R, E>>>,
-    ) -> UI<R, E> {
+        root: impl Into<El<PhantomWidgetCtx<R, E, S>>>,
+    ) -> UI<R, E, S> {
         self.add_page(root);
         self
     }

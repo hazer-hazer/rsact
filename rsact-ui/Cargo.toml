@@ -19,6 +19,7 @@ embedded-canvas = "0.3.1"
 
 [features]
 default = []
+
 defmt = ["dep:defmt"]
 std = ["log/std"]
 simulator = ["dep:embedded-graphics-simulator"]

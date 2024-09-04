@@ -1,17 +1,12 @@
-use core::{cell::RefCell, marker::PhantomData};
-
-use alloc::{
-    rc::Rc,
-    vec::{self, Vec},
-};
-
 use crate::{
-    callback::{AnyCallback, CallbackResult},
+    callback::AnyCallback,
     prelude::use_memo,
     runtime::with_current_runtime,
     signal::{marker, EcoSignal, ReadSignal, Signal},
     storage::ValueId,
 };
+use alloc::{rc::Rc, vec::Vec};
+use core::{cell::RefCell, marker::PhantomData};
 
 pub struct MemoCallback<T, F>
 where
@@ -26,10 +21,7 @@ where
     F: Fn(Option<&T>) -> T,
     T: PartialEq + 'static,
 {
-    fn run(
-        &self,
-        value: Rc<RefCell<dyn core::any::Any>>,
-    ) -> crate::callback::CallbackResult {
+    fn run(&self, value: Rc<RefCell<dyn core::any::Any>>) -> bool {
         let (new_value, changed) = {
             let value = value.borrow();
             let value = value.downcast_ref::<Option<T>>().unwrap().as_ref();
@@ -45,11 +37,7 @@ where
             value.replace(new_value);
         }
 
-        if changed {
-            CallbackResult::Changed
-        } else {
-            CallbackResult::None
-        }
+        changed
     }
 }
 
@@ -158,7 +146,6 @@ mod tests {
     #[test]
     fn single_run() {
         let signal = use_signal(1);
-        let runs = use_signal(0);
 
         let runs = use_memo(move |runs| {
             signal.get();

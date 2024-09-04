@@ -1,4 +1,4 @@
-use crate::widget::prelude::*;
+use crate::widget::{prelude::*, BoxModelWidget, SizedWidget};
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 use num::traits::SaturatingAdd;
@@ -133,6 +133,12 @@ impl<C: WidgetCtx + 'static, Dir: Direction> Flex<C, Dir> {
         );
         self
     }
+}
+
+impl<C: WidgetCtx + 'static, Dir: Direction> SizedWidget<C> for Flex<C, Dir> {}
+impl<C: WidgetCtx + 'static, Dir: Direction> BoxModelWidget<C>
+    for Flex<C, Dir>
+{
 }
 
 impl<C: WidgetCtx + 'static, Dir: Direction> Widget<C> for Flex<C, Dir> {

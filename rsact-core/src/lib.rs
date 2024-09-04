@@ -7,6 +7,7 @@ mod callback;
 pub mod composables;
 pub mod effect;
 pub mod memo;
+pub mod memo_chain;
 pub mod operator;
 pub mod runtime;
 pub mod signal;
@@ -15,15 +16,16 @@ pub mod trigger;
 pub mod vec;
 
 pub mod prelude {
-    pub use super::composables::*;
-    pub use super::effect::{use_effect, Effect};
-    pub use super::memo::{IntoMemo, Memo, MemoTree};
-    pub use super::runtime::{
-        create_runtime, with_current_runtime, with_scoped_runtime,
+    pub use super::{
+        composables::*,
+        effect::{use_effect, Effect},
+        memo::{IntoMemo, Memo, MemoTree},
+        memo_chain::{use_memo_chain, MemoChain},
+        runtime::{create_runtime, with_current_runtime, with_scoped_runtime},
+        signal::{
+            EcoSignal, IntoSignal, ReadSignal, Signal, SignalMapper,
+            SignalSetter, SignalTree, WriteSignal,
+        },
+        trigger::{use_trigger, Trigger},
     };
-    pub use super::signal::{
-        EcoSignal, IntoSignal, ReadSignal, Signal, SignalMapper, SignalSetter,
-        SignalTree, WriteSignal,
-    };
-    pub use super::trigger::{use_trigger, Trigger};
 }

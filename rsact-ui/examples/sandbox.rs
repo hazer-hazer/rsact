@@ -9,39 +9,32 @@ use rand::random;
 use rsact_core::prelude::*;
 use rsact_ui::{
     el::El,
-    event::{simulator::simulator_single_encoder, NullEvent},
-    layout::{
-        size::{Length, Size},
-        Align,
-    },
-    render::Border,
-    style::{
-        block::{BorderStyle, BoxStyle},
-        text::MonoTextStyle,
-    },
+    event::simulator::simulator_single_encoder,
+    layout::size::{Length, Size},
+    style::block::{BorderStyle, BoxStyle},
     ui::UI,
-    widget::{Widget as _, WidgetCtx},
+    widget::{SizedWidget as _, Widget as _, WidgetCtx},
     widgets::{
         button::{Button, ButtonState, ButtonStyle},
         edge::Edge,
         flex::Flex,
         mono_text::MonoText,
-        scrollable::{Scrollable, ScrollableState, ScrollableStyle},
-        space::Space,
+        scrollable::{
+            Scrollable, ScrollableState, ScrollableStyle, ScrollbarShow,
+        },
     },
 };
-use std::{
-    array, thread,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
-};
+use std::time::{Duration, Instant};
 
 fn edge<C: WidgetCtx<Color = Rgb888>>() -> El<C> {
     Edge::new()
-        .style(BoxStyle::base().background_color(Rgb888::new(
-            random(),
-            random(),
-            random(),
-        )))
+        .style(|_| {
+            BoxStyle::base().background_color(Rgb888::new(
+                random(),
+                random(),
+                random(),
+            ))
+        })
         .fill()
         .width(50)
         .el()
@@ -83,7 +76,7 @@ fn main() {
 
     let output_settings = OutputSettingsBuilder::new().scale(1).build();
 
-    let mut window = Window::new("TEST", &output_settings);
+    let mut window = Window::new("SANDBOX", &output_settings);
 
     let mut display =
         SimulatorDisplay::<Rgb888>::new(Size::new(480, 270).into());
@@ -92,31 +85,9 @@ fn main() {
 
     // let mut items_height = use_signal(50);
 
-    let button_style = |state| {
-        let base = ButtonStyle::base();
-        match state {
-            ButtonState { pressed: true, .. } => base.container(
-                BoxStyle::base()
-                    .border(BorderStyle::base().color(Rgb888::MAGENTA)),
-            ),
-            ButtonState { .. } => base,
-        }
-    };
-
-    let scrollable_style = |state| {
-        let base = ScrollableStyle::base()
-            .show(rsact_ui::widgets::scrollable::ScrollbarShow::Always);
-
-        match state {
-            ScrollableState { active: true, .. } => base
-                .container(
-                    BoxStyle::base()
-                        .border(BorderStyle::base().color(Rgb888::MAGENTA)),
-                )
-                .thumb_color(Some(Rgb888::CSS_GRAY))
-                .track_color(Some(Rgb888::CSS_BROWN)),
-            ScrollableState { .. } => base,
-        }
+    let button_style = |base, state| match state {
+        ButtonState { pressed: true, .. } => base,
+        ButtonState { .. } => base,
     };
 
     let items = use_signal(vec![]);
@@ -157,7 +128,20 @@ fn main() {
         Scrollable::horizontal(
             Flex::row(items).shrink().gap(5).wrap(true).el(),
         )
-        .style(scrollable_style)
+        .style(|base, state| {
+            let base = base.show(ScrollbarShow::Always);
+
+            match state {
+                ScrollableState { active: true, .. } => base
+                    .container(
+                        BoxStyle::base()
+                            .border(BorderStyle::base().color(Rgb888::MAGENTA)),
+                    )
+                    .thumb_color(Some(Rgb888::CSS_GRAY))
+                    .track_color(Some(Rgb888::CSS_BROWN)),
+                ScrollableState { .. } => base,
+            }
+        })
         .el(),
         // Flex::row([edge(), edge()]).fill().el(),
     ])

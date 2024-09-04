@@ -1,4 +1,4 @@
-use crate::{event::Event, widget::prelude::*};
+use crate::widget::prelude::*;
 use alloc::boxed::Box;
 use core::sync::atomic::AtomicUsize;
 use rsact_core::prelude::*;
@@ -50,6 +50,13 @@ impl<C> Widget<C> for El<C>
 where
     C: WidgetCtx + 'static,
 {
+    fn el(self) -> El<C>
+    where
+        Self: Sized + 'static,
+    {
+        self
+    }
+
     fn children_ids(&self) -> Memo<Vec<ElId>> {
         self.widget.children_ids()
     }

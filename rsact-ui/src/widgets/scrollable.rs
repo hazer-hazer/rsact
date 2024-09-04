@@ -1,10 +1,13 @@
-use crate::widget::prelude::*;
+use crate::{
+    style::{Styler, WidgetStyle},
+    widget::{prelude::*, BoxModelWidget, SizedWidget},
+};
+use alloc::vec::Vec;
 use core::marker::PhantomData;
 use embedded_graphics::{
     prelude::{Point, Primitive, Transform},
     primitives::{Line, PrimitiveStyle, PrimitiveStyleBuilder},
 };
-use layout::ScrollableLayout;
 
 pub trait ScrollEvent {
     fn as_scroll(&self, axis: Axis) -> Option<i32>;
@@ -44,6 +47,11 @@ pub struct ScrollableStyle<C: Color> {
     pub scrollbar_width: u32,
     pub container: BoxStyle<C>,
     pub show: ScrollbarShow,
+}
+
+impl<C: Color> WidgetStyle for ScrollableStyle<C> {
+    type Color = C;
+    type Inputs = ScrollableState;
 }
 
 impl<C: Color> ScrollableStyle<C> {
@@ -119,7 +127,7 @@ impl<C: Color> ScrollableStyle<C> {
 pub struct Scrollable<C: WidgetCtx, Dir: Direction> {
     id: ElId,
     state: Signal<ScrollableState>,
-    style: Signal<ScrollableStyle<C::Color>>,
+    style: MemoChain<ScrollableStyle<C::Color>>,
     content: Signal<El<C>>,
     layout: Signal<Layout>,
     dir: PhantomData<Dir>,
@@ -141,7 +149,6 @@ impl<C: WidgetCtx, Dir: Direction> Scrollable<C, Dir> {
     pub fn new(content: impl IntoSignal<El<C>>) -> Self {
         let content = content.into_signal();
         let state = use_signal(ScrollableState::none());
-        let style = use_signal(ScrollableStyle::base());
 
         let layout = Layout {
             kind: LayoutKind::Scrollable,
@@ -179,7 +186,7 @@ impl<C: WidgetCtx, Dir: Direction> Scrollable<C, Dir> {
             id: ElId::unique(),
             content,
             state,
-            style,
+            style: use_memo_chain(|_| ScrollableStyle::base()),
             layout,
             dir: PhantomData,
         }
@@ -187,11 +194,32 @@ impl<C: WidgetCtx, Dir: Direction> Scrollable<C, Dir> {
 
     pub fn style(
         self,
-        style: impl Fn(ScrollableState) -> ScrollableStyle<C::Color> + 'static,
+        styler: impl Fn(
+                ScrollableStyle<C::Color>,
+                ScrollableState,
+            ) -> ScrollableStyle<C::Color>
+            + 'static,
     ) -> Self {
-        self.style.set_from(self.state.mapped_clone(style));
+        let state = self.state;
+        self.style.last(move |prev_style| styler(*prev_style, state.get()));
         self
     }
+}
+
+impl<C, Dir> SizedWidget<C> for Scrollable<C, Dir>
+where
+    C::Event: ScrollEvent,
+    C: WidgetCtx,
+    Dir: Direction,
+{
+}
+
+impl<C, Dir> BoxModelWidget<C> for Scrollable<C, Dir>
+where
+    C::Event: ScrollEvent,
+    C: WidgetCtx,
+    Dir: Direction,
+{
 }
 
 impl<C, Dir> Widget<C> for Scrollable<C, Dir>
@@ -309,6 +337,7 @@ where
                     renderer,
                     layout: &child_layout
                         .translate(Dir::AXIS.canon(-(offset as i32), 0)),
+                    styler: ctx.styler,
                 })
             })
         })

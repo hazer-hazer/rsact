@@ -1,8 +1,9 @@
-use crate::widget::prelude::*;
+use crate::widget::{prelude::*, BoxModelWidget, SizedWidget};
 use embedded_graphics::mono_font::{
     ascii::FONT_6X10, MonoFont, MonoTextStyleBuilder,
 };
 use embedded_text::TextBox;
+use rsact_core::memo_chain::IntoMemoChain;
 
 // TODO: Text wrap
 fn measure_text_content_size(text: &str, font: &MonoFont) -> Limits {
@@ -34,12 +35,11 @@ pub struct MonoText<C: WidgetCtx> {
     content: Signal<alloc::string::String>,
     layout: Signal<Layout>,
     font: Signal<MonoFont<'static>>,
-    style: Signal<MonoTextStyle<C::Color>>,
+    style: MemoChain<MonoTextStyle<C::Color>>,
 }
 
 impl<C: WidgetCtx + 'static> MonoText<C> {
     pub fn new(content: impl IntoSignal<alloc::string::String>) -> Self {
-        let style = MonoTextStyle::base().into_signal();
         let font = use_signal(FONT_6X10);
         let content = content.into_signal();
 
@@ -53,7 +53,20 @@ impl<C: WidgetCtx + 'static> MonoText<C> {
         }
         .into_signal();
 
-        Self { content, layout, font, style }
+        Self {
+            content,
+            layout,
+            font,
+            style: MonoTextStyle::base().into_memo_chain(),
+        }
+    }
+
+    pub fn style(
+        self,
+        style: impl Fn(MonoTextStyle<C::Color>) -> MonoTextStyle<C::Color> + 'static,
+    ) -> Self {
+        self.style.last(move |prev_style| style(*prev_style));
+        self
     }
 
     // pub fn style(
@@ -64,6 +77,9 @@ impl<C: WidgetCtx + 'static> MonoText<C> {
     //     self
     // }
 }
+
+impl<C: WidgetCtx + 'static> SizedWidget<C> for MonoText<C> {}
+impl<C: WidgetCtx + 'static> BoxModelWidget<C> for MonoText<C> {}
 
 impl<C: WidgetCtx + 'static> Widget<C> for MonoText<C> {
     fn layout(&self) -> Signal<crate::layout::Layout> {

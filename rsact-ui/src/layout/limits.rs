@@ -1,11 +1,9 @@
-use core::{ops::Div, u32};
-
-use embedded_graphics::primitives::Rectangle;
-
 use super::{
     axis::{Axial, Axis},
-    size::{DeterministicLength, Length, Size, SizeExt},
+    size::{DeterministicLength, Length, Size},
 };
+use core::u32;
+use embedded_graphics::primitives::Rectangle;
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct Limits {

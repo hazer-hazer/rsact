@@ -1,9 +1,11 @@
-use crate::widget::prelude::*;
+use rsact_core::memo_chain::IntoMemoChain;
+
+use crate::widget::{prelude::*, BoxModelWidget, SizedWidget};
 
 pub struct Container<C: WidgetCtx> {
     pub layout: Signal<Layout>,
     pub content: Signal<El<C>>,
-    pub style: Signal<BoxStyle<C::Color>>,
+    pub style: MemoChain<BoxStyle<C::Color>>,
 }
 
 impl<C: WidgetCtx + 'static> Container<C> {
@@ -19,15 +21,15 @@ impl<C: WidgetCtx + 'static> Container<C> {
             )
             .into_signal(),
             content,
-            style: BoxStyle::base().into_signal(),
+            style: BoxStyle::base().into_memo_chain(),
         }
     }
 
     pub fn style(
         self,
-        style: impl IntoMemo<BoxStyle<C::Color>> + 'static,
+        style: impl Fn(BoxStyle<C::Color>) -> BoxStyle<C::Color> + 'static,
     ) -> Self {
-        self.style.set_from(style.into_memo());
+        self.style.last(move |prev_style| style(*prev_style));
         self
     }
 
@@ -58,6 +60,9 @@ impl<C: WidgetCtx + 'static> Container<C> {
         self
     }
 }
+
+impl<C: WidgetCtx + 'static> SizedWidget<C> for Container<C> {}
+impl<C: WidgetCtx + 'static> BoxModelWidget<C> for Container<C> {}
 
 impl<C: WidgetCtx + 'static> Widget<C> for Container<C> {
     fn children_ids(&self) -> Memo<Vec<ElId>> {

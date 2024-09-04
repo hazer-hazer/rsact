@@ -84,10 +84,10 @@ pub enum LayoutKind {
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct Layout {
-    pub kind: LayoutKind,
-    pub size: Size<Length>,
-    pub box_model: BoxModel,
-    pub content_size: Memo<Limits>,
+    pub(crate) kind: LayoutKind,
+    pub(crate) size: Size<Length>,
+    pub(crate) box_model: BoxModel,
+    pub(crate) content_size: Memo<Limits>,
 }
 
 impl Layout {

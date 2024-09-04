@@ -1,6 +1,8 @@
 use crate::{layout::size::Size, render::color::Color};
 use embedded_graphics::primitives::CornerRadii;
 
+use super::WidgetStyle;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Radius {
     Size(Size),
@@ -143,6 +145,11 @@ impl<C: Color> BorderStyle<C> {
 pub struct BoxStyle<C: Color> {
     pub background_color: Option<C>,
     pub border: BorderStyle<C>,
+}
+
+impl<C: Color> WidgetStyle for BoxStyle<C> {
+type Color = C;
+    type Inputs = ();
 }
 
 impl<C: Color> Clone for BoxStyle<C> {

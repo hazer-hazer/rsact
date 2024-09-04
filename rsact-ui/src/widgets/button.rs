@@ -1,5 +1,7 @@
-use super::container::Container;
-use crate::{render::color::Color, widget::prelude::*};
+use crate::{
+    style::{Styler, WidgetStyle},
+    widget::{prelude::*, BoxModelWidget, SizedWidget},
+};
 
 pub trait ButtonEvent {
     fn as_button_press(&self) -> bool;
@@ -18,15 +20,105 @@ impl ButtonState {
     }
 }
 
-pub trait ButtonStyler<C: Color> {
-    type Class;
+// pub trait ButtonStyler<C: Color> {
+//     type Class;
 
-    fn style(&self, class: Self::Class, state: ButtonState) -> ButtonStyle<C>;
-}
+//     fn default() -> Self::Class;
+
+//     fn style(
+//         self,
+//         class: Self::Class,
+//     ) -> impl Fn(ButtonStyle<C>, ButtonState) -> ButtonStyle<C> + 'static;
+// }
+
+// impl<C: Color + 'static> ButtonStyler<C> for ButtonStyle<C> {
+//     type Class = ();
+
+//     fn default() -> Self::Class {
+//         ()
+//     }
+
+//     fn style(
+//         self,
+//         _class: Self::Class,
+//     ) -> impl Fn(ButtonStyle<C>, ButtonState) -> ButtonStyle<C> + 'static {
+//         move |_, _| self
+//     }
+// }
+
+// impl<C, F> ButtonStyler<C> for F
+// where
+//     C: Color,
+//     F: Fn(ButtonStyle<C>, ButtonState) -> ButtonStyle<C> + 'static,
+// {
+//     type Class = ();
+
+//     fn default() -> Self::Class {
+//         ()
+//     }
+
+//     fn style(
+//         self,
+//         _class: Self::Class,
+//     ) -> impl Fn(ButtonStyle<C>, ButtonState) -> ButtonStyle<C> + 'static {
+//         self
+//     }
+// }
+
+// pub trait ButtonStyler {
+//     type Color: Color;
+//     type Class;
+
+//     fn default() -> Self::Class;
+//     fn style(
+//         &self,
+//         class: Self::Class,
+//         state: ButtonState,
+//     ) -> ButtonStyle<Self::Color>;
+// }
+
+// impl<F, C: Color> ButtonStyler for F
+// where
+//     F: Fn(ButtonState) -> ButtonStyle<C>,
+// {
+//     type Color = C;
+//     type Class = ButtonClass;
+
+//     fn default() -> Self::Class {
+//         ButtonClass::Normal
+//     }
+
+//     fn style(
+//         &self,
+//         class: Self::Class,
+//         state: ButtonState,
+//     ) -> ButtonStyle<Self::Color> {
+//         match class {
+//             ButtonClass::Normal => todo!(),
+//         }
+//     }
+// }
+
+// impl<C: Color, F: Fn(ButtonState) -> ButtonStyle<C>> ButtonStyler<C> for F {
+//     type Class = Self;
+
+//     fn default(&self) -> Self::Class {
+//         *self
+//     }
+
+//     fn style(&self, class: &Self::Class, state: ButtonState) ->
+// ButtonStyle<C> {         class(state)
+//     }
+// }
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct ButtonStyle<C: Color> {
-    container: BoxStyle<C>,
+    pub container: BoxStyle<C>,
+}
+
+impl<C: Color> WidgetStyle for ButtonStyle<C> {
+    type Color = C;
+    type Inputs = ButtonState;
 }
 
 impl<C: Color> ButtonStyle<C> {
@@ -53,29 +145,41 @@ impl<C: Color> ButtonStyle<C> {
 
 pub struct Button<C: WidgetCtx> {
     id: ElId,
-    container: Container<C>,
+    layout: Signal<Layout>,
+    content: Signal<El<C>>,
     state: Signal<ButtonState>,
-    style: Signal<ButtonStyle<C::Color>>,
+    // style: Signal<ButtonStyle<C::Color>>,
+    // style: Option<ButtonStyle<C>>,
+    style: MemoChain<ButtonStyle<C::Color>>,
     on_click: Option<Box<dyn Fn()>>,
 }
 
 impl<C: WidgetCtx + 'static> Button<C> {
     pub fn new(content: impl IntoSignal<El<C>>) -> Self {
+        let content = content.into_signal();
         let state = use_signal(ButtonState::none());
-        let style = use_signal(ButtonStyle::base());
+        // let style = use_signal(ButtonStyle::base());
 
-        let container = Container::new(content)
-            .style(style.mapped(|style| style.container));
+        let layout = Layout::new(
+            LayoutKind::Container(ContainerLayout {
+                horizontal_align: Align::Center,
+                vertical_align: Align::Center,
+            }),
+            content.mapped(|content| {
+                content.layout().with(|layout| layout.content_size.get())
+            }),
+        )
+        .box_model(BoxModel::zero().border_width(1).padding(5))
+        .into_signal();
 
-        container.layout.update_untracked(move |layout| {
-            layout.box_model.border_width = 1;
-            layout.box_model.padding = 5.into();
-            let container = layout.expect_container_mut();
-            container.vertical_align = Align::Center;
-            container.horizontal_align = Align::Center;
-        });
-
-        Self { id: ElId::unique(), container, style, state, on_click: None }
+        Self {
+            id: ElId::unique(),
+            layout,
+            content,
+            state,
+            style: use_memo_chain(|_| ButtonStyle::base()),
+            on_click: None,
+        }
     }
 
     pub fn on_click<F: 'static>(mut self, on_click: F) -> Self
@@ -94,13 +198,13 @@ impl<C: WidgetCtx + 'static> Button<C> {
         self
     }
 
-    pub fn style(
-        self,
-        style: impl Fn(ButtonState) -> ButtonStyle<C::Color> + 'static,
-    ) -> Self {
-        self.style.set_from(self.state.mapped_clone(style));
-        self
-    }
+    // pub fn style(
+    //     self,
+    //     style: impl Fn(ButtonState) -> ButtonStyle<C::Color> + 'static,
+    // ) -> Self {
+    //     self.style.set_from(self.state.mapped_clone(style));
+    //     self
+    // }
 
     // pub fn style(
     //     self,
@@ -109,6 +213,31 @@ impl<C: WidgetCtx + 'static> Button<C> {
     //     self.style.set_from(style);
     //     self
     // }
+
+    pub fn style(
+        self,
+        styler: impl Fn(ButtonStyle<C::Color>, ButtonState) -> ButtonStyle<C::Color>
+            + 'static,
+    ) -> Self {
+        let state = self.state;
+        self.style.last(move |prev_style| styler(*prev_style, state.get()));
+        self
+    }
+
+    // pub fn style(mut self, style: ButtonStyler<C::Color>) -> Self {
+    //     self.style = Some(style);
+    //     self
+    // }
+}
+
+impl<C: WidgetCtx + 'static> SizedWidget<C> for Button<C> where
+    C::Event: ButtonEvent
+{
+}
+
+impl<C: WidgetCtx + 'static> BoxModelWidget<C> for Button<C> where
+    C::Event: ButtonEvent
+{
 }
 
 impl<C: WidgetCtx + 'static> Widget<C> for Button<C>
@@ -121,16 +250,30 @@ where
     }
 
     fn layout(&self) -> Signal<Layout> {
-        self.container.layout
+        self.layout
     }
 
     fn build_layout_tree(&self) -> MemoTree<Layout> {
-        self.container.build_layout_tree()
+        MemoTree {
+            data: self.layout.into_memo(),
+            children: self
+                .content
+                .mapped(|content| vec![content.build_layout_tree()]),
+        }
     }
 
     fn draw(&self, ctx: &mut DrawCtx<'_, C>) -> DrawResult {
         ctx.draw_focus_outline(self.id)?;
-        self.container.draw(ctx)
+
+        let style = self.style.get();
+
+        ctx.renderer.block(Block::from_layout_style(
+            ctx.layout.area,
+            self.layout.get().box_model,
+            style.container,
+        ))?;
+
+        self.content.with(|content| ctx.draw_child(content))
     }
 
     fn on_event(

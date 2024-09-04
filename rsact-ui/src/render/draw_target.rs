@@ -1,5 +1,6 @@
 use super::{color::Color, Block, Renderer};
 use crate::{layout::size::Size, widget::DrawResult};
+use alloc::vec::Vec;
 use core::convert::Infallible;
 use embedded_canvas::CanvasAt;
 use embedded_graphics::{
@@ -45,7 +46,10 @@ impl<C: Color> DrawTarget for LayeringRenderer<C> {
     }
 }
 
-impl<C: Color> Renderer for LayeringRenderer<C> {
+impl<C: Color> Renderer for LayeringRenderer<C>
+where
+    C: Default,
+{
     type Color = C;
 
     fn new(viewport: Size) -> Self {

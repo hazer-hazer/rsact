@@ -1,5 +1,7 @@
 use crate::{
-    callback::CallbackResult,
+    callback::AnyCallback,
+    effect::EffectOrder,
+    memo_chain::MemoChainCallback,
     operator::Operation,
     storage::{Storage, ValueId, ValueKind, ValueState},
 };
@@ -87,8 +89,13 @@ pub enum Observer {
     None,
     #[default]
     Root,
+    // FIXME: Wrong name, can be Memo, not only Effect
     Effect(ValueId),
 }
+
+// struct PendingEffects {
+//     ordered: BTreeMap<EffectOrder, Btre>,
+// }
 
 #[derive(Default)]
 pub struct Runtime {
@@ -154,14 +161,28 @@ impl Runtime {
     pub(crate) fn update(&self, id: ValueId) {
         let value = self.storage.get(id);
 
-        let result = match value.kind {
-            ValueKind::Memo { f } | ValueKind::Effect { f } => {
-                let effect_value = value.value;
+        let changed = match value.kind {
+            ValueKind::MemoChain { initial, fs } => {
+                let value = value.value;
+
                 self.with_observer(Observer::Effect(id), move |_rt| {
-                    f.run(effect_value)
+                    fs.borrow().values().fold(
+                        initial.run(value.clone()),
+                        |changed, cbs| {
+                            cbs.iter().fold(changed, |changed, cb| {
+                                cb.run(value.clone()) || changed
+                            })
+                        },
+                    )
                 })
             },
-            ValueKind::Signal { .. } => CallbackResult::Changed,
+            ValueKind::Memo { f } | ValueKind::Effect { f } => {
+                let value = value.value;
+                self.with_observer(Observer::Effect(id), move |_rt| {
+                    f.run(value)
+                })
+            },
+            ValueKind::Signal { .. } => true,
             ValueKind::Operator { .. } => todo!(),
             // ValueKind::Operator { mut scheduled, operator } => {
             //     let value = value.value;
@@ -175,11 +196,8 @@ impl Runtime {
             // },
         };
 
-        match result {
-            CallbackResult::None => {},
-            CallbackResult::Changed => {
-                self.mark_deep_dirty(id, None);
-            },
+        if changed {
+            self.mark_deep_dirty(id, None);
         }
 
         self.mark_clean(id);
@@ -252,6 +270,24 @@ impl Runtime {
         self.pending_effects.take().iter().copied().for_each(|effect| {
             self.maybe_update(effect);
         });
+    }
+
+    pub(crate) fn add_memo_chain<T: PartialEq + 'static>(
+        &self,
+        id: ValueId,
+        order: EffectOrder,
+        map: impl Fn(&T) -> T + 'static,
+    ) {
+        let kind = self.storage.get(id).kind;
+        match kind {
+            ValueKind::MemoChain { initial: _, fs } => {
+                fs.borrow_mut()
+                    .entry(order)
+                    .or_default()
+                    .push(Rc::new(MemoChainCallback::new(map)));
+            },
+            _ => panic!("Cannot add memo chain to {}", kind),
+        }
     }
 }
 

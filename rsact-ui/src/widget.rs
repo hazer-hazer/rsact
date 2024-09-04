@@ -1,14 +1,12 @@
 use core::marker::PhantomData;
-use embedded_graphics::primitives::Rectangle;
 use prelude::*;
-
-use crate::event::ButtonEdge;
 
 pub type DrawResult = Result<(), ()>;
 
 pub trait WidgetCtx: 'static {
     type Renderer: Renderer<Color = Self::Color>;
     type Event: Event;
+    type Styler;
 
     type Color: Color;
 
@@ -22,23 +20,26 @@ pub trait WidgetCtx: 'static {
     }
 }
 
-pub struct PhantomWidgetCtx<R, E>
+pub struct PhantomWidgetCtx<R, E, S>
 where
     R: Renderer,
     E: Event,
 {
     renderer: PhantomData<R>,
     event: PhantomData<E>,
+    styler: S,
 }
 
-impl<R, E> WidgetCtx for PhantomWidgetCtx<R, E>
+impl<R, E, S> WidgetCtx for PhantomWidgetCtx<R, E, S>
 where
     R: Renderer + 'static,
     E: Event + 'static,
+    S: 'static,
 {
     type Renderer = R;
     type Event = E;
     type Color = R::Color;
+    type Styler = S;
 }
 
 pub struct PageState<C: WidgetCtx> {
@@ -61,6 +62,7 @@ pub struct DrawCtx<'a, C: WidgetCtx> {
     pub state: &'a PageState<C>,
     pub renderer: &'a mut C::Renderer,
     pub layout: &'a LayoutModelTree<'a>,
+    pub styler: &'a C::Styler,
 }
 
 impl<'a, C: WidgetCtx + 'static> DrawCtx<'a, C> {
@@ -70,6 +72,7 @@ impl<'a, C: WidgetCtx + 'static> DrawCtx<'a, C> {
             state: &self.state,
             renderer: &mut self.renderer,
             layout: self.layout.children().next().as_ref().unwrap(),
+            styler: &self.styler,
         })
     }
 
@@ -81,6 +84,7 @@ impl<'a, C: WidgetCtx + 'static> DrawCtx<'a, C> {
                     state: self.state,
                     renderer: &mut self.renderer,
                     layout: &child_layout,
+                    styler: &self.styler,
                 })
             },
         )
@@ -183,8 +187,17 @@ where
     fn layout(&self) -> Signal<Layout>;
     fn build_layout_tree(&self) -> MemoTree<Layout>;
 
-    // TODO: Move layout helper methods to separate trait to choose which
-    // widgets should be able to change size, etc.
+    fn draw(&self, ctx: &mut DrawCtx<'_, C>) -> DrawResult;
+    fn on_event(
+        &mut self,
+        ctx: &mut EventCtx<'_, C>,
+    ) -> EventResponse<C::Event>;
+}
+
+/// Not implementing [`SizedWidget`] and [`BoxModelWidget`] does not mean that
+/// Widget has layout without size or box model, it can be intentional to
+/// disallow user to set size or box model properties.
+pub trait SizedWidget<C: WidgetCtx>: Widget<C> {
     fn fill(self) -> Self
     where
         Self: Sized + 'static,
@@ -224,7 +237,9 @@ where
         });
         self
     }
+}
 
+pub trait BoxModelWidget<C: WidgetCtx>: Widget<C> {
     fn border_width(self, border_width: impl EcoSignal<u32> + 'static) -> Self
     where
         Self: Sized + 'static,
@@ -250,12 +265,6 @@ where
         });
         self
     }
-
-    fn draw(&self, ctx: &mut DrawCtx<'_, C>) -> DrawResult;
-    fn on_event(
-        &mut self,
-        ctx: &mut EventCtx<'_, C>,
-    ) -> EventResponse<C::Event>;
 }
 
 pub mod prelude {
@@ -275,9 +284,12 @@ pub mod prelude {
             LayoutModelTree, Limits,
         },
         render::{color::Color, Block, Border, Renderer},
-        style::block::*,
-        style::text::*,
-        widget::{DrawCtx, DrawResult, EventCtx, LayoutCtx, Widget, WidgetCtx},
+        style::{block::*, text::*},
+        widget::{
+            BoxModelWidget, DrawCtx, DrawResult, EventCtx, LayoutCtx,
+            SizedWidget, Widget, WidgetCtx,
+        },
     };
+    pub use alloc::{boxed::Box, string::String, vec::Vec};
     pub use rsact_core::prelude::*;
 }

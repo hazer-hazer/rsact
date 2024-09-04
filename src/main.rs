@@ -12,11 +12,11 @@ fn main() {
         println!("Updated to {}", signal.get());
     });
 
-    let comp = use_computed(move || signal.get());
+    // let comp = use_computed(move || signal.get());
 
-    foo(signal);
+    // foo(signal);
 
-    println!("Computed {}", comp.get());
+    // println!("Computed {}", comp.get());
 
     // println!("{}", use_static(1) + use_static(2))
 }
