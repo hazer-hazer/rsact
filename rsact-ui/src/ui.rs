@@ -32,7 +32,6 @@ impl<C: Color> PageStyle<C> {
     }
 }
 
-// TODO: Implement real generic renderer in pages
 pub struct Page<C: WidgetCtx> {
     root: El<C>,
     ids: Memo<Vec<ElId>>,

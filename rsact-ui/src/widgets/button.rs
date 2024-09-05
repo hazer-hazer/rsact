@@ -220,7 +220,7 @@ impl<C: WidgetCtx + 'static> Button<C> {
             + 'static,
     ) -> Self {
         let state = self.state;
-        self.style.last(move |prev_style| styler(*prev_style, state.get()));
+        self.style.last(move |base| styler(*base, state.get()));
         self
     }
 

@@ -20,13 +20,14 @@ pub trait WidgetCtx: 'static {
     }
 }
 
+/// Type family of types used in Widgets
 pub struct PhantomWidgetCtx<R, E, S>
 where
     R: Renderer,
     E: Event,
 {
-    renderer: PhantomData<R>,
-    event: PhantomData<E>,
+    renderer: R,
+    event: E,
     styler: S,
 }
 
