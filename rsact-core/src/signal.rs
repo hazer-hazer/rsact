@@ -467,24 +467,24 @@ where
 //     }
 // }
 
-pub trait EcoSignal<T> {
-    type S: ReadSignal<T>;
+pub trait MaybeSignal<T> {
+    type S: ReadSignal<T> + 'static;
 
-    fn eco_signal(self) -> Self::S;
+    fn maybe_signal(self) -> Self::S;
 }
 
-impl<T: 'static> EcoSignal<T> for Signal<T> {
+impl<T: 'static> MaybeSignal<T> for Signal<T> {
     type S = Signal<T>;
 
-    fn eco_signal(self) -> Self::S {
+    fn maybe_signal(self) -> Self::S {
         self
     }
 }
 
-impl<T: 'static> EcoSignal<T> for T {
+impl<T: 'static> MaybeSignal<T> for T {
     type S = StaticSignal<T>;
 
-    fn eco_signal(self) -> Self::S {
+    fn maybe_signal(self) -> Self::S {
         use_static(self)
     }
 }

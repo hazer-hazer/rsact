@@ -34,6 +34,7 @@ fn measure_text_content_size(text: &str, font: &MonoFont) -> Limits {
 pub struct MonoText<C: WidgetCtx> {
     content: Signal<alloc::string::String>,
     layout: Signal<Layout>,
+    // TODO: Depend on style? Styles should not affect layouts, but....
     font: Signal<MonoFont<'static>>,
     style: MemoChain<MonoTextStyle<C::Color>>,
 }
@@ -85,6 +86,8 @@ impl<C: WidgetCtx + 'static> Widget<C> for MonoText<C> {
     fn layout(&self) -> Signal<crate::layout::Layout> {
         self.layout
     }
+
+    fn on_mount(&mut self, _ctx: crate::widget::MountCtx<C>) {}
 
     fn build_layout_tree(&self) -> MemoTree<crate::layout::Layout> {
         MemoTree::childless(self.layout.into_memo())

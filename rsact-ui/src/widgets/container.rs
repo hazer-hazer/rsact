@@ -35,10 +35,10 @@ impl<C: WidgetCtx + 'static> Container<C> {
 
     pub fn vertical_align(
         self,
-        vertical_align: impl EcoSignal<Align> + 'static,
+        vertical_align: impl MaybeSignal<Align> + 'static,
     ) -> Self {
         self.layout.setter(
-            vertical_align.eco_signal(),
+            vertical_align.maybe_signal(),
             |&vertical_align, layout| {
                 layout.expect_container_mut().vertical_align = vertical_align
             },
@@ -48,10 +48,10 @@ impl<C: WidgetCtx + 'static> Container<C> {
 
     pub fn horizontal_align(
         self,
-        horizontal_align: impl EcoSignal<Align> + 'static,
+        horizontal_align: impl MaybeSignal<Align> + 'static,
     ) -> Self {
         self.layout.setter(
-            horizontal_align.eco_signal(),
+            horizontal_align.maybe_signal(),
             |&horizontal_align, layout| {
                 layout.expect_container_mut().horizontal_align =
                     horizontal_align
@@ -68,6 +68,10 @@ impl<C: WidgetCtx + 'static> Widget<C> for Container<C> {
     fn children_ids(&self) -> Memo<Vec<ElId>> {
         let content = self.content;
         content.with(Widget::children_ids)
+    }
+
+    fn on_mount(&mut self, _ctx: crate::widget::MountCtx<C>) {
+        // ctx.accept_styles(self.style, ());
     }
 
     fn layout(&self) -> Signal<Layout> {

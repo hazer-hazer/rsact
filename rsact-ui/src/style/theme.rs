@@ -13,28 +13,29 @@ pub struct Palette<C: Color> {
     accent: C,
 }
 
-#[derive(Clone, Copy)]
-pub struct ThemeStyler<C: Color + 'static> {
+// FIXME: Wrong PartialEq usage on Signal?
+#[derive(Clone, Copy, PartialEq)]
+pub struct ThemeStyler<C: PaletteColor + 'static> {
     palette: Signal<Palette<C>>,
 }
 
-impl<C: Color + 'static> Default for ThemeStyler<C> {
+impl<C: PaletteColor + 'static> Default for ThemeStyler<C> {
     fn default() -> Self {
         Self { palette: Theme::default().palette().into_signal() }
     }
 }
 
-impl<C: Color + 'static> ThemeStyler<C> {
-    pub fn new(theme: Theme) -> Self {
+impl<C: PaletteColor + 'static> ThemeStyler<C> {
+    pub fn new(theme: Theme<C>) -> Self {
         Self { palette: theme.palette().into_signal() }
     }
 
-    pub fn set_theme(&self, theme: Theme) {
+    pub fn set_theme(&self, theme: Theme<C>) {
         self.palette.set(theme.palette());
     }
 }
 
-impl<C: Color + 'static> Styler<ButtonStyle<C>> for ThemeStyler<C> {
+impl<C: PaletteColor + 'static> Styler<ButtonStyle<C>> for ThemeStyler<C> {
     type Class = ();
 
     fn default() -> Self::Class {
@@ -42,6 +43,7 @@ impl<C: Color + 'static> Styler<ButtonStyle<C>> for ThemeStyler<C> {
         ()
     }
 
+    // TODO
     fn style(
         self,
         inputs: Self::Class,
@@ -61,15 +63,42 @@ impl<C: Color + 'static> Styler<ButtonStyle<C>> for ThemeStyler<C> {
     }
 }
 
+pub struct CustomTheme<C: Color> {
+    palette: Palette<C>,
+}
+
 #[derive(Default)]
-pub enum Theme {
+pub enum Theme<C: PaletteColor> {
     #[default]
     Light,
     Dark,
+    Custom(CustomTheme<C>),
 }
 
-impl Theme {
-    pub fn palette<C: Color>(&self) -> Palette<C> {
-        todo!()
+impl<C: PaletteColor> Theme<C> {
+    pub fn palette(&self) -> Palette<C> {
+        match self {
+            Theme::Light => C::LIGHT,
+            Theme::Dark => C::DARK,
+            Theme::Custom(custom) => custom.palette,
+        }
     }
+}
+
+pub trait PaletteColor: Color {
+    const LIGHT: Palette<Self>;
+    const DARK: Palette<Self>;
+}
+
+macro_rules! impl_rgb_palette_color {
+    ($($colors: path),* {
+        $($theme: ident = $palette: expr);*
+        $(;)?
+    }) => {
+        $(
+            impl PaletteColor for $colors {
+                $(const $theme = $palette)*
+            }
+        )*
+    };
 }

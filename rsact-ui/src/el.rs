@@ -35,6 +35,7 @@ where
     C: WidgetCtx,
 {
     widget: Box<dyn Widget<C>>,
+    mounted: bool,
 }
 
 impl<C> El<C>
@@ -42,7 +43,7 @@ where
     C: WidgetCtx,
 {
     pub(crate) fn new(widget: impl Widget<C> + 'static) -> Self {
-        Self { widget: Box::new(widget) }
+        Self { widget: Box::new(widget), mounted: false }
     }
 }
 
@@ -55,6 +56,12 @@ where
         Self: Sized + 'static,
     {
         self
+    }
+
+    fn on_mount(&mut self, ctx: crate::widget::MountCtx<C>) {
+        if !self.mounted {
+            self.widget.on_mount(ctx)
+        }
     }
 
     fn children_ids(&self) -> Memo<Vec<ElId>> {

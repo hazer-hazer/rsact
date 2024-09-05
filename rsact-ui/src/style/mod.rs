@@ -14,7 +14,7 @@ pub mod theme;
 //     }
 // }
 
-pub trait WidgetStyle {
+pub trait WidgetStyle: PartialEq + Clone {
     type Color: Color;
     type Inputs;
 }
@@ -22,7 +22,10 @@ pub trait WidgetStyle {
 #[derive(Default)]
 pub struct NullStyler;
 
-impl<S: WidgetStyle> Styler<S> for NullStyler {
+impl<S: WidgetStyle> Styler<S> for NullStyler
+where
+    S: Clone,
+{
     type Class = ();
 
     fn default() -> Self::Class {
@@ -33,7 +36,7 @@ impl<S: WidgetStyle> Styler<S> for NullStyler {
         self,
         _inputs: Self::Class,
     ) -> impl Fn(S, <S as WidgetStyle>::Inputs) -> S + 'static {
-        move |style, _| style
+        move |style, _| style.clone()
     }
 }
 

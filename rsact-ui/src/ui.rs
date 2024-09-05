@@ -4,7 +4,7 @@ use crate::{
     layout::{model_layout, size::Size, LayoutModel, Limits},
     render::{color::Color, draw_target::LayeringRenderer, Renderer},
     style::{
-        theme::{Theme, ThemeStyler},
+        theme::{PaletteColor, Theme, ThemeStyler},
         NullStyler,
     },
     widget::{
@@ -138,7 +138,6 @@ impl<C: WidgetCtx> Page<C> {
     pub fn draw(
         &mut self,
         target: &mut impl DrawTarget<Color = <C::Renderer as Renderer>::Color>,
-        styler: &C::Styler,
     ) -> DrawResult {
         self.style.with(|style| {
             if let Some(background_color) = style.background_color {
@@ -153,7 +152,6 @@ impl<C: WidgetCtx> Page<C> {
                 state: &self.state,
                 renderer: &mut self.renderer,
                 layout: &layout.tree_root(),
-                styler,
             })
         })?;
 
@@ -178,7 +176,7 @@ pub struct UI<R, E, S>
 where
     R: Renderer + 'static,
     E: Event + 'static,
-    S: Default + 'static,
+    S: PartialEq + Copy + 'static,
 {
     active_page: usize,
     pages: Vec<Page<PhantomWidgetCtx<R, E, S>>>,
@@ -193,13 +191,13 @@ impl<C, E, S> UI<LayeringRenderer<C>, E, S>
 where
     E: Event + 'static,
     C: Color + 'static,
-    S: Default + 'static,
+    S: PartialEq + Copy + 'static,
 {
     pub fn draw(
         &mut self,
         target: &mut impl DrawTarget<Color = C>,
     ) -> DrawResult {
-        self.pages[self.active_page].draw(target, &self.styler)
+        self.pages[self.active_page].draw(target)
     }
 }
 
@@ -207,20 +205,33 @@ impl<R, E> UI<R, E, ThemeStyler<R::Color>>
 where
     R: Renderer + 'static,
     E: Event + 'static,
+    R::Color: PaletteColor,
 {
-    pub fn theme(self, theme: Theme) -> Self {
-        self.styler.set_theme(theme);
+    pub fn theme(mut self, theme: Theme<R::Color>) -> Self {
+        if let Some(styler) = self.styler.as_mut() {
+            styler.set_theme(theme);
+        } else {
+            self.styler.replace(ThemeStyler::new(theme));
+        }
         self
     }
 }
 
-impl<R, E> UI<R, E, NullStyler>
+// impl<R, E> UI<R, E, NullStyler>
+// where
+//     R: Renderer + 'static,
+//     E: Event + 'static,
+// {
+// }
+
+impl<R, E> UI<R, E, ThemeStyler<R::Color>>
 where
     R: Renderer + 'static,
     E: Event + 'static,
+    R::Color: PaletteColor,
 {
     pub fn new(
-        root: impl Into<El<PhantomWidgetCtx<R, E, NullStyler>>>,
+        root: impl Into<El<PhantomWidgetCtx<R, E, ThemeStyler<R::Color>>>>,
         viewport: impl Into<Size> + Copy,
     ) -> Self {
         Self {
@@ -228,35 +239,33 @@ where
             viewport: viewport.into(),
             pages: vec![Page::new(root, viewport.into())],
             on_exit: None,
-            styler: Default::default(),
+            styler: None,
         }
     }
-}
 
-impl<R, E, S> UI<R, E, S>
-where
-    R: Renderer + 'static,
-    E: Event + 'static,
-    S: Default + 'static,
-{
     /// Add ExitEvent handler that eats exit event
     pub fn on_exit(mut self, on_exit: impl Fn() + 'static) -> Self {
         self.on_exit = Some(Box::new(on_exit));
         self
     }
 
-    pub fn current_page(&mut self) -> &mut Page<PhantomWidgetCtx<R, E, S>> {
+    pub fn current_page(
+        &mut self,
+    ) -> &mut Page<PhantomWidgetCtx<R, E, ThemeStyler<R::Color>>> {
         &mut self.pages[self.active_page]
     }
 
-    pub fn add_page(&mut self, root: impl Into<El<PhantomWidgetCtx<R, E, S>>>) {
+    pub fn add_page(
+        &mut self,
+        root: impl Into<El<PhantomWidgetCtx<R, E, ThemeStyler<R::Color>>>>,
+    ) {
         self.pages.push(Page::new(root, self.viewport))
     }
 
     pub fn with_page(
         mut self,
-        root: impl Into<El<PhantomWidgetCtx<R, E, S>>>,
-    ) -> UI<R, E, S> {
+        root: impl Into<El<PhantomWidgetCtx<R, E, ThemeStyler<R::Color>>>>,
+    ) -> Self {
         self.add_page(root);
         self
     }

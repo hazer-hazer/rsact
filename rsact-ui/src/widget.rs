@@ -1,12 +1,15 @@
 use core::marker::PhantomData;
 use prelude::*;
 
+use crate::style::{Styler, WidgetStyle};
+
 pub type DrawResult = Result<(), ()>;
 
+// Not an actual context, rename to something like `WidgetTypeFamily`
 pub trait WidgetCtx: 'static {
     type Renderer: Renderer<Color = Self::Color>;
     type Event: Event;
-    type Styler;
+    type Styler: PartialEq + Copy;
 
     type Color: Color;
 
@@ -35,7 +38,7 @@ impl<R, E, S> WidgetCtx for PhantomWidgetCtx<R, E, S>
 where
     R: Renderer + 'static,
     E: Event + 'static,
-    S: 'static,
+    S: PartialEq + Copy + 'static,
 {
     type Renderer = R;
     type Event = E;
@@ -63,7 +66,6 @@ pub struct DrawCtx<'a, C: WidgetCtx> {
     pub state: &'a PageState<C>,
     pub renderer: &'a mut C::Renderer,
     pub layout: &'a LayoutModelTree<'a>,
-    pub styler: &'a C::Styler,
 }
 
 impl<'a, C: WidgetCtx + 'static> DrawCtx<'a, C> {
@@ -73,7 +75,6 @@ impl<'a, C: WidgetCtx + 'static> DrawCtx<'a, C> {
             state: &self.state,
             renderer: &mut self.renderer,
             layout: self.layout.children().next().as_ref().unwrap(),
-            styler: &self.styler,
         })
     }
 
@@ -85,7 +86,6 @@ impl<'a, C: WidgetCtx + 'static> DrawCtx<'a, C> {
                     state: self.state,
                     renderer: &mut self.renderer,
                     layout: &child_layout,
-                    styler: &self.styler,
                 })
             },
         )
@@ -171,6 +171,25 @@ pub struct IdTree {
     pub children: Signal<Vec<IdTree>>,
 }
 
+#[derive(Clone, Copy)]
+pub struct MountCtx<C: WidgetCtx> {
+    pub styler: Memo<C::Styler>,
+}
+
+impl<C: WidgetCtx> MountCtx<C> {
+    pub fn accept_styles<I: Clone, S: WidgetStyle<Inputs = I> + 'static>(
+        &self,
+        style: MemoChain<S>,
+        inputs: impl MaybeSignal<I> + 'static,
+    ) where
+        C::Styler: Styler<S, Class = ()>,
+    {
+        let inputs = inputs.maybe_signal();
+        let styler = self.styler.get().style(());
+        style.then(move |base| styler(base.clone(), inputs.get_cloned()));
+    }
+}
+
 pub trait Widget<C>
 where
     C: WidgetCtx,
@@ -181,6 +200,8 @@ where
     {
         El::new(self)
     }
+
+    fn on_mount(&mut self, ctx: MountCtx<C>);
 
     fn children_ids(&self) -> Memo<Vec<ElId>> {
         Vec::new().into_memo()
@@ -215,12 +236,12 @@ pub trait SizedWidget<C: WidgetCtx>: Widget<C> {
 
     fn width<L: Into<Length> + Copy + 'static>(
         self,
-        width: impl EcoSignal<L> + 'static,
+        width: impl MaybeSignal<L> + 'static,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout().setter(width.eco_signal(), |&width, layout| {
+        self.layout().setter(width.maybe_signal(), |&width, layout| {
             layout.size.width = width.into();
         });
         self
@@ -228,12 +249,12 @@ pub trait SizedWidget<C: WidgetCtx>: Widget<C> {
 
     fn height<L: Into<Length> + Copy + 'static>(
         self,
-        height: impl EcoSignal<L> + 'static,
+        height: impl MaybeSignal<L> + 'static,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout().setter(height.eco_signal(), |&height, layout| {
+        self.layout().setter(height.maybe_signal(), |&height, layout| {
             layout.size.height = height.into();
         });
         self
@@ -241,12 +262,12 @@ pub trait SizedWidget<C: WidgetCtx>: Widget<C> {
 }
 
 pub trait BoxModelWidget<C: WidgetCtx>: Widget<C> {
-    fn border_width(self, border_width: impl EcoSignal<u32> + 'static) -> Self
+    fn border_width(self, border_width: impl MaybeSignal<u32> + 'static) -> Self
     where
         Self: Sized + 'static,
     {
         self.layout().setter(
-            border_width.eco_signal(),
+            border_width.maybe_signal(),
             |&border_width, layout| {
                 layout.box_model.border_width = border_width;
             },
@@ -256,12 +277,12 @@ pub trait BoxModelWidget<C: WidgetCtx>: Widget<C> {
 
     fn padding<P: Into<Padding> + Copy + 'static>(
         self,
-        padding: impl EcoSignal<P> + 'static,
+        padding: impl MaybeSignal<P> + 'static,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout().setter(padding.eco_signal(), |&padding, layout| {
+        self.layout().setter(padding.maybe_signal(), |&padding, layout| {
             layout.box_model.padding = padding.into();
         });
         self

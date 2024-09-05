@@ -23,7 +23,7 @@ pub mod prelude {
         memo_chain::{use_memo_chain, MemoChain},
         runtime::{create_runtime, with_current_runtime, with_scoped_runtime},
         signal::{
-            EcoSignal, IntoSignal, ReadSignal, Signal, SignalMapper,
+            IntoSignal, MaybeSignal, ReadSignal, Signal, SignalMapper,
             SignalSetter, SignalTree, WriteSignal,
         },
         trigger::{use_trigger, Trigger},

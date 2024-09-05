@@ -2,7 +2,7 @@ use crate::{
     callback::AnyCallback,
     prelude::use_memo,
     runtime::with_current_runtime,
-    signal::{marker, EcoSignal, ReadSignal, Signal},
+    signal::{marker, MaybeSignal, ReadSignal, Signal},
     storage::ValueId,
 };
 use alloc::{rc::Rc, vec::Vec};
@@ -83,10 +83,10 @@ impl<T: PartialEq + 'static> ReadSignal<T> for Memo<T> {
     }
 }
 
-impl<T: PartialEq + 'static> EcoSignal<T> for Memo<T> {
+impl<T: PartialEq + 'static> MaybeSignal<T> for Memo<T> {
     type S = Memo<T>;
 
-    fn eco_signal(self) -> Self::S {
+    fn maybe_signal(self) -> Self::S {
         self
     }
 }

@@ -211,6 +211,7 @@ where
     C::Event: ScrollEvent,
     C: WidgetCtx,
     Dir: Direction,
+    C::Styler: Styler<ScrollableStyle<C::Color>, Class = ()>,
 {
 }
 
@@ -219,6 +220,7 @@ where
     C::Event: ScrollEvent,
     C: WidgetCtx,
     Dir: Direction,
+    C::Styler: Styler<ScrollableStyle<C::Color>, Class = ()>,
 {
 }
 
@@ -227,10 +229,15 @@ where
     C::Event: ScrollEvent,
     C: WidgetCtx,
     Dir: Direction,
+    C::Styler: Styler<ScrollableStyle<C::Color>, Class = ()>,
 {
     fn children_ids(&self) -> Memo<Vec<ElId>> {
         let id = self.id;
         use_memo(move |_| vec![id])
+    }
+
+    fn on_mount(&mut self, ctx: crate::widget::MountCtx<C>) {
+        ctx.accept_styles(self.style, self.state);
     }
 
     fn layout(&self) -> Signal<Layout> {
@@ -337,7 +344,6 @@ where
                     renderer,
                     layout: &child_layout
                         .translate(Dir::AXIS.canon(-(offset as i32), 0)),
-                    styler: ctx.styler,
                 })
             })
         })

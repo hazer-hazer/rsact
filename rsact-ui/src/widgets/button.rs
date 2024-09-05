@@ -111,6 +111,7 @@ impl ButtonState {
 //     }
 // }
 
+// TODO: Better use [`WidgetCtx`] for styles to shrink paths to Color in bounds
 #[derive(Clone, Copy, PartialEq)]
 pub struct ButtonStyle<C: Color> {
     pub container: BoxStyle<C>,
@@ -230,23 +231,36 @@ impl<C: WidgetCtx + 'static> Button<C> {
     // }
 }
 
-impl<C: WidgetCtx + 'static> SizedWidget<C> for Button<C> where
-    C::Event: ButtonEvent
+impl<C: WidgetCtx + 'static> SizedWidget<C> for Button<C>
+where
+    C::Event: ButtonEvent,
+    C::Styler: Styler<ButtonStyle<C::Color>, Class = ()>,
 {
 }
 
-impl<C: WidgetCtx + 'static> BoxModelWidget<C> for Button<C> where
-    C::Event: ButtonEvent
+impl<C: WidgetCtx + 'static> BoxModelWidget<C> for Button<C>
+where
+    C::Event: ButtonEvent,
+    C::Styler: Styler<ButtonStyle<C::Color>, Class = ()>,
 {
 }
 
 impl<C: WidgetCtx + 'static> Widget<C> for Button<C>
 where
     C::Event: ButtonEvent,
+    C::Styler: Styler<ButtonStyle<C::Color>, Class = ()>,
 {
     fn children_ids(&self) -> Memo<Vec<ElId>> {
         let id = self.id;
         use_memo(move |_| vec![id])
+    }
+
+    fn on_mount(&mut self, ctx: crate::widget::MountCtx<C>) {
+        // let state = self.state;
+        // let styler = ctx.styler.get().style(());
+        // self.style.then(move |base| styler(*base, state.get()));
+
+        ctx.accept_styles(self.style, self.state);
     }
 
     fn layout(&self) -> Signal<Layout> {

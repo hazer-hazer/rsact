@@ -90,8 +90,8 @@ impl<C: WidgetCtx + 'static, Dir: Direction> Flex<C, Dir> {
         }
     }
 
-    pub fn wrap(self, wrap: impl EcoSignal<bool> + 'static) -> Self {
-        self.layout.setter(wrap.eco_signal(), |&wrap, layout| {
+    pub fn wrap(self, wrap: impl MaybeSignal<bool> + 'static) -> Self {
+        self.layout.setter(wrap.maybe_signal(), |&wrap, layout| {
             layout.expect_flex_mut().wrap = wrap
         });
         self
@@ -99,9 +99,9 @@ impl<C: WidgetCtx + 'static, Dir: Direction> Flex<C, Dir> {
 
     pub fn gap<G: Into<Size> + Copy + 'static>(
         self,
-        gap: impl EcoSignal<G> + 'static,
+        gap: impl MaybeSignal<G> + 'static,
     ) -> Self {
-        self.layout.setter(gap.eco_signal(), |&gap, layout| {
+        self.layout.setter(gap.maybe_signal(), |&gap, layout| {
             layout.expect_flex_mut().gap = gap.into();
         });
 
@@ -110,10 +110,10 @@ impl<C: WidgetCtx + 'static, Dir: Direction> Flex<C, Dir> {
 
     pub fn vertical_align(
         self,
-        vertical_align: impl EcoSignal<Align> + 'static,
+        vertical_align: impl MaybeSignal<Align> + 'static,
     ) -> Self {
         self.layout.setter(
-            vertical_align.eco_signal(),
+            vertical_align.maybe_signal(),
             |&vertical_align, layout| {
                 layout.expect_flex_mut().vertical_align = vertical_align
             },
@@ -123,10 +123,10 @@ impl<C: WidgetCtx + 'static, Dir: Direction> Flex<C, Dir> {
 
     pub fn horizontal_align(
         self,
-        horizontal_align: impl EcoSignal<Align> + 'static,
+        horizontal_align: impl MaybeSignal<Align> + 'static,
     ) -> Self {
         self.layout.setter(
-            horizontal_align.eco_signal(),
+            horizontal_align.maybe_signal(),
             |&horizontal_align, layout| {
                 layout.expect_flex_mut().horizontal_align = horizontal_align
             },
@@ -158,6 +158,8 @@ impl<C: WidgetCtx + 'static, Dir: Direction> Widget<C> for Flex<C, Dir> {
             })
         })
     }
+
+    fn on_mount(&mut self, _ctx: crate::widget::MountCtx<C>) {}
 
     fn layout(&self) -> Signal<Layout> {
         self.layout

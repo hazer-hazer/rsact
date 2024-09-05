@@ -33,6 +33,8 @@ impl<C: WidgetCtx + 'static> Widget<C> for Edge<C> {
         self.layout
     }
 
+    fn on_mount(&mut self, _ctx: crate::widget::MountCtx<C>) {}
+
     fn build_layout_tree(&self) -> MemoTree<Layout> {
         MemoTree::childless(self.layout.into_memo())
     }
