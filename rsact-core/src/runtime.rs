@@ -1,7 +1,6 @@
 use crate::{
     callback::AnyCallback,
     effect::EffectOrder,
-    memo_chain::MemoChainCallback,
     operator::Operation,
     storage::{Storage, ValueId, ValueKind, ValueState},
 };
@@ -162,10 +161,11 @@ impl Runtime {
         let value = self.storage.get(id);
 
         let changed = match value.kind {
-            ValueKind::MemoChain { initial, fs } => {
+            ValueKind::MemoChain { memo_chain } => {
                 let value = value.value;
 
                 self.with_observer(Observer::Effect(id), move |_rt| {
+                    
                     fs.borrow().values().fold(
                         initial.run(value.clone()),
                         |changed, cbs| {
@@ -280,7 +280,7 @@ impl Runtime {
     ) {
         let kind = self.storage.get(id).kind;
         match kind {
-            ValueKind::MemoChain { initial: _, fs } => {
+            ValueKind::MemoChain { memo_chain: f } => {
                 fs.borrow_mut()
                     .entry(order)
                     .or_default()

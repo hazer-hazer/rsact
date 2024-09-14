@@ -1,3 +1,11 @@
+use crate::{
+    callback::AnyCallback,
+    effect::EffectCallback,
+    memo::MemoCallback,
+    memo_chain::StoredMemoChain,
+    operator::{AnyOperator, Operation, OperatorState},
+    runtime::{Observer, Runtime},
+};
 use alloc::{
     boxed::Box,
     collections::{
@@ -15,14 +23,6 @@ use core::{
     panic::Location,
 };
 use slotmap::SlotMap;
-
-use crate::{
-    callback::AnyCallback,
-    effect::{EffectCallback, EffectOrder},
-    memo::MemoCallback,
-    operator::{AnyOperator, Operation, OperatorState},
-    runtime::{Observer, Runtime},
-};
 
 // TODO: Add typed ValueId's
 slotmap::new_key_type! {
@@ -145,6 +145,7 @@ impl core::fmt::Display for ValueDebugInfo {
     }
 }
 
+// TODO: Do we need clone and Rc's, why not Box?
 #[derive(Clone)]
 pub enum ValueKind {
     Signal(ValueDebugInfo),
@@ -155,12 +156,8 @@ pub enum ValueKind {
         f: Rc<dyn AnyCallback>,
     },
     MemoChain {
-        initial: Rc<dyn AnyCallback>,
-        // TODO: Optimize, don't use BtreeMap but fixed structure with each
-        // EffectOrder
-        fs: Rc<RefCell<BTreeMap<EffectOrder, Vec<Rc<dyn AnyCallback>>>>>,
+        memo_chain: Rc<dyn AnyCallback>,
     },
-    // Computed { f: Rc<dyn AnyCallback> },
     Operator {
         // TODO: Really clone? Store separately
         scheduled: BTreeMap<Observer, Vec<Rc<dyn Any>>>,
@@ -263,13 +260,12 @@ impl Storage {
     pub fn create_memo_chain<T, F>(&self, f: F) -> ValueId
     where
         T: PartialEq + 'static,
-        F: Fn(Option<&T>) -> T + 'static,
+        F: Fn() -> T + 'static,
     {
         self.values.borrow_mut().insert(StoredValue {
             value: Rc::new(RefCell::new(None::<T>)),
             kind: ValueKind::MemoChain {
-                initial: Rc::new(MemoCallback { f, ty: PhantomData }),
-                fs: Rc::new(RefCell::new(BTreeMap::new())),
+                memo_chain: Rc::new(StoredMemoChain::new(f)),
             },
             state: ValueState::Dirty,
         })

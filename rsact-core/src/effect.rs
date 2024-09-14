@@ -12,6 +12,12 @@ pub enum EffectOrder {
     Last,
 }
 
+impl EffectOrder {
+    pub fn each() -> impl Iterator<Item = EffectOrder> {
+        [Self::First, Self::Normal, Self::Last].iter().copied()
+    }
+}
+
 // #[derive(Clone)]
 // pub struct OrderedCallback {
 //     order: EffectOrder,
