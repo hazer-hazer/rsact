@@ -11,6 +11,7 @@ pub mod style;
 pub mod ui;
 pub mod widget;
 pub mod widgets;
+pub mod font;
 
 #[macro_use]
 extern crate log;

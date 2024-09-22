@@ -2,6 +2,7 @@ use crate::el::ElId;
 use crate::layout::Axis;
 use crate::widgets::button::ButtonEvent;
 use crate::widgets::scrollable::ScrollEvent;
+use crate::widgets::slider::SliderEvent;
 use core::fmt::Debug;
 use core::ops::ControlFlow;
 
@@ -115,9 +116,17 @@ impl ScrollEvent for NullEvent {
     }
 }
 
+impl SliderEvent for NullEvent {
+    fn as_slider_move(&self, axis: Axis) -> Option<i32> {
+        None
+    }
+}
+
 #[cfg(feature = "simulator")]
 pub mod simulator {
-    use crate::widgets::{button::ButtonEvent, scrollable::ScrollEvent};
+    use crate::widgets::{
+        button::ButtonEvent, scrollable::ScrollEvent, slider::SliderEvent,
+    };
 
     use super::{Event, ExitEvent, FocusEvent};
 
@@ -175,6 +184,12 @@ pub mod simulator {
         // Encoder
         fn as_scroll(&self, _axis: crate::layout::Axis) -> Option<i32> {
             self.as_focus_move().map(|offset| offset * 5)
+        }
+    }
+
+    impl SliderEvent for SimulatorEvent {
+        fn as_slider_move(&self, axis: crate::layout::Axis) -> Option<i32> {
+            self.as_focus_move()
         }
     }
 

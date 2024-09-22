@@ -111,7 +111,6 @@ impl ButtonState {
 //     }
 // }
 
-// TODO: Better use [`WidgetCtx`] for styles to shrink paths to Color in bounds
 #[derive(Clone, Copy, PartialEq)]
 pub struct ButtonStyle<C: Color> {
     pub container: BoxStyle<C>,
@@ -144,22 +143,21 @@ impl<C: Color> ButtonStyle<C> {
 //     }
 // }
 
-pub struct Button<C: WidgetCtx> {
+pub struct Button<W: WidgetCtx> {
     id: ElId,
     layout: Signal<Layout>,
-    content: Signal<El<C>>,
+    content: Signal<El<W>>,
     state: Signal<ButtonState>,
     // style: Signal<ButtonStyle<C::Color>>,
     // style: Option<ButtonStyle<C>>,
-    style: MemoChain<ButtonStyle<C::Color>>,
+    style: MemoChain<ButtonStyle<W::Color>>,
     on_click: Option<Box<dyn Fn()>>,
 }
 
-impl<C: WidgetCtx + 'static> Button<C> {
-    pub fn new(content: impl IntoSignal<El<C>>) -> Self {
+impl<W: WidgetCtx + 'static> Button<W> {
+    pub fn new(content: impl IntoSignal<El<W>>) -> Self {
         let content = content.into_signal();
         let state = use_signal(ButtonState::none());
-        // let style = use_signal(ButtonStyle::base());
 
         let layout = Layout::new(
             LayoutKind::Container(ContainerLayout {
@@ -217,7 +215,7 @@ impl<C: WidgetCtx + 'static> Button<C> {
 
     pub fn style(
         self,
-        styler: impl Fn(ButtonStyle<C::Color>, ButtonState) -> ButtonStyle<C::Color>
+        styler: impl Fn(ButtonStyle<W::Color>, ButtonState) -> ButtonStyle<W::Color>
             + 'static,
     ) -> Self {
         let state = self.state;
@@ -231,34 +229,38 @@ impl<C: WidgetCtx + 'static> Button<C> {
     // }
 }
 
-impl<C: WidgetCtx + 'static> SizedWidget<C> for Button<C>
+impl<W: WidgetCtx + 'static> SizedWidget<W> for Button<W>
 where
-    C::Event: ButtonEvent,
-    C::Styler: Styler<ButtonStyle<C::Color>, Class = ()>,
+    W::Event: ButtonEvent,
+    W::Styler: Styler<ButtonStyle<W::Color>, Class = ()>,
 {
 }
 
-impl<C: WidgetCtx + 'static> BoxModelWidget<C> for Button<C>
+impl<W: WidgetCtx + 'static> BoxModelWidget<W> for Button<W>
 where
-    C::Event: ButtonEvent,
-    C::Styler: Styler<ButtonStyle<C::Color>, Class = ()>,
+    W::Event: ButtonEvent,
+    W::Styler: Styler<ButtonStyle<W::Color>, Class = ()>,
 {
 }
 
-impl<C: WidgetCtx + 'static> Widget<C> for Button<C>
+impl<W: WidgetCtx + 'static> Widget<W> for Button<W>
 where
-    C::Event: ButtonEvent,
-    C::Styler: Styler<ButtonStyle<C::Color>, Class = ()>,
+    W::Event: ButtonEvent,
+    W::Styler: Styler<ButtonStyle<W::Color>, Class = ()>,
 {
     fn children_ids(&self) -> Memo<Vec<ElId>> {
         let id = self.id;
         use_memo(move |_| vec![id])
     }
 
-    fn on_mount(&mut self, ctx: crate::widget::MountCtx<C>) {
+    fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
         // let state = self.state;
         // let styler = ctx.styler.get().style(());
         // self.style.then(move |base| styler(*base, state.get()));
+
+        self.content.update_untracked(|content| {
+            ctx.pass_to_children(core::slice::from_mut(content))
+        });
 
         ctx.accept_styles(self.style, self.state);
     }
@@ -276,7 +278,7 @@ where
         }
     }
 
-    fn draw(&self, ctx: &mut DrawCtx<'_, C>) -> DrawResult {
+    fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         ctx.draw_focus_outline(self.id)?;
 
         let style = self.style.get();
@@ -292,8 +294,8 @@ where
 
     fn on_event(
         &mut self,
-        ctx: &mut crate::widget::EventCtx<'_, C>,
-    ) -> EventResponse<<C as WidgetCtx>::Event> {
+        ctx: &mut crate::widget::EventCtx<'_, W>,
+    ) -> EventResponse<<W as WidgetCtx>::Event> {
         ctx.handle_focusable(self.id, |pressed| {
             let current_state = self.state.get();
 

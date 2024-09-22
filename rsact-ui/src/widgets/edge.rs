@@ -1,12 +1,12 @@
 use crate::widget::prelude::*;
 use rsact_core::memo_chain::IntoMemoChain;
 
-pub struct Edge<C: WidgetCtx> {
+pub struct Edge<W: WidgetCtx> {
     pub layout: Signal<Layout>,
-    style: MemoChain<BoxStyle<C::Color>>,
+    style: MemoChain<BoxStyle<W::Color>>,
 }
 
-impl<C: WidgetCtx + 'static> Edge<C> {
+impl<W: WidgetCtx + 'static> Edge<W> {
     pub fn new() -> Self {
         Self {
             layout: Layout::new(LayoutKind::Edge, Limits::zero().into_memo())
@@ -18,28 +18,28 @@ impl<C: WidgetCtx + 'static> Edge<C> {
 
     pub fn style(
         self,
-        styler: impl Fn(BoxStyle<C::Color>) -> BoxStyle<C::Color> + 'static,
+        styler: impl Fn(BoxStyle<W::Color>) -> BoxStyle<W::Color> + 'static,
     ) -> Self {
         self.style.last(move |prev_style| styler(*prev_style));
         self
     }
 }
 
-impl<C: WidgetCtx + 'static> SizedWidget<C> for Edge<C> {}
-impl<C: WidgetCtx + 'static> BoxModelWidget<C> for Edge<C> {}
+impl<W: WidgetCtx + 'static> SizedWidget<W> for Edge<W> {}
+impl<W: WidgetCtx + 'static> BoxModelWidget<W> for Edge<W> {}
 
-impl<C: WidgetCtx + 'static> Widget<C> for Edge<C> {
+impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
     fn layout(&self) -> Signal<Layout> {
         self.layout
     }
 
-    fn on_mount(&mut self, _ctx: crate::widget::MountCtx<C>) {}
+    fn on_mount(&mut self, _ctx: crate::widget::MountCtx<W>) {}
 
     fn build_layout_tree(&self) -> MemoTree<Layout> {
         MemoTree::childless(self.layout.into_memo())
     }
 
-    fn draw(&self, ctx: &mut DrawCtx<'_, C>) -> DrawResult {
+    fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         let style = self.style.get();
 
         ctx.renderer.block(Block::from_layout_style(
@@ -51,17 +51,17 @@ impl<C: WidgetCtx + 'static> Widget<C> for Edge<C> {
 
     fn on_event(
         &mut self,
-        _ctx: &mut crate::widget::EventCtx<'_, C>,
-    ) -> crate::event::EventResponse<<C as WidgetCtx>::Event> {
+        _ctx: &mut crate::widget::EventCtx<'_, W>,
+    ) -> crate::event::EventResponse<<W as WidgetCtx>::Event> {
         Propagate::Ignored.into()
     }
 }
 
-impl<C> From<Edge<C>> for El<C>
+impl<W> From<Edge<W>> for El<W>
 where
-    C: WidgetCtx + 'static,
+    W: WidgetCtx + 'static,
 {
-    fn from(value: Edge<C>) -> Self {
+    fn from(value: Edge<W>) -> Self {
         El::new(value)
     }
 }

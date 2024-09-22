@@ -11,13 +11,13 @@ use crate::{
 };
 use core::marker::PhantomData;
 
-pub struct Space<C: WidgetCtx, Dir: Direction> {
+pub struct Space<W: WidgetCtx, Dir: Direction> {
     layout: Signal<Layout>,
-    ctx: PhantomData<C>,
+    ctx: PhantomData<W>,
     dir: PhantomData<Dir>,
 }
 
-impl<C: WidgetCtx> Space<C, RowDir> {
+impl<W: WidgetCtx> Space<W, RowDir> {
     pub fn row<L: Into<Length> + Clone + PartialEq + 'static>(
         length: impl IntoMemo<L>,
     ) -> Self {
@@ -25,7 +25,7 @@ impl<C: WidgetCtx> Space<C, RowDir> {
     }
 }
 
-impl<C: WidgetCtx> Space<C, ColDir> {
+impl<W: WidgetCtx> Space<W, ColDir> {
     pub fn col<L: Into<Length> + Clone + PartialEq + 'static>(
         length: impl IntoMemo<L>,
     ) -> Self {
@@ -33,7 +33,7 @@ impl<C: WidgetCtx> Space<C, ColDir> {
     }
 }
 
-impl<C: WidgetCtx, Dir: Direction> Space<C, Dir> {
+impl<W: WidgetCtx, Dir: Direction> Space<W, Dir> {
     pub fn new<L: Into<Length> + Clone + PartialEq + 'static>(
         length: impl IntoMemo<L>,
     ) -> Self {
@@ -53,35 +53,35 @@ impl<C: WidgetCtx, Dir: Direction> Space<C, Dir> {
     }
 }
 
-impl<C: WidgetCtx, Dir: Direction> Widget<C> for Space<C, Dir> {
+impl<W: WidgetCtx, Dir: Direction> Widget<W> for Space<W, Dir> {
     fn layout(&self) -> Signal<Layout> {
         self.layout
     }
 
-    fn on_mount(&mut self, _ctx: crate::widget::MountCtx<C>) {}
+    fn on_mount(&mut self, _ctx: crate::widget::MountCtx<W>) {}
 
     fn build_layout_tree(&self) -> MemoTree<Layout> {
         MemoTree::childless(self.layout.into_memo())
     }
 
-    fn draw(&self, _ctx: &mut DrawCtx<'_, C>) -> DrawResult {
+    fn draw(&self, _ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         Ok(())
     }
 
     fn on_event(
         &mut self,
-        _ctx: &mut EventCtx<'_, C>,
-    ) -> EventResponse<<C as WidgetCtx>::Event> {
+        _ctx: &mut EventCtx<'_, W>,
+    ) -> EventResponse<<W as WidgetCtx>::Event> {
         Propagate::Ignored.into()
     }
 }
 
-impl<C, Dir> From<Space<C, Dir>> for El<C>
+impl<W, Dir> From<Space<W, Dir>> for El<W>
 where
-    C: WidgetCtx + 'static,
+    W: WidgetCtx + 'static,
     Dir: Direction + 'static,
 {
-    fn from(value: Space<C, Dir>) -> Self {
+    fn from(value: Space<W, Dir>) -> Self {
         El::new(value)
     }
 }

@@ -2,14 +2,14 @@ use rsact_core::memo_chain::IntoMemoChain;
 
 use crate::widget::{prelude::*, BoxModelWidget, SizedWidget};
 
-pub struct Container<C: WidgetCtx> {
+pub struct Container<W: WidgetCtx> {
     pub layout: Signal<Layout>,
-    pub content: Signal<El<C>>,
-    pub style: MemoChain<BoxStyle<C::Color>>,
+    pub content: Signal<El<W>>,
+    pub style: MemoChain<BoxStyle<W::Color>>,
 }
 
-impl<C: WidgetCtx + 'static> Container<C> {
-    pub fn new(content: impl IntoSignal<El<C>>) -> Self {
+impl<W: WidgetCtx + 'static> Container<W> {
+    pub fn new(content: impl IntoSignal<El<W>>) -> Self {
         let content = content.into_signal();
 
         Self {
@@ -27,7 +27,7 @@ impl<C: WidgetCtx + 'static> Container<C> {
 
     pub fn style(
         self,
-        style: impl Fn(BoxStyle<C::Color>) -> BoxStyle<C::Color> + 'static,
+        style: impl Fn(BoxStyle<W::Color>) -> BoxStyle<W::Color> + 'static,
     ) -> Self {
         self.style.last(move |prev_style| style(*prev_style));
         self
@@ -61,17 +61,20 @@ impl<C: WidgetCtx + 'static> Container<C> {
     }
 }
 
-impl<C: WidgetCtx + 'static> SizedWidget<C> for Container<C> {}
-impl<C: WidgetCtx + 'static> BoxModelWidget<C> for Container<C> {}
+impl<W: WidgetCtx + 'static> SizedWidget<W> for Container<W> {}
+impl<W: WidgetCtx + 'static> BoxModelWidget<W> for Container<W> {}
 
-impl<C: WidgetCtx + 'static> Widget<C> for Container<C> {
+impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
     fn children_ids(&self) -> Memo<Vec<ElId>> {
         let content = self.content;
         content.with(Widget::children_ids)
     }
 
-    fn on_mount(&mut self, _ctx: crate::widget::MountCtx<C>) {
+    fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
         // ctx.accept_styles(self.style, ());
+        self.content.update_untracked(|content| {
+            ctx.pass_to_children(core::slice::from_mut(content))
+        })
     }
 
     fn layout(&self) -> Signal<Layout> {
@@ -88,7 +91,7 @@ impl<C: WidgetCtx + 'static> Widget<C> for Container<C> {
         }
     }
 
-    fn draw(&self, ctx: &mut DrawCtx<'_, C>) -> crate::widget::DrawResult {
+    fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> crate::widget::DrawResult {
         let style = self.style.get();
 
         ctx.renderer.block(Block::from_layout_style(
@@ -102,17 +105,18 @@ impl<C: WidgetCtx + 'static> Widget<C> for Container<C> {
 
     fn on_event(
         &mut self,
-        ctx: &mut crate::widget::EventCtx<'_, C>,
-    ) -> crate::event::EventResponse<<C as WidgetCtx>::Event> {
+        ctx: &mut crate::widget::EventCtx<'_, W>,
+    ) -> crate::event::EventResponse<<W as WidgetCtx>::Event> {
         self.content.control_flow(|content| content.on_event(ctx))
     }
 }
 
-impl<C> From<Container<C>> for El<C>
+// FIXME: Remove?
+impl<W> From<Container<W>> for El<W>
 where
-    C: WidgetCtx + 'static,
+    W: WidgetCtx + 'static,
 {
-    fn from(value: Container<C>) -> Self {
+    fn from(value: Container<W>) -> Self {
         El::new(value)
     }
 }

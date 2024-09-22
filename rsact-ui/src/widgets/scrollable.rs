@@ -124,29 +124,29 @@ impl<C: Color> ScrollableStyle<C> {
     }
 }
 
-pub struct Scrollable<C: WidgetCtx, Dir: Direction> {
+pub struct Scrollable<W: WidgetCtx, Dir: Direction> {
     id: ElId,
     state: Signal<ScrollableState>,
-    style: MemoChain<ScrollableStyle<C::Color>>,
-    content: Signal<El<C>>,
+    style: MemoChain<ScrollableStyle<W::Color>>,
+    content: Signal<El<W>>,
     layout: Signal<Layout>,
     dir: PhantomData<Dir>,
 }
 
-impl<C: WidgetCtx> Scrollable<C, RowDir> {
-    pub fn horizontal(content: impl IntoSignal<El<C>>) -> Self {
+impl<W: WidgetCtx> Scrollable<W, RowDir> {
+    pub fn horizontal(content: impl IntoSignal<El<W>>) -> Self {
         Self::new(content)
     }
 }
 
-impl<C: WidgetCtx> Scrollable<C, ColDir> {
-    pub fn vertical(content: impl IntoSignal<El<C>>) -> Self {
+impl<W: WidgetCtx> Scrollable<W, ColDir> {
+    pub fn vertical(content: impl IntoSignal<El<W>>) -> Self {
         Self::new(content)
     }
 }
 
-impl<C: WidgetCtx, Dir: Direction> Scrollable<C, Dir> {
-    pub fn new(content: impl IntoSignal<El<C>>) -> Self {
+impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
+    pub fn new(content: impl IntoSignal<El<W>>) -> Self {
         let content = content.into_signal();
         let state = use_signal(ScrollableState::none());
 
@@ -195,9 +195,9 @@ impl<C: WidgetCtx, Dir: Direction> Scrollable<C, Dir> {
     pub fn style(
         self,
         styler: impl Fn(
-                ScrollableStyle<C::Color>,
+                ScrollableStyle<W::Color>,
                 ScrollableState,
-            ) -> ScrollableStyle<C::Color>
+            ) -> ScrollableStyle<W::Color>
             + 'static,
     ) -> Self {
         let state = self.state;
@@ -206,38 +206,41 @@ impl<C: WidgetCtx, Dir: Direction> Scrollable<C, Dir> {
     }
 }
 
-impl<C, Dir> SizedWidget<C> for Scrollable<C, Dir>
+impl<W, Dir> SizedWidget<W> for Scrollable<W, Dir>
 where
-    C::Event: ScrollEvent,
-    C: WidgetCtx,
+    W::Event: ScrollEvent,
+    W: WidgetCtx,
     Dir: Direction,
-    C::Styler: Styler<ScrollableStyle<C::Color>, Class = ()>,
+    W::Styler: Styler<ScrollableStyle<W::Color>, Class = ()>,
 {
 }
 
-impl<C, Dir> BoxModelWidget<C> for Scrollable<C, Dir>
+impl<W, Dir> BoxModelWidget<W> for Scrollable<W, Dir>
 where
-    C::Event: ScrollEvent,
-    C: WidgetCtx,
+    W::Event: ScrollEvent,
+    W: WidgetCtx,
     Dir: Direction,
-    C::Styler: Styler<ScrollableStyle<C::Color>, Class = ()>,
+    W::Styler: Styler<ScrollableStyle<W::Color>, Class = ()>,
 {
 }
 
-impl<C, Dir> Widget<C> for Scrollable<C, Dir>
+impl<W, Dir> Widget<W> for Scrollable<W, Dir>
 where
-    C::Event: ScrollEvent,
-    C: WidgetCtx,
+    W::Event: ScrollEvent,
+    W: WidgetCtx,
     Dir: Direction,
-    C::Styler: Styler<ScrollableStyle<C::Color>, Class = ()>,
+    W::Styler: Styler<ScrollableStyle<W::Color>, Class = ()>,
 {
     fn children_ids(&self) -> Memo<Vec<ElId>> {
         let id = self.id;
         use_memo(move |_| vec![id])
     }
 
-    fn on_mount(&mut self, ctx: crate::widget::MountCtx<C>) {
+    fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
         ctx.accept_styles(self.style, self.state);
+        self.content.update_untracked(|content| {
+            ctx.pass_to_children(core::slice::from_mut(content))
+        })
     }
 
     fn layout(&self) -> Signal<Layout> {
@@ -256,7 +259,7 @@ where
 
     fn draw(
         &self,
-        ctx: &mut crate::widget::DrawCtx<'_, C>,
+        ctx: &mut crate::widget::DrawCtx<'_, W>,
     ) -> crate::widget::DrawResult {
         let layout = self.layout.get();
         let style = self.style.get();
@@ -351,8 +354,8 @@ where
 
     fn on_event(
         &mut self,
-        ctx: &mut EventCtx<'_, C>,
-    ) -> EventResponse<C::Event> {
+        ctx: &mut EventCtx<'_, W>,
+    ) -> EventResponse<W::Event> {
         let current_state = self.state.get();
 
         // FocusEvent can be treated as ScrollEvent thus handle it before

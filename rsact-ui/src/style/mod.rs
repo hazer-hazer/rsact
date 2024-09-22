@@ -19,7 +19,7 @@ pub trait WidgetStyle: PartialEq + Clone {
     type Inputs;
 }
 
-#[derive(Default)]
+#[derive(Default, PartialEq, Clone, Copy)]
 pub struct NullStyler;
 
 impl<S: WidgetStyle> Styler<S> for NullStyler

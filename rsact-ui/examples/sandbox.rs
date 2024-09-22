@@ -11,7 +11,10 @@ use rsact_ui::{
     el::El,
     event::simulator::simulator_single_encoder,
     layout::size::{Length, Size},
-    style::block::{BorderStyle, BoxStyle},
+    style::{
+        block::{BorderStyle, BoxStyle},
+        NullStyler,
+    },
     ui::UI,
     widget::{SizedWidget as _, Widget as _, WidgetCtx},
     widgets::{
@@ -22,11 +25,12 @@ use rsact_ui::{
         scrollable::{
             Scrollable, ScrollableState, ScrollableStyle, ScrollbarShow,
         },
+        slider::Slider,
     },
 };
 use std::time::{Duration, Instant};
 
-fn edge<C: WidgetCtx<Color = Rgb888>>() -> El<C> {
+fn edge<W: WidgetCtx<Color = Rgb888>>() -> El<W> {
     Edge::new()
         .style(|_| {
             BoxStyle::base().background_color(Rgb888::new(
@@ -119,11 +123,15 @@ fn main() {
 
     // TODO: Fix Flex::row in Scrollable::vertical
 
+    let slider_value = use_signal(0);
+    let slider = Slider::horizontal(slider_value);
+
     let flexbox = Flex::col(vec![
         // Flex::row(core::array::from_fn::<_, 100, _>(|_| edge()))
         //     .fill()
         //     .wrap(true)
         //     .el(),
+        slider.el(),
         buttons.width(Length::fill()).height(Length::fill()).el(),
         Scrollable::horizontal(
             Flex::row(items).shrink().gap(5).wrap(true).el(),
@@ -148,8 +156,8 @@ fn main() {
     .wrap(true)
     .fill();
 
-    let mut ui = UI::new(flexbox, display.bounding_box().size)
-        .on_exit(|| std::process::exit(1));
+    let mut ui = UI::new(flexbox, display.bounding_box().size, NullStyler)
+        .on_exit(|| std::process::exit(0));
 
     ui.current_page().auto_focus();
 

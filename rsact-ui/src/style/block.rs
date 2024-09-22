@@ -12,6 +12,10 @@ pub enum Radius {
 }
 
 impl Radius {
+    pub fn circle() -> Radius {
+        Radius::Percentage(Size::new_equal(0.5))
+    }
+
     pub fn into_real(
         self,
         corner_size: Size,
@@ -139,6 +143,11 @@ impl<C: Color> BorderStyle<C> {
         self.color = Some(color);
         self
     }
+
+    pub fn radius(mut self, radius: BorderRadius) -> Self {
+        self.radius = radius;
+        self
+    }
 }
 
 #[derive(PartialEq)]
@@ -148,7 +157,7 @@ pub struct BoxStyle<C: Color> {
 }
 
 impl<C: Color> WidgetStyle for BoxStyle<C> {
-type Color = C;
+    type Color = C;
     type Inputs = ();
 }
 

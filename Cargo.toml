@@ -10,4 +10,4 @@ rsact-ui = { path = "./rsact-ui" }
 [features]
 
 [workspace]
-members = ["rsact-ui", "rsact-core"]
+members = ["rsact-ui", "rsact-core", "rsact-icons"]

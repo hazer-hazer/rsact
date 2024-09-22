@@ -46,31 +46,31 @@ where
     type Styler = S;
 }
 
-pub struct PageState<C: WidgetCtx> {
+pub struct PageState<W: WidgetCtx> {
     pub focused: Option<ElId>,
 
-    ctx: PhantomData<C>,
+    ctx: PhantomData<W>,
 }
 
-impl<C: WidgetCtx> PageState<C> {
+impl<W: WidgetCtx> PageState<W> {
     pub fn new() -> Self {
         Self { focused: None, ctx: PhantomData }
     }
 }
 
-pub struct LayoutCtx<'a, C: WidgetCtx> {
-    pub page_state: &'a PageState<C>,
+pub struct LayoutCtx<'a, W: WidgetCtx> {
+    pub page_state: &'a PageState<W>,
 }
 
-pub struct DrawCtx<'a, C: WidgetCtx> {
-    pub state: &'a PageState<C>,
-    pub renderer: &'a mut C::Renderer,
+pub struct DrawCtx<'a, W: WidgetCtx> {
+    pub state: &'a PageState<W>,
+    pub renderer: &'a mut W::Renderer,
     pub layout: &'a LayoutModelTree<'a>,
 }
 
-impl<'a, C: WidgetCtx + 'static> DrawCtx<'a, C> {
+impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
     #[must_use]
-    pub fn draw_child(&mut self, child: &El<C>) -> DrawResult {
+    pub fn draw_child(&mut self, child: &impl Widget<W>) -> DrawResult {
         child.draw(&mut DrawCtx {
             state: &self.state,
             renderer: &mut self.renderer,
@@ -79,7 +79,7 @@ impl<'a, C: WidgetCtx + 'static> DrawCtx<'a, C> {
     }
 
     #[must_use]
-    pub fn draw_children(&mut self, children: &[El<C>]) -> DrawResult {
+    pub fn draw_children(&mut self, children: &[impl Widget<W>]) -> DrawResult {
         children.iter().zip(self.layout.children()).try_for_each(
             |(child, child_layout)| {
                 child.draw(&mut DrawCtx {
@@ -96,7 +96,7 @@ impl<'a, C: WidgetCtx + 'static> DrawCtx<'a, C> {
         if self.state.focused == Some(id) {
             self.renderer.block(Block {
                 border: Border::zero()
-                    .color(Some(<C::Color as Color>::default_foreground()))
+                    .color(Some(<W::Color as Color>::default_foreground()))
                     .width(2),
                 rect: self.layout.area,
                 background: None,
@@ -107,19 +107,19 @@ impl<'a, C: WidgetCtx + 'static> DrawCtx<'a, C> {
     }
 }
 
-pub struct EventCtx<'a, C: WidgetCtx> {
-    pub event: &'a C::Event,
-    pub page_state: &'a mut PageState<C>,
+pub struct EventCtx<'a, W: WidgetCtx> {
+    pub event: &'a W::Event,
+    pub page_state: &'a mut PageState<W>,
     pub layout: &'a LayoutModelTree<'a>,
     // TODO: Instant now
 }
 
-impl<'a, C: WidgetCtx + 'static> EventCtx<'a, C> {
+impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
     #[must_use]
     pub fn pass_to_children(
         &mut self,
-        children: &mut [El<C>],
-    ) -> EventResponse<C::Event> {
+        children: &mut [El<W>],
+    ) -> EventResponse<W::Event> {
         for (child, child_layout) in
             children.iter_mut().zip(self.layout.children())
         {
@@ -140,8 +140,8 @@ impl<'a, C: WidgetCtx + 'static> EventCtx<'a, C> {
     pub fn handle_focusable(
         &self,
         id: ElId,
-        press: impl FnOnce(bool) -> EventResponse<C::Event>,
-    ) -> EventResponse<C::Event> {
+        press: impl FnOnce(bool) -> EventResponse<W::Event>,
+    ) -> EventResponse<W::Event> {
         if self.is_focused(id) {
             if let Some(_) = self.event.as_focus_move() {
                 return Capture::Bubbled(id, self.event.clone()).into();
@@ -171,37 +171,52 @@ pub struct IdTree {
     pub children: Signal<Vec<IdTree>>,
 }
 
-#[derive(Clone, Copy)]
-pub struct MountCtx<C: WidgetCtx> {
-    pub styler: Memo<C::Styler>,
+pub struct MountCtx<W: WidgetCtx> {
+    pub viewport: Memo<Size>,
+    pub styler: Memo<W::Styler>,
 }
 
-impl<C: WidgetCtx> MountCtx<C> {
+impl<W: WidgetCtx> MountCtx<W> {
     pub fn accept_styles<I: Clone, S: WidgetStyle<Inputs = I> + 'static>(
         &self,
         style: MemoChain<S>,
         inputs: impl MaybeSignal<I> + 'static,
     ) where
-        C::Styler: Styler<S, Class = ()>,
+        W::Styler: Styler<S, Class = ()>,
     {
         let inputs = inputs.maybe_signal();
-        let styler = self.styler.get().style(());
-        style.then(move |base| styler(base.clone(), inputs.get_cloned()));
+        let styler = self.styler;
+        style.then(move |base| {
+            styler.get().style(())(base.clone(), inputs.get_cloned())
+        });
+    }
+
+    pub fn pass_to_children(self, children: &mut [El<W>]) {
+        for child in children {
+            child.on_mount(self);
+        }
     }
 }
 
-pub trait Widget<C>
+impl<W: WidgetCtx> Clone for MountCtx<W> {
+    fn clone(&self) -> Self {
+        Self { viewport: self.viewport.clone(), styler: self.styler.clone() }
+    }
+}
+impl<W: WidgetCtx> Copy for MountCtx<W> {}
+
+pub trait Widget<W>
 where
-    C: WidgetCtx,
+    W: WidgetCtx,
 {
-    fn el(self) -> El<C>
+    fn el(self) -> El<W>
     where
         Self: Sized + 'static,
     {
         El::new(self)
     }
 
-    fn on_mount(&mut self, ctx: MountCtx<C>);
+    fn on_mount(&mut self, ctx: MountCtx<W>);
 
     fn children_ids(&self) -> Memo<Vec<ElId>> {
         Vec::new().into_memo()
@@ -209,17 +224,17 @@ where
     fn layout(&self) -> Signal<Layout>;
     fn build_layout_tree(&self) -> MemoTree<Layout>;
 
-    fn draw(&self, ctx: &mut DrawCtx<'_, C>) -> DrawResult;
+    fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult;
     fn on_event(
         &mut self,
-        ctx: &mut EventCtx<'_, C>,
-    ) -> EventResponse<C::Event>;
+        ctx: &mut EventCtx<'_, W>,
+    ) -> EventResponse<W::Event>;
 }
 
 /// Not implementing [`SizedWidget`] and [`BoxModelWidget`] does not mean that
 /// Widget has layout without size or box model, it can be intentional to
 /// disallow user to set size or box model properties.
-pub trait SizedWidget<C: WidgetCtx>: Widget<C> {
+pub trait SizedWidget<W: WidgetCtx>: Widget<W> {
     fn fill(self) -> Self
     where
         Self: Sized + 'static,
@@ -261,7 +276,7 @@ pub trait SizedWidget<C: WidgetCtx>: Widget<C> {
     }
 }
 
-pub trait BoxModelWidget<C: WidgetCtx>: Widget<C> {
+pub trait BoxModelWidget<W: WidgetCtx>: Widget<W> {
     fn border_width(self, border_width: impl MaybeSignal<u32> + 'static) -> Self
     where
         Self: Sized + 'static,

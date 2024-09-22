@@ -30,35 +30,35 @@ impl From<&'static str> for ElId {
     }
 }
 
-pub struct El<C>
+pub struct El<W>
 where
-    C: WidgetCtx,
+    W: WidgetCtx,
 {
-    widget: Box<dyn Widget<C>>,
+    widget: Box<dyn Widget<W>>,
     mounted: bool,
 }
 
-impl<C> El<C>
+impl<W> El<W>
 where
-    C: WidgetCtx,
+    W: WidgetCtx,
 {
-    pub(crate) fn new(widget: impl Widget<C> + 'static) -> Self {
+    pub(crate) fn new(widget: impl Widget<W> + 'static) -> Self {
         Self { widget: Box::new(widget), mounted: false }
     }
 }
 
-impl<C> Widget<C> for El<C>
+impl<W> Widget<W> for El<W>
 where
-    C: WidgetCtx + 'static,
+    W: WidgetCtx + 'static,
 {
-    fn el(self) -> El<C>
+    fn el(self) -> El<W>
     where
         Self: Sized + 'static,
     {
         self
     }
 
-    fn on_mount(&mut self, ctx: crate::widget::MountCtx<C>) {
+    fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
         if !self.mounted {
             self.widget.on_mount(ctx)
         }
@@ -76,14 +76,14 @@ where
         self.widget.build_layout_tree()
     }
 
-    fn draw(&self, ctx: &mut DrawCtx<'_, C>) -> crate::widget::DrawResult {
+    fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> crate::widget::DrawResult {
         self.widget.draw(ctx)
     }
 
     fn on_event(
         &mut self,
-        ctx: &mut EventCtx<'_, C>,
-    ) -> EventResponse<<C as WidgetCtx>::Event> {
+        ctx: &mut EventCtx<'_, W>,
+    ) -> EventResponse<<W as WidgetCtx>::Event> {
         self.widget.on_event(ctx)
         //     ctx.is_focused = Some(self.id) == ctx.page_state.focused;
 

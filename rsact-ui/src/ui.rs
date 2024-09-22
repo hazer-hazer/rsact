@@ -3,13 +3,10 @@ use crate::{
     event::{Capture, Event, EventResponse, FocusEvent, Propagate},
     layout::{model_layout, size::Size, LayoutModel, Limits},
     render::{color::Color, draw_target::LayeringRenderer, Renderer},
-    style::{
-        theme::{PaletteColor, Theme, ThemeStyler},
-        NullStyler,
-    },
+    style::NullStyler,
     widget::{
-        DrawCtx, DrawResult, EventCtx, PageState, PhantomWidgetCtx, Widget,
-        WidgetCtx,
+        DrawCtx, DrawResult, EventCtx, MountCtx, PageState, PhantomWidgetCtx,
+        Widget, WidgetCtx,
     },
 };
 use alloc::{boxed::Box, vec::Vec};
@@ -32,28 +29,36 @@ impl<C: Color> PageStyle<C> {
     }
 }
 
-pub struct Page<C: WidgetCtx> {
-    root: El<C>,
+pub struct Page<W: WidgetCtx> {
+    root: El<W>,
     ids: Memo<Vec<ElId>>,
     layout: Memo<LayoutModel>,
-    state: PageState<C>,
+    state: PageState<W>,
     // TODO: Should be Memo?
-    style: Signal<PageStyle<C::Color>>,
-    renderer: C::Renderer,
+    style: Signal<PageStyle<W::Color>>,
+    renderer: W::Renderer,
 }
 
-impl<C: WidgetCtx> Page<C> {}
+impl<W: WidgetCtx> Page<W> {}
 
-impl<C: WidgetCtx> Page<C> {
-    fn new(root: impl Into<El<C>>, viewport: Size) -> Self {
-        let root = root.into();
+impl<W: WidgetCtx> Page<W> {
+    fn new(
+        root: impl Into<El<W>>,
+        viewport: Signal<Size>,
+        styler: Signal<W::Styler>,
+    ) -> Self {
+        let mut root = root.into();
         let state = PageState::new();
-        let limits = Limits::only_max(viewport);
+
+        root.on_mount(MountCtx {
+            viewport: use_memo(move |_| viewport.get()),
+            styler: use_memo(move |_| styler.get()),
+        });
 
         let layout_tree = root.build_layout_tree();
         let layout = use_memo(move |_| {
             // println!("Relayout");
-            model_layout(layout_tree, limits)
+            model_layout(layout_tree, Limits::only_max(viewport.get()))
         });
         // TODO: Children ids should be paired with Behavior settings, child can
         // have an id but not be focusable for example
@@ -65,7 +70,8 @@ impl<C: WidgetCtx> Page<C> {
             state,
             style: PageStyle::base().into_signal(),
             ids,
-            renderer: C::Renderer::new(viewport),
+            // TODO: Signal viewport in Renderer
+            renderer: W::Renderer::new(viewport.get()),
         }
     }
 
@@ -85,8 +91,8 @@ impl<C: WidgetCtx> Page<C> {
 
     pub fn handle_events(
         &mut self,
-        events: impl Iterator<Item = C::Event>,
-    ) -> Vec<C::Event> {
+        events: impl Iterator<Item = W::Event>,
+    ) -> Vec<W::Event> {
         events
             .map(|event| {
                 let response = self.layout.with(|layout| {
@@ -137,7 +143,7 @@ impl<C: WidgetCtx> Page<C> {
 
     pub fn draw(
         &mut self,
-        target: &mut impl DrawTarget<Color = <C::Renderer as Renderer>::Color>,
+        target: &mut impl DrawTarget<Color = <W::Renderer as Renderer>::Color>,
     ) -> DrawResult {
         self.style.with(|style| {
             if let Some(background_color) = style.background_color {
@@ -180,11 +186,11 @@ where
 {
     active_page: usize,
     pages: Vec<Page<PhantomWidgetCtx<R, E, S>>>,
-    viewport: Size,
+    viewport: Signal<Size>,
     on_exit: Option<Box<dyn Fn()>>,
     // TODO: Use `Option` instead of NullStyler to avoid useless allocation of
     // Default ThemeStyler. ThemeStyler should only be set when theme is set
-    styler: Option<S>,
+    styler: Signal<S>,
 }
 
 impl<C, E, S> UI<LayeringRenderer<C>, E, S>
@@ -201,21 +207,21 @@ where
     }
 }
 
-impl<R, E> UI<R, E, ThemeStyler<R::Color>>
-where
-    R: Renderer + 'static,
-    E: Event + 'static,
-    R::Color: PaletteColor,
-{
-    pub fn theme(mut self, theme: Theme<R::Color>) -> Self {
-        if let Some(styler) = self.styler.as_mut() {
-            styler.set_theme(theme);
-        } else {
-            self.styler.replace(ThemeStyler::new(theme));
-        }
-        self
-    }
-}
+// impl<R, E> UI<R, E, ThemeStyler<R::Color>>
+// where
+//     R: Renderer + 'static,
+//     E: Event + 'static,
+//     R::Color: ThemeColor,
+// {
+//     pub fn theme(mut self, theme: Theme<R::Color>) -> Self {
+//         if let Some(styler) = self.styler.as_mut() {
+//             styler.set_theme(theme);
+//         } else {
+//             self.styler.replace(ThemeStyler::new(theme));
+//         }
+//         self
+//     }
+// }
 
 // impl<R, E> UI<R, E, NullStyler>
 // where
@@ -224,22 +230,26 @@ where
 // {
 // }
 
-impl<R, E> UI<R, E, ThemeStyler<R::Color>>
+impl<R, E, S> UI<R, E, S>
 where
     R: Renderer + 'static,
     E: Event + 'static,
-    R::Color: PaletteColor,
+    S: PartialEq + Copy + 'static,
 {
     pub fn new(
-        root: impl Into<El<PhantomWidgetCtx<R, E, ThemeStyler<R::Color>>>>,
+        root: impl Into<El<PhantomWidgetCtx<R, E, S>>>,
         viewport: impl Into<Size> + Copy,
+        styler: S,
     ) -> Self {
+        let viewport = use_signal(viewport.into());
+        let styler = use_signal(styler);
+
         Self {
             active_page: 0,
-            viewport: viewport.into(),
-            pages: vec![Page::new(root, viewport.into())],
+            viewport,
+            pages: vec![Page::new(root, viewport, styler)],
             on_exit: None,
-            styler: None,
+            styler,
         }
     }
 
@@ -249,22 +259,17 @@ where
         self
     }
 
-    pub fn current_page(
-        &mut self,
-    ) -> &mut Page<PhantomWidgetCtx<R, E, ThemeStyler<R::Color>>> {
+    pub fn current_page(&mut self) -> &mut Page<PhantomWidgetCtx<R, E, S>> {
         &mut self.pages[self.active_page]
     }
 
-    pub fn add_page(
-        &mut self,
-        root: impl Into<El<PhantomWidgetCtx<R, E, ThemeStyler<R::Color>>>>,
-    ) {
-        self.pages.push(Page::new(root, self.viewport))
+    pub fn add_page(&mut self, root: impl Into<El<PhantomWidgetCtx<R, E, S>>>) {
+        self.pages.push(Page::new(root, self.viewport, self.styler))
     }
 
     pub fn with_page(
         mut self,
-        root: impl Into<El<PhantomWidgetCtx<R, E, ThemeStyler<R::Color>>>>,
+        root: impl Into<El<PhantomWidgetCtx<R, E, S>>>,
     ) -> Self {
         self.add_page(root);
         self

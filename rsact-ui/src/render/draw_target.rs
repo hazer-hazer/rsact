@@ -4,7 +4,10 @@ use alloc::vec::Vec;
 use core::convert::Infallible;
 use embedded_canvas::CanvasAt;
 use embedded_graphics::{
-    prelude::{Dimensions, DrawTarget, DrawTargetExt, Point},
+    image::{Image, ImageRaw},
+    iterator::raw::RawDataSlice,
+    pixelcolor::raw::ByteOrder,
+    prelude::{Dimensions, DrawTarget, DrawTargetExt, PixelColor, Point},
     primitives::{
         PrimitiveStyleBuilder, Rectangle, RoundedRectangle, StyledDrawable as _,
     },
@@ -137,6 +140,27 @@ where
     ) -> DrawResult {
         text_box.draw(self).ok().unwrap();
 
+        Ok(())
+    }
+
+    fn image<'a, BO: ByteOrder>(
+        &mut self,
+        image: Image<'_, ImageRaw<'a, Self::Color, BO>>,
+    ) -> DrawResult
+    where
+        RawDataSlice<'a, <Self::Color as PixelColor>::Raw, BO>:
+            IntoIterator<Item = <Self::Color as PixelColor>::Raw>,
+    {
+        image.draw(self).ok().unwrap();
+
+        Ok(())
+    }
+
+    fn pixel(
+        &mut self,
+        pixel: embedded_graphics::Pixel<Self::Color>,
+    ) -> DrawResult {
+        pixel.draw(self).ok().unwrap();
         Ok(())
     }
 }

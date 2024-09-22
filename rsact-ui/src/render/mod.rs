@@ -5,9 +5,13 @@ use crate::{
 };
 use color::Color;
 use embedded_graphics::{
+    image::{Image, ImageRaw},
+    iterator::raw::RawDataSlice,
     mono_font::MonoTextStyle,
-    prelude::DrawTarget,
+    pixelcolor::raw::ByteOrder,
+    prelude::{DrawTarget, PixelColor, RawData},
     primitives::{Line, PrimitiveStyle, Rectangle, RoundedRectangle, Styled},
+    Pixel,
 };
 use embedded_text::TextBox;
 
@@ -134,4 +138,37 @@ pub trait Renderer {
         &mut self,
         text_box: TextBox<'a, MonoTextStyle<'a, Self::Color>>,
     ) -> DrawResult;
+    fn image<'a, BO: ByteOrder>(
+        &mut self,
+        image: Image<'_, ImageRaw<'a, Self::Color, BO>>,
+    ) -> DrawResult
+    where
+        RawDataSlice<'a, <Self::Color as PixelColor>::Raw, BO>:
+            IntoIterator<Item = <Self::Color as PixelColor>::Raw>;
+
+    fn pixel_iter(
+        &mut self,
+        mut pixels: impl Iterator<Item = Pixel<Self::Color>>,
+    ) -> DrawResult {
+        pixels.try_for_each(|pixel| self.pixel(pixel))?;
+
+        Ok(())
+    }
+
+    fn translucent_pixel_iter(
+        &mut self,
+        mut pixels: impl Iterator<Item = Option<Pixel<Self::Color>>>,
+    ) -> DrawResult {
+        pixels.try_for_each(|pixel| {
+            if let Some(pixel) = pixel {
+                self.pixel(pixel)
+            } else {
+                Ok(())
+            }
+        })?;
+
+        Ok(())
+    }
+
+    fn pixel(&mut self, pixel: Pixel<Self::Color>) -> DrawResult;
 }

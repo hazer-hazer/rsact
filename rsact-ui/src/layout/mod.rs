@@ -86,6 +86,7 @@ pub enum LayoutKind {
 pub struct Layout {
     pub(crate) kind: LayoutKind,
     pub(crate) size: Size<Length>,
+    // TODO: Move box_model and content_size to specific layout kinds
     pub(crate) box_model: BoxModel,
     pub(crate) content_size: Memo<Limits>,
 }

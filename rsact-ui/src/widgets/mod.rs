@@ -5,3 +5,8 @@ pub mod button;
 pub mod space;
 pub mod mono_text;
 pub mod scrollable;
+pub mod image;
+pub mod icon;
+pub mod slider;
+pub mod checkbox;
+pub mod select;

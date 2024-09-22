@@ -332,6 +332,12 @@ impl<T> Size<T> {
     }
 }
 
+impl From<embedded_graphics_core::geometry::Size> for Size<Length> {
+    fn from(value: embedded_graphics_core::geometry::Size) -> Self {
+        Self::new(Length::Fixed(value.width), Length::Fixed(value.height))
+    }
+}
+
 impl Size<Length> {
     // pub fn is_fixed(&self) -> bool {
     //     self.width.is_fixed() && self.height.is_fixed()
@@ -376,6 +382,12 @@ impl Size<u32> {
 
     pub fn as_fixed_length(self) -> Size<Length> {
         Size::new(Length::Fixed(self.width), Length::Fixed(self.height))
+    }
+
+    pub fn min_square(self) -> Self {
+        let min = self.width.min(self.height);
+
+        Self::new_equal(min)
     }
 }
 

@@ -1,0 +1,26 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug Sandbox",
+      "cwd": "${workspaceFolder}",
+      "cargo": {
+        "args": [
+          "build",
+          "--example",
+          "sandbox",
+          "--manifest-path",
+          "${workspaceFolder}/Cargo.toml",
+          "--features",
+          "simulator"
+        ],
+        "filter": {
+          "name": "sandbox",
+          "kind": "example"
+        }
+      }
+    }
+  ]
+}

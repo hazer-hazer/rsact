@@ -1,5 +1,3 @@
-use core::default;
-
 use super::Styler;
 use crate::{render::color::Color, widgets::button::ButtonStyle};
 use rsact_core::prelude::*;
@@ -15,17 +13,17 @@ pub struct Palette<C: Color> {
 
 // FIXME: Wrong PartialEq usage on Signal?
 #[derive(Clone, Copy, PartialEq)]
-pub struct ThemeStyler<C: PaletteColor + 'static> {
+pub struct ThemeStyler<C: ThemeColor + 'static> {
     palette: Signal<Palette<C>>,
 }
 
-impl<C: PaletteColor + 'static> Default for ThemeStyler<C> {
+impl<C: ThemeColor + 'static> Default for ThemeStyler<C> {
     fn default() -> Self {
         Self { palette: Theme::default().palette().into_signal() }
     }
 }
 
-impl<C: PaletteColor + 'static> ThemeStyler<C> {
+impl<C: ThemeColor + 'static> ThemeStyler<C> {
     pub fn new(theme: Theme<C>) -> Self {
         Self { palette: theme.palette().into_signal() }
     }
@@ -35,7 +33,7 @@ impl<C: PaletteColor + 'static> ThemeStyler<C> {
     }
 }
 
-impl<C: PaletteColor + 'static> Styler<ButtonStyle<C>> for ThemeStyler<C> {
+impl<C: ThemeColor + 'static> Styler<ButtonStyle<C>> for ThemeStyler<C> {
     type Class = ();
 
     fn default() -> Self::Class {
@@ -68,14 +66,14 @@ pub struct CustomTheme<C: Color> {
 }
 
 #[derive(Default)]
-pub enum Theme<C: PaletteColor> {
+pub enum Theme<C: ThemeColor> {
     #[default]
     Light,
     Dark,
     Custom(CustomTheme<C>),
 }
 
-impl<C: PaletteColor> Theme<C> {
+impl<C: ThemeColor> Theme<C> {
     pub fn palette(&self) -> Palette<C> {
         match self {
             Theme::Light => C::LIGHT,
@@ -85,20 +83,40 @@ impl<C: PaletteColor> Theme<C> {
     }
 }
 
-pub trait PaletteColor: Color {
+pub trait ThemeColor: Color {
     const LIGHT: Palette<Self>;
     const DARK: Palette<Self>;
 }
 
-macro_rules! impl_rgb_palette_color {
-    ($($colors: path),* {
-        $($theme: ident = $palette: expr);*
-        $(;)?
-    }) => {
-        $(
-            impl PaletteColor for $colors {
-                $(const $theme = $palette)*
-            }
-        )*
-    };
-}
+// macro_rules! impl_rgb_theme_color {
+//     ($($colors: path),* {
+//         $($theme: ident = $palette: expr);*
+//         $(;)?
+//     }) => {
+//         $(
+//             impl ThemeColor for $colors {
+//                 $(const $theme = $palette);*
+//             }
+//         )*
+//     };
+// }
+
+// impl_rgb_theme_color! {
+//     Rgb888 {
+//         LIGHT = Palette {
+//             background: todo!(),
+//             foreground: todo!(),
+//             primary: todo!(),
+//             secondary: todo!(),
+//             accent: todo!(),
+//         };
+
+//         DARK = Palette {
+//             background: todo!(),
+//             foreground: todo!(),
+//             primary: todo!(),
+//             secondary: todo!(),
+//             accent: todo!(),
+//         };
+//     }
+// }
