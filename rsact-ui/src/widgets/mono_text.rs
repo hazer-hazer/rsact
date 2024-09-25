@@ -80,7 +80,7 @@ fn measure_text_content_size(text: &str, font: &MonoFont) -> Limits {
 }
 
 pub struct MonoText<W: WidgetCtx> {
-    content: Signal<alloc::string::String>,
+    content: Memo<alloc::string::String>,
     layout: Signal<Layout>,
     props: Signal<MonoFontProps>,
     font: Signal<MonoFont<'static>>,
@@ -88,14 +88,13 @@ pub struct MonoText<W: WidgetCtx> {
 }
 
 impl<W: WidgetCtx + 'static> MonoText<W> {
-    pub fn new(content: impl IntoSignal<alloc::string::String>) -> Self {
+    pub fn new(content: impl IntoMemo<alloc::string::String>) -> Self {
         let font = use_signal(FONT_6X10);
-        let content = content.into_signal();
+        let content = content.into_memo();
 
         let layout = Layout {
             kind: crate::layout::LayoutKind::Edge,
             size: Size::shrink(),
-            box_model: BoxModel::zero(),
             content_size: content.mapped(move |content| {
                 measure_text_content_size(content, &font.get())
             }),
@@ -150,7 +149,6 @@ impl<W: WidgetCtx + 'static> MonoText<W> {
 
 // TODO: Really sized and box?
 impl<W: WidgetCtx + 'static> SizedWidget<W> for MonoText<W> {}
-impl<W: WidgetCtx + 'static> BoxModelWidget<W> for MonoText<W> {}
 
 impl<W: WidgetCtx + 'static> Widget<W> for MonoText<W> {
     fn layout(&self) -> Signal<crate::layout::Layout> {

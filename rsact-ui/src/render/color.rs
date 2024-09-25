@@ -10,6 +10,7 @@ pub trait Color:
 {
     fn default_foreground() -> Self;
     fn default_background() -> Self;
+    fn accents() -> [Self; 6];
 }
 
 pub trait RgbColor: Sized {
@@ -35,6 +36,17 @@ macro_rules! impl_rgb_colors {
                 fn default_background() -> Self {
                     <$color_ty as embedded_graphics::pixelcolor::RgbColor>::WHITE
                 }
+
+                fn accents() -> [Self; 6] {
+                    [
+                        <$color_ty as embedded_graphics::pixelcolor::RgbColor>::RED,
+                        <$color_ty as embedded_graphics::pixelcolor::RgbColor>::GREEN,
+                        <$color_ty as embedded_graphics::pixelcolor::RgbColor>::BLUE,
+                        <$color_ty as embedded_graphics::pixelcolor::RgbColor>::YELLOW,
+                        <$color_ty as embedded_graphics::pixelcolor::RgbColor>::MAGENTA,
+                        <$color_ty as embedded_graphics::pixelcolor::RgbColor>::CYAN,
+                    ]
+                }
             }
 
             impl RgbColor for $color_ty {
@@ -55,5 +67,9 @@ impl Color for BinaryColor {
 
     fn default_background() -> Self {
         Self::On
+    }
+
+    fn accents() -> [Self; 6] {
+        [Self::On; 6]
     }
 }

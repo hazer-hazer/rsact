@@ -1,16 +1,32 @@
 use crate::{
     el::{El, ElId},
-    event::{Capture, Event, EventResponse, FocusEvent, Propagate},
-    layout::{model_layout, size::Size, LayoutModel, Limits},
-    render::{color::Color, draw_target::LayeringRenderer, Renderer},
-    style::NullStyler,
+    event::{
+        dev::{DevElHover, DevToolsToggle},
+        Capture, Event, EventResponse, FocusEvent, Propagate,
+    },
+    layout::{model_layout, size::Size, DevHoveredLayout, LayoutModel, Limits},
+    render::{
+        color::Color, draw_target::LayeringRenderer, Block, Border, Renderer,
+    },
+    style::{
+        block::{BorderStyle, BoxStyle},
+        NullStyler,
+    },
     widget::{
-        DrawCtx, DrawResult, EventCtx, MountCtx, PageState, PhantomWidgetCtx,
-        Widget, WidgetCtx,
+        prelude::BoxModel, DrawCtx, DrawResult, EventCtx, MountCtx, PageState,
+        PhantomWidgetCtx, Widget, WidgetCtx,
     },
 };
 use alloc::{boxed::Box, vec::Vec};
-use embedded_graphics::prelude::DrawTarget;
+use embedded_graphics::{
+    mono_font::{
+        ascii::{FONT_5X7, FONT_6X9, FONT_8X13, FONT_9X15},
+        MonoTextStyle, MonoTextStyleBuilder,
+    },
+    prelude::{DrawTarget, Point},
+    primitives::Rectangle,
+};
+use embedded_text::{style::TextBoxStyleBuilder, TextBox};
 use rsact_core::prelude::*;
 
 pub struct PageStyle<C: Color> {
@@ -29,6 +45,77 @@ impl<C: Color> PageStyle<C> {
     }
 }
 
+#[derive(Clone, Copy)]
+struct HoveredEl {
+    layout: DevHoveredLayout,
+}
+
+impl HoveredEl {
+    fn model<C: Color>(area: Rectangle, color: C) -> Block<C> {
+        Block {
+            border: Border::new(
+                BoxStyle::base().border(BorderStyle::base().color(color)),
+                BoxModel::zero().border_width(1),
+            ),
+            rect: area,
+            background: None,
+        }
+    }
+
+    fn draw<C: Color>(
+        &self,
+        r: &mut impl Renderer<Color = C>,
+        viewport: Size,
+    ) -> DrawResult {
+        let area = self.layout.area;
+
+        let [text_color, inner_color, padding_color, ..] = C::accents();
+
+        r.block(Self::model(area, padding_color))?;
+        if let Some(padding) = self.layout.kind.padding() {
+            r.block(Self::model(area - padding, inner_color))?;
+        }
+
+        let area_text = format!(
+            "{} {}x{}{}",
+            self.layout.kind,
+            area.size.width,
+            area.size.height,
+            if self.layout.children_count > 0 {
+                format!(" [{}]", self.layout.children_count)
+            } else {
+                alloc::string::String::new()
+            },
+        );
+
+        // Ignore error, TextBox sometimes fails
+        r.mono_text(TextBox::with_textbox_style(
+            &area_text,
+            Rectangle::new(Point::zero(), viewport.into()),
+            MonoTextStyleBuilder::new()
+                .font(&FONT_8X13)
+                .text_color(text_color)
+                .background_color(C::default_background())
+                .build(),
+            TextBoxStyleBuilder::new()
+                .alignment(embedded_text::alignment::HorizontalAlignment::Right)
+                .vertical_alignment(
+                    embedded_text::alignment::VerticalAlignment::Bottom,
+                )
+                .build(),
+        ))
+        .ok();
+
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy)]
+struct DevToolsState {
+    enabled: bool,
+    hovered: Option<HoveredEl>,
+}
+
 pub struct Page<W: WidgetCtx> {
     root: El<W>,
     ids: Memo<Vec<ElId>>,
@@ -37,22 +124,24 @@ pub struct Page<W: WidgetCtx> {
     // TODO: Should be Memo?
     style: Signal<PageStyle<W::Color>>,
     renderer: W::Renderer,
+    viewport: Memo<Size>,
+    dev_tools: Signal<DevToolsState>,
 }
-
-impl<W: WidgetCtx> Page<W> {}
 
 impl<W: WidgetCtx> Page<W> {
     fn new(
         root: impl Into<El<W>>,
         viewport: Signal<Size>,
         styler: Signal<W::Styler>,
+        dev_tools: Signal<DevToolsState>,
     ) -> Self {
         let mut root = root.into();
         let state = PageState::new();
+        let viewport = viewport.into_memo();
 
         root.on_mount(MountCtx {
-            viewport: use_memo(move |_| viewport.get()),
-            styler: use_memo(move |_| styler.get()),
+            viewport: viewport.into_memo(),
+            styler: styler.into_memo(),
         });
 
         let layout_tree = root.build_layout_tree();
@@ -72,6 +161,8 @@ impl<W: WidgetCtx> Page<W> {
             ids,
             // TODO: Signal viewport in Renderer
             renderer: W::Renderer::new(viewport.get()),
+            viewport,
+            dev_tools,
         }
     }
 
@@ -89,12 +180,30 @@ impl<W: WidgetCtx> Page<W> {
         })
     }
 
+    fn find_hovered_el(&self, point: Point) -> Option<HoveredEl> {
+        self.layout.with(|layout| {
+            layout
+                .tree_root()
+                .dev_hover(point)
+                .map(|layout| HoveredEl { layout })
+        })
+    }
+
     pub fn handle_events(
         &mut self,
         events: impl Iterator<Item = W::Event>,
     ) -> Vec<W::Event> {
         events
             .map(|event| {
+                if self.dev_tools.get().enabled {
+                    if let Some(point) = event.as_dev_el_hover() {
+                        self.dev_tools.update(|dev_tools| {
+                            dev_tools.hovered = self.find_hovered_el(point)
+                        });
+                        return None;
+                    }
+                }
+
                 let response = self.layout.with(|layout| {
                     self.root.on_event(&mut EventCtx {
                         event: &event,
@@ -161,6 +270,10 @@ impl<W: WidgetCtx> Page<W> {
             })
         })?;
 
+        if let Some(hovered) = self.dev_tools.with(|dt| dt.hovered) {
+            hovered.draw(&mut self.renderer, self.viewport.get())?;
+        }
+
         self.renderer.finish(target);
 
         Ok(result)
@@ -191,6 +304,7 @@ where
     // TODO: Use `Option` instead of NullStyler to avoid useless allocation of
     // Default ThemeStyler. ThemeStyler should only be set when theme is set
     styler: Signal<S>,
+    dev_tools: Signal<DevToolsState>,
 }
 
 impl<C, E, S> UI<LayeringRenderer<C>, E, S>
@@ -243,13 +357,16 @@ where
     ) -> Self {
         let viewport = use_signal(viewport.into());
         let styler = use_signal(styler);
+        let dev_tools =
+            use_signal(DevToolsState { enabled: false, hovered: None });
 
         Self {
             active_page: 0,
             viewport,
-            pages: vec![Page::new(root, viewport, styler)],
+            pages: vec![Page::new(root, viewport, styler, dev_tools)],
             on_exit: None,
             styler,
+            dev_tools,
         }
     }
 
@@ -264,7 +381,12 @@ where
     }
 
     pub fn add_page(&mut self, root: impl Into<El<PhantomWidgetCtx<R, E, S>>>) {
-        self.pages.push(Page::new(root, self.viewport, self.styler))
+        self.pages.push(Page::new(
+            root,
+            self.viewport,
+            self.styler,
+            self.dev_tools,
+        ))
     }
 
     pub fn with_page(
@@ -276,19 +398,25 @@ where
     }
 
     pub fn tick(&mut self, events: impl Iterator<Item = E>) -> Vec<E> {
-        self.pages[self.active_page]
-            .handle_events(events)
+        let page = &mut self.pages[self.active_page];
+
+        page.handle_events(events)
             .iter()
             .cloned()
             .filter_map(|e| {
+                if e.as_dev_tools_toggle() {
+                    self.dev_tools.update(|dt| dt.enabled = !dt.enabled);
+                    return None;
+                }
+
                 if let (Some(on_exit), true) =
                     (self.on_exit.as_ref(), e.as_exit())
                 {
                     on_exit();
-                    None
-                } else {
-                    Some(e)
+                    return None;
                 }
+
+                Some(e)
             })
             .collect()
     }

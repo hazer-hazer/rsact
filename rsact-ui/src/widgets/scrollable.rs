@@ -156,7 +156,6 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
                 Length::InfiniteWindow(Length::fill().try_into().unwrap()),
                 Length::fill(),
             ),
-            box_model: BoxModel::zero().border_width(2),
             content_size: content.mapped(|content| {
                 content.layout().with(|layout| layout.content_size.get())
             }),
@@ -215,15 +214,6 @@ where
 {
 }
 
-impl<W, Dir> BoxModelWidget<W> for Scrollable<W, Dir>
-where
-    W::Event: ScrollEvent,
-    W: WidgetCtx,
-    Dir: Direction,
-    W::Styler: Styler<ScrollableStyle<W::Color>, Class = ()>,
-{
-}
-
 impl<W, Dir> Widget<W> for Scrollable<W, Dir>
 where
     W::Event: ScrollEvent,
@@ -268,7 +258,7 @@ where
 
         ctx.renderer.block(Block::from_layout_style(
             ctx.layout.area,
-            layout.box_model,
+            layout.box_model(),
             style.container,
         ))?;
 
@@ -342,12 +332,13 @@ where
             }
 
             ctx.renderer.clipped(ctx.layout.area, |renderer| {
-                content.draw(&mut DrawCtx {
+                DrawCtx {
                     state: ctx.state,
                     renderer,
                     layout: &child_layout
                         .translate(Dir::AXIS.canon(-(offset as i32), 0)),
-                })
+                }
+                .draw_child(content)
             })
         })
     }

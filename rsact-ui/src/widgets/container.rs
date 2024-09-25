@@ -96,7 +96,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
 
         ctx.renderer.block(Block::from_layout_style(
             ctx.layout.area,
-            self.layout.get().box_model,
+            self.layout.get().box_model(),
             style,
         ))?;
 

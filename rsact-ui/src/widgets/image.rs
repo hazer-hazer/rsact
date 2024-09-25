@@ -1,8 +1,11 @@
 use crate::{
-    event::Propagate, layout::{
+    event::Propagate,
+    layout::{
         size::{Length, Size},
         Layout, LayoutKind, Limits,
-    }, render::Renderer, widget::{prelude::BoxModel, Widget, WidgetCtx}
+    },
+    render::Renderer,
+    widget::{prelude::BoxModel, Widget, WidgetCtx},
 };
 use embedded_graphics::{
     image::ImageRaw, iterator::raw::RawDataSlice, pixelcolor::raw::ByteOrder,
@@ -28,7 +31,6 @@ impl<'a, W: WidgetCtx, BO: ByteOrder> Image<'a, W, BO> {
             layout: Layout {
                 kind: LayoutKind::Edge,
                 size,
-                box_model: BoxModel::zero(),
                 content_size: Limits::zero().into_memo(),
             }
             .into_signal(),

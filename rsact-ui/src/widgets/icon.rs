@@ -69,7 +69,6 @@ impl<W: WidgetCtx> Icon<W> {
         let layout = Layout {
             kind: crate::layout::LayoutKind::Edge,
             size: Size::shrink(),
-            box_model: BoxModel::zero(),
             content_size: use_memo(move |_| {
                 Limits::only_max(Size::new_equal(real_size.get()))
             }),

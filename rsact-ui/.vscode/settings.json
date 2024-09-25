@@ -1,4 +1,8 @@
 {
   "rust-analyzer.check.allTargets": true,
-  "git.ignoreLimitWarning": true
+  "git.ignoreLimitWarning": true,
+  "cSpell.words": [
+    "flexbox",
+    "textbox"
+  ]
 }

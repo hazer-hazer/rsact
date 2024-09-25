@@ -6,6 +6,26 @@ use num::traits::SaturatingAdd;
 // pub type Row<C> = Flex<C, RowDir>;
 // pub type Col<C> = Flex<C, ColDir>;
 
+pub fn flex_content_size<'a, W: WidgetCtx, E: Widget<W> + 'a>(
+    axis: Axis,
+    children: impl Iterator<Item = &'a E>,
+) -> Limits {
+    children.fold(Limits::unlimited(), |limits, child| {
+        let child_limits =
+            child.layout().with(|child| child.content_size.get());
+
+        Limits::new(
+            limits.min().max(child_limits.min()),
+            axis.infix(
+                limits.max(),
+                child_limits.max(),
+                |lhs: u32, rhs: u32| SaturatingAdd::saturating_add(&lhs, &rhs),
+                core::cmp::max,
+            ),
+        )
+    })
+}
+
 pub trait IntoChildren<W: WidgetCtx> {
     fn into_children(self) -> Signal<Vec<El<W>>>;
 }
@@ -58,31 +78,14 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Flex<W, Dir> {
     pub fn new(children: impl IntoChildren<W>) -> Self {
         let children = children.into_children();
 
-        let content_size = children.mapped(|children| {
-            children.iter().fold(Limits::unlimited(), |limits, child| {
-                let child_limits =
-                    child.layout().with(|child| child.content_size.get());
-                // let child = child.get();
-                Limits::new(
-                    limits.min().min(child_limits.min()),
-                    Dir::AXIS.infix(
-                        limits.max(),
-                        child_limits.max(),
-                        |arg0: u32, v: u32| {
-                            SaturatingAdd::saturating_add(&arg0, &v)
-                        },
-                        core::cmp::max,
-                    ),
-                )
-            })
-        });
+        let content_size = children
+            .mapped(|children| flex_content_size(Dir::AXIS, children.iter()));
 
         Self {
             children,
             layout: Layout {
                 kind: LayoutKind::Flex(FlexLayout::base(Dir::AXIS)),
                 size: Size::shrink(),
-                box_model: BoxModel::zero(),
                 content_size,
             }
             .into_signal(),
@@ -169,13 +172,10 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Widget<W> for Flex<W, Dir> {
     }
 
     fn build_layout_tree(&self) -> MemoTree<Layout> {
-        let children = self.children;
         MemoTree {
             data: self.layout.into_memo(),
-            children: use_memo(move |_| {
-                children.with(|children| {
-                    children.iter().map(Widget::build_layout_tree).collect()
-                })
+            children: self.children.mapped(|children| {
+                children.iter().map(Widget::build_layout_tree).collect()
             }),
         }
     }
@@ -184,7 +184,7 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Widget<W> for Flex<W, Dir> {
         &self,
         ctx: &mut crate::widget::DrawCtx<'_, W>,
     ) -> crate::widget::DrawResult {
-        self.children.with(|children| ctx.draw_children(children))
+        self.children.with(|children| ctx.draw_children(children.iter()))
     }
 
     fn on_event(

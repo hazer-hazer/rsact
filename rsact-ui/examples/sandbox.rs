@@ -25,6 +25,7 @@ use rsact_ui::{
         scrollable::{
             Scrollable, ScrollableState, ScrollableStyle, ScrollbarShow,
         },
+        select::Select,
         slider::Slider,
     },
 };
@@ -42,6 +43,10 @@ fn edge<W: WidgetCtx<Color = Rgb888>>() -> El<W> {
         .fill()
         .width(50)
         .el()
+}
+
+fn text<W: WidgetCtx>() -> El<W> {
+    MonoText::new("asd".to_string()).el()
 }
 
 fn main() {
@@ -89,69 +94,78 @@ fn main() {
 
     // let mut items_height = use_signal(50);
 
-    let button_style = |base, state| match state {
-        ButtonState { pressed: true, .. } => base,
-        ButtonState { .. } => base,
-    };
+    // let button_style = |base, state| match state {
+    //     ButtonState { pressed: true, .. } => base,
+    //     ButtonState { .. } => base,
+    // };
 
-    let items = use_signal(vec![]);
+    // let items = use_signal(vec![]);
 
-    let buttons = Flex::row(vec![
-        Button::new("Add")
-            .style(button_style)
-            .width(Length::fill())
-            .height(Length::fill())
-            .on_click(move || {
-                items.update(|items| {
-                    items.push(
-                        MonoText::new(items.len().to_string()).shrink().el(),
-                    )
-                })
-            })
-            .el(),
-        Button::new("Remove")
-            .style(button_style)
-            .width(Length::fill())
-            .height(Length::fill())
-            .on_click(move || {
-                items.update(|items| {
-                    items.pop();
-                })
-            })
-            .el(),
-    ]);
+    // let buttons = Flex::row(vec![
+    //     Button::new("Add")
+    //         .style(button_style)
+    //         .width(Length::fill())
+    //         .height(Length::fill())
+    //         .on_click(move || {
+    //             items.update(|items| {
+    //                 items.push(
+    //                     MonoText::new(items.len().to_string()).shrink().el(),
+    //                 )
+    //             })
+    //         })
+    //         .el(),
+    //     Button::new("Remove")
+    //         .style(button_style)
+    //         .width(Length::fill())
+    //         .height(Length::fill())
+    //         .on_click(move || {
+    //             items.update(|items| {
+    //                 items.pop();
+    //             })
+    //         })
+    //         .el(),
+    // ]);
 
     // TODO: Fix Flex::row in Scrollable::vertical
 
     let slider_value = use_signal(0);
-    let slider = Slider::horizontal(slider_value);
+    // let slider = Slider::horizontal(slider_value);
+
+    // let select = Select::horizontal(vec![1, 2, 3, 4, 5]);
 
     let flexbox = Flex::col(vec![
         // Flex::row(core::array::from_fn::<_, 100, _>(|_| edge()))
         //     .fill()
         //     .wrap(true)
         //     .el(),
-        slider.el(),
-        buttons.width(Length::fill()).height(Length::fill()).el(),
-        Scrollable::horizontal(
-            Flex::row(items).shrink().gap(5).wrap(true).el(),
-        )
-        .style(|base, state| {
-            let base = base.show(ScrollbarShow::Always);
+        // slider.el(),
+        // buttons.fill().el(),
+        // Scrollable::horizontal(
+        //     Flex::row(items).shrink().gap(5).wrap(true).el(),
+        // )
+        // .style(|base, state| {
+        //     let base = base.show(ScrollbarShow::Always);
 
-            match state {
-                ScrollableState { active: true, .. } => base
-                    .container(
-                        BoxStyle::base()
-                            .border(BorderStyle::base().color(Rgb888::MAGENTA)),
-                    )
-                    .thumb_color(Some(Rgb888::CSS_GRAY))
-                    .track_color(Some(Rgb888::CSS_BROWN)),
-                ScrollableState { .. } => base,
-            }
-        })
-        .el(),
+        //     match state {
+        //         ScrollableState { active: true, .. } => base
+        //             .container(
+        //                 BoxStyle::base()
+        //
+        // .border(BorderStyle::base().color(Rgb888::MAGENTA)),
+        //             )
+        //             .thumb_color(Some(Rgb888::CSS_GRAY))
+        //             .track_color(Some(Rgb888::CSS_BROWN)),
+        //         ScrollableState { .. } => base,
+        //     }
+        // })
+        // .el(),
+        // select.el(),
         // Flex::row([edge(), edge()]).fill().el(),
+        Flex::row([text(), text(), text(), text()])
+            .gap(5)
+            .width(Length::fill())
+            .el(),
+        Flex::row([text(), text(), text(), text()]).gap(5).el(),
     ])
     .wrap(true)
     .fill();

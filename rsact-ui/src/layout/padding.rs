@@ -1,5 +1,5 @@
 use core::ops::{Add, Sub};
-use embedded_graphics::geometry::Point;
+use embedded_graphics::{geometry::Point, primitives::Rectangle};
 
 use super::{axis::Axis, size::Size};
 
@@ -42,10 +42,28 @@ impl Padding {
         Point::new(self.left as i32, self.top as i32)
     }
 
+    pub fn bottom_right(&self) -> Point {
+        Point::new(-(self.right as i32), -(self.bottom as i32))
+    }
+
     pub fn total_axis(&self, axis: Axis) -> u32 {
         match axis {
             Axis::X => self.total_x(),
             Axis::Y => self.total_y(),
+        }
+    }
+
+    pub fn start(&self, axis: Axis) -> u32 {
+        match axis {
+            Axis::X => self.left,
+            Axis::Y => self.top,
+        }
+    }
+
+    pub fn end(&self, axis: Axis) -> u32 {
+        match axis {
+            Axis::X => self.right,
+            Axis::Y => self.bottom,
         }
     }
 }
@@ -119,6 +137,17 @@ impl Sub for Padding {
             self.right.saturating_sub(rhs.right),
             self.bottom.saturating_sub(rhs.bottom),
             self.left.saturating_sub(rhs.left),
+        )
+    }
+}
+
+impl Sub<Padding> for Rectangle {
+    type Output = Rectangle;
+
+    fn sub(self, rhs: Padding) -> Self::Output {
+        Self::new(
+            self.top_left + rhs.top_left(),
+            self.size + Into::<Size>::into(rhs).into(),
         )
     }
 }

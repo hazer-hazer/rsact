@@ -5,3 +5,7 @@ edition = "2021"
 
 [dependencies]
 reqwest = "0.12.7"
+
+[dev-dependencies]
+resvg = "0.43.0"
+usvg = "0.43.0"

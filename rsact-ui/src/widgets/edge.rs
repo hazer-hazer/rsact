@@ -26,7 +26,6 @@ impl<W: WidgetCtx + 'static> Edge<W> {
 }
 
 impl<W: WidgetCtx + 'static> SizedWidget<W> for Edge<W> {}
-impl<W: WidgetCtx + 'static> BoxModelWidget<W> for Edge<W> {}
 
 impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
     fn layout(&self) -> Signal<Layout> {
@@ -44,7 +43,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
 
         ctx.renderer.block(Block::from_layout_style(
             ctx.layout.area,
-            self.layout.get().box_model,
+            self.layout.get().box_model(),
             style,
         ))
     }

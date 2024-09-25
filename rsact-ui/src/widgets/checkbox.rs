@@ -66,7 +66,6 @@ impl<W: WidgetCtx> Checkbox<W> {
             layout: Layout {
                 kind: crate::layout::LayoutKind::Edge,
                 size: Size::shrink(),
-                box_model: BoxModel::zero(),
                 content_size: icon_layout
                     .mapped(move |layout| layout.content_size.get()),
             }
@@ -99,7 +98,7 @@ impl<W: WidgetCtx> Widget<W> for Checkbox<W> {
 
         ctx.renderer.block(Block::from_layout_style(
             ctx.layout.area,
-            self.layout.get().box_model,
+            self.layout.get().box_model(),
             style.block,
         ));
 

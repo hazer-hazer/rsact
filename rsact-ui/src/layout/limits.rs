@@ -5,7 +5,7 @@ use super::{
 use core::u32;
 use embedded_graphics::primitives::Rectangle;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Limits {
     min: Size<u32>,
     max: Size<u32>,

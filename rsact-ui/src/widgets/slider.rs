@@ -33,7 +33,9 @@ impl<C: Color> SliderStyle<C> {
             track_color: Some(C::default_foreground()),
             thumb_border_width: 100,
             thumb_border: BorderStyle::base()
-                .radius(BorderRadius::new_equal(Radius::circle()))
+                .radius(BorderRadius::new_equal(Radius::Percentage(
+                    Size::new_equal(0.25),
+                )))
                 .color(C::default_foreground()),
             thumb_color: Some(C::default_background()),
             thumb_size: 20,
@@ -115,7 +117,6 @@ impl<W: WidgetCtx, Dir: Direction> Slider<W, Dir> {
             layout: Layout {
                 kind: LayoutKind::Edge,
                 size: Dir::AXIS.canon(Length::fill(), Length::Fixed(25)),
-                box_model: BoxModel::zero().padding(Padding::new_equal(5)),
                 content_size: Limits::zero().into_memo(),
             }
             .into_signal(),
@@ -163,22 +164,26 @@ where
 
         ctx.draw_focus_outline(self.id)?;
 
+        let track_len =
+            ctx.layout.area.size.main(Dir::AXIS) - style.thumb_size - 1;
+
         let start = ctx.layout.area.top_left
             + Dir::AXIS.canon::<Point>(
-                0,
+                style.thumb_size as i32 / 2,
                 ctx.layout.area.size.cross(Dir::AXIS) as i32 / 2,
             );
 
-        let end = start
-            + Dir::AXIS
-                .canon::<Point>(ctx.layout.area.size.main(Dir::AXIS) as i32, 0);
+        let end = start + Dir::AXIS.canon::<Point>(track_len as i32, 0);
 
         ctx.renderer.line(
             Line::new(start, end).into_styled(style.track_line_style()),
         )?;
 
+        let thumb_offset = (self.value.get() as f32 / 256.0) * track_len as f32;
+
         ctx.renderer.rect(style.thumb(Rectangle::new(
-            ctx.layout.area.top_left,
+            ctx.layout.area.top_left
+                + Dir::AXIS.canon::<Point>(thumb_offset as i32, 0),
             Into::<Size>::into(ctx.layout.area.size).min_square().into(),
         )))?;
 
@@ -190,6 +195,7 @@ where
         ctx: &mut EventCtx<'_, W>,
     ) -> EventResponse<<W as WidgetCtx>::Event> {
         let current_state = self.state.get();
+
         if current_state.active && ctx.is_focused(self.id) {
             if let Some(offset) = ctx.event.as_slider_move(Dir::AXIS) {
                 let current = self.value.get();

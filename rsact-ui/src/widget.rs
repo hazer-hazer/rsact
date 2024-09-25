@@ -1,4 +1,5 @@
 use core::marker::PhantomData;
+use embedded_graphics::primitives::Rectangle;
 use prelude::*;
 
 use crate::style::{Styler, WidgetStyle};
@@ -66,29 +67,25 @@ pub struct DrawCtx<'a, W: WidgetCtx> {
     pub state: &'a PageState<W>,
     pub renderer: &'a mut W::Renderer,
     pub layout: &'a LayoutModelTree<'a>,
+    // TODO: For text and maybe something else
+    // pub inherited_style
 }
 
 impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
     #[must_use]
     pub fn draw_child(&mut self, child: &impl Widget<W>) -> DrawResult {
-        child.draw(&mut DrawCtx {
-            state: &self.state,
-            renderer: &mut self.renderer,
-            layout: self.layout.children().next().as_ref().unwrap(),
-        })
+        self.draw_children(core::iter::once(child))
     }
 
     #[must_use]
-    pub fn draw_children(&mut self, children: &[impl Widget<W>]) -> DrawResult {
-        children.iter().zip(self.layout.children()).try_for_each(
-            |(child, child_layout)| {
-                child.draw(&mut DrawCtx {
-                    state: self.state,
-                    renderer: &mut self.renderer,
-                    layout: &child_layout,
-                })
-            },
-        )
+    pub fn draw_children<
+        'c,
+        C: Iterator<Item = &'c (impl Widget<W> + 'c)> + 'c,
+    >(
+        &mut self,
+        children: C,
+    ) -> DrawResult {
+        self.draw_mapped_layouts(children, |layout| layout)
     }
 
     #[must_use]
@@ -104,6 +101,26 @@ impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
         } else {
             Ok(())
         }
+    }
+
+    #[must_use]
+    pub fn draw_mapped_layouts<
+        'c,
+        C: Iterator<Item = &'c (impl Widget<W> + 'c)> + 'c,
+    >(
+        &mut self,
+        children: C,
+        map_layout: impl Fn(LayoutModelTree<'a>) -> LayoutModelTree<'a>,
+    ) -> DrawResult {
+        children.zip(self.layout.children().map(map_layout)).try_for_each(
+            |(child, child_layout)| {
+                child.draw(&mut DrawCtx {
+                    state: self.state,
+                    renderer: &mut self.renderer,
+                    layout: &child_layout,
+                })
+            },
+        )
     }
 }
 
@@ -284,7 +301,7 @@ pub trait BoxModelWidget<W: WidgetCtx>: Widget<W> {
         self.layout().setter(
             border_width.maybe_signal(),
             |&border_width, layout| {
-                layout.box_model.border_width = border_width;
+                layout.set_border_width(border_width);
             },
         );
         self
@@ -298,7 +315,7 @@ pub trait BoxModelWidget<W: WidgetCtx>: Widget<W> {
         Self: Sized + 'static,
     {
         self.layout().setter(padding.maybe_signal(), |&padding, layout| {
-            layout.box_model.padding = padding.into();
+            layout.set_padding(padding.into());
         });
         self
     }

@@ -26,6 +26,13 @@ impl Axis {
         }
     }
 
+    pub const fn dir_name(&self) -> &str {
+        match self {
+            Axis::X => "row",
+            Axis::Y => "col",
+        }
+    }
+
     // Apply some infix operation (e.g. operator) on two axial structures
     pub fn infix<T, M, C>(self, lhs: T, rhs: T, main: M, cross: C) -> T
     where

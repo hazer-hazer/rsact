@@ -2,7 +2,7 @@ use core::{
     fmt::Display,
     ops::{Add, AddAssign, Div, Mul, Rem, Sub, SubAssign},
 };
-use embedded_graphics::geometry::Point;
+use embedded_graphics::{geometry::Point, primitives::Rectangle};
 
 use super::{axis::Axial, padding::Padding};
 
@@ -391,6 +391,12 @@ impl Size<u32> {
     }
 }
 
+impl<T: Display> Display for Size<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}x{}", self.width, self.height)
+    }
+}
+
 impl SubTake<u32> for Size<u32> {
     fn sub_take(&mut self, sub: u32) -> Self {
         Self::new(self.width.sub_take(sub), self.height.sub_take(sub))
@@ -637,5 +643,15 @@ impl SizeExt for embedded_graphics_core::geometry::Size {
     #[inline]
     fn height(self) -> Self::Data {
         self.height
+    }
+}
+
+pub trait RectangleExt {
+    fn center_offset_of(&self, child: Self) -> Point;
+}
+
+impl RectangleExt for Rectangle {
+    fn center_offset_of(&self, child: Self) -> Point {
+        self.center() - child.center()
     }
 }

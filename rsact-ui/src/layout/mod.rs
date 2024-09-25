@@ -1,16 +1,18 @@
 use alloc::vec::Vec;
 use box_model::BoxModel;
-use core::u32;
+use core::{fmt::Display, u32};
 use embedded_graphics::{
     prelude::{Point, Transform},
     primitives::Rectangle,
 };
+use flex::model_flex;
 use padding::Padding;
 use rsact_core::prelude::*;
 use size::{DivFactors, Length, Size, SubTake};
 
 pub mod axis;
 pub mod box_model;
+mod flex;
 pub mod limits;
 pub mod padding;
 pub mod size;
@@ -18,11 +20,24 @@ pub mod size;
 pub use axis::{Axial as _, Axis};
 pub use limits::Limits;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Align {
     Start,
     Center,
     End,
+}
+
+impl Align {
+    pub fn display_code(&self, axis: Axis) -> &str {
+        match (self, axis) {
+            (Align::Start, Axis::X) => "<",
+            (Align::Start, Axis::Y) => "^",
+            (Align::Center, Axis::X) => "|",
+            (Align::Center, Axis::Y) => "—",
+            (Align::End, Axis::X) => ">",
+            (Align::End, Axis::Y) => "V",
+        }
+    }
 }
 
 // #[derive(Clone, Copy, PartialEq)]
@@ -34,21 +49,27 @@ pub enum Align {
 //     }
 // }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ContainerLayout {
+    pub box_model: BoxModel,
     pub horizontal_align: Align,
     pub vertical_align: Align,
 }
 
 impl ContainerLayout {
     pub fn base() -> Self {
-        Self { horizontal_align: Align::Start, vertical_align: Align::Start }
+        Self {
+            box_model: BoxModel::zero(),
+            horizontal_align: Align::Start,
+            vertical_align: Align::Start,
+        }
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FlexLayout {
     pub wrap: bool,
+    pub box_model: BoxModel,
     // Readonly
     pub(self) axis: Axis,
     pub gap: Size,
@@ -61,20 +82,123 @@ impl FlexLayout {
     pub fn base(axis: Axis) -> Self {
         Self {
             wrap: false,
+            box_model: BoxModel::zero(),
             axis,
             gap: Size::zero(),
             horizontal_align: Align::Start,
             vertical_align: Align::Start,
         }
     }
+
+    pub fn wrap(mut self, wrap: bool) -> Self {
+        self.wrap = wrap;
+        self
+    }
+
+    pub fn box_model(mut self, box_model: BoxModel) -> Self {
+        self.box_model = box_model;
+        self
+    }
+
+    pub fn gap(mut self, gap: Size) -> Self {
+        self.gap = gap;
+        self
+    }
+
+    pub fn horizontal_align(mut self, horizontal_align: Align) -> Self {
+        self.horizontal_align = horizontal_align;
+        self
+    }
+
+    pub fn vertical_align(mut self, vertical_align: Align) -> Self {
+        self.vertical_align = vertical_align;
+        self
+    }
+
+    pub fn align_main(self, align: Align) -> Self {
+        match self.axis {
+            Axis::X => self.horizontal_align(align),
+            Axis::Y => self.vertical_align(align),
+        }
+    }
+
+    pub fn align_cross(self, align: Align) -> Self {
+        match self.axis {
+            Axis::X => self.vertical_align(align),
+            Axis::Y => self.horizontal_align(align),
+        }
+    }
 }
 
-#[derive(Clone, Copy, PartialEq)]
-pub struct ScrollableLayout {
-    pub axis: Axis,
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum DevLayoutKind {
+    Zero,
+    Edge,
+    Container(ContainerLayout),
+    Flex(FlexLayout),
+    Scrollable,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+impl DevLayoutKind {
+    pub fn padding(&self) -> Option<Padding> {
+        match self {
+            DevLayoutKind::Zero
+            | DevLayoutKind::Edge
+            | DevLayoutKind::Scrollable => None,
+            DevLayoutKind::Container(ContainerLayout { box_model, .. })
+            | DevLayoutKind::Flex(FlexLayout { box_model, .. }) => {
+                Some(box_model.padding)
+            },
+        }
+    }
+}
+
+impl Display for DevLayoutKind {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            DevLayoutKind::Zero => write!(f, "[Zero]"),
+            DevLayoutKind::Edge => write!(f, "Edge"),
+            DevLayoutKind::Container(ContainerLayout {
+                horizontal_align,
+                vertical_align,
+                box_model: _,
+            }) => write!(
+                f,
+                "Container align:h{},v{}",
+                horizontal_align.display_code(Axis::X),
+                vertical_align.display_code(Axis::Y)
+            ),
+            DevLayoutKind::Flex(FlexLayout {
+                wrap,
+                box_model: _,
+                axis,
+                gap,
+                horizontal_align,
+                vertical_align,
+            }) => write!(
+                f,
+                "Flex {}{};gap:{};align:h{}v{}",
+                axis.dir_name(),
+                if *wrap { ";wrap" } else { "" },
+                gap,
+                horizontal_align.display_code(Axis::X),
+                vertical_align.display_code(Axis::Y),
+            ),
+            DevLayoutKind::Scrollable => write!(f, "Scrollable"),
+        }
+    }
+}
+
+// Agenda: Full box model in dev tools
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DevHoveredLayout {
+    pub kind: DevLayoutKind,
+    pub area: Rectangle,
+    pub children_count: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LayoutKind {
     Edge,
     Container(ContainerLayout),
@@ -86,19 +210,12 @@ pub enum LayoutKind {
 pub struct Layout {
     pub(crate) kind: LayoutKind,
     pub(crate) size: Size<Length>,
-    // TODO: Move box_model and content_size to specific layout kinds
-    pub(crate) box_model: BoxModel,
     pub(crate) content_size: Memo<Limits>,
 }
 
 impl Layout {
     pub fn new(kind: LayoutKind, content_size: Memo<Limits>) -> Self {
-        Self {
-            kind,
-            size: Size::shrink(),
-            box_model: BoxModel::zero(),
-            content_size,
-        }
+        Self { kind, size: Size::shrink(), content_size }
     }
 
     pub fn set_size(&mut self, size: Size<Length>) {
@@ -107,11 +224,6 @@ impl Layout {
 
     pub fn size(mut self, size: Size<Length>) -> Self {
         self.size = size;
-        self
-    }
-
-    pub fn box_model(mut self, box_model: BoxModel) -> Self {
-        self.box_model = box_model;
         self
     }
 
@@ -126,6 +238,34 @@ impl Layout {
         match &mut self.kind {
             LayoutKind::Flex(flex) => flex,
             _ => unreachable!(),
+        }
+    }
+
+    pub fn box_model(&self) -> BoxModel {
+        match self.kind {
+            LayoutKind::Edge | LayoutKind::Scrollable => BoxModel::zero(),
+            LayoutKind::Container(ContainerLayout { box_model, .. })
+            | LayoutKind::Flex(FlexLayout { box_model, .. }) => box_model,
+        }
+    }
+
+    pub fn set_border_width(&mut self, border_width: u32) {
+        match &mut self.kind {
+            LayoutKind::Container(ContainerLayout { box_model, .. })
+            | LayoutKind::Flex(FlexLayout { box_model, .. }) => {
+                box_model.border_width = border_width
+            },
+            _ => {},
+        }
+    }
+
+    pub fn set_padding(&mut self, padding: Padding) {
+        match &mut self.kind {
+            LayoutKind::Container(ContainerLayout { box_model, .. })
+            | LayoutKind::Flex(FlexLayout { box_model, .. }) => {
+                box_model.padding = padding
+            },
+            _ => {},
         }
     }
 }
@@ -172,11 +312,16 @@ impl Layout {
 pub struct LayoutModelTree<'a> {
     pub area: Rectangle,
     model: &'a LayoutModel,
+    dev_kind: DevLayoutKind,
 }
 
 impl<'a> LayoutModelTree<'a> {
     pub fn translate(&self, by: Point) -> Self {
-        Self { area: self.area.translate(by), model: self.model }
+        Self {
+            area: self.area.translate(by),
+            model: self.model,
+            dev_kind: self.dev_kind,
+        }
     }
 
     pub fn children(&self) -> impl Iterator<Item = LayoutModelTree> {
@@ -186,6 +331,21 @@ impl<'a> LayoutModelTree<'a> {
                 child.relative_area.size,
             ),
             model: child,
+            dev_kind: child.dev_kind,
+        })
+    }
+
+    pub fn dev_hover(&self, point: Point) -> Option<DevHoveredLayout> {
+        self.children().find_map(|child| child.dev_hover(point)).or_else(|| {
+            if self.area.contains(point) {
+                Some(DevHoveredLayout {
+                    area: self.area,
+                    kind: self.dev_kind,
+                    children_count: self.model.children.len(),
+                })
+            } else {
+                None
+            }
         })
     }
 }
@@ -195,22 +355,36 @@ impl<'a> LayoutModelTree<'a> {
 pub struct LayoutModel {
     relative_area: Rectangle,
     children: Vec<LayoutModel>,
+    dev_kind: DevLayoutKind,
 }
 
 impl LayoutModel {
-    pub fn new(size: Size, children: Vec<LayoutModel>) -> Self {
+    pub fn new(
+        size: Size,
+        children: Vec<LayoutModel>,
+        dev_kind: DevLayoutKind,
+    ) -> Self {
         Self {
             relative_area: Rectangle::new(Point::zero(), size.into()),
             children,
+            dev_kind,
         }
     }
 
     pub fn tree_root(&self) -> LayoutModelTree {
-        LayoutModelTree { area: self.relative_area, model: self }
+        LayoutModelTree {
+            area: self.relative_area,
+            model: self,
+            dev_kind: self.dev_kind,
+        }
     }
 
     fn zero() -> Self {
-        Self { relative_area: Rectangle::zero(), children: vec![] }
+        Self {
+            relative_area: Rectangle::zero(),
+            children: vec![],
+            dev_kind: DevLayoutKind::Zero,
+        }
     }
 
     pub fn size(&self) -> Size {
@@ -278,31 +452,29 @@ pub fn model_layout(
 ) -> LayoutModel {
     let layout = tree.data.get();
     let size = layout.size;
-    let box_model = layout.box_model;
     let content_size = layout.content_size.get();
 
-    let full_padding =
-        box_model.padding + Padding::new_equal(box_model.border_width);
     // TODO: Resolve size container against `content_size` (limits), not only
     // min
 
     match layout.kind {
         LayoutKind::Edge => {
-            let limits = parent_limits.limit_by(size).shrink(full_padding);
+            let limits = parent_limits.limit_by(size);
 
             LayoutModel::new(
-                limits
-                    .resolve_size(size, content_size.min())
-                    .expand(full_padding),
+                limits.resolve_size(size, content_size.min()),
                 vec![],
+                DevLayoutKind::Edge,
             )
         },
-        LayoutKind::Container(ContainerLayout {
-            horizontal_align,
-            vertical_align,
-        }) => {
-            let limits =
-                parent_limits.limit_by(layout.size).shrink(full_padding);
+        LayoutKind::Container(container_layout) => {
+            let ContainerLayout { box_model, horizontal_align, vertical_align } =
+                container_layout;
+
+            let full_padding =
+                box_model.padding + Padding::new_equal(box_model.border_width);
+
+            let limits = parent_limits.limit_by(size).shrink(full_padding);
 
             // TODO: Panic or warn in case when there're more than a single
             // child
@@ -324,10 +496,11 @@ pub fn model_layout(
             LayoutModel::new(
                 real_size.expand(full_padding),
                 vec![content_layout],
+                DevLayoutKind::Container(container_layout),
             )
         },
         LayoutKind::Scrollable => {
-            let limits = parent_limits.limit_by(size).shrink(full_padding);
+            let limits = parent_limits.limit_by(size);
 
             let content_layout = model_layout(
                 tree.children.with(|children| children[0]),
@@ -336,322 +509,17 @@ pub fn model_layout(
 
             // Note: For [`LayoutKind::Scrollable`], parent_limits are used as
             // content limits are unlimited on one axis
-            let real_size = parent_limits
-                .shrink(full_padding)
-                .resolve_size(size, content_layout.size());
-            let content_layout = content_layout.moved(full_padding.top_left());
+            let real_size =
+                parent_limits.resolve_size(size, content_layout.size());
 
             LayoutModel::new(
-                real_size.expand(full_padding),
+                real_size,
                 vec![content_layout],
+                DevLayoutKind::Scrollable,
             )
         },
-        LayoutKind::Flex(FlexLayout {
-            wrap,
-            axis,
-            gap,
-            horizontal_align,
-            vertical_align,
-        }) => {
-            struct FlexItem {
-                // Cross axis line number
-                line: usize,
-                last_in_line: bool,
-            }
-
-            // Single main axis line in flexbox
-            #[derive(Clone, Copy)]
-            struct FlexLine {
-                div_factors: DivFactors,
-                items_count: u32,
-                free_main: u32,
-                max_fixed_cross: u32,
-            }
-
-            let limits = parent_limits.limit_by(size).shrink(full_padding);
-
-            let children_count = tree.children.with(Vec::len);
-            let max_main = limits.max().main(axis);
-            let max_cross = limits.max().cross(axis);
-
-            let new_line = FlexLine {
-                div_factors: DivFactors::zero(),
-                items_count: 0,
-                // fluid_space: axis.canon(max_main, 0),
-                free_main: max_main,
-                max_fixed_cross: 0,
-            };
-
-            let mut items: Vec<FlexItem> = Vec::with_capacity(children_count);
-            let mut lines = vec![new_line];
-
-            let children_content_sizes = tree.children.with(|children| {
-                children
-                    .iter()
-                    .map(|child| {
-                        child.data.with(|child| child.content_size.get())
-                    })
-                    .collect::<Vec<_>>()
-            });
-
-            let mut children_layouts = Vec::with_capacity(children_count);
-            children_layouts
-                .resize_with(children_count, || LayoutModel::zero());
-
-            let mut container_free_cross = max_cross;
-            tree.children.with(|children| {
-                for ((i, child), child_content_size) in
-                    children.iter().enumerate().zip(children_content_sizes)
-                {
-                    let child_size = child.data.with(|child| child.size);
-                    let min_item_size =
-                        child_size.max_fixed(child_content_size.min());
-
-                    let last_line = *lines.last().unwrap();
-
-                    let free_main = last_line.free_main;
-
-                    // Allow fluid item to wrap the container even if it is a
-                    // shrink length, so it fits its
-                    // content.
-                    if wrap
-                        && (free_main < min_item_size.main(axis)
-                            || i != 0 && free_main < gap.main(axis))
-                    {
-                        // On wrap, set main axis to the max limit (the width or
-                        // height of the container) and cross
-                        // container_free_cross = container_free_cross
-                        //     .saturating_sub(last_line.fluid_space.
-                        // cross(axis));
-                        container_free_cross =
-                            container_free_cross - last_line.max_fixed_cross;
-
-                        lines.push(new_line);
-
-                        if let Some(last_item) = items.last_mut() {
-                            last_item.last_in_line = true;
-                        }
-                    } else if i != 0 && gap.main(axis) > 0 {
-                        lines.last_mut().unwrap().free_main = lines
-                            .last()
-                            .unwrap()
-                            .free_main
-                            .saturating_sub(gap.main(axis));
-                    }
-
-                    let line_number = lines.len() - 1;
-                    let line = lines.last_mut().unwrap();
-
-                    let child_div_factors = child_size.div_factors();
-
-                    if child_div_factors.main(axis) == 0 {
-                        let child_layout =
-                            model_layout(
-                                *child,
-                                Limits::only_max(axis.canon(
-                                    line.free_main,
-                                    container_free_cross,
-                                )),
-                            );
-
-                        // Min content size of child must have been less or
-                        // equal to resulting size.
-                        // FIXME: Remove, it MUST never happen because we set
-                        // free_main as max limit
-                        debug_assert!(
-                            child_layout.size().main(axis) <= line.free_main
-                        );
-
-                        let child_layout_size = child_layout.size();
-
-                        children_layouts[i] = child_layout;
-
-                        // Subtract known children main axis length from free
-                        // space to overflow. Free cross
-                        // axis is calculated on wrap
-                        line.free_main = line
-                            .free_main
-                            .saturating_sub(child_layout_size.main(axis));
-
-                        // Subtract actual cross axis length from remaining
-                        // space
-                        line.max_fixed_cross = line
-                            .max_fixed_cross
-                            .max(child_layout_size.cross(axis));
-                    }
-
-                    // Calculate total divisions for a line, even for fixed
-                    // items, where main axis div factor is
-                    // 0 but cross axis div can be non-zero
-                    line.div_factors += child_div_factors;
-                    line.items_count += 1;
-
-                    items.push(FlexItem {
-                        line: line_number,
-                        last_in_line: false,
-                    });
-                }
-            });
-
-            items.last_mut().map(|last| {
-                last.last_in_line = true;
-            });
-
-            #[derive(Clone, Copy)]
-            struct ModelLine {
-                base_divs: Size,
-                line_div_remainder: Size,
-                line_div_remainder_rem: Size,
-                base_div_remainder_part: Size,
-                used_main: u32,
-                cross: u32,
-            }
-
-            let lines_count = lines.len() as u32;
-
-            let container_free_cross_div =
-                container_free_cross.checked_div(lines_count).unwrap_or(0);
-            let mut container_free_cross_rem =
-                container_free_cross.checked_rem(lines_count).unwrap_or(0);
-            let mut model_lines = lines
-                .into_iter()
-                .map(|line| {
-                    // let base_divs = if line.has_fluid {
-                    //     line.fluid_space / line.div_factors
-                    // } else {
-                    //     axis.canon(
-                    //         line.fluid_space.main(axis)
-                    //             / line.div_factors.main(axis) as u32,
-                    //         max_cross,
-                    //     )
-                    // };
-                    let mut div_factors = line.div_factors;
-                    let cross = if lines_count == 1 {
-                        *div_factors.cross_mut(axis) = 1;
-                        max_cross
-                    } else {
-                        line.max_fixed_cross
-                            + container_free_cross_div
-                            + if container_free_cross_rem > 0 {
-                                container_free_cross_rem -= 1;
-                                1
-                            } else {
-                                0
-                            }
-                    };
-
-                    let fluid_space = axis.canon::<Size>(line.free_main, cross);
-
-                    // let main_base_div =
-                    //     line.free_main / line.div_factors.main(axis) as u32;
-                    // let line_div_remainder =
-                    //     line.fluid_space % line.div_factors;
-                    let base_divs = fluid_space / div_factors;
-                    let line_div_remainder = fluid_space % div_factors;
-
-                    let base_div_remainder_part = axis.canon(
-                        line_div_remainder
-                            .main(axis)
-                            .checked_div(line.items_count)
-                            .unwrap_or(0),
-                        line_div_remainder
-                            .cross(axis)
-                            .checked_div(lines_count)
-                            .unwrap_or(0),
-                    );
-                    let line_div_remainder_rem = axis.canon(
-                        line_div_remainder
-                            .main(axis)
-                            .checked_rem(line.items_count)
-                            .unwrap_or(0),
-                        line_div_remainder
-                            .cross(axis)
-                            .checked_rem(lines_count)
-                            .unwrap_or(0),
-                    );
-
-                    ModelLine {
-                        base_divs,
-                        line_div_remainder,
-                        line_div_remainder_rem,
-                        base_div_remainder_part,
-                        used_main: 0,
-                        cross,
-                    }
-                })
-                .collect::<Vec<_>>();
-
-            let mut longest_line = 0;
-            let mut used_cross = 0;
-            let mut next_pos = Point::zero();
-            tree.children.with(|children| {
-                for ((i, child), item) in
-                    children.iter().enumerate().zip(items.iter())
-                {
-                    let child_size = child.data.with(|child| child.size);
-                    let model_line = &mut model_lines[item.line];
-
-                    let child_div_factors = child_size.div_factors();
-                    if child_div_factors.main(axis) != 0 {
-                        let child_rem_part = model_line.base_div_remainder_part
-                            + model_line.line_div_remainder_rem.sub_take(1);
-
-                        let child_max_size = child_size
-                            .into_fixed(model_line.base_divs)
-                            + child_rem_part;
-
-                        model_line.line_div_remainder -= child_rem_part;
-
-                        children_layouts[i] = model_layout(
-                            *child,
-                            Limits::only_max(child_max_size),
-                        );
-                    }
-
-                    children_layouts[i].move_mut(next_pos);
-
-                    let child_size = children_layouts[i].size();
-
-                    let child_length = child_size.main(axis);
-                    model_line.used_main += child_length;
-
-                    if item.last_in_line {
-                        *next_pos.main_mut(axis) = 0;
-                        *next_pos.cross_mut(axis) +=
-                            (model_line.cross.saturating_add(gap.cross(axis)))
-                                as i32;
-
-                        longest_line = longest_line.max(model_line.used_main);
-                        used_cross += model_line.cross
-                            + if item.line < model_lines.len() - 1 {
-                                gap.cross(axis)
-                            } else {
-                                0
-                            };
-                    } else {
-                        model_line.used_main += gap.main(axis);
-
-                        *next_pos.main_mut(axis) = model_line.used_main as i32;
-                    }
-                }
-            });
-
-            let size =
-                limits.resolve_size(size, axis.canon(longest_line, used_cross));
-
-            for (child_layout, item) in children_layouts.iter_mut().zip(items) {
-                let line = model_lines[item.line];
-
-                let free_space =
-                    size - axis.canon::<Size>(line.used_main, used_cross);
-                child_layout.align_mut(
-                    horizontal_align,
-                    vertical_align,
-                    free_space,
-                );
-            }
-
-            LayoutModel::new(size.expand(full_padding), children_layouts)
+        LayoutKind::Flex(flex_layout) => {
+            model_flex(tree, parent_limits, flex_layout, size)
         },
     }
 }

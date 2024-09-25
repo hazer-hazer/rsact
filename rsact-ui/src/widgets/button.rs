@@ -161,6 +161,7 @@ impl<W: WidgetCtx + 'static> Button<W> {
 
         let layout = Layout::new(
             LayoutKind::Container(ContainerLayout {
+                box_model: BoxModel::zero().border_width(1).padding(5),
                 horizontal_align: Align::Center,
                 vertical_align: Align::Center,
             }),
@@ -168,7 +169,6 @@ impl<W: WidgetCtx + 'static> Button<W> {
                 content.layout().with(|layout| layout.content_size.get())
             }),
         )
-        .box_model(BoxModel::zero().border_width(1).padding(5))
         .into_signal();
 
         Self {
@@ -285,7 +285,7 @@ where
 
         ctx.renderer.block(Block::from_layout_style(
             ctx.layout.area,
-            self.layout.get().box_model,
+            self.layout.get().box_model(),
             style.container,
         ))?;
 
