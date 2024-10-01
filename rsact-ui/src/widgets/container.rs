@@ -13,12 +13,11 @@ impl<W: WidgetCtx + 'static> Container<W> {
         let content = content.into_signal();
 
         Self {
-            layout: Layout::new(
-                LayoutKind::Container(ContainerLayout::base()),
-                content.mapped(|content| {
-                    content.layout().with(|layout| layout.content_size.get())
-                }),
-            )
+            layout: Layout::shrink(LayoutKind::Container(
+                ContainerLayout::base(content.mapped(|content| {
+                    content.layout().with(|layout| layout.content_size())
+                })),
+            ))
             .into_signal(),
             content,
             style: BoxStyle::base().into_memo_chain(),
@@ -72,9 +71,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
         // ctx.accept_styles(self.style, ());
-        self.content.update_untracked(|content| {
-            ctx.pass_to_children(core::slice::from_mut(content))
-        })
+        ctx.pass_to_child(self.content);
     }
 
     fn layout(&self) -> Signal<Layout> {
@@ -107,7 +104,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
         &mut self,
         ctx: &mut crate::widget::EventCtx<'_, W>,
     ) -> crate::event::EventResponse<<W as WidgetCtx>::Event> {
-        self.content.control_flow(|content| content.on_event(ctx))
+        self.content.control_flow(|content| ctx.pass_to_child(content))
     }
 }
 

@@ -1,11 +1,8 @@
 use crate::{
     event::Propagate,
-    layout::{
-        size::{Length, Size},
-        Layout, LayoutKind, Limits,
-    },
+    layout::{ContentLayout, Layout, LayoutKind, Limits},
     render::Renderer,
-    widget::{prelude::BoxModel, Widget, WidgetCtx},
+    widget::{Widget, WidgetCtx},
 };
 use embedded_graphics::{
     image::ImageRaw, iterator::raw::RawDataSlice, pixelcolor::raw::ByteOrder,
@@ -13,12 +10,12 @@ use embedded_graphics::{
 };
 use rsact_core::{
     memo::{IntoMemo, MemoTree},
-    prelude::use_signal,
     signal::{IntoSignal, Signal},
 };
 
 /// Static Image
 pub struct Image<'a, W: WidgetCtx, BO: ByteOrder> {
+    // TODO: Reactive?
     data: ImageRaw<'a, W::Color, BO>,
     layout: Signal<Layout>,
 }
@@ -26,13 +23,12 @@ pub struct Image<'a, W: WidgetCtx, BO: ByteOrder> {
 impl<'a, W: WidgetCtx, BO: ByteOrder> Image<'a, W, BO> {
     pub fn new(data: ImageRaw<'a, W::Color, BO>) -> Self {
         let size = data.size().into();
+
         Self {
             data,
-            layout: Layout {
-                kind: LayoutKind::Edge,
-                size,
-                content_size: Limits::zero().into_memo(),
-            }
+            layout: Layout::shrink(LayoutKind::Content(ContentLayout {
+                content_size: Limits::new(size, size).into_memo(),
+            }))
             .into_signal(),
         }
     }
@@ -67,7 +63,7 @@ where
 
     fn on_event(
         &mut self,
-        ctx: &mut crate::widget::EventCtx<'_, W>,
+        _ctx: &mut crate::widget::EventCtx<'_, W>,
     ) -> crate::event::EventResponse<W::Event> {
         Propagate::Ignored.into()
     }

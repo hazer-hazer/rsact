@@ -13,5 +13,5 @@ pub mod ui;
 pub mod widget;
 pub mod widgets;
 
-#[macro_use]
+// #[macro_use]
 extern crate log;

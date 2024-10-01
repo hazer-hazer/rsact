@@ -44,13 +44,13 @@ impl<C: ThemeColor + 'static> Styler<ButtonStyle<C>> for ThemeStyler<C> {
     // TODO
     fn style(
         self,
-        inputs: Self::Class,
+        _inputs: Self::Class,
     ) -> impl Fn(
         ButtonStyle<C>,
         <ButtonStyle<C> as super::WidgetStyle>::Inputs,
     ) -> ButtonStyle<C>
            + 'static {
-        move |mut prev_style, state| {
+        move |mut prev_style, _state| {
             self.palette.with(|palette| {
                 // match state {}
                 prev_style.container.background_color =

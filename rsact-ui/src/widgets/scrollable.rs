@@ -1,6 +1,7 @@
 use crate::{
+    event::BubbledData,
     style::{Styler, WidgetStyle},
-    widget::{prelude::*, BoxModelWidget, SizedWidget},
+    widget::{prelude::*, SizedWidget},
 };
 use alloc::vec::Vec;
 use core::marker::PhantomData;
@@ -8,14 +9,24 @@ use embedded_graphics::{
     prelude::{Point, Primitive, Transform},
     primitives::{Line, PrimitiveStyle, PrimitiveStyleBuilder},
 };
+use layout::ContentLayout;
+
+#[derive(Clone, Copy)]
+pub enum ScrollableMode {
+    Interactive,
+    Tracker,
+}
 
 pub trait ScrollEvent {
     fn as_scroll(&self, axis: Axis) -> Option<i32>;
 }
 
+// TODO: Add feature for meaningful focus. When scrollable does not overflow, it
+// is unfocusable and does not need to be allowed to be scrolled
 #[derive(Clone, Copy, PartialEq)]
 pub enum ScrollbarShow {
     Always,
+    Never,
     // TODO: Show on scroll + add transitions when animations added
     // OnScroll,
     Auto,
@@ -130,6 +141,7 @@ pub struct Scrollable<W: WidgetCtx, Dir: Direction> {
     style: MemoChain<ScrollableStyle<W::Color>>,
     content: Signal<El<W>>,
     layout: Signal<Layout>,
+    mode: ScrollableMode,
     dir: PhantomData<Dir>,
 }
 
@@ -151,14 +163,15 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
         let state = use_signal(ScrollableState::none());
 
         let layout = Layout {
-            kind: LayoutKind::Scrollable,
-            size: Dir::AXIS.canon(
-                Length::InfiniteWindow(Length::fill().try_into().unwrap()),
-                Length::fill(),
-            ),
-            content_size: content.mapped(|content| {
-                content.layout().with(|layout| layout.content_size.get())
+            kind: LayoutKind::Scrollable(ContentLayout {
+                content_size: content.mapped(|content| {
+                    content.layout().with(|layout| layout.content_size())
+                }),
             }),
+            size: Dir::AXIS.canon(
+                Length::InfiniteWindow(Length::Shrink.try_into().unwrap()),
+                Length::Shrink,
+            ),
         }
         .into_signal();
 
@@ -187,8 +200,14 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
             state,
             style: use_memo_chain(|_| ScrollableStyle::base()),
             layout,
+            mode: ScrollableMode::Interactive,
             dir: PhantomData,
         }
+    }
+
+    pub fn tracker(mut self) -> Self {
+        self.mode = ScrollableMode::Tracker;
+        self
     }
 
     pub fn style(
@@ -203,6 +222,13 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
         self.style.last(move |prev_style| styler(*prev_style, state.get()));
         self
     }
+
+    fn max_offset(&self, ctx: &EventCtx<'_, W>) -> u32 {
+        let content_length =
+            ctx.layout.children().next().unwrap().area.size.main(Dir::AXIS);
+
+        content_length.saturating_sub(ctx.layout.area.size.main(Dir::AXIS))
+    }
 }
 
 impl<W, Dir> SizedWidget<W> for Scrollable<W, Dir>
@@ -212,6 +238,33 @@ where
     Dir: Direction,
     W::Styler: Styler<ScrollableStyle<W::Color>, Class = ()>,
 {
+    fn width<L: Into<Length> + Copy + 'static>(
+        self,
+        width: impl MaybeSignal<L> + 'static,
+    ) -> Self
+    where
+        Self: Sized + 'static,
+    {
+        self.layout().setter(width.maybe_signal(), |&width, layout| {
+            layout.size.width =
+                Length::InfiniteWindow(width.into().try_into().unwrap());
+        });
+        self
+    }
+
+    fn height<L: Into<Length> + Copy + 'static>(
+        self,
+        height: impl MaybeSignal<L> + 'static,
+    ) -> Self
+    where
+        Self: Sized + 'static,
+    {
+        self.layout().setter(height.maybe_signal(), |&height, layout| {
+            layout.size.height =
+                Length::InfiniteWindow(height.into().try_into().unwrap());
+        });
+        self
+    }
 }
 
 impl<W, Dir> Widget<W> for Scrollable<W, Dir>
@@ -223,14 +276,19 @@ where
 {
     fn children_ids(&self) -> Memo<Vec<ElId>> {
         let id = self.id;
-        use_memo(move |_| vec![id])
+        let content = self.content;
+
+        match self.mode {
+            ScrollableMode::Interactive => use_memo(move |_| vec![id]),
+            ScrollableMode::Tracker => {
+                content.mapped(|content| content.children_ids().get_cloned())
+            },
+        }
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
+        ctx.pass_to_child(self.content);
         ctx.accept_styles(self.style, self.state);
-        self.content.update_untracked(|content| {
-            ctx.pass_to_children(core::slice::from_mut(content))
-        })
     }
 
     fn layout(&self) -> Signal<Layout> {
@@ -241,9 +299,8 @@ where
         let content = self.content;
         MemoTree {
             data: self.layout.into_memo(),
-            children: use_memo(move |_| {
-                content.with(|content| vec![content.build_layout_tree()])
-            }),
+            children: content
+                .mapped(|content| vec![content.build_layout_tree()]),
         }
     }
 
@@ -265,80 +322,78 @@ where
         let child_layout = ctx.layout.children().next();
         let child_layout = child_layout.as_ref().unwrap();
 
-        self.content.with(|content| {
-            let mut content_length = child_layout.area.size.main(Dir::AXIS);
-            let scrollable_length = ctx.layout.area.size.main(Dir::AXIS);
+        let mut content_length = child_layout.area.size.main(Dir::AXIS);
+        let scrollable_length = ctx.layout.area.size.main(Dir::AXIS);
 
-            let draw_scrollbar = match style.show {
-                ScrollbarShow::Always => {
-                    // Note: Draw thumb of full length of scrollbar in Always
-                    // mode
-                    content_length = content_length.max(scrollable_length);
-                    true
-                },
-                ScrollbarShow::Auto => content_length > scrollable_length,
+        let draw_scrollbar = match style.show {
+            ScrollbarShow::Always => {
+                // Note: Draw thumb of full length of scrollbar in Always
+                // mode
+                content_length = content_length.max(scrollable_length);
+                true
+            },
+            ScrollbarShow::Never => false,
+            ScrollbarShow::Auto => content_length > scrollable_length,
+        };
+
+        let state = self.state.get();
+        let offset = state.offset;
+
+        if draw_scrollbar {
+            let style = self.style.get();
+
+            let track_start = match Dir::AXIS {
+                Axis::X => ctx.layout.area.anchor_point(
+                    embedded_graphics::geometry::AnchorPoint::BottomLeft,
+                ),
+                Axis::Y => ctx.layout.area.anchor_point(
+                    embedded_graphics::geometry::AnchorPoint::TopRight,
+                ),
             };
+            let track_end = ctx
+                .layout
+                .area
+                .bottom_right()
+                .unwrap_or(ctx.layout.area.top_left);
 
-            let state = self.state.get();
-            let offset = state.offset;
+            let scrollbar_translation =
+                Dir::AXIS.canon(0, -(style.scrollbar_width as i32 / 2));
 
-            if draw_scrollbar {
-                let style = self.style.get();
+            let track_line = Line::new(track_start, track_end)
+                .translate(scrollbar_translation);
 
-                let track_start = match Dir::AXIS {
-                    Axis::X => ctx.layout.area.anchor_point(
-                        embedded_graphics::geometry::AnchorPoint::BottomLeft,
-                    ),
-                    Axis::Y => ctx.layout.area.anchor_point(
-                        embedded_graphics::geometry::AnchorPoint::TopRight,
-                    ),
-                };
-                let track_end = ctx
-                    .layout
-                    .area
-                    .bottom_right()
-                    .unwrap_or(ctx.layout.area.top_left);
+            // Draw track
+            ctx.renderer.line(track_line.into_styled(style.track_style()))?;
 
-                let scrollbar_translation =
-                    Dir::AXIS.canon(0, -(style.scrollbar_width as i32 / 2));
+            let thumb_len = (scrollable_length as f32
+                * (scrollable_length as f32 / content_length as f32))
+                as u32;
+            let thumb_len = thumb_len.max(1);
+            let thumb_offset = ((scrollable_length as f32
+                / content_length as f32)
+                * offset as f32) as u32;
 
-                let track_line = Line::new(track_start, track_end)
-                    .translate(scrollbar_translation);
+            let thumb_start =
+                track_start + Dir::AXIS.canon::<Point>(thumb_offset as i32, 0);
 
-                // Draw track
-                ctx.renderer
-                    .line(track_line.into_styled(style.track_style()))?;
+            ctx.renderer.line(
+                Line::new(
+                    thumb_start,
+                    thumb_start + Dir::AXIS.canon::<Point>(thumb_len as i32, 0),
+                )
+                .translate(scrollbar_translation)
+                .into_styled(style.thumb_style()),
+            )?;
+        }
 
-                let thumb_len = (scrollable_length as f32
-                    * (scrollable_length as f32 / content_length as f32))
-                    as u32;
-                let thumb_len = thumb_len.max(1);
-                let thumb_offset = ((scrollable_length as f32
-                    / content_length as f32)
-                    * offset as f32) as u32;
-
-                let thumb_start = track_start
-                    + Dir::AXIS.canon::<Point>(thumb_offset as i32, 0);
-
-                ctx.renderer.line(
-                    Line::new(
-                        thumb_start,
-                        thumb_start
-                            + Dir::AXIS.canon::<Point>(thumb_len as i32, 0),
-                    )
-                    .translate(scrollbar_translation)
-                    .into_styled(style.thumb_style()),
-                )?;
-            }
-
+        self.content.with(|content| {
             ctx.renderer.clipped(ctx.layout.area, |renderer| {
-                DrawCtx {
+                content.draw(&mut DrawCtx {
                     state: ctx.state,
                     renderer,
                     layout: &child_layout
                         .translate(Dir::AXIS.canon(-(offset as i32), 0)),
-                }
-                .draw_child(content)
+                })
             })
         })
     }
@@ -349,57 +404,76 @@ where
     ) -> EventResponse<W::Event> {
         let current_state = self.state.get();
 
-        // FocusEvent can be treated as ScrollEvent thus handle it before
-        // focus move
-        if current_state.active && ctx.is_focused(self.id) {
-            if let Some(offset) = ctx.event.as_scroll(Dir::AXIS) {
-                let current_state = self.state.get();
+        match self.mode {
+            ScrollableMode::Interactive => {
+                // FocusEvent can be treated as ScrollEvent thus handle it
+                // before focus move
+                if current_state.active && ctx.is_focused(self.id) {
+                    if let Some(offset) = ctx.event.as_scroll(Dir::AXIS) {
+                        let max_offset = self.max_offset(ctx);
 
-                let content_length = ctx
-                    .layout
-                    .children()
-                    .next()
-                    .unwrap()
-                    .area
-                    .size
-                    .main(Dir::AXIS);
+                        let new_offset = (current_state.offset as i64
+                            + offset as i64)
+                            .clamp(0, max_offset as i64)
+                            as u32;
 
-                let max_offset = content_length
-                    .saturating_sub(ctx.layout.area.size.main(Dir::AXIS));
+                        if new_offset != current_state.offset {
+                            self.state
+                                .update(|state| state.offset = new_offset);
+                        }
 
-                let new_offset = (current_state.offset as i64 + offset as i64)
-                    .clamp(0, max_offset as i64)
-                    as u32;
-
-                if new_offset != current_state.offset {
-                    self.state.update(|state| state.offset = new_offset);
+                        return Capture::Captured.into();
+                    }
                 }
 
-                return Capture::Captured.into();
-            }
-        }
+                ctx.handle_focusable(self.id, |pressed| {
+                    let current_state = self.state.get();
 
-        ctx.handle_focusable(self.id, |pressed| {
-            let current_state = self.state.get();
+                    if current_state.focus_pressed != pressed {
+                        let toggle_active =
+                            if !current_state.focus_pressed && pressed {
+                                true
+                            } else {
+                                false
+                            };
 
-            if current_state.focus_pressed != pressed {
-                let toggle_active = if !current_state.focus_pressed && pressed {
-                    true
-                } else {
-                    false
-                };
+                        self.state.update(|state| {
+                            state.focus_pressed = pressed;
+                            if toggle_active {
+                                state.active = !state.active;
+                            }
+                        });
 
-                self.state.update(|state| {
-                    state.focus_pressed = pressed;
-                    if toggle_active {
-                        state.active = !state.active;
+                        Capture::Captured.into()
+                    } else {
+                        Propagate::Ignored.into()
                     }
-                });
+                })
+            },
+            ScrollableMode::Tracker => {
+                let maybe_activate = self
+                    .content
+                    .control_flow(|content| ctx.pass_to_child(content));
 
-                Capture::Captured.into()
-            } else {
-                Propagate::Ignored.into()
-            }
-        })
+                if let EventResponse::Break(Capture::Bubble(
+                    BubbledData::Focused(_, focused_point),
+                )) = maybe_activate
+                {
+                    let new_offset =
+                        focused_point.main(Dir::AXIS).saturating_sub(
+                            ctx.layout.area.top_left.main(Dir::AXIS),
+                        ) as u32;
+                    let new_offset = new_offset.clamp(0, self.max_offset(ctx));
+
+                    if current_state.offset != new_offset {
+                        self.state.update(|state| {
+                            state.offset = new_offset;
+                        })
+                    }
+                }
+
+                maybe_activate
+            },
+        }
     }
 }

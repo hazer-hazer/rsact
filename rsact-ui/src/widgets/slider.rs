@@ -117,7 +117,6 @@ impl<W: WidgetCtx, Dir: Direction> Slider<W, Dir> {
             layout: Layout {
                 kind: LayoutKind::Edge,
                 size: Dir::AXIS.canon(Length::fill(), Length::Fixed(25)),
-                content_size: Limits::zero().into_memo(),
             }
             .into_signal(),
             style: SliderStyle::base().into_memo_chain(),

@@ -1,17 +1,14 @@
 use crate::{
     el::{El, ElId},
     event::{
-        dev::{DevElHover, DevToolsToggle},
-        Capture, Event, EventResponse, FocusEvent, Propagate,
+        dev::DevElHover, BubbledData, Capture, Event, EventResponse,
+        FocusEvent, Propagate,
     },
     layout::{model_layout, size::Size, DevHoveredLayout, LayoutModel, Limits},
     render::{
         color::Color, draw_target::LayeringRenderer, Block, Border, Renderer,
     },
-    style::{
-        block::{BorderStyle, BoxStyle},
-        NullStyler,
-    },
+    style::block::{BorderStyle, BoxStyle},
     widget::{
         prelude::BoxModel, DrawCtx, DrawResult, EventCtx, MountCtx, PageState,
         PhantomWidgetCtx, Widget, WidgetCtx,
@@ -19,10 +16,7 @@ use crate::{
 };
 use alloc::{boxed::Box, vec::Vec};
 use embedded_graphics::{
-    mono_font::{
-        ascii::{FONT_5X7, FONT_6X9, FONT_8X13, FONT_9X15},
-        MonoTextStyle, MonoTextStyleBuilder,
-    },
+    mono_font::{ascii::FONT_8X13, MonoTextStyleBuilder},
     prelude::{DrawTarget, Point},
     primitives::Rectangle,
 };
@@ -72,15 +66,16 @@ impl HoveredEl {
         let [text_color, inner_color, padding_color, ..] = C::accents();
 
         r.block(Self::model(area, padding_color))?;
-        if let Some(padding) = self.layout.kind.padding() {
+        if let Some(padding) = self.layout.layout.kind.padding() {
             r.block(Self::model(area - padding, inner_color))?;
         }
 
         let area_text = format!(
-            "{} {}x{}{}",
-            self.layout.kind,
+            "{} {}x{}({}){}",
+            self.layout.layout.kind,
             area.size.width,
             area.size.height,
+            self.layout.size,
             if self.layout.children_count > 0 {
                 format!(" [{}]", self.layout.children_count)
             } else {
@@ -146,9 +141,19 @@ impl<W: WidgetCtx> Page<W> {
 
         let layout_tree = root.build_layout_tree();
         let layout = use_memo(move |_| {
+            let viewport = viewport.get();
             // println!("Relayout");
-            model_layout(layout_tree, Limits::only_max(viewport.get()))
+            let layout = model_layout(
+                layout_tree,
+                Limits::only_max(viewport),
+                viewport.into(),
+            );
+
+            // println!("{:#?}", layout.tree_root());
+
+            layout
         });
+
         // TODO: Children ids should be paired with Behavior settings, child can
         // have an id but not be focusable for example
         let ids = root.children_ids();
@@ -215,11 +220,14 @@ impl<W: WidgetCtx> Page<W> {
                 match response {
                     EventResponse::Continue(propagate) => match propagate {
                         Propagate::Ignored => Some(event),
-                        Propagate::BubbleUp(_, event) => Some(event),
+                        // Propagate::BubbleUp(_, event) => Some(event),
                     },
                     EventResponse::Break(capture) => match capture {
                         Capture::Captured => None,
-                        Capture::Bubbled(el_id, event) => {
+                        Capture::Bubble(BubbledData::Focused(
+                            el_id,
+                            _point,
+                        )) => {
                             if let Some(offset) = event.as_focus_move() {
                                 self.ids.with(|ids| {
                                     let position =
@@ -243,6 +251,7 @@ impl<W: WidgetCtx> Page<W> {
                                 Some(event)
                             }
                         },
+                        Capture::Bubble(_) => Some(event),
                     },
                 }
             })
@@ -270,8 +279,10 @@ impl<W: WidgetCtx> Page<W> {
             })
         })?;
 
-        if let Some(hovered) = self.dev_tools.with(|dt| dt.hovered) {
-            hovered.draw(&mut self.renderer, self.viewport.get())?;
+        if self.dev_tools.with(|dt| dt.enabled) {
+            if let Some(hovered) = self.dev_tools.with(|dt| dt.hovered) {
+                hovered.draw(&mut self.renderer, self.viewport.get())?;
+            }
         }
 
         self.renderer.finish(target);

@@ -9,7 +9,7 @@ use embedded_graphics::{
     iterator::raw::RawDataSlice,
     mono_font::MonoTextStyle,
     pixelcolor::raw::ByteOrder,
-    prelude::{DrawTarget, PixelColor, RawData},
+    prelude::{DrawTarget, PixelColor},
     primitives::{Line, PrimitiveStyle, Rectangle, RoundedRectangle, Styled},
     Pixel,
 };

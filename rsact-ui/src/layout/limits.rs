@@ -2,7 +2,7 @@ use super::{
     axis::{Axial, Axis},
     size::{DeterministicLength, Length, Size},
 };
-use core::u32;
+use core::{fmt::Display, u32};
 use embedded_graphics::primitives::Rectangle;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -44,6 +44,10 @@ impl Limits {
     //     self.max().width.min(self.max().height)
     // }
 
+    pub fn with_min(self, min: Size) -> Self {
+        Self::new(min, self.max)
+    }
+
     pub fn with_max(self, max: Size) -> Self {
         Self::new(self.min, max)
     }
@@ -59,7 +63,13 @@ impl Limits {
             Length::InfiniteWindow(_) => {
                 self.with_max(axis.canon(u32::MAX, self.max.cross(axis)))
             },
-            Length::Div(_) | Length::Shrink => self,
+            Length::Div(_) | Length::Shrink => {
+                // self.with_min(axis.canon(min, self.min.cross(axis)))
+                self
+            },
+            // Length::Shrink => {
+            //     self.with_max(axis.canon(min, self.min.cross(axis)))
+            // },
             Length::Fixed(fixed) => {
                 let new_length =
                     fixed.min(self.max.main(axis)).max(self.min.main(axis));
@@ -125,6 +135,12 @@ impl Limits {
     //         Length::Shrink => min_square,
     //     }
     // }
+}
+
+impl Display for Limits {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "[{}:{}]", self.min, self.max)
+    }
 }
 
 impl From<Rectangle> for Limits {

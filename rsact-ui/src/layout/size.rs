@@ -2,9 +2,16 @@ use core::{
     fmt::Display,
     ops::{Add, AddAssign, Div, Mul, Rem, Sub, SubAssign},
 };
-use embedded_graphics::{geometry::Point, primitives::Rectangle};
+use embedded_graphics::{
+    geometry::{AnchorPoint, Point},
+    primitives::Rectangle,
+};
 
-use super::{axis::Axial, padding::Padding};
+use super::{
+    axis::{Anchor, Axial},
+    padding::Padding,
+    Axis,
+};
 
 pub trait SubTake<Rhs = Self> {
     fn sub_take(&mut self, sub: Rhs) -> Self;
@@ -208,11 +215,15 @@ pub enum Length {
 impl Display for Length {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Length::Shrink => write!(f, "Length::Shrink"),
-            Length::Div(div) => write!(f, "Length::Div({div})"),
-            Length::Fixed(fixed) => write!(f, "Length::Fixed({fixed})"),
+            Length::Shrink => write!(f, "Shrink"),
+            Length::Div(div) if *div == 1 => write!(f, "Fill"),
+            Length::Div(div) => write!(f, "Div({div})"),
+            Length::Fixed(fixed) if *fixed == u32::MAX => {
+                write!(f, "Inf")
+            },
+            Length::Fixed(fixed) => write!(f, "Fixed({fixed})"),
             Length::InfiniteWindow(length) => {
-                write!(f, "Length::InfiniteWindow({length:?})")
+                write!(f, "InfiniteWindow({length:?})")
             },
             // Length::Scroll(fixed) => write!(f, "Length::Scroll({fixed})"),
         }
@@ -229,6 +240,13 @@ impl Length {
             Length::InfiniteWindow(length) => length.into_length().div_factor(),
             Length::Fixed(_) | Length::Shrink => 0,
             Length::Div(div) => *div,
+        }
+    }
+
+    fn in_parent(self, parent: Self) -> Self {
+        match (self, parent) {
+            (Self::Div(_), Self::Shrink) => Self::Shrink,
+            _ => self,
         }
     }
 
@@ -347,6 +365,13 @@ impl Size<Length> {
     //     self.width.is_fill() && self.height.is_fill()
     // }
 
+    pub fn in_parent(self, parent: Self) -> Self {
+        Self::new(
+            self.width.in_parent(parent.width),
+            self.height.in_parent(parent.height),
+        )
+    }
+
     pub fn div_factors(&self) -> DivFactors {
         DivFactors {
             width: self.width.div_factor(),
@@ -357,7 +382,7 @@ impl Size<Length> {
     pub fn max_fixed(&self, fixed: Size) -> Size {
         Size::new(
             self.width.max_fixed(fixed.width),
-            self.height().max_fixed(fixed.height),
+            self.height.max_fixed(fixed.height),
         )
     }
 
@@ -389,9 +414,28 @@ impl Size<u32> {
 
         Self::new_equal(min)
     }
+
+    pub fn is_zero(&self) -> bool {
+        self.width == 0 || self.height == 0
+    }
 }
 
-impl<T: Display> Display for Size<T> {
+impl Display for Size<u32> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        if self.width == u32::MAX {
+            f.write_str("Inf")
+        } else {
+            write!(f, "{}", self.width)
+        }?;
+        if self.width == u32::MAX {
+            f.write_str("xInf")
+        } else {
+            write!(f, "x{}", self.width)
+        }
+    }
+}
+
+impl Display for Size<Length> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}x{}", self.width, self.height)
     }
@@ -646,12 +690,33 @@ impl SizeExt for embedded_graphics_core::geometry::Size {
     }
 }
 
+// #[derive(Clone, Copy)]
+// pub enum AxisAnchorPoint {
+//     MainStart,
+//     MainCenter,
+//     MainEnd,
+//     CenterLeft,
+//     Center,
+//     CenterEnd,
+//     CrossStart,
+//     CrossCenter,
+//     CrossEnd,
+// }
+
 pub trait RectangleExt {
     fn center_offset_of(&self, child: Self) -> Point;
+    fn resized_axis(&self, axis: Axis, size: u32, anchor: Anchor) -> Self;
 }
 
 impl RectangleExt for Rectangle {
     fn center_offset_of(&self, child: Self) -> Point {
         self.center() - child.center()
+    }
+
+    fn resized_axis(&self, axis: Axis, value: u32, anchor: Anchor) -> Self {
+        match axis {
+            Axis::X => self.resized_width(value, anchor.into()),
+            Axis::Y => self.resized_height(value, anchor.into()),
+        }
     }
 }

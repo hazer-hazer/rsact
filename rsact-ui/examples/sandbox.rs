@@ -1,6 +1,6 @@
 use embedded_graphics::{
     pixelcolor::Rgb888,
-    prelude::{Dimensions as _, RgbColor, WebColors},
+    prelude::{Dimensions as _, RgbColor as _, WebColors as _},
 };
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
@@ -10,23 +10,24 @@ use rsact_core::prelude::*;
 use rsact_ui::{
     el::El,
     event::simulator::simulator_single_encoder,
-    layout::size::{Length, Size},
+    layout::{
+        size::{Length, Size},
+        Align,
+    },
     style::{
         block::{BorderStyle, BoxStyle},
         NullStyler,
     },
     ui::UI,
-    widget::{SizedWidget as _, Widget as _, WidgetCtx},
+    widget::{BoxModelWidget, SizedWidget as _, Widget as _, WidgetCtx},
     widgets::{
-        button::{Button, ButtonState, ButtonStyle},
+        button::{Button, ButtonState},
+        container::Container,
         edge::Edge,
         flex::Flex,
         mono_text::MonoText,
-        scrollable::{
-            Scrollable, ScrollableState, ScrollableStyle, ScrollbarShow,
-        },
+        scrollable::{Scrollable, ScrollableState, ScrollbarShow},
         select::Select,
-        slider::Slider,
     },
 };
 use std::time::{Duration, Instant};
@@ -40,13 +41,17 @@ fn edge<W: WidgetCtx<Color = Rgb888>>() -> El<W> {
                 random(),
             ))
         })
-        .fill()
         .width(50)
+        .height(50)
         .el()
 }
 
+fn text_block<W: WidgetCtx>() -> El<W> {
+    Container::new(text()).fill().el()
+}
+
 fn text<W: WidgetCtx>() -> El<W> {
-    MonoText::new("asd".to_string()).el()
+    MonoText::new("a".to_string()).el()
 }
 
 fn main() {
@@ -94,44 +99,47 @@ fn main() {
 
     // let mut items_height = use_signal(50);
 
-    // let button_style = |base, state| match state {
-    //     ButtonState { pressed: true, .. } => base,
-    //     ButtonState { .. } => base,
-    // };
+    let button_style = |base, state| match state {
+        ButtonState { pressed: true, .. } => base,
+        ButtonState { .. } => base,
+    };
 
-    // let items = use_signal(vec![]);
+    let items = use_signal(vec![]);
+    let add_item = move || {
+        items.update(|items| {
+            items.push(MonoText::new(items.len().to_string()).el())
+        })
+    };
 
-    // let buttons = Flex::row(vec![
-    //     Button::new("Add")
-    //         .style(button_style)
-    //         .width(Length::fill())
-    //         .height(Length::fill())
-    //         .on_click(move || {
-    //             items.update(|items| {
-    //                 items.push(
-    //                     MonoText::new(items.len().to_string()).shrink().el(),
-    //                 )
-    //             })
-    //         })
-    //         .el(),
-    //     Button::new("Remove")
-    //         .style(button_style)
-    //         .width(Length::fill())
-    //         .height(Length::fill())
-    //         .on_click(move || {
-    //             items.update(|items| {
-    //                 items.pop();
-    //             })
-    //         })
-    //         .el(),
-    // ]);
+    let buttons = Flex::row(vec![
+        Button::new("Add")
+            .style(button_style)
+            .fill()
+            .on_click(move || add_item())
+            .el(),
+        Button::new("Remove")
+            .style(button_style)
+            .fill()
+            .on_click(move || {
+                items.update(|items| {
+                    items.pop();
+                })
+            })
+            .el(),
+    ]);
+
+    for _ in 0..5 {
+        add_item()
+    }
 
     // TODO: Fix Flex::row in Scrollable::vertical
 
-    let slider_value = use_signal(0);
+    // let slider_value = use_signal(0);
     // let slider = Slider::horizontal(slider_value);
 
-    // let select = Select::horizontal(vec![1, 2, 3, 4, 5]);
+    let select_value = use_signal("Meow");
+    let select = Select::horizontal(vec!["Hello, kek, mr kek", "Meow"])
+        .use_value(select_value);
 
     let flexbox = Flex::col(vec![
         // Flex::row(core::array::from_fn::<_, 100, _>(|_| edge()))
@@ -139,19 +147,25 @@ fn main() {
         //     .wrap(true)
         //     .el(),
         // slider.el(),
-        // buttons.fill().el(),
-        // Scrollable::horizontal(
-        //     Flex::row(items).shrink().gap(5).wrap(true).el(),
-        // )
+        buttons.fill().el(),
+        Scrollable::horizontal(
+            // MonoText::new(select_value.mapped(ToString::to_string)).el()
+            // "weoinoweinfoewfoewofn[ewfe0[fheqw0fenvo0fvei0[fenfc0[ewnfi0jew0[fi0[ewnfi0ewn[fownefnewnfoiwenfoewnfoiewnfoewnfoiewnfoiewnfoiwen"
+            Flex::row(vec![
+                Button::new("11111111111111111111").el(),
+                Button::new("22222222222222222222").el(),
+                Button::new("33333333333333333333").el(),
+                Button::new("44444444444444444444").el(),
+            ]).el()
+        ).fill().tracker().el(),
+        Flex::row(items).gap(5).wrap(true).el(),
         // .style(|base, state| {
-        //     let base = base.show(ScrollbarShow::Always);
+        //     let base = base.show(ScrollbarShow::Auto);
 
         //     match state {
         //         ScrollableState { active: true, .. } => base
         //             .container(
-        //                 BoxStyle::base()
-        //
-        // .border(BorderStyle::base().color(Rgb888::MAGENTA)),
+        //                 BoxStyle::base().border(BorderStyle::base().color(Rgb888::MAGENTA)),
         //             )
         //             .thumb_color(Some(Rgb888::CSS_GRAY))
         //             .track_color(Some(Rgb888::CSS_BROWN)),
@@ -159,15 +173,15 @@ fn main() {
         //     }
         // })
         // .el(),
-        // select.el(),
+        select.fill().el(),
+        // Flex::row(items).gap(5).fill().wrap(true).padding(5).el(),
         // Flex::row([edge(), edge()]).fill().el(),
-        Flex::row([text(), text(), text(), text()])
-            .gap(5)
-            .width(Length::fill())
-            .el(),
-        Flex::row([text(), text(), text(), text()]).gap(5).el(),
+        // Flex::row([text(), text(), text(), text()]).horizontal_align(Align::Center).gap(5).fill().el(),
+        // Flex::row([text(), text(), text(), text()]).gap(5).el(),
+        // Flex::row([text_block(),text_block(),text_block(),text_block()]).gap(5).fill().el(),
+        // Flex::row([text_block(),text_block(),text_block(),text_block()]).gap(5).fill().el(),
     ])
-    .wrap(true)
+    // .wrap(true)
     .fill();
 
     let mut ui = UI::new(flexbox, display.bounding_box().size, NullStyler)

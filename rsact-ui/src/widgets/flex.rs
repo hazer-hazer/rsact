@@ -1,30 +1,10 @@
 use crate::widget::{prelude::*, BoxModelWidget, SizedWidget};
 use alloc::vec::Vec;
 use core::marker::PhantomData;
-use num::traits::SaturatingAdd;
+use layout::flex::flex_content_size;
 
 // pub type Row<C> = Flex<C, RowDir>;
 // pub type Col<C> = Flex<C, ColDir>;
-
-pub fn flex_content_size<'a, W: WidgetCtx, E: Widget<W> + 'a>(
-    axis: Axis,
-    children: impl Iterator<Item = &'a E>,
-) -> Limits {
-    children.fold(Limits::unlimited(), |limits, child| {
-        let child_limits =
-            child.layout().with(|child| child.content_size.get());
-
-        Limits::new(
-            limits.min().max(child_limits.min()),
-            axis.infix(
-                limits.max(),
-                child_limits.max(),
-                |lhs: u32, rhs: u32| SaturatingAdd::saturating_add(&lhs, &rhs),
-                core::cmp::max,
-            ),
-        )
-    })
-}
 
 pub trait IntoChildren<W: WidgetCtx> {
     fn into_children(self) -> Signal<Vec<El<W>>>;
@@ -83,11 +63,10 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Flex<W, Dir> {
 
         Self {
             children,
-            layout: Layout {
-                kind: LayoutKind::Flex(FlexLayout::base(Dir::AXIS)),
-                size: Size::shrink(),
+            layout: Layout::shrink(LayoutKind::Flex(FlexLayout::base(
+                Dir::AXIS,
                 content_size,
-            }
+            )))
             .into_signal(),
             dir: PhantomData,
         }
@@ -107,7 +86,6 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Flex<W, Dir> {
         self.layout.setter(gap.maybe_signal(), |&gap, layout| {
             layout.expect_flex_mut().gap = gap.into();
         });
-
         self
     }
 
@@ -146,25 +124,17 @@ impl<W: WidgetCtx + 'static, Dir: Direction> BoxModelWidget<W>
 
 impl<W: WidgetCtx + 'static, Dir: Direction> Widget<W> for Flex<W, Dir> {
     fn children_ids(&self) -> Memo<Vec<ElId>> {
-        let children = self.children;
-        use_memo(move |_| {
-            children.with(|children| {
-                children
-                    .iter()
-                    .map(|child| {
-                        child
-                            .children_ids()
-                            .with(|ids| ids.iter().copied().collect::<Vec<_>>())
-                    })
-                    .flatten()
-                    .collect()
-            })
+        self.children.mapped(|children| {
+            children
+                .iter()
+                .map(|child| child.children_ids().get_cloned())
+                .flatten()
+                .collect()
         })
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
-        self.children
-            .update_untracked(|children| ctx.pass_to_children(children))
+        ctx.pass_to_children(self.children);
     }
 
     fn layout(&self) -> Signal<Layout> {

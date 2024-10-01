@@ -159,16 +159,14 @@ impl<W: WidgetCtx + 'static> Button<W> {
         let content = content.into_signal();
         let state = use_signal(ButtonState::none());
 
-        let layout = Layout::new(
-            LayoutKind::Container(ContainerLayout {
-                box_model: BoxModel::zero().border_width(1).padding(5),
-                horizontal_align: Align::Center,
-                vertical_align: Align::Center,
+        let layout = Layout::shrink(LayoutKind::Container(ContainerLayout {
+            box_model: BoxModel::zero().border_width(1).padding(5),
+            horizontal_align: Align::Center,
+            vertical_align: Align::Center,
+            content_size: content.mapped(|content| {
+                content.layout().with(|layout| layout.content_size())
             }),
-            content.mapped(|content| {
-                content.layout().with(|layout| layout.content_size.get())
-            }),
-        )
+        }))
         .into_signal();
 
         Self {
@@ -258,10 +256,7 @@ where
         // let styler = ctx.styler.get().style(());
         // self.style.then(move |base| styler(*base, state.get()));
 
-        self.content.update_untracked(|content| {
-            ctx.pass_to_children(core::slice::from_mut(content))
-        });
-
+        ctx.pass_to_child(self.content);
         ctx.accept_styles(self.style, self.state);
     }
 

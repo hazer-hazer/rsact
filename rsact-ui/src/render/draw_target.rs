@@ -13,6 +13,7 @@ use embedded_graphics::{
     },
 };
 use embedded_graphics_core::Drawable as _;
+use log::log;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Layer {
@@ -138,7 +139,11 @@ where
             embedded_graphics::mono_font::MonoTextStyle<'a, Self::Color>,
         >,
     ) -> DrawResult {
-        text_box.draw(self).ok().unwrap();
+        let residual = text_box.draw(self).unwrap();
+
+        if !residual.is_empty() {
+            log::warn!("Residual text: {residual}");
+        }
 
         Ok(())
     }

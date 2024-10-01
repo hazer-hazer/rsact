@@ -14,7 +14,7 @@
           "--manifest-path",
           "${workspaceFolder}/Cargo.toml",
           "--features",
-          "simulator"
+          "std,simulator"
         ],
         "filter": {
           "name": "sandbox",

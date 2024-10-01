@@ -9,7 +9,7 @@ pub struct Edge<W: WidgetCtx> {
 impl<W: WidgetCtx + 'static> Edge<W> {
     pub fn new() -> Self {
         Self {
-            layout: Layout::new(LayoutKind::Edge, Limits::zero().into_memo())
+            layout: Layout::shrink(LayoutKind::Edge)
                 .size(Size::fill())
                 .into_signal(),
             style: BoxStyle::base().into_memo_chain(),

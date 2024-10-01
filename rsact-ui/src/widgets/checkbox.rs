@@ -2,23 +2,16 @@ use super::icon::{Icon, IconKind};
 use crate::{
     el::ElId,
     event::{Capture, Propagate},
-    font::FontSize,
-    layout::{
-        size::{Length, Size},
-        Layout, Limits,
-    },
+    layout::{size::Size, ContentLayout, Layout, LayoutKind},
     render::{color::Color, Block, Renderer},
     style::block::BoxStyle,
-    widget::{prelude::BoxModel, Widget, WidgetCtx},
+    widget::{Widget, WidgetCtx},
 };
 use rsact_core::{
-    mapped,
     memo::{IntoMemo, MemoTree},
     memo_chain::IntoMemoChain,
-    prelude::{use_memo, use_memo_chain, use_signal, MemoChain},
-    signal::{
-        IntoSignal, ReadSignal, Signal, SignalMapper, SignalSetter, WriteSignal,
-    },
+    prelude::MemoChain,
+    signal::{IntoSignal, ReadSignal, Signal, SignalMapper, WriteSignal},
 };
 
 #[derive(Clone, Copy)]
@@ -63,12 +56,10 @@ impl<W: WidgetCtx> Checkbox<W> {
         Self {
             id: ElId::unique(),
             state: CheckboxState::none().into_signal(),
-            layout: Layout {
-                kind: crate::layout::LayoutKind::Edge,
-                size: Size::shrink(),
+            layout: Layout::shrink(LayoutKind::Content(ContentLayout {
                 content_size: icon_layout
-                    .mapped(move |layout| layout.content_size.get()),
-            }
+                    .mapped(move |layout| layout.content_size()),
+            }))
             .into_signal(),
             icon,
             value: value.into_signal(),
@@ -100,7 +91,7 @@ impl<W: WidgetCtx> Widget<W> for Checkbox<W> {
             ctx.layout.area,
             self.layout.get().box_model(),
             style.block,
-        ));
+        ))?;
 
         if self.value.get() {
             ctx.draw_child(&self.icon)?;

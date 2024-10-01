@@ -82,7 +82,9 @@ impl SelectEvent for SimulatorEvent {
     }
 }
 
-impl Event for SimulatorEvent {}
+impl Event for SimulatorEvent {
+    type BubbledData = ();
+}
 
 pub fn simulator_single_encoder(event: SE) -> Option<SimulatorEvent> {
     match event {

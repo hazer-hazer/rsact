@@ -1,8 +1,10 @@
 use core::marker::PhantomData;
-use embedded_graphics::primitives::Rectangle;
 use prelude::*;
 
-use crate::style::{Styler, WidgetStyle};
+use crate::{
+    event::BubbledData,
+    style::{Styler, WidgetStyle},
+};
 
 pub type DrawResult = Result<(), ()>;
 
@@ -30,9 +32,9 @@ where
     R: Renderer,
     E: Event,
 {
-    renderer: R,
-    event: E,
-    styler: S,
+    _renderer: R,
+    _event: E,
+    _styler: S,
 }
 
 impl<R, E, S> WidgetCtx for PhantomWidgetCtx<R, E, S>
@@ -66,7 +68,7 @@ pub struct LayoutCtx<'a, W: WidgetCtx> {
 pub struct DrawCtx<'a, W: WidgetCtx> {
     pub state: &'a PageState<W>,
     pub renderer: &'a mut W::Renderer,
-    pub layout: &'a LayoutModelTree<'a>,
+    pub layout: &'a LayoutModelNode<'a>,
     // TODO: For text and maybe something else
     // pub inherited_style
 }
@@ -110,7 +112,7 @@ impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
     >(
         &mut self,
         children: C,
-        map_layout: impl Fn(LayoutModelTree<'a>) -> LayoutModelTree<'a>,
+        map_layout: impl Fn(LayoutModelNode<'a>) -> LayoutModelNode<'a>,
     ) -> DrawResult {
         children.zip(self.layout.children().map(map_layout)).try_for_each(
             |(child, child_layout)| {
@@ -127,7 +129,7 @@ impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
 pub struct EventCtx<'a, W: WidgetCtx> {
     pub event: &'a W::Event,
     pub page_state: &'a mut PageState<W>,
-    pub layout: &'a LayoutModelTree<'a>,
+    pub layout: &'a LayoutModelNode<'a>,
     // TODO: Instant now
 }
 
@@ -135,7 +137,7 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
     #[must_use]
     pub fn pass_to_children(
         &mut self,
-        children: &mut [El<W>],
+        children: &mut [impl Widget<W>],
     ) -> EventResponse<W::Event> {
         for (child, child_layout) in
             children.iter_mut().zip(self.layout.children())
@@ -147,6 +149,13 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
             })?;
         }
         Propagate::Ignored.into()
+    }
+
+    pub fn pass_to_child(
+        &mut self,
+        child: &mut impl Widget<W>,
+    ) -> EventResponse<W::Event> {
+        self.pass_to_children(core::slice::from_mut(child))
     }
 
     pub fn is_focused(&self, id: ElId) -> bool {
@@ -161,7 +170,11 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
     ) -> EventResponse<W::Event> {
         if self.is_focused(id) {
             if let Some(_) = self.event.as_focus_move() {
-                return Capture::Bubbled(id, self.event.clone()).into();
+                return Capture::Bubble(BubbledData::Focused(
+                    id,
+                    self.layout.area.top_left,
+                ))
+                .into();
             }
 
             let focus_click = if self.event.as_focus_press() {
@@ -208,10 +221,29 @@ impl<W: WidgetCtx> MountCtx<W> {
         });
     }
 
-    pub fn pass_to_children(self, children: &mut [El<W>]) {
-        for child in children {
-            child.on_mount(self);
-        }
+    // TODO: Use watch?
+
+    pub fn pass_to_children(
+        self,
+        children: impl RwSignal<Vec<El<W>>> + 'static,
+    ) {
+        use_effect(move |_| {
+            children.track();
+            children.update_untracked(|children| {
+                for child in children {
+                    child.on_mount(self);
+                }
+            });
+        });
+    }
+
+    pub fn pass_to_child(self, child: impl RwSignal<El<W>> + 'static) {
+        use_effect(move |_| {
+            child.track();
+            child.update_untracked(|child| {
+                child.on_mount(self);
+            });
+        });
     }
 }
 
@@ -233,20 +265,51 @@ where
         El::new(self)
     }
 
+    // These functions MUST be called only ones per widget //
     fn on_mount(&mut self, ctx: MountCtx<W>);
-
     fn children_ids(&self) -> Memo<Vec<ElId>> {
         Vec::new().into_memo()
     }
     fn layout(&self) -> Signal<Layout>;
     fn build_layout_tree(&self) -> MemoTree<Layout>;
 
+    // Hot-loop called functions //
+    // TODO: Reactive draw?
     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult;
+    // TODO: Reactive event context? Is it possible?
     fn on_event(
         &mut self,
         ctx: &mut EventCtx<'_, W>,
     ) -> EventResponse<W::Event>;
 }
+
+// impl<W: WidgetCtx, T> Widget<W> for T
+// where
+//     T: ReadSignal<El<W>> + WriteSignal<El<W>>,
+// {
+//     fn on_mount(&mut self, ctx: MountCtx<W>) {
+//         self.update_untracked(|this| this.on_mount(ctx))
+//     }
+
+//     fn layout(&self) -> Signal<Layout> {
+//         self.with(|this| this.layout())
+//     }
+
+//     fn build_layout_tree(&self) -> MemoTree<Layout> {
+//         todo!()
+//     }
+
+//     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
+//         todo!()
+//     }
+
+//     fn on_event(
+//         &mut self,
+//         ctx: &mut EventCtx<'_, W>,
+//     ) -> EventResponse<<W as WidgetCtx>::Event> {
+//         todo!()
+//     }
+// }
 
 /// Not implementing [`SizedWidget`] and [`BoxModelWidget`] does not mean that
 /// Widget has layout without size or box model, it can be intentional to
@@ -321,6 +384,12 @@ pub trait BoxModelWidget<W: WidgetCtx>: Widget<W> {
     }
 }
 
+pub trait IntoWidget<W: WidgetCtx> {
+    type Widget: Widget<W>;
+
+    fn into_widget(self) -> Self::Widget;
+}
+
 pub mod prelude {
     pub use crate::{
         el::{El, ElId},
@@ -335,7 +404,7 @@ pub mod prelude {
             padding::Padding,
             size::{Length, Size},
             Align, ContainerLayout, FlexLayout, Layout, LayoutKind,
-            LayoutModelTree, Limits,
+            LayoutModelNode, Limits,
         },
         render::{color::Color, Block, Border, Renderer},
         style::{block::*, text::*},

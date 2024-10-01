@@ -105,3 +105,25 @@ where
         //     self.widget.on_event(ctx)
     }
 }
+
+// impl<T, W: WidgetCtx> IntoSignal<El<W>> for T
+// where
+//     T: Widget<W>,
+// {
+//     fn into_signal(self) -> Signal<El<W>> {
+//         todo!()
+//     }
+// }
+
+// pub trait IntoElSignal<W: WidgetCtx> {
+//     fn into_el(self) -> Signal<El<W>>;
+// }
+
+// impl<W: WidgetCtx, T> IntoElSignal<W> for T
+// where
+//     T: ReadSignal<El<W>>,
+// {
+//     fn into_el(self) -> Signal<El<W>> {
+
+//     }
+// }

@@ -1,11 +1,15 @@
 use crate::{
     font::{FontSize, FontStyle},
-    widget::{prelude::*, BoxModelWidget, SizedWidget},
+    widget::{prelude::*, SizedWidget},
 };
 use embedded_graphics::mono_font::{
     ascii::FONT_6X10, MonoFont, MonoTextStyleBuilder,
 };
-use embedded_text::TextBox;
+use embedded_text::{
+    style::{TextBoxStyle, TextBoxStyleBuilder},
+    TextBox,
+};
+use layout::ContentLayout;
 use rsact_core::memo_chain::IntoMemoChain;
 
 pub const MIN_MONO_WIDTH: u32 = 4;
@@ -92,13 +96,11 @@ impl<W: WidgetCtx + 'static> MonoText<W> {
         let font = use_signal(FONT_6X10);
         let content = content.into_memo();
 
-        let layout = Layout {
-            kind: crate::layout::LayoutKind::Edge,
-            size: Size::shrink(),
+        let layout = Layout::shrink(LayoutKind::Content(ContentLayout {
             content_size: content.mapped(move |content| {
                 measure_text_content_size(content, &font.get())
             }),
-        }
+        }))
         .into_signal();
 
         Self {
@@ -148,7 +150,7 @@ impl<W: WidgetCtx + 'static> MonoText<W> {
 }
 
 // TODO: Really sized and box?
-impl<W: WidgetCtx + 'static> SizedWidget<W> for MonoText<W> {}
+// impl<W: WidgetCtx + 'static> SizedWidget<W> for MonoText<W> {}
 
 impl<W: WidgetCtx + 'static> Widget<W> for MonoText<W> {
     fn layout(&self) -> Signal<crate::layout::Layout> {
@@ -179,12 +181,19 @@ impl<W: WidgetCtx + 'static> Widget<W> for MonoText<W> {
         self.content.with(|content| {
             let style = style.get();
 
-            ctx.renderer.mono_text(TextBox::new(
+            ctx.renderer.mono_text(TextBox::with_textbox_style(
                 content,
                 ctx.layout.area,
                 MonoTextStyleBuilder::new()
                     .font(&self.font.get())
                     .text_color(style.text_color)
+                    .build(),
+                TextBoxStyleBuilder::new()
+                // TODO: Style clip/only_visible/visible
+                    .height_mode(embedded_text::style::HeightMode::ShrinkToText(embedded_text::style::VerticalOverdraw::Visible))
+                    // .height_mode(embedded_text::style::HeightMode::Exact(
+                    //     embedded_text::style::VerticalOverdraw::Visible,
+                    // ))
                     .build(),
             ))
         })

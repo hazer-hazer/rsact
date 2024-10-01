@@ -1,4 +1,4 @@
-use embedded_graphics::geometry::Point;
+use embedded_graphics::geometry::{AnchorPoint, AnchorX, AnchorY, Point};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(::defmt::Format))]
@@ -127,6 +127,20 @@ pub trait Axial {
         Self: Sized,
     {
         AxialData { axis, data: self }
+    }
+
+    fn with_main(self, axis: Axis, main: Self::Data) -> Self
+    where
+        Self: Sized,
+    {
+        axis.canon(main, self.cross(axis))
+    }
+
+    fn with_cross(self, axis: Axis, cross: Self::Data) -> Self
+    where
+        Self: Sized,
+    {
+        axis.canon(self.main(axis), cross)
     }
 
     // fn main_sum<O>(&self, rhs: impl Axial<O>) -> Self
@@ -264,6 +278,69 @@ impl Direction for RowDir {
 pub struct ColDir;
 impl Direction for ColDir {
     const AXIS: Axis = Axis::Y;
+}
+
+#[derive(Clone, Copy)]
+pub enum Anchor {
+    Start,
+    Center,
+    End,
+}
+
+impl Into<AnchorX> for Anchor {
+    fn into(self) -> AnchorX {
+        match self {
+            Anchor::Start => AnchorX::Left,
+            Anchor::Center => AnchorX::Center,
+            Anchor::End => AnchorX::Right,
+        }
+    }
+}
+
+impl Into<AnchorY> for Anchor {
+    fn into(self) -> AnchorY {
+        match self {
+            Anchor::Start => embedded_graphics::geometry::AnchorY::Top,
+            Anchor::Center => embedded_graphics::geometry::AnchorY::Center,
+            Anchor::End => embedded_graphics::geometry::AnchorY::Bottom,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct AxisAnchorPoint {
+    x: Anchor,
+    y: Anchor,
+}
+
+impl Into<AnchorPoint> for AxisAnchorPoint {
+    fn into(self) -> AnchorPoint {
+        AnchorPoint::from_xy(self.x.into(), self.y.into())
+    }
+}
+
+impl Axial for AxisAnchorPoint {
+    type Data = Anchor;
+
+    fn x(&self) -> Self::Data {
+        self.x
+    }
+
+    fn y(&self) -> Self::Data {
+        self.y
+    }
+
+    fn x_mut(&mut self) -> &mut Self::Data {
+        &mut self.x
+    }
+
+    fn y_mut(&mut self) -> &mut Self::Data {
+        &mut self.y
+    }
+
+    fn new(x: Self::Data, y: Self::Data) -> Self {
+        Self { x, y }
+    }
 }
 
 #[cfg(test)]

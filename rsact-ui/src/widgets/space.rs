@@ -1,3 +1,4 @@
+use crate::layout::LayoutKind;
 use crate::widget::prelude::*;
 use crate::{
     el::El,
@@ -38,11 +39,7 @@ impl<W: WidgetCtx, Dir: Direction> Space<W, Dir> {
         length: impl IntoMemo<L>,
     ) -> Self {
         let length = length.into_memo();
-        let layout = Layout::new(
-            crate::layout::LayoutKind::Edge,
-            Limits::zero().into_memo(),
-        )
-        .into_signal();
+        let layout = Layout::shrink(LayoutKind::Edge).into_signal();
 
         layout.setter(length, move |length, layout| {
             layout.size =

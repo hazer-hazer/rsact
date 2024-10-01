@@ -1,31 +1,22 @@
 use crate::{
     event::Propagate,
     font::FontSize,
-    layout::{
-        size::{Length, Size},
-        Layout, Limits,
-    },
+    layout::{size::Size, Layout, LayoutKind, Limits},
     render::{color::Color, Renderer},
-    widget::{prelude::BoxModel, Widget, WidgetCtx},
+    widget::{Widget, WidgetCtx},
 };
 use embedded_graphics::{
-    image::{Image, ImageDrawable, ImageRaw},
     iterator::raw::RawDataSlice,
-    pixelcolor::{
-        raw::{BigEndian, RawU1},
-        BinaryColor,
-    },
-    prelude::{ContiguousIteratorExt, OriginDimensions, Point, RawData},
+    pixelcolor::raw::{BigEndian, RawU1},
+    prelude::{Point, RawData},
     Pixel,
 };
 use rsact_core::{
     mapped,
-    memo::{IntoMemo, Memo, MemoTree},
+    memo::{IntoMemo, MemoTree},
     memo_chain::IntoMemoChain,
     prelude::{use_memo, use_signal, MemoChain},
-    signal::{
-        IntoSignal, MaybeSignal, ReadSignal, Signal, SignalMapper, SignalSetter,
-    },
+    signal::{IntoSignal, ReadSignal, Signal, SignalMapper, SignalSetter},
 };
 
 pub struct IconRaw<'a> {
@@ -66,14 +57,7 @@ pub struct Icon<W: WidgetCtx> {
 impl<W: WidgetCtx> Icon<W> {
     pub fn new(kind: impl IntoSignal<IconKind> + 'static) -> Self {
         let real_size = use_signal(10);
-        let layout = Layout {
-            kind: crate::layout::LayoutKind::Edge,
-            size: Size::shrink(),
-            content_size: use_memo(move |_| {
-                Limits::only_max(Size::new_equal(real_size.get()))
-            }),
-        }
-        .into_signal();
+        let layout = Layout::shrink(LayoutKind::Edge).into_signal();
 
         Self {
             kind: kind.into_signal(),

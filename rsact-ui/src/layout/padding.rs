@@ -147,7 +147,7 @@ impl Sub<Padding> for Rectangle {
     fn sub(self, rhs: Padding) -> Self::Output {
         Self::new(
             self.top_left + rhs.top_left(),
-            self.size + Into::<Size>::into(rhs).into(),
+            self.size - Into::<Size>::into(rhs).into(),
         )
     }
 }
