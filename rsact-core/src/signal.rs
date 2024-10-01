@@ -90,6 +90,10 @@ pub trait WriteSignal<T> {
     }
 }
 
+pub trait RwSignal<T>: ReadSignal<T> + WriteSignal<T> {}
+
+impl<S, T> RwSignal<T> for S where S: ReadSignal<T> + WriteSignal<T> {}
+
 pub mod marker {
     pub struct ReadOnly;
     pub struct WriteOnly;

@@ -6,7 +6,7 @@ use crate::{
     storage::ValueId,
 };
 use alloc::{rc::Rc, vec::Vec};
-use core::{cell::RefCell, marker::PhantomData};
+use core::{cell::RefCell, fmt::Debug, marker::PhantomData};
 
 pub struct MemoCallback<T, F>
 where
@@ -44,6 +44,12 @@ where
 pub struct Memo<T: PartialEq> {
     id: ValueId,
     ty: PhantomData<T>,
+}
+
+impl<T: PartialEq + Debug + 'static> Debug for Memo<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.with(|value| f.debug_tuple("Memo").field(value).finish())
+    }
 }
 
 impl<T: PartialEq> Clone for Memo<T> {
