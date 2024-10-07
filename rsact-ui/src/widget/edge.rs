@@ -1,5 +1,5 @@
 use crate::widget::{prelude::*, Meta, MetaTree};
-use rsact_core::memo_chain::IntoMemoChain;
+use rsact_reactive::memo_chain::IntoMemoChain;
 
 pub struct Edge<W: WidgetCtx> {
     pub layout: Signal<Layout>,

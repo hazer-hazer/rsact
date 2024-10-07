@@ -1,5 +1,5 @@
 use crate::render::color::Color;
-use rsact_core::prelude::*;
+use rsact_reactive::prelude::*;
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct Palette<C: Color> {

@@ -15,3 +15,14 @@ pub mod widget;
 
 // #[macro_use]
 extern crate log;
+
+pub mod prelude {
+    pub use crate::{
+        ui::UI,
+        widget::{
+            button::*, checkbox::*, container::*, edge::*, flex::*, icon::*,
+            image::*, mono_text::*, prelude::*, scrollable::*, select::*,
+            slider::*, space::*,
+        },
+    };
+}

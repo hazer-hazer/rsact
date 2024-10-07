@@ -1,5 +1,5 @@
 [package]
-name = "rsact-core"
+name = "rsact-reactive"
 version = "0.1.0"
 authors = ["hazer-hazer"]
 repository = "https://github.com/hazer-hazer/rsact"

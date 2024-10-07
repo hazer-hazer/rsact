@@ -14,7 +14,7 @@ use crate::{
 };
 use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use embedded_graphics::prelude::DrawTarget;
-use rsact_core::prelude::*;
+use rsact_reactive::prelude::*;
 
 pub struct UI<W: WidgetCtx> {
     active_page: W::PageId,

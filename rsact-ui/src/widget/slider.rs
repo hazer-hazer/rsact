@@ -11,7 +11,7 @@ use embedded_graphics::{
         RoundedRectangle, Styled,
     },
 };
-use rsact_core::memo_chain::IntoMemoChain;
+use rsact_reactive::memo_chain::IntoMemoChain;
 
 pub trait SliderEvent {
     fn as_slider_move(&self, axis: Axis) -> Option<i32>;

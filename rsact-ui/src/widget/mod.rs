@@ -17,7 +17,7 @@ use crate::{
     style::{Styler, TreeStyle, WidgetStyle},
 };
 use bitflags::bitflags;
-use core::{fmt::Debug, marker::PhantomData};
+use core::marker::PhantomData;
 use prelude::*;
 
 pub type DrawResult = Result<(), ()>;
@@ -484,5 +484,5 @@ pub mod prelude {
         },
     };
     pub use alloc::{boxed::Box, string::String, vec::Vec};
-    pub use rsact_core::prelude::*;
+    pub use rsact_reactive::prelude::*;
 }

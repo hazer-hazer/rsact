@@ -1,7 +1,6 @@
 use crate::widget::prelude::*;
 use alloc::boxed::Box;
 use core::sync::atomic::AtomicUsize;
-use rsact_core::prelude::*;
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
 

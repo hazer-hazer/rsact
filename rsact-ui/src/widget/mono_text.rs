@@ -14,7 +14,7 @@ use embedded_text::{
     TextBox,
 };
 use layout::ContentLayout;
-use rsact_core::memo_chain::IntoMemoChain;
+use rsact_reactive::memo_chain::IntoMemoChain;
 
 pub const MIN_MONO_WIDTH: u32 = 4;
 pub const MAX_MONO_WIDTH: u32 = 10;

@@ -8,7 +8,7 @@ use crate::{
     style::{block::BlockStyle, Styler},
     widget::{Meta, MetaTree, Widget, WidgetCtx},
 };
-use rsact_core::{
+use rsact_reactive::{
     memo::{IntoMemo, MemoTree},
     memo_chain::IntoMemoChain,
     prelude::MemoChain,
@@ -91,7 +91,7 @@ where
         self.layout
     }
 
-    fn build_layout_tree(&self) -> rsact_core::prelude::MemoTree<Layout> {
+    fn build_layout_tree(&self) -> rsact_reactive::prelude::MemoTree<Layout> {
         MemoTree::childless(self.layout.into_memo())
     }
 

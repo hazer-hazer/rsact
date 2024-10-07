@@ -13,7 +13,7 @@ use embedded_graphics::{
     prelude::{Point, RawData},
     Pixel,
 };
-use rsact_core::{
+use rsact_reactive::{
     mapped,
     memo::{IntoMemo, MemoTree},
     memo_chain::IntoMemoChain,
@@ -98,7 +98,7 @@ where
         self.layout
     }
 
-    fn build_layout_tree(&self) -> rsact_core::prelude::MemoTree<Layout> {
+    fn build_layout_tree(&self) -> rsact_reactive::prelude::MemoTree<Layout> {
         MemoTree::childless(self.layout.into_memo())
     }
 

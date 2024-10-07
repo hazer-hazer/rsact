@@ -1,3 +1,5 @@
+pub mod id;
+
 use crate::{
     el::El,
     event::{
@@ -22,9 +24,7 @@ use embedded_graphics::{
     primitives::Rectangle,
 };
 use embedded_text::{style::TextBoxStyleBuilder, TextBox};
-use rsact_core::prelude::*;
-
-pub mod id;
+use rsact_reactive::prelude::*;
 
 pub struct PageStyle<C: Color> {
     // TODO: Use ColorStyle

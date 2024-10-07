@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use rsact_core::{
+use rsact_reactive::{
     effect::use_effect, prelude::*, runtime::with_scoped_runtime,
 };
 

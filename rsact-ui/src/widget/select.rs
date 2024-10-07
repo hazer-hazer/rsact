@@ -12,7 +12,7 @@ use alloc::string::ToString;
 use core::{fmt::Display, marker::PhantomData};
 use embedded_graphics::prelude::{Point, Transform};
 use layout::{axis::Anchor, flex::flex_content_size, size::RectangleExt};
-use rsact_core::memo_chain::IntoMemoChain;
+use rsact_reactive::memo_chain::IntoMemoChain;
 
 pub trait SelectEvent {
     fn as_select(&self, axis: Axis) -> Option<i32>;
@@ -229,7 +229,7 @@ where
         self.layout
     }
 
-    fn build_layout_tree(&self) -> rsact_core::prelude::MemoTree<Layout> {
+    fn build_layout_tree(&self) -> rsact_reactive::prelude::MemoTree<Layout> {
         MemoTree {
             data: self.layout.into_memo(),
             children: self.options.mapped(|options| {
@@ -299,10 +299,7 @@ where
         })
     }
 
-    fn on_event(
-        &mut self,
-        ctx: &mut EventCtx<'_, W>,
-    ) -> EventResponse<W> {
+    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse<W> {
         let current_state = self.state.get();
 
         if current_state.active && ctx.is_focused(self.id) {

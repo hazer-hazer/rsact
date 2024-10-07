@@ -5,7 +5,7 @@ use embedded_graphics::{
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
-use rsact_core::prelude::*;
+use rsact_reactive::prelude::*;
 use rsact_ui::{
     event::{message::Message, simulator::simulator_single_encoder},
     layout::size::Size,

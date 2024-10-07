@@ -8,7 +8,7 @@ use embedded_graphics::{
     image::ImageRaw, iterator::raw::RawDataSlice, pixelcolor::raw::ByteOrder,
     prelude::*,
 };
-use rsact_core::{
+use rsact_reactive::{
     memo::{IntoMemo, MemoTree},
     signal::{IntoSignal, Signal},
 };

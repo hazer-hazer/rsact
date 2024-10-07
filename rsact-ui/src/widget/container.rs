@@ -1,7 +1,7 @@
 use crate::widget::{
     prelude::*, BlockModelWidget, Meta, MetaTree, SizedWidget,
 };
-use rsact_core::memo_chain::IntoMemoChain;
+use rsact_reactive::memo_chain::IntoMemoChain;
 
 pub struct Container<W: WidgetCtx> {
     pub layout: Signal<Layout>,

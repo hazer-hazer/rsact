@@ -15,7 +15,7 @@ use crate::{
 use alloc::vec::Vec;
 use embedded_graphics::prelude::Point;
 use num::traits::SaturatingAdd;
-use rsact_core::prelude::*;
+use rsact_reactive::prelude::*;
 
 // TODO: May not work with wrap
 pub fn flex_content_size<'a, W: WidgetCtx, E: Widget<W> + 'a>(

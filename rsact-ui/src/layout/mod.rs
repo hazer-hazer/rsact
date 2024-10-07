@@ -10,7 +10,7 @@ use embedded_graphics::{
 };
 use flex::model_flex;
 use padding::Padding;
-use rsact_core::prelude::*;
+use rsact_reactive::prelude::*;
 use size::{Length, Size};
 
 pub mod axis;
@@ -651,8 +651,6 @@ pub fn model_layout(
 
 #[cfg(test)]
 mod tests {
-    
-    
 
     // #[test]
     // fn flex_row() {
