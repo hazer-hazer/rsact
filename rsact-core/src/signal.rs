@@ -229,12 +229,12 @@ impl<T: 'static, M: marker::CanWrite> WriteSignal<T> for Signal<T, M> {
 
         if let Err(err) = result {
             match err {
-                crate::storage::NotifyError::Cycle(_) => {},
-                // crate::storage::NotifyError::Cycle(debug_info) => panic!(
-                //     "Reactivity cycle at {}\nValue {}",
-                //     core::panic::Location::caller(),
-                //     debug_info
-                // ),
+                // crate::storage::NotifyError::Cycle(_) => {},
+                crate::storage::NotifyError::Cycle(debug_info) => panic!(
+                    "Reactivity cycle at {}\nValue {}",
+                    core::panic::Location::caller(),
+                    debug_info
+                ),
             }
         }
     }
@@ -282,47 +282,6 @@ impl<T> Deref for StaticSignal<T> {
         &self.value
     }
 }
-
-// SmartSignal won't work, requires mutable captures in closures :(
-
-// pub enum SmartSignal<T> {
-//     Static(StaticSignal<T>),
-//     Dynamic(Signal<T>),
-// }
-
-// impl<T> WriteSignal<T> for SmartSignal<T> {
-//     fn notify(&self) {
-//         if matches!(self, SmartSignal::Static(_)) {
-//             *se
-//         }
-//     }
-
-//     fn update_untracked<U>(&self, f: impl FnOnce(&mut T) -> U) -> U {
-//         todo!()
-//     }
-// }
-
-// impl<T: 'static> ReadSignal<T> for SmartSignal<T> {
-//     fn track(&self) {
-//         match self {
-//             SmartSignal::Static(stat) => stat.track(),
-//             SmartSignal::Dynamic(dynamic) => dynamic.track(),
-//         }
-//     }
-
-//     fn with_untracked<U>(&self, f: impl FnOnce(&T) -> U) -> U {
-//         match self {
-//             SmartSignal::Static(stat) => stat.with_untracked(f),
-//             SmartSignal::Dynamic(dynamic) => dynamic.with_untracked(f),
-//         }
-//     }
-// }
-
-// impl<T> SmartSignal<T> {
-//     pub fn new(value: T) -> Self {
-//         Self::Static(StaticSignal::new(value))
-//     }
-// }
 
 // Impl's //
 macro_rules! impl_arith_with_assign {
@@ -521,10 +480,17 @@ impl<T: 'static> SignalTree<T> {
     }
 }
 
+/**
+ * Most tests are lost from Reactively framework :)
+ *
+ * Important notes:
+ * - To count effect/memo calls, use `update_untracked` and `get_untracked`
+ *   on counters, as they should not affect reactive context dependencies.
+ */
 #[cfg(test)]
 mod tests {
     use super::{ReadSignal, WriteSignal};
-    use crate::{effect::use_effect, prelude::use_signal, signal::Signal};
+    use crate::prelude::{use_memo, use_signal};
 
     // #[test]
     // fn codependency() {
@@ -549,4 +515,409 @@ mod tests {
     //     assert_eq!(signal2.get(), 4);
     //     assert_eq!(signal1.get(), signal2.get());
     // }
+
+    #[test]
+    fn one_level_memo() {
+        let a = use_signal(5);
+        let b_calls = use_signal(0);
+        let b = use_memo(move |_| {
+            b_calls.update_untracked(|calls| *calls += 1);
+
+            a.get() * 10
+        });
+
+        assert_eq!(b_calls.get(), 0);
+
+        assert_eq!(b.get(), 50);
+        b.get();
+        assert_eq!(b_calls.get(), 1);
+
+        a.set(10);
+        assert_eq!(b.get(), 100);
+        assert_eq!(b_calls.get(), 2);
+    }
+
+    /*
+       a  b
+       | /
+       c
+    */
+    #[test]
+    fn two_signals() {
+        let a = use_signal(7);
+        let b = use_signal(1);
+        let memo_calls = use_signal(0);
+
+        let c = use_memo(move |_| {
+            memo_calls.update_untracked(|calls| *calls += 1);
+            a.get() * b.get()
+        });
+
+        assert_eq!(c.get(), 7);
+
+        // After first access to a memo, it is called
+        assert_eq!(memo_calls.get(), 1);
+
+        a.set(2);
+        assert_eq!(c.get(), 2);
+
+        assert_eq!(memo_calls.get(), 2);
+
+        b.set(3);
+        assert_eq!(c.get(), 6);
+
+        assert_eq!(memo_calls.get(), 3);
+        c.get();
+        c.get();
+        assert_eq!(memo_calls.get(), 3);
+    }
+
+    /*
+       a  b
+       | /
+       c
+       |
+       d
+    */
+    #[test]
+    fn dependent_memos() {
+        let a = use_signal(7);
+        let b = use_signal(1);
+
+        let c_memo_calls = use_signal(0);
+        let c = use_memo(move |_| {
+            c_memo_calls.update_untracked(|calls| *calls += 1);
+
+            a.get() * b.get()
+        });
+
+        let d_memo_calls = use_signal(0);
+        let d = use_memo(move |_| {
+            d_memo_calls.update_untracked(|calls| *calls += 1);
+            c.get() + 1
+        });
+
+        assert_eq!(c_memo_calls.get(), 0);
+        assert_eq!(d_memo_calls.get(), 0);
+
+        assert_eq!(d.get(), 8);
+        assert_eq!(c_memo_calls.get(), 1);
+        assert_eq!(d_memo_calls.get(), 1);
+
+        a.set(3);
+        assert_eq!(d.get(), 4);
+        assert_eq!(c_memo_calls.get(), 2);
+        assert_eq!(d_memo_calls.get(), 2);
+    }
+
+    /*
+       a
+       |
+       c
+    */
+    #[test]
+    fn equality_check() {
+        let memo_calls = use_signal(0);
+        let a = use_signal(7);
+        let c = use_memo(move |_| {
+            memo_calls.update_untracked(|calls| *calls += 1);
+
+            a.get() + 10
+        });
+        c.get();
+        c.get();
+
+        assert_eq!(memo_calls.get(), 1);
+        a.set(123);
+        assert_eq!(memo_calls.get(), 1);
+    }
+
+    /*
+       a     b
+       |     |
+       cA   cB
+       |   / (dynamically depends on cB)
+       cAB
+    */
+    #[test]
+    fn dynamic_memo_dep() {
+        let a = use_signal(Some(1));
+        let b = use_signal(Some(2));
+
+        let m_a_calls = use_signal(0);
+        let m_b_calls = use_signal(0);
+        let m_ab_calls = use_signal(0);
+
+        let m_a = use_memo(move |_| {
+            m_a_calls.update_untracked(|calls| *calls += 1);
+
+            a.get()
+        });
+
+        let m_b = use_memo(move |_| {
+            m_b_calls.update_untracked(|calls| *calls += 1);
+            b.get()
+        });
+
+        let m_ab = use_memo(move |_| {
+            m_ab_calls.update_untracked(|calls| *calls += 1);
+            m_a.get().or_else(|| m_b.get())
+        });
+
+        assert_eq!(m_ab.get(), Some(1));
+
+        a.set(Some(2));
+        b.set(Some(3));
+        assert_eq!(m_ab.get(), Some(2));
+        assert_eq!(m_a_calls.get(), 2);
+        assert_eq!(m_b_calls.get(), 0);
+        assert_eq!(m_ab_calls.get(), 2);
+
+        a.set(None);
+        assert_eq!(m_ab.get(), Some(3));
+        assert_eq!(m_a_calls.get(), 3);
+        assert_eq!(m_b_calls.get(), 1);
+        assert_eq!(m_ab_calls.get(), 3);
+
+        b.set(Some(4));
+        assert_eq!(m_ab.get(), Some(4));
+        assert_eq!(m_a_calls.get(), 3);
+        assert_eq!(m_b_calls.get(), 2);
+        assert_eq!(m_ab_calls.get(), 4);
+    }
+
+    /*
+         a
+         |
+         b (=)
+         |
+         c
+    */
+    #[test]
+    fn bool_equality_check() {
+        let a = use_signal(0);
+        let b = use_memo(move |_| a.get() > 0);
+
+        let c_calls = use_signal(0);
+        let c = use_memo(move |_| {
+            c_calls.update_untracked(|calls| *calls += 1);
+            if b.get() {
+                1
+            } else {
+                0
+            }
+        });
+
+        assert_eq!(c.get(), 0);
+        assert_eq!(c_calls.get(), 1);
+
+        a.set(1);
+        assert_eq!(c.get(), 1);
+        assert_eq!(c_calls.get(), 2);
+
+        a.set(2);
+        assert_eq!(c.get(), 1);
+        assert_eq!(c_calls.get(), 2);
+    }
+
+    #[test]
+    fn simple_diamond() {
+        let a = use_signal(10);
+        let b = use_memo(move |_| a.get() * 10);
+        let c = use_memo(move |_| a.get() * 20);
+        let d = use_memo(move |_| b.get() + c.get());
+
+        assert_eq!(d.get(), 300);
+    }
+
+    /*
+       s
+       |
+       a
+       | \
+       b  c
+        \ |
+          d
+    */
+    #[test]
+    fn diamond() {
+        let s = use_signal(1);
+        let a = use_memo(move |_| s.get());
+        let b = use_memo(move |_| a.get() * 2);
+        let c = use_memo(move |_| a.get() * 3);
+
+        let calls = use_signal(0);
+        let d = use_memo(move |_| {
+            calls.update_untracked(|calls| *calls += 1);
+            b.get() + c.get()
+        });
+
+        assert_eq!(d.get(), 5);
+        assert_eq!(calls.get(), 1);
+
+        s.set(2);
+        assert_eq!(d.get(), 10);
+        assert_eq!(calls.get(), 2);
+
+        s.set(3);
+        assert_eq!(d.get(), 15);
+        assert_eq!(calls.get(), 3);
+    }
+
+    /*
+       s
+       |
+       l  a (sets s)
+    */
+    #[test]
+    fn set_inside_memo() {
+        let s = use_signal(1);
+        let a = use_memo(move |_| s.set(2));
+        let l = use_memo(move |_| s.get() + 100);
+
+        a.get();
+        assert_eq!(l.get(), 102);
+    }
+
+    // Dynamic memos //
+    /*
+        a  b          a
+        | /     or    |
+        c             c
+    */
+    #[test]
+    fn dynamic() {
+        let a = use_signal(true);
+        let b = use_signal(2);
+        let calls = use_signal(0);
+
+        let c = use_memo(move |_| {
+            calls.update_untracked(|calls| *calls += 1);
+            a.get().then(|| b.get())
+        });
+
+        assert_eq!(calls.get(), 0);
+
+        c.get();
+        assert_eq!(calls.get(), 1);
+
+        a.set(false);
+        c.get();
+        assert_eq!(calls.get(), 2);
+
+        // Even changing `b` which is used inside `c`, the `c` isn't called,
+        // because `b` is cleared from dependency tree and isn't used as `a` is
+        // `false`
+        b.set(4);
+        c.get();
+        assert_eq!(calls.get(), 2);
+    }
+
+    /*
+     dependency is dynamic: sometimes l depends on b, sometimes not.
+     s          s
+     / \        / \
+     a   b  or  a   b
+     \ /        \
+     l          l
+    */
+    #[test]
+    fn no_unnecessary_recompute() {
+        let s = use_signal(2);
+        let a = use_memo(move |_| s.get() + 1);
+        let b_calls = use_signal(0);
+        let b = use_memo(move |_| {
+            b_calls.update_untracked(|calls| *calls += 1);
+            s.get() + 10
+        });
+        let l = use_memo(move |_| {
+            let mut result = a.get();
+            if result % 2 == 1 {
+                result += b.get();
+            }
+            result
+        });
+
+        assert_eq!(l.get(), 15);
+        assert_eq!(b_calls.get(), 1);
+
+        s.set(3);
+        assert_eq!(l.get(), 4);
+        assert_eq!(b_calls.get(), 1);
+    }
+
+    /*
+       s
+       |
+       l
+    */
+    #[test]
+    fn vanishing_dependency() {
+        let s = use_signal(1);
+        let done = use_signal(false);
+        let calls = use_signal(0);
+
+        let c = use_memo(move |_| {
+            calls.update_untracked(|calls| *calls += 1);
+
+            if done.get() {
+                0
+            } else {
+                let value = s.get();
+                if value > 2 {
+                    done.set(true);
+                }
+                value
+            }
+        });
+
+        assert_eq!(c.get(), 1);
+        assert_eq!(calls.get(), 1);
+
+        s.set(3);
+        assert_eq!(c.get(), 3);
+        assert_eq!(calls.get(), 2);
+
+        s.set(1); // we've now locked into 'done' state
+        assert_eq!(c.get(), 0);
+        assert_eq!(calls.get(), 3);
+
+        // we're still locked into 'done' state, and count no longer advances
+        // in fact, c() will never execute again...
+        s.set(0);
+        assert_eq!(c.get(), 0);
+        assert_eq!(calls.get(), 3);
+    }
+
+    #[test]
+    fn dynamic_graph_does_not_crash() {
+        let z = use_signal(3);
+        let x = use_signal(0);
+
+        let y = use_signal(0);
+        let i = use_memo(move |_| {
+            let a = y.get();
+            z.get();
+            if a == 0 {
+                x.get()
+            } else {
+                a
+            }
+        });
+        let j = use_memo(move |_| {
+            let a = i.get();
+            z.get();
+            if a == 0 {
+                x.get()
+            } else {
+                a
+            }
+        });
+
+        j.get();
+        x.set(1);
+        j.get();
+        y.set(1);
+        j.get();
+    }
 }

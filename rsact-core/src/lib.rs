@@ -9,12 +9,10 @@ pub mod effect;
 pub mod macros;
 pub mod memo;
 pub mod memo_chain;
-pub mod operator;
 pub mod runtime;
 pub mod signal;
 mod storage;
 pub mod trigger;
-pub mod vec;
 
 pub mod prelude {
     pub use super::{

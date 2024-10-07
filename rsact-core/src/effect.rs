@@ -127,3 +127,56 @@ where
 
     effect
 }
+
+#[cfg(test)]
+mod tests {
+    use super::use_effect;
+    use crate::{
+        prelude::{use_memo, use_signal},
+        signal::{ReadSignal, WriteSignal},
+    };
+
+    #[test]
+    fn effects_work() {
+        let calls = use_signal(0);
+        let a = use_signal(0);
+
+        use_effect(move |_| {
+            calls.update_untracked(|calls| *calls += 1);
+            a.get();
+        });
+
+        assert_eq!(calls.get(), 1);
+
+        a.set(1);
+        assert_eq!(calls.get(), 2);
+
+        a.set(2);
+        assert_eq!(calls.get(), 3);
+    }
+
+    #[test]
+    fn no_unnecessary_rerun() {
+        let calls = use_signal(0);
+        let a = use_signal(0);
+        let a_is_even = use_memo(move |_| a.get() % 2 == 0);
+
+        // Run effect only for even `a` values
+        use_effect(move |_| {
+            calls.update_untracked(|calls| *calls += 1);
+            a_is_even.get();
+        });
+
+        assert_eq!(a_is_even.get(), true);
+        assert_eq!(calls.get(), 1);
+
+        a.set(3);
+        assert_eq!(a_is_even.get(), false);
+        assert_eq!(calls.get(), 2);
+
+        // `a` is still odd, so effect doesn't rerun
+        a.set(5);
+        assert_eq!(a_is_even.get(), false);
+        assert_eq!(calls.get(), 2);
+    }
+}

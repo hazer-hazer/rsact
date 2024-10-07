@@ -1,4 +1,3 @@
-use crate::effect::EffectOrder;
 use alloc::rc::Rc;
 use core::{any::Any, cell::RefCell};
 

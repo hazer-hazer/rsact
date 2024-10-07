@@ -1,28 +1,18 @@
-use alloc::{
-    boxed::Box,
-    collections::{
-        binary_heap::BinaryHeap, btree_map::BTreeMap, btree_set::BTreeSet,
-    },
-    format,
-    rc::Rc,
-    vec::Vec,
+use crate::{
+    callback::AnyCallback,
+    effect::{EffectCallback, EffectOrder},
+    memo::MemoCallback,
+    runtime::Runtime,
 };
+use alloc::{collections::btree_map::BTreeMap, format, rc::Rc, vec::Vec};
 use core::{
     any::{type_name, Any},
-    cell::{Ref, RefCell},
+    cell::RefCell,
     fmt::{Debug, Display},
     marker::PhantomData,
     panic::Location,
 };
 use slotmap::SlotMap;
-
-use crate::{
-    callback::AnyCallback,
-    effect::{EffectCallback, EffectOrder},
-    memo::MemoCallback,
-    operator::{AnyOperator, Operation, OperatorState},
-    runtime::{Observer, Runtime},
-};
 
 // TODO: Add typed ValueId's
 slotmap::new_key_type! {
@@ -37,8 +27,8 @@ pub type NotifyResult = Result<(), NotifyError>;
 
 impl ValueId {
     fn debug_info(&self, rt: &Runtime) -> ValueDebugInfo {
-        match rt.storage.get(*self).kind {
-            ValueKind::Signal(debug_info) => debug_info,
+        match rt.storage.get(*self).map(|value| value.kind) {
+            Some(ValueKind::Signal(debug_info)) => debug_info,
             _ => ValueDebugInfo::none(),
         }
     }
@@ -89,13 +79,13 @@ impl ValueId {
         rt: &Runtime,
         caller: &'static Location<'static>,
     ) -> NotifyResult {
-        if rt.is_dirty(*self) {
-            return Err(NotifyError::Cycle(self.debug_info(rt)));
-        }
+        // if rt.is_dirty(*self) {
+        //     return Err(NotifyError::Cycle(self.debug_info(rt)));
+        // }
 
-        rt.mark_dirty(*self, Some(caller));
+        rt.mark_dir(*self, Some(caller));
         rt.run_effects();
-        rt.mark_clean(*self);
+        // rt.mark_clean(*self);
 
         Ok(())
     }
@@ -160,12 +150,6 @@ pub enum ValueKind {
         // EffectOrder
         fs: Rc<RefCell<BTreeMap<EffectOrder, Vec<Rc<dyn AnyCallback>>>>>,
     },
-    // Computed { f: Rc<dyn AnyCallback> },
-    Operator {
-        // TODO: Really clone? Store separately
-        scheduled: BTreeMap<Observer, Vec<Rc<dyn Any>>>,
-        operator: Rc<dyn AnyOperator>,
-    },
 }
 
 impl Display for ValueKind {
@@ -178,15 +162,16 @@ impl Display for ValueKind {
                 ValueKind::Signal(_) => "signal",
                 ValueKind::Memo { .. } => "memo",
                 ValueKind::MemoChain { .. } => "memo chain",
-                ValueKind::Operator { .. } => "operator",
             }
         )
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+// Note: Order matters
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ValueState {
     Clean,
+    Check,
     Dirty,
 }
 
@@ -275,36 +260,9 @@ impl Storage {
         })
     }
 
-    pub fn create_operator<T, F, O>(&self, f: F) -> ValueId
-    where
-        T: Default + 'static,
-        F: for<'a, 'b> Fn(&'a O, &'b mut T) + 'static,
-        O: Operation + 'static,
-    {
-        self.values.borrow_mut().insert(StoredValue {
-            value: Rc::new(RefCell::new(<T as Default>::default())),
-            kind: ValueKind::Operator {
-                scheduled: Default::default(),
-                operator: Rc::new(OperatorState {
-                    ty: PhantomData,
-                    op: PhantomData,
-                    f,
-                }),
-            },
-            state: ValueState::Clean,
-        })
-    }
-
-    // pub fn create_computed<T: 'static, F>(&self, f: impl Fn() -> T + 'static)
-    // -> ValueId {     self.values.borrow_mut().insert(StoredValue {
-    //         value: Rc::new(RefCell::new(None::<T>)),
-    //         kind: ValueKind::Computed { f:  },
-    //         state: ValueState::Clean,
-    //     })
-    // }
-
-    pub(crate) fn get(&self, id: ValueId) -> StoredValue {
-        self.values.borrow().get(id).unwrap().clone()
+    pub(crate) fn get(&self, id: ValueId) -> Option<StoredValue> {
+        // self.values.borrow().get(id).unwrap().clone()
+        self.values.borrow().get(id).cloned()
     }
 
     pub(crate) fn mark(
@@ -328,43 +286,4 @@ impl Storage {
             _ => {},
         }
     }
-
-    // pub fn get(&self, id: ValueId) -> &StoredValue {
-    //     self.values.get(&id).unwrap()
-    // }
-
-    // #[track_caller]
-    // fn store<T: Sync + Send + 'static>(&mut self, value: T) -> ValueLocation
-    // {     let location = ValueLocation::new();
-
-    //     assert!(self
-    //         .values
-    //         .borrow_mut()
-    //         .insert(location, Box::new(value))
-    //         .is_none());
-
-    //     location
-    // }
-
-    // fn read<'a, T: 'static>(&'a self, location: ValueLocation) -> &dyn Fn()
-    // -> &'a T {     &move || {
-    //         self.values[&location]
-    //             .borrow()
-    //             .inner
-    //             .downcast_ref()
-    //             .unwrap()
-    //     }
-    // }
-
-    // fn read<T: 'static>(&self, location: ValueLocation) -> &T {
-    //     self.values
-    //         .get(&location)
-    //         .unwrap()
-    //         .borrow()
-    //         .inner
-    //         .downcast_ref()
-    //         .unwrap()
-
-    //     // Ref::filter_map(r, |value| value.inner.downcast_ref()).unwrap()
-    // }
 }

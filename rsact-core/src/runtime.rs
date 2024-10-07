@@ -1,8 +1,6 @@
 use crate::{
-    callback::AnyCallback,
     effect::EffectOrder,
     memo_chain::MemoChainCallback,
-    operator::Operation,
     storage::{Storage, ValueId, ValueKind, ValueState},
 };
 use alloc::{
@@ -11,9 +9,7 @@ use alloc::{
     vec::Vec,
 };
 use core::{
-    any::Any,
     cell::{Cell, RefCell},
-    default,
     panic::Location,
 };
 use slotmap::SlotMap;
@@ -83,15 +79,15 @@ static RUNTIMES: once_cell::unsync::Lazy<RefCell<SlotMap<RuntimeId, Runtime>>> =
 //     Effect(ValueId),
 // }
 
-#[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Observer {
-    /// TODO: Remove? Useless unreachable
-    None,
-    #[default]
-    Root,
-    // FIXME: Wrong name, can be Memo, not only Effect
-    Effect(ValueId),
-}
+// #[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+// pub enum Observer {
+//     /// TODO: Remove? Useless unreachable
+//     None,
+//     #[default]
+//     Root,
+//     // FIXME: Wrong name, can be Memo, not only Effect
+//     Effect(ValueId),
+// }
 
 // struct PendingEffects {
 //     ordered: BTreeMap<EffectOrder, Btre>,
@@ -100,8 +96,10 @@ pub enum Observer {
 #[derive(Default)]
 pub struct Runtime {
     pub(crate) storage: Storage,
-    pub(crate) observer: Cell<Observer>,
-    pub(crate) subscribers: RefCell<BTreeMap<ValueId, BTreeSet<Observer>>>,
+    pub(crate) observer: Cell<Option<ValueId>>,
+    // TODO: Use SlotMap
+    pub(crate) subscribers: RefCell<BTreeMap<ValueId, BTreeSet<ValueId>>>,
+    pub(crate) sources: RefCell<BTreeMap<ValueId, BTreeSet<ValueId>>>,
     pub(crate) pending_effects: RefCell<BTreeSet<ValueId>>,
 }
 
@@ -110,6 +108,8 @@ impl Runtime {
         Self {
             storage: Default::default(),
             subscribers: Default::default(),
+            sources: Default::default(),
+            // observer: Default::default(),
             observer: Default::default(),
             pending_effects: Default::default(),
         }
@@ -118,12 +118,12 @@ impl Runtime {
     #[track_caller]
     pub(crate) fn with_observer<T>(
         &self,
-        observer: Observer,
+        observer: ValueId,
         f: impl FnOnce(&Self) -> T,
     ) -> T {
         let prev_observer = self.observer.get();
 
-        self.observer.set(observer);
+        self.observer.set(Some(observer));
 
         let result = f(self);
 
@@ -133,25 +133,54 @@ impl Runtime {
     }
 
     pub(crate) fn subscribe(&self, id: ValueId) {
-        match self.observer.get() {
-            Observer::None => panic!(
-                "[BUG] Attempt to subscribe to reactive value updates out of reactive context.",
-            ),
-            Observer::Root => {
-                self.subscribers.borrow_mut().entry(id).or_default().insert(Observer::Root);
-            },
-            Observer::Effect(observer) => {
-                self.subscribers
-                    .borrow_mut()
-                    .entry(id)
-                    .or_default()
-                    .insert(Observer::Effect(observer));
-            },
+        if let Some(observer) = self.observer.get() {
+            self.sources.borrow_mut().entry(observer).or_default().insert(id);
+
+            self.subscribers
+                .borrow_mut()
+                .entry(id)
+                .or_default()
+                .insert(observer);
         }
+        // match self.observer.get() {
+        //     Observer::None => panic!(
+        //         "[BUG] Attempt to subscribe to reactive value updates out of
+        // reactive context.",     ),
+        //     Observer::Root => {
+        //         // TODO: Add source?
+        //         self.subscribers.borrow_mut().entry(id).or_default().
+        // insert(Observer::Root);     },
+        //     Observer::Effect(observer) => {
+        //         self.sources
+        //             .borrow_mut()
+        //             .entry(observer)
+        //             .or_default()
+        //             .insert(id);
+
+        //         self.subscribers
+        //             .borrow_mut()
+        //             .entry(id)
+        //             .or_default()
+        //             .insert(Observer::Effect(observer));
+        //     },
+        // }
     }
 
     pub(crate) fn maybe_update(&self, id: ValueId) {
-        if self.storage.get(id).state == ValueState::Dirty {
+        if self.is(id, ValueState::Check) {
+            let subs = {
+                let subs = self.sources.borrow();
+                subs.get(&id).cloned().into_iter().flatten()
+            };
+            for source in subs {
+                self.maybe_update(source);
+                if self.is(id, ValueState::Dirty) {
+                    break;
+                }
+            }
+        }
+
+        if self.is(id, ValueState::Dirty) {
             self.update(id);
         }
 
@@ -161,46 +190,45 @@ impl Runtime {
     pub(crate) fn update(&self, id: ValueId) {
         let value = self.storage.get(id);
 
-        let changed = match value.kind {
-            ValueKind::MemoChain { initial, fs } => {
-                let value = value.value;
+        if let Some(value) = value {
+            let changed = match value.kind {
+                ValueKind::MemoChain { initial, fs } => {
+                    let value = value.value;
 
-                self.with_observer(Observer::Effect(id), move |_rt| {
-                    fs.borrow().values().fold(
-                        initial.run(value.clone()),
-                        |changed, cbs| {
-                            cbs.iter().fold(changed, |changed, cb| {
-                                cb.run(value.clone()) || changed
-                            })
-                        },
-                    )
-                })
-            },
-            ValueKind::Memo { f } | ValueKind::Effect { f } => {
-                let value = value.value;
-                self.with_observer(Observer::Effect(id), move |_rt| {
-                    f.run(value)
-                })
-            },
-            ValueKind::Signal { .. } => true,
-            ValueKind::Operator { .. } => todo!(),
-            // ValueKind::Operator { mut scheduled, operator } => {
-            //     let value = value.value;
-            //     scheduled.entry(self.observer).or_default().push(value)
-            //     if let Some(scheduled) =
-            // scheduled.remove(&self.observer.get())     {
-            //         scheduled.into_iter().for_each(|op| {
-            //             operator.operate(op, value.clone());
-            //         });
-            //     }
-            // },
-        };
+                    self.with_observer(id, move |rt| {
+                        rt.cleanup(id);
 
-        if changed {
-            self.mark_deep_dirty(id, None);
+                        fs.borrow().values().fold(
+                            initial.run(value.clone()),
+                            |changed, cbs| {
+                                cbs.iter().fold(changed, |changed, cb| {
+                                    cb.run(value.clone()) || changed
+                                })
+                            },
+                        )
+                    })
+                },
+                ValueKind::Memo { f } | ValueKind::Effect { f } => {
+                    let value = value.value;
+                    self.with_observer(id, move |rt| {
+                        rt.cleanup(id);
+
+                        f.run(value)
+                    })
+                },
+                ValueKind::Signal { .. } => true,
+            };
+
+            if changed {
+                if let Some(subs) = self.subscribers.borrow().get(&id) {
+                    for sub in subs {
+                        self.storage.mark(*sub, ValueState::Dirty, None);
+                    }
+                }
+            }
+
+            self.mark_clean(id);
         }
-
-        self.mark_clean(id);
     }
 
     #[track_caller]
@@ -210,58 +238,93 @@ impl Runtime {
     }
 
     #[track_caller]
-    pub(crate) fn mark_dirty(
+    pub(crate) fn mark_dir(
         &self,
         id: ValueId,
         caller: Option<&'static Location<'static>>,
     ) {
-        self.mark_deep_dirty(id, caller);
+        // self.mark_deep_dirty(id, caller);
+
+        self.mark_node(id, ValueState::Dirty, caller);
+
+        let mut deps = Vec::new();
+        Self::get_deep_deps(&self.subscribers.borrow(), &mut deps, id);
+        for dep in deps {
+            self.mark_node(dep, ValueState::Check, caller);
+        }
+    }
+
+    // #[track_caller]
+    // pub(crate) fn is_dirty(&self, id: ValueId) -> bool {
+    //     self.storage.get(id).state == ValueState::Dirty
+    // }
+
+    pub(crate) fn state(&self, id: ValueId) -> ValueState {
+        self.storage
+            .get(id)
+            .map(|value| value.state)
+            .unwrap_or(ValueState::Clean)
+    }
+
+    pub(crate) fn is(&self, id: ValueId, state: ValueState) -> bool {
+        self.state(id) == state
+    }
+
+    fn get_deep_deps(
+        subscribers: &BTreeMap<ValueId, BTreeSet<ValueId>>,
+        deps: &mut Vec<ValueId>,
+        id: ValueId,
+    ) {
+        /*
+
+        if let Some(children) = subscribers.get(node) {
+            for child in children.borrow().iter() {
+                descendants.insert(*child);
+                Runtime::gather_descendants(subscribers, *child, descendants);
+            }
+        }
+         */
+
+        if let Some(subs) = subscribers.get(&id) {
+            for sub in subs {
+                deps.push(*sub);
+                Self::get_deep_deps(subscribers, deps, *sub);
+            }
+        }
     }
 
     #[track_caller]
-    pub(crate) fn is_dirty(&self, id: ValueId) -> bool {
-        self.storage.get(id).state == ValueState::Dirty
-    }
-
-    #[track_caller]
-    fn mark_deep_dirty(
+    fn mark_node(
         &self,
         id: ValueId,
+        state: ValueState,
         caller: Option<&'static Location<'static>>,
     ) {
-        self.storage.mark(id, ValueState::Dirty, caller);
-
-        if let (ValueKind::Effect { .. }, true) = (
-            self.storage.get(id).kind,
-            self.observer.get() != Observer::Effect(id),
-        ) {
-            let mut pending_effects =
-                RefCell::borrow_mut(&self.pending_effects);
-            pending_effects.insert(id);
+        if self.state(id) <= state {
+            self.storage.mark(id, state, caller);
         }
 
-        if let Some(subscribers) = self.subscribers.borrow().get(&id) {
-            subscribers.iter().copied().for_each(|sub| match sub {
-                Observer::None => {
-                    // TODO: panic?
-                },
-                Observer::Root => {
-                    // Root means "outside of reactive context" so don't mark it
-                    // dirty
-                },
-                Observer::Effect(effect) => {
-                    self.mark_deep_dirty(effect, caller);
-                },
-            });
+        if let Some(node) = self.storage.get(id) {
+            if let (ValueKind::Effect { .. }, true) =
+                (node.kind, self.observer.get() != Some(id))
+            {
+                let mut pending_effects =
+                    RefCell::borrow_mut(&self.pending_effects);
+                pending_effects.insert(id);
+            }
         }
     }
 
-    pub(crate) fn take_observer_diff(&self, id: ValueId) -> Vec<Rc<dyn Any>> {
-        match self.storage.get(id).kind {
-            ValueKind::Operator { mut scheduled, .. } => scheduled
-                .remove(&self.observer.get())
-                .unwrap_or(Default::default()),
-            _ => panic!("Cannot get diff from non-operator value"),
+    fn cleanup(&self, id: ValueId) {
+        let sources = self.sources.borrow_mut();
+
+        if let Some(sources) = sources.get(&id) {
+            let mut subs = self.subscribers.borrow_mut();
+            for source in sources.iter() {
+                if let Some(source) = subs.get_mut(source) {
+                    source.remove(&id);
+                }
+            }
         }
     }
 
@@ -278,7 +341,7 @@ impl Runtime {
         order: EffectOrder,
         map: impl Fn(&T) -> T + 'static,
     ) {
-        let kind = self.storage.get(id).kind;
+        let kind = self.storage.get(id).unwrap().kind;
         match kind {
             ValueKind::MemoChain { initial: _, fs } => {
                 fs.borrow_mut()
@@ -293,9 +356,8 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
-    use crate::runtime::RUNTIMES;
-
     use super::CURRENT_RUNTIME;
+    use crate::runtime::RUNTIMES;
 
     #[test]
     fn primary_runtime() {

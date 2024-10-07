@@ -1,7 +1,10 @@
 [package]
 name = "rsact-core"
 version = "0.1.0"
-edition = "2021"
+authors = ["hazer-hazer"]
+repository = "https://github.com/hazer-hazer/rsact"
+license = "MIT"
+edition.workspace = true
 
 [dependencies]
 lazy_static = { version = "1.5.0", default-features = false }

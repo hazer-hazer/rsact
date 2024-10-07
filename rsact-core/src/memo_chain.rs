@@ -1,6 +1,6 @@
 use crate::{
-    callback::AnyCallback, effect::EffectOrder, memo::Memo,
-    runtime::with_current_runtime, signal::ReadSignal, storage::ValueId,
+    callback::AnyCallback, effect::EffectOrder, runtime::with_current_runtime,
+    signal::ReadSignal, storage::ValueId,
 };
 use alloc::rc::Rc;
 use core::{any::Any, cell::RefCell, marker::PhantomData};

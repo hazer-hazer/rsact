@@ -125,22 +125,56 @@ impl<T: PartialEq + Clone + 'static> IntoMemo<T> for T {
 }
 
 impl<T: PartialEq + Clone + 'static> IntoMemo<T> for Memo<T> {
+    // Should never be called directly being redundant
     fn into_memo(self) -> Memo<T> {
         self
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
 pub struct MemoTree<T: PartialEq + 'static> {
     pub data: Memo<T>,
     pub children: Memo<Vec<MemoTree<T>>>,
 }
 
-impl<T: PartialEq + 'static> MemoTree<T> {
-    pub fn childless(data: Memo<T>) -> Self {
-        Self { data, children: use_memo(|_| alloc::vec![]) }
+impl<T: PartialEq + 'static> Copy for MemoTree<T> {}
+
+impl<T: PartialEq + 'static> PartialEq for MemoTree<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.data == other.data && self.children == other.children
     }
 }
+
+impl<T: PartialEq + 'static> Clone for MemoTree<T> {
+    fn clone(&self) -> Self {
+        Self { data: self.data.clone(), children: self.children.clone() }
+    }
+}
+
+impl<T: PartialEq + 'static> MemoTree<T> {
+    pub fn childless(data: impl IntoMemo<T>) -> Self {
+        Self { data: data.into_memo(), children: use_memo(|_| alloc::vec![]) }
+    }
+
+    // pub fn fold<A>(&self, acc: A, mut f: impl FnMut(A, &T) -> A) -> A {
+    //     let acc = self.data.with(|data| f(acc, data));
+
+    //     self.children.with(move |children| {
+    //         children.iter().fold(acc, |acc, child| child.fold(acc, f))
+    //     })
+    // }
+
+    pub fn flat_collect(&self) -> Vec<Memo<T>> {
+        self.children.with(|children| {
+            core::iter::once(self.data)
+                .chain(children.iter().map(MemoTree::flat_collect).flatten())
+                .collect()
+        })
+    }
+}
+
+// pub struct MemoTreeIter<'a> {
+//     stack: Vec<&'a Memo2>
+// }
 
 #[cfg(test)]
 mod tests {
