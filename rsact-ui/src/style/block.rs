@@ -1,7 +1,6 @@
+use super::{ColorStyle, WidgetStyle};
 use crate::{layout::size::Size, render::color::Color};
 use embedded_graphics::primitives::CornerRadii;
-
-use super::WidgetStyle;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Radius {
@@ -122,7 +121,7 @@ where
 
 #[derive(PartialEq)]
 pub struct BorderStyle<C: Color> {
-    pub color: Option<C>,
+    pub color: ColorStyle<C>,
     pub radius: BorderRadius,
 }
 
@@ -136,32 +135,35 @@ impl<C: Color> Copy for BorderStyle<C> {}
 
 impl<C: Color> BorderStyle<C> {
     pub fn base() -> Self {
-        Self { color: None, radius: BorderRadius::zero() }
+        Self {
+            color: ColorStyle::DefaultForeground,
+            radius: BorderRadius::zero(),
+        }
     }
 
     pub fn color(mut self, color: C) -> Self {
-        self.color = Some(color);
+        self.color.set_high_priority(Some(color));
         self
     }
 
-    pub fn radius(mut self, radius: BorderRadius) -> Self {
-        self.radius = radius;
+    pub fn radius(mut self, radius: impl Into<BorderRadius>) -> Self {
+        self.radius = radius.into();
         self
     }
 }
 
 #[derive(PartialEq)]
-pub struct BoxStyle<C: Color> {
-    pub background_color: Option<C>,
+pub struct BlockStyle<C: Color> {
+    pub background_color: ColorStyle<C>,
     pub border: BorderStyle<C>,
 }
 
-impl<C: Color> WidgetStyle for BoxStyle<C> {
+impl<C: Color> WidgetStyle for BlockStyle<C> {
     type Color = C;
     type Inputs = ();
 }
 
-impl<C: Color> Clone for BoxStyle<C> {
+impl<C: Color> Clone for BlockStyle<C> {
     fn clone(&self) -> Self {
         Self {
             background_color: self.background_color.clone(),
@@ -170,15 +172,18 @@ impl<C: Color> Clone for BoxStyle<C> {
     }
 }
 
-impl<C: Color> Copy for BoxStyle<C> {}
+impl<C: Color> Copy for BlockStyle<C> {}
 
-impl<C: Color> BoxStyle<C> {
+impl<C: Color> BlockStyle<C> {
     pub fn base() -> Self {
-        Self { background_color: None, border: BorderStyle::base() }
+        Self {
+            background_color: ColorStyle::Unset,
+            border: BorderStyle::base(),
+        }
     }
 
     pub fn background_color(mut self, background_color: C) -> Self {
-        self.background_color = Some(background_color);
+        self.background_color.set_high_priority(Some(background_color));
         self
     }
 

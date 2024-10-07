@@ -1,14 +1,14 @@
 use super::padding::Padding;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct BoxModel {
+pub struct BlockModel {
     // TODO: Do we need non-equal border widths?
     // pub border: Padding,
     pub border_width: u32,
     pub padding: Padding,
 }
 
-impl BoxModel {
+impl BlockModel {
     pub fn zero() -> Self {
         Self { border_width: 0, padding: Padding::zero() }
     }

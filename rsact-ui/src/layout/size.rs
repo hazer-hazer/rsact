@@ -3,7 +3,7 @@ use core::{
     ops::{Add, AddAssign, Div, Mul, Rem, Sub, SubAssign},
 };
 use embedded_graphics::{
-    geometry::{AnchorPoint, Point},
+    geometry::Point,
     primitives::Rectangle,
 };
 

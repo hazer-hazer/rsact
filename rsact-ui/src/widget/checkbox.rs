@@ -1,11 +1,12 @@
-use super::icon::{Icon, IconKind};
+use super::icon::{Icon, IconKind, IconStyle};
 use crate::{
+    declare_widget_style,
     el::ElId,
-    event::{Capture, Propagate},
-    layout::{size::Size, ContentLayout, Layout, LayoutKind},
+    event::EventResponse,
+    layout::{ContentLayout, Layout, LayoutKind},
     render::{color::Color, Block, Renderer},
-    style::block::BoxStyle,
-    widget::{Widget, WidgetCtx},
+    style::{block::BlockStyle, Styler},
+    widget::{Meta, MetaTree, Widget, WidgetCtx},
 };
 use rsact_core::{
     memo::{IntoMemo, MemoTree},
@@ -25,14 +26,15 @@ impl CheckboxState {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
-pub struct CheckboxStyle<C: Color> {
-    block: BoxStyle<C>,
+declare_widget_style! {
+    CheckboxStyle (CheckboxState) {
+        container: container,
+    }
 }
 
 impl<C: Color> CheckboxStyle<C> {
     pub fn base() -> Self {
-        Self { block: BoxStyle::base() }
+        Self { container: BlockStyle::base() }
     }
 }
 
@@ -48,7 +50,10 @@ pub struct Checkbox<W: WidgetCtx> {
     style: MemoChain<CheckboxStyle<W::Color>>,
 }
 
-impl<W: WidgetCtx> Checkbox<W> {
+impl<W: WidgetCtx> Checkbox<W>
+where
+    W::Styler: Styler<IconStyle<W::Color>, Class = ()>,
+{
     pub fn new(value: impl IntoSignal<bool>) -> Self {
         let icon = Icon::new(IconKind::Check);
         let icon_layout = icon.layout();
@@ -68,8 +73,17 @@ impl<W: WidgetCtx> Checkbox<W> {
     }
 }
 
-impl<W: WidgetCtx> Widget<W> for Checkbox<W> {
+impl<W: WidgetCtx> Widget<W> for Checkbox<W>
+where
+    W::Styler: Styler<CheckboxStyle<W::Color>, Class = ()>
+        + Styler<IconStyle<W::Color>, Class = ()>,
+{
+    fn meta(&self) -> MetaTree {
+        MetaTree::childless(Meta::focusable(self.id))
+    }
+
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
+        ctx.accept_styles(self.style, self.state);
         self.icon.on_mount(ctx)
     }
 
@@ -89,8 +103,8 @@ impl<W: WidgetCtx> Widget<W> for Checkbox<W> {
 
         ctx.renderer.block(Block::from_layout_style(
             ctx.layout.area,
-            self.layout.get().box_model(),
-            style.block,
+            self.layout.get().block_model(),
+            style.container,
         ))?;
 
         if self.value.get() {
@@ -103,7 +117,7 @@ impl<W: WidgetCtx> Widget<W> for Checkbox<W> {
     fn on_event(
         &mut self,
         ctx: &mut crate::widget::EventCtx<'_, W>,
-    ) -> crate::event::EventResponse<<W as WidgetCtx>::Event> {
+    ) -> EventResponse<W> {
         ctx.handle_focusable(self.id, |pressed| {
             let current_state = self.state.get();
 
@@ -114,9 +128,9 @@ impl<W: WidgetCtx> Widget<W> for Checkbox<W> {
 
                 self.state.update(|state| state.pressed = pressed);
 
-                Capture::Captured.into()
+                W::capture()
             } else {
-                Propagate::Ignored.into()
+                W::ignore()
             }
         })
     }

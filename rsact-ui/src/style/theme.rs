@@ -1,5 +1,4 @@
-use super::Styler;
-use crate::{render::color::Color, widgets::button::ButtonStyle};
+use crate::render::color::Color;
 use rsact_core::prelude::*;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -33,33 +32,33 @@ impl<C: ThemeColor + 'static> ThemeStyler<C> {
     }
 }
 
-impl<C: ThemeColor + 'static> Styler<ButtonStyle<C>> for ThemeStyler<C> {
-    type Class = ();
+// impl<C: ThemeColor + 'static> Styler<ButtonStyle<C>> for ThemeStyler<C> {
+//     type Class = ();
 
-    fn default() -> Self::Class {
-        // TODO
-        ()
-    }
+//     fn default() -> Self::Class {
+//         // TODO
+//         ()
+//     }
 
-    // TODO
-    fn style(
-        self,
-        _inputs: Self::Class,
-    ) -> impl Fn(
-        ButtonStyle<C>,
-        <ButtonStyle<C> as super::WidgetStyle>::Inputs,
-    ) -> ButtonStyle<C>
-           + 'static {
-        move |mut prev_style, _state| {
-            self.palette.with(|palette| {
-                // match state {}
-                prev_style.container.background_color =
-                    Some(palette.background);
-                prev_style
-            })
-        }
-    }
-}
+//     // TODO
+//     fn style(
+//         self,
+//         _inputs: Self::Class,
+//     ) -> impl Fn(
+//         ButtonStyle<C>,
+//         <ButtonStyle<C> as super::WidgetStyle>::Inputs,
+//     ) -> ButtonStyle<C>
+//            + 'static {
+//         move |mut prev_style, _state| {
+//             self.palette.with(|palette| {
+//                 // match state {}
+//                 prev_style.container.background_color =
+//                     Some(palette.background);
+//                 prev_style
+//             })
+//         }
+//     }
+// }
 
 pub struct CustomTheme<C: Color> {
     palette: Palette<C>,

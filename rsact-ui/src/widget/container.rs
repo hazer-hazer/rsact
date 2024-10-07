@@ -1,11 +1,12 @@
+use crate::widget::{
+    prelude::*, BlockModelWidget, Meta, MetaTree, SizedWidget,
+};
 use rsact_core::memo_chain::IntoMemoChain;
-
-use crate::widget::{prelude::*, BoxModelWidget, SizedWidget};
 
 pub struct Container<W: WidgetCtx> {
     pub layout: Signal<Layout>,
     pub content: Signal<El<W>>,
-    pub style: MemoChain<BoxStyle<W::Color>>,
+    pub style: MemoChain<BlockStyle<W::Color>>,
 }
 
 impl<W: WidgetCtx + 'static> Container<W> {
@@ -20,13 +21,13 @@ impl<W: WidgetCtx + 'static> Container<W> {
             ))
             .into_signal(),
             content,
-            style: BoxStyle::base().into_memo_chain(),
+            style: BlockStyle::base().into_memo_chain(),
         }
     }
 
     pub fn style(
         self,
-        style: impl Fn(BoxStyle<W::Color>) -> BoxStyle<W::Color> + 'static,
+        style: impl Fn(BlockStyle<W::Color>) -> BlockStyle<W::Color> + 'static,
     ) -> Self {
         self.style.last(move |prev_style| style(*prev_style));
         self
@@ -61,12 +62,14 @@ impl<W: WidgetCtx + 'static> Container<W> {
 }
 
 impl<W: WidgetCtx + 'static> SizedWidget<W> for Container<W> {}
-impl<W: WidgetCtx + 'static> BoxModelWidget<W> for Container<W> {}
+impl<W: WidgetCtx + 'static> BlockModelWidget<W> for Container<W> {}
 
 impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
-    fn children_ids(&self) -> Memo<Vec<ElId>> {
-        let content = self.content;
-        content.with(Widget::children_ids)
+    fn meta(&self) -> MetaTree {
+        MetaTree {
+            data: Meta::none().into_memo(),
+            children: self.content.mapped(|content| vec![content.meta()]),
+        }
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
@@ -93,7 +96,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
 
         ctx.renderer.block(Block::from_layout_style(
             ctx.layout.area,
-            self.layout.get().box_model(),
+            self.layout.get().block_model(),
             style,
         ))?;
 
@@ -103,7 +106,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
     fn on_event(
         &mut self,
         ctx: &mut crate::widget::EventCtx<'_, W>,
-    ) -> crate::event::EventResponse<<W as WidgetCtx>::Event> {
+    ) -> EventResponse<W> {
         self.content.control_flow(|content| ctx.pass_to_child(content))
     }
 }

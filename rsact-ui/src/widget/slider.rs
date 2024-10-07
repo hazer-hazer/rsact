@@ -1,5 +1,9 @@
+use crate::{
+    declare_widget_style,
+    style::{ColorStyle, Styler},
+    widget::{prelude::*, Meta, MetaTree},
+};
 use core::marker::PhantomData;
-
 use embedded_graphics::{
     prelude::{Point, Primitive},
     primitives::{
@@ -9,35 +13,32 @@ use embedded_graphics::{
 };
 use rsact_core::memo_chain::IntoMemoChain;
 
-use crate::widget::prelude::*;
-
 pub trait SliderEvent {
     fn as_slider_move(&self, axis: Axis) -> Option<i32>;
 }
 
 // TODO: Sizes depended on viewport
-#[derive(Clone, Copy, PartialEq)]
-pub struct SliderStyle<C: Color> {
-    track_width: u32,
-    track_color: Option<C>,
-    thumb_border_width: u32,
-    thumb_border: BorderStyle<C>,
-    thumb_color: Option<C>,
-    thumb_size: u32,
+declare_widget_style! {
+    SliderStyle (SliderState) {
+        track_width: u32,
+        track_color: color,
+        thumb_border_width: u32,
+        thumb: container {
+            thumb_color: background_color,
+            thumb_border_color: border_color,
+            thumb_border_radius: border_radius,
+        },
+        thumb_size: u32,
+    }
 }
 
 impl<C: Color> SliderStyle<C> {
     pub fn base() -> Self {
         Self {
             track_width: 2,
-            track_color: Some(C::default_foreground()),
-            thumb_border_width: 100,
-            thumb_border: BorderStyle::base()
-                .radius(BorderRadius::new_equal(Radius::Percentage(
-                    Size::new_equal(0.25),
-                )))
-                .color(C::default_foreground()),
-            thumb_color: Some(C::default_background()),
+            track_color: ColorStyle::DefaultForeground,
+            thumb_border_width: 1,
+            thumb: BlockStyle::base().border(BorderStyle::base().radius(0.25)),
             thumb_size: 20,
         }
     }
@@ -45,7 +46,7 @@ impl<C: Color> SliderStyle<C> {
     fn track_line_style(&self) -> PrimitiveStyle<C> {
         let style = PrimitiveStyleBuilder::new();
 
-        let style = if let Some(track_color) = self.track_color {
+        let style = if let Some(track_color) = self.track_color.get() {
             style.stroke_color(track_color)
         } else {
             style
@@ -54,7 +55,7 @@ impl<C: Color> SliderStyle<C> {
         style.stroke_width(self.track_width).build()
     }
 
-    fn thumb(
+    fn thumb_style(
         &self,
         rect: Rectangle,
     ) -> Styled<RoundedRectangle, PrimitiveStyle<C>> {
@@ -64,13 +65,14 @@ impl<C: Color> SliderStyle<C> {
                 embedded_graphics::primitives::StrokeAlignment::Inside,
             );
 
-        let style = if let Some(thumb_color) = self.thumb_color {
+        let style = if let Some(thumb_color) = self.thumb.background_color.get()
+        {
             style.fill_color(thumb_color)
         } else {
             style
         };
 
-        let style = if let Some(border_color) = self.thumb_border.color {
+        let style = if let Some(border_color) = self.thumb.border.color.get() {
             style.stroke_color(border_color)
         } else {
             style
@@ -81,16 +83,16 @@ impl<C: Color> SliderStyle<C> {
                 embedded_graphics::prelude::Size::new_equal(self.thumb_size),
                 embedded_graphics::geometry::AnchorPoint::Center,
             ),
-            self.thumb_border.radius.into_corner_radii(rect.size.into()),
+            self.thumb.border.radius.into_corner_radii(rect.size.into()),
         )
         .into_styled(style.build())
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct SliderState {
-    pressed: bool,
-    active: bool,
+    pub pressed: bool,
+    pub active: bool,
 }
 
 impl SliderState {
@@ -140,14 +142,14 @@ impl<W: WidgetCtx> Slider<W, RowDir> {
 impl<W: WidgetCtx, Dir: Direction> Widget<W> for Slider<W, Dir>
 where
     W::Event: SliderEvent,
+    W::Styler: Styler<SliderStyle<W::Color>, Class = ()>,
 {
-    fn children_ids(&self) -> Memo<Vec<ElId>> {
-        let id = self.id;
-        use_memo(move |_| vec![id])
+    fn meta(&self) -> MetaTree {
+        MetaTree::childless(Meta::focusable(self.id))
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
-        let _ = ctx;
+        ctx.accept_styles(self.style, self.state);
     }
 
     fn layout(&self) -> Signal<Layout> {
@@ -180,7 +182,7 @@ where
 
         let thumb_offset = (self.value.get() as f32 / 256.0) * track_len as f32;
 
-        ctx.renderer.rect(style.thumb(Rectangle::new(
+        ctx.renderer.rect(style.thumb_style(Rectangle::new(
             ctx.layout.area.top_left
                 + Dir::AXIS.canon::<Point>(thumb_offset as i32, 0),
             Into::<Size>::into(ctx.layout.area.size).min_square().into(),
@@ -189,10 +191,7 @@ where
         Ok(())
     }
 
-    fn on_event(
-        &mut self,
-        ctx: &mut EventCtx<'_, W>,
-    ) -> EventResponse<<W as WidgetCtx>::Event> {
+    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse<W> {
         let current_state = self.state.get();
 
         if current_state.active && ctx.is_focused(self.id) {
@@ -205,7 +204,7 @@ where
                     self.value.set(new);
                 }
 
-                return Capture::Captured.into();
+                return W::capture();
             }
         }
 
@@ -224,9 +223,9 @@ where
                     }
                 });
 
-                Capture::Captured.into()
+                W::capture()
             } else {
-                Propagate::Ignored.into()
+                W::ignore()
             }
         })
     }

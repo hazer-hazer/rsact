@@ -1,9 +1,8 @@
 use crate::{
-    event::BubbledData,
-    style::{Styler, WidgetStyle},
-    widget::{prelude::*, SizedWidget},
+    declare_widget_style,
+    style::{ColorStyle, Styler},
+    widget::{prelude::*, Meta, MetaTree, SizedWidget},
 };
-use alloc::vec::Vec;
 use core::marker::PhantomData;
 use embedded_graphics::{
     prelude::{Point, Primitive, Transform},
@@ -50,71 +49,34 @@ impl ScrollableState {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
-pub struct ScrollableStyle<C: Color> {
-    pub track_color: Option<C>,
-    pub thumb_color: Option<C>,
-    pub thumb_radius: Option<Radius>,
-    pub scrollbar_width: u32,
-    pub container: BoxStyle<C>,
-    pub show: ScrollbarShow,
-}
-
-impl<C: Color> WidgetStyle for ScrollableStyle<C> {
-    type Color = C;
-    type Inputs = ScrollableState;
+declare_widget_style! {
+    ScrollableStyle (ScrollableState) {
+        track_color: color,
+        // thumb: container,
+        thumb_color: color,
+        container: container,
+        scrollbar_width: u32,
+        show: ScrollbarShow,
+    }
 }
 
 impl<C: Color> ScrollableStyle<C> {
     pub fn base() -> Self {
         Self {
-            track_color: None,
-            thumb_color: Some(C::default_foreground()),
-            thumb_radius: None,
-            container: BoxStyle::base(),
+            track_color: ColorStyle::Unset,
+            // thumb: BlockStyle::base(),
+            thumb_color: ColorStyle::DefaultForeground,
+            container: BlockStyle::base(),
             scrollbar_width: 5,
             show: ScrollbarShow::Auto,
         }
-    }
-
-    pub fn container(mut self, container: BoxStyle<C>) -> Self {
-        self.container = container;
-        self
-    }
-
-    pub fn show(mut self, show: ScrollbarShow) -> Self {
-        self.show = show;
-        self
-    }
-
-    pub fn scrollbar_width(mut self, scrollbar_width: u32) -> Self {
-        self.scrollbar_width = scrollbar_width;
-        self
-    }
-
-    pub fn thumb_color(mut self, thumb_color: Option<C>) -> Self {
-        self.thumb_color = thumb_color;
-        self
-    }
-
-    pub fn track_color(mut self, track_color: Option<C>) -> Self {
-        self.track_color = track_color;
-        self
-    }
-
-    pub fn thumb_radius(
-        mut self,
-        thumb_radius: Option<impl Into<Radius>>,
-    ) -> Self {
-        self.thumb_radius = thumb_radius.map(Into::into);
-        self
     }
 
     fn track_style(&self) -> PrimitiveStyle<C> {
         let style =
             PrimitiveStyleBuilder::new().stroke_width(self.scrollbar_width);
 
-        if let Some(track_color) = self.track_color {
+        if let Some(track_color) = self.track_color.get() {
             style.stroke_color(track_color)
         } else {
             style
@@ -126,7 +88,7 @@ impl<C: Color> ScrollableStyle<C> {
         let style =
             PrimitiveStyleBuilder::new().stroke_width(self.scrollbar_width);
 
-        if let Some(thumb_color) = self.thumb_color {
+        if let Some(thumb_color) = self.thumb_color.get() {
             style.stroke_color(thumb_color)
         } else {
             style
@@ -170,7 +132,7 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
             }),
             size: Dir::AXIS.canon(
                 Length::InfiniteWindow(Length::Shrink.try_into().unwrap()),
-                Length::Shrink,
+                Length::fill(),
             ),
         }
         .into_signal();
@@ -274,21 +236,16 @@ where
     Dir: Direction,
     W::Styler: Styler<ScrollableStyle<W::Color>, Class = ()>,
 {
-    fn children_ids(&self) -> Memo<Vec<ElId>> {
-        let id = self.id;
-        let content = self.content;
-
-        match self.mode {
-            ScrollableMode::Interactive => use_memo(move |_| vec![id]),
-            ScrollableMode::Tracker => {
-                content.mapped(|content| content.children_ids().get_cloned())
-            },
+    fn meta(&self) -> crate::widget::MetaTree {
+        MetaTree {
+            data: Meta::none().into_memo(),
+            children: self.content.mapped(|content| vec![content.meta()]),
         }
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
-        ctx.pass_to_child(self.content);
         ctx.accept_styles(self.style, self.state);
+        ctx.pass_to_child(self.content);
     }
 
     fn layout(&self) -> Signal<Layout> {
@@ -315,7 +272,7 @@ where
 
         ctx.renderer.block(Block::from_layout_style(
             ctx.layout.area,
-            layout.box_model(),
+            layout.block_model(),
             style.container,
         ))?;
 
@@ -393,6 +350,7 @@ where
                     renderer,
                     layout: &child_layout
                         .translate(Dir::AXIS.canon(-(offset as i32), 0)),
+                    tree_style: ctx.tree_style,
                 })
             })
         })
@@ -401,7 +359,7 @@ where
     fn on_event(
         &mut self,
         ctx: &mut EventCtx<'_, W>,
-    ) -> EventResponse<W::Event> {
+    ) -> EventResponse<W> {
         let current_state = self.state.get();
 
         match self.mode {
@@ -422,7 +380,7 @@ where
                                 .update(|state| state.offset = new_offset);
                         }
 
-                        return Capture::Captured.into();
+                        return W::capture();
                     }
                 }
 
@@ -444,23 +402,29 @@ where
                             }
                         });
 
-                        Capture::Captured.into()
+                        W::capture()
                     } else {
-                        Propagate::Ignored.into()
+                        W::ignore()
                     }
                 })
             },
             ScrollableMode::Tracker => {
-                let maybe_activate = self
+                // If nothing was focused before passing event to children then
+                // change of focus means moving focus to a widget inside
+                // scrollable content
+                let had_focused = ctx.pass.focused().is_some();
+
+                let content_response = self
                     .content
                     .control_flow(|content| ctx.pass_to_child(content));
 
-                if let EventResponse::Break(Capture::Bubble(
-                    BubbledData::Focused(_, focused_point),
-                )) = maybe_activate
+                if let (false, Some(focused)) =
+                    (had_focused, ctx.pass.focused())
                 {
-                    let new_offset =
-                        focused_point.main(Dir::AXIS).saturating_sub(
+                    let new_offset = focused
+                        .absolute_position
+                        .main(Dir::AXIS)
+                        .saturating_sub(
                             ctx.layout.area.top_left.main(Dir::AXIS),
                         ) as u32;
                     let new_offset = new_offset.clamp(0, self.max_offset(ctx));
@@ -472,7 +436,7 @@ where
                     }
                 }
 
-                maybe_activate
+                content_response
             },
         }
     }

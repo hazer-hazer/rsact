@@ -1,12 +1,16 @@
 use crate::{
+    declare_widget_style,
     font::{FontSize, FontStyle},
-    widget::{prelude::*, SizedWidget},
+    style::{ColorStyle, Styler, TreeStyled},
+    widget::{prelude::*, Meta, MetaTree},
 };
+use alloc::string::{String, ToString};
 use embedded_graphics::mono_font::{
     ascii::FONT_6X10, MonoFont, MonoTextStyleBuilder,
 };
 use embedded_text::{
-    style::{TextBoxStyle, TextBoxStyleBuilder},
+    alignment::{HorizontalAlignment, VerticalAlignment},
+    style::TextBoxStyleBuilder,
     TextBox,
 };
 use layout::ContentLayout;
@@ -83,8 +87,35 @@ fn measure_text_content_size(text: &str, font: &MonoFont) -> Limits {
     Limits::new(max_size, max_size)
 }
 
+declare_widget_style! {
+    MonoTextStyle () {
+        text_color: color {
+            transparent: transparent,
+        },
+        align: HorizontalAlignment,
+        vertical_align: VerticalAlignment,
+    }
+}
+
+impl<C: Color> TreeStyled<C> for MonoTextStyle<C> {
+    fn with_tree(mut self, tree: crate::style::TreeStyle<C>) -> Self {
+        self.text_color.set_low_priority(tree.text_color.get());
+        self
+    }
+}
+
+impl<C: Color> MonoTextStyle<C> {
+    pub fn base() -> Self {
+        Self {
+            text_color: ColorStyle::DefaultForeground,
+            align: HorizontalAlignment::Left,
+            vertical_align: VerticalAlignment::Top,
+        }
+    }
+}
+
 pub struct MonoText<W: WidgetCtx> {
-    content: Memo<alloc::string::String>,
+    content: Memo<String>,
     layout: Signal<Layout>,
     props: Signal<MonoFontProps>,
     font: Signal<MonoFont<'static>>,
@@ -92,9 +123,11 @@ pub struct MonoText<W: WidgetCtx> {
 }
 
 impl<W: WidgetCtx + 'static> MonoText<W> {
-    pub fn new(content: impl IntoMemo<alloc::string::String>) -> Self {
+    pub fn new<T: ToString + PartialEq + 'static>(
+        content: impl IntoMemo<T> + 'static,
+    ) -> Self {
         let font = use_signal(FONT_6X10);
-        let content = content.into_memo();
+        let content = content.into_memo().mapped(|content| content.to_string());
 
         let layout = Layout::shrink(LayoutKind::Content(ContentLayout {
             content_size: content.mapped(move |content| {
@@ -149,15 +182,17 @@ impl<W: WidgetCtx + 'static> MonoText<W> {
     // }
 }
 
-// TODO: Really sized and box?
-// impl<W: WidgetCtx + 'static> SizedWidget<W> for MonoText<W> {}
-
-impl<W: WidgetCtx + 'static> Widget<W> for MonoText<W> {
-    fn layout(&self) -> Signal<crate::layout::Layout> {
-        self.layout
+impl<W: WidgetCtx + 'static> Widget<W> for MonoText<W>
+where
+    W::Styler: Styler<MonoTextStyle<W::Color>, Class = ()>,
+{
+    fn meta(&self) -> crate::widget::MetaTree {
+        MetaTree::childless(Meta::none())
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
+        ctx.accept_styles(self.style, ());
+
         let viewport = ctx.viewport;
         let props = self.props;
 
@@ -166,6 +201,10 @@ impl<W: WidgetCtx + 'static> Widget<W> for MonoText<W> {
             props.style,
             *viewport
         )));
+    }
+
+    fn layout(&self) -> Signal<crate::layout::Layout> {
+        self.layout
     }
 
     fn build_layout_tree(&self) -> MemoTree<crate::layout::Layout> {
@@ -179,14 +218,14 @@ impl<W: WidgetCtx + 'static> Widget<W> for MonoText<W> {
         let style = self.style;
 
         self.content.with(|content| {
-            let style = style.get();
+            let style = style.get().with_tree(ctx.tree_style);
 
             ctx.renderer.mono_text(TextBox::with_textbox_style(
                 content,
                 ctx.layout.area,
                 MonoTextStyleBuilder::new()
                     .font(&self.font.get())
-                    .text_color(style.text_color)
+                    .text_color(style.text_color.expect())
                     .build(),
                 TextBoxStyleBuilder::new()
                 // TODO: Style clip/only_visible/visible
@@ -202,19 +241,23 @@ impl<W: WidgetCtx + 'static> Widget<W> for MonoText<W> {
     fn on_event(
         &mut self,
         _ctx: &mut crate::widget::EventCtx<'_, W>,
-    ) -> crate::event::EventResponse<<W as WidgetCtx>::Event> {
-        Propagate::Ignored.into()
+    ) -> EventResponse<W> {
+        W::ignore()
     }
 }
 
-impl<'a, W: WidgetCtx + 'static> IntoSignal<El<W>> for &'a str {
+impl<'a, W: WidgetCtx + 'static> IntoSignal<El<W>> for &'a str
+where
+    W::Styler: Styler<MonoTextStyle<W::Color>, Class = ()>,
+{
     fn into_signal(self) -> Signal<El<W>> {
-        MonoText::new(String::from(self)).el().into_signal()
+        MonoText::new(self.to_string()).el().into_signal()
     }
 }
 
 impl<W> From<MonoText<W>> for El<W>
 where
+    W::Styler: Styler<MonoTextStyle<W::Color>, Class = ()>,
     W: WidgetCtx + 'static,
 {
     fn from(value: MonoText<W>) -> Self {

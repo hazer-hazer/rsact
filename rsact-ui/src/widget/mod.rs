@@ -1,20 +1,66 @@
-use core::marker::PhantomData;
-use prelude::*;
+pub mod button;
+pub mod checkbox;
+pub mod container;
+pub mod edge;
+pub mod flex;
+pub mod icon;
+pub mod image;
+pub mod mono_text;
+pub mod scrollable;
+pub mod select;
+pub mod slider;
+pub mod space;
 
 use crate::{
-    event::BubbledData,
-    style::{Styler, WidgetStyle},
+    event::{BubbledData, EventPass, FocusedWidget},
+    page::id::PageId,
+    style::{Styler, TreeStyle, WidgetStyle},
 };
+use bitflags::bitflags;
+use core::{fmt::Debug, marker::PhantomData};
+use prelude::*;
 
 pub type DrawResult = Result<(), ()>;
 
-// Not an actual context, rename to something like `WidgetTypeFamily`
-pub trait WidgetCtx: 'static {
-    type Renderer: Renderer<Color = Self::Color>;
-    type Event: Event;
-    type Styler: PartialEq + Copy;
+bitflags! {
+    #[derive(Clone, Copy, PartialEq)]
+    pub struct Behavior: u8 {
+        const NONE = 0;
+        const FOCUSABLE = 1 << 0;
+    }
+}
 
+#[derive(Clone, PartialEq)]
+pub struct Meta {
+    pub behavior: Behavior,
+    pub id: Option<ElId>,
+}
+
+impl Meta {
+    pub fn none() -> Self {
+        Self { behavior: Behavior::NONE, id: None }
+    }
+
+    pub fn focusable(id: ElId) -> Self {
+        Self { behavior: Behavior::FOCUSABLE, id: Some(id) }
+    }
+}
+
+pub type MetaTree = MemoTree<Meta>;
+
+// Not an actual context, rename to something like `WidgetTypeFamily`
+pub trait WidgetCtx: Sized + 'static {
+    type Renderer: Renderer<Color = Self::Color>;
+    type Styler: PartialEq + Copy;
     type Color: Color;
+    type PageId: PageId;
+
+    // Events //
+    type Event: Event;
+
+    fn capture() -> EventResponse<Self>;
+    fn bubble(bubbled_data: BubbledData<Self>) -> EventResponse<Self>;
+    fn ignore() -> EventResponse<Self>;
 
     // Methods delegated from renderer //
     fn default_background() -> Self::Color {
@@ -26,8 +72,9 @@ pub trait WidgetCtx: 'static {
     }
 }
 
+/// WidgetTypeFamily
 /// Type family of types used in Widgets
-pub struct PhantomWidgetCtx<R, E, S>
+pub struct WTF<R, E, S, I>
 where
     R: Renderer,
     E: Event,
@@ -35,18 +82,34 @@ where
     _renderer: R,
     _event: E,
     _styler: S,
+    _page_id: I,
 }
 
-impl<R, E, S> WidgetCtx for PhantomWidgetCtx<R, E, S>
+impl<R, E, S, I> WidgetCtx for WTF<R, E, S, I>
 where
     R: Renderer + 'static,
     E: Event + 'static,
     S: PartialEq + Copy + 'static,
+    I: PageId + 'static,
 {
     type Renderer = R;
-    type Event = E;
     type Color = R::Color;
     type Styler = S;
+    type PageId = I;
+
+    type Event = E;
+
+    fn capture() -> EventResponse<Self> {
+        EventResponse::Break(Capture::Captured)
+    }
+
+    fn bubble(bubbled_data: BubbledData<Self>) -> EventResponse<Self> {
+        EventResponse::Break(Capture::Bubble(bubbled_data))
+    }
+
+    fn ignore() -> EventResponse<Self> {
+        EventResponse::Continue(Propagate::Ignored)
+    }
 }
 
 pub struct PageState<W: WidgetCtx> {
@@ -69,8 +132,7 @@ pub struct DrawCtx<'a, W: WidgetCtx> {
     pub state: &'a PageState<W>,
     pub renderer: &'a mut W::Renderer,
     pub layout: &'a LayoutModelNode<'a>,
-    // TODO: For text and maybe something else
-    // pub inherited_style
+    pub tree_style: TreeStyle<W::Color>,
 }
 
 impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
@@ -120,6 +182,7 @@ impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
                     state: self.state,
                     renderer: &mut self.renderer,
                     layout: &child_layout,
+                    tree_style: self.tree_style,
                 })
             },
         )
@@ -130,6 +193,7 @@ pub struct EventCtx<'a, W: WidgetCtx> {
     pub event: &'a W::Event,
     pub page_state: &'a mut PageState<W>,
     pub layout: &'a LayoutModelNode<'a>,
+    pub pass: &'a mut EventPass,
     // TODO: Instant now
 }
 
@@ -138,23 +202,24 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
     pub fn pass_to_children(
         &mut self,
         children: &mut [impl Widget<W>],
-    ) -> EventResponse<W::Event> {
+    ) -> EventResponse<W> {
         for (child, child_layout) in
             children.iter_mut().zip(self.layout.children())
         {
             child.on_event(&mut EventCtx {
-                event: &self.event,
+                event: self.event,
                 page_state: &mut self.page_state,
                 layout: &child_layout,
+                pass: &mut self.pass,
             })?;
         }
-        Propagate::Ignored.into()
+        W::ignore()
     }
 
     pub fn pass_to_child(
         &mut self,
         child: &mut impl Widget<W>,
-    ) -> EventResponse<W::Event> {
+    ) -> EventResponse<W> {
         self.pass_to_children(core::slice::from_mut(child))
     }
 
@@ -164,19 +229,28 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
 
     #[must_use]
     pub fn handle_focusable(
-        &self,
+        &mut self,
         id: ElId,
-        press: impl FnOnce(bool) -> EventResponse<W::Event>,
-    ) -> EventResponse<W::Event> {
-        if self.is_focused(id) {
-            if let Some(_) = self.event.as_focus_move() {
-                return Capture::Bubble(BubbledData::Focused(
+        press: impl FnOnce(bool) -> EventResponse<W>,
+    ) -> EventResponse<W> {
+        if let Some(_) = self.event.as_focus_move() {
+            if self.pass.focus_search == Some(0) {
+                // return Capture::Bubble(BubbledData::Focused(
+                //     id,
+                //     self.layout.area.top_left,
+                // ))
+                // .into();
+                self.pass.set_focused(FocusedWidget {
                     id,
-                    self.layout.area.top_left,
-                ))
-                .into();
+                    absolute_position: self.layout.area.top_left,
+                });
+            } else {
+                self.pass
+                    .focus_search
+                    .as_mut()
+                    .map(|focus_target| *focus_target -= 1);
             }
-
+        } else if self.is_focused(id) {
             let focus_click = if self.event.as_focus_press() {
                 Some(true)
             } else if self.event.as_focus_release() {
@@ -185,21 +259,21 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
                 None
             };
 
-            if let Some(activate) = focus_click {
+            return if let Some(activate) = focus_click {
                 press(activate)
             } else {
-                Propagate::Ignored.into()
-            }
-        } else {
-            Propagate::Ignored.into()
+                W::ignore()
+            };
         }
+
+        W::ignore()
     }
 }
 
-pub struct IdTree {
-    pub id: ElId,
-    pub children: Signal<Vec<IdTree>>,
-}
+// pub struct IdTree {
+//     pub id: ElId,
+//     pub children: Signal<Vec<IdTree>>,
+// }
 
 pub struct MountCtx<W: WidgetCtx> {
     pub viewport: Memo<Size>,
@@ -265,11 +339,10 @@ where
         El::new(self)
     }
 
+    fn meta(&self) -> MetaTree;
+
     // These functions MUST be called only ones per widget //
     fn on_mount(&mut self, ctx: MountCtx<W>);
-    fn children_ids(&self) -> Memo<Vec<ElId>> {
-        Vec::new().into_memo()
-    }
     fn layout(&self) -> Signal<Layout>;
     fn build_layout_tree(&self) -> MemoTree<Layout>;
 
@@ -277,10 +350,7 @@ where
     // TODO: Reactive draw?
     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult;
     // TODO: Reactive event context? Is it possible?
-    fn on_event(
-        &mut self,
-        ctx: &mut EventCtx<'_, W>,
-    ) -> EventResponse<W::Event>;
+    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse<W>;
 }
 
 // impl<W: WidgetCtx, T> Widget<W> for T
@@ -306,12 +376,12 @@ where
 //     fn on_event(
 //         &mut self,
 //         ctx: &mut EventCtx<'_, W>,
-//     ) -> EventResponse<<W as WidgetCtx>::Event> {
+//     ) -> EventResponse<W> {
 //         todo!()
 //     }
 // }
 
-/// Not implementing [`SizedWidget`] and [`BoxModelWidget`] does not mean that
+/// Not implementing [`SizedWidget`] and [`BlockModelWidget`] does not mean that
 /// Widget has layout without size or box model, it can be intentional to
 /// disallow user to set size or box model properties.
 pub trait SizedWidget<W: WidgetCtx>: Widget<W> {
@@ -356,7 +426,7 @@ pub trait SizedWidget<W: WidgetCtx>: Widget<W> {
     }
 }
 
-pub trait BoxModelWidget<W: WidgetCtx>: Widget<W> {
+pub trait BlockModelWidget<W: WidgetCtx>: Widget<W> {
     fn border_width(self, border_width: impl MaybeSignal<u32> + 'static) -> Self
     where
         Self: Sized + 'static,
@@ -400,16 +470,16 @@ pub mod prelude {
         layout::{
             self,
             axis::{Axial as _, Axis, ColDir, Direction, RowDir},
-            box_model::BoxModel,
+            block_model::BlockModel,
             padding::Padding,
             size::{Length, Size},
             Align, ContainerLayout, FlexLayout, Layout, LayoutKind,
             LayoutModelNode, Limits,
         },
         render::{color::Color, Block, Border, Renderer},
-        style::{block::*, text::*},
+        style::block::*,
         widget::{
-            BoxModelWidget, DrawCtx, DrawResult, EventCtx, LayoutCtx,
+            BlockModelWidget, DrawCtx, DrawResult, EventCtx, LayoutCtx,
             SizedWidget, Widget, WidgetCtx,
         },
     };

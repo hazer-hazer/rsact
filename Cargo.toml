@@ -1,13 +1,16 @@
-[package]
-name = "rsact"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+resolver = "2"
+members = ["rsact-ui", "rsact-core", "rsact-icons"]
+exclude = ["examples"]
 
-[dependencies]
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+
+[workspace.dependencies]
 rsact-core = { path = "./rsact-core" }
 rsact-ui = { path = "./rsact-ui" }
 
-[features]
-
-[workspace]
-members = ["rsact-ui", "rsact-core", "rsact-icons"]
+[profile.dev]
+# opt-level = 0
+debug = "full"

@@ -1,8 +1,8 @@
 use crate::{
-    event::Propagate,
+    event::EventResponse,
     layout::{ContentLayout, Layout, LayoutKind, Limits},
     render::Renderer,
-    widget::{Widget, WidgetCtx},
+    widget::{Meta, MetaTree, Widget, WidgetCtx},
 };
 use embedded_graphics::{
     image::ImageRaw, iterator::raw::RawDataSlice, pixelcolor::raw::ByteOrder,
@@ -39,6 +39,10 @@ where
     RawDataSlice<'a, <W::Color as PixelColor>::Raw, BO>:
         IntoIterator<Item = <W::Color as PixelColor>::Raw>,
 {
+    fn meta(&self) -> MetaTree {
+        MetaTree::childless(Meta::none())
+    }
+
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
         let _ = ctx;
     }
@@ -64,7 +68,7 @@ where
     fn on_event(
         &mut self,
         _ctx: &mut crate::widget::EventCtx<'_, W>,
-    ) -> crate::event::EventResponse<W::Event> {
-        Propagate::Ignored.into()
+    ) -> EventResponse<W> {
+        W::ignore()
     }
 }

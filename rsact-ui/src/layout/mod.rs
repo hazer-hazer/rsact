@@ -1,5 +1,5 @@
 use alloc::vec::Vec;
-use box_model::BoxModel;
+use block_model::BlockModel;
 use core::{
     fmt::{Debug, Display},
     u32,
@@ -14,7 +14,7 @@ use rsact_core::prelude::*;
 use size::{Length, Size};
 
 pub mod axis;
-pub mod box_model;
+pub mod block_model;
 pub mod flex;
 pub mod limits;
 pub mod padding;
@@ -69,7 +69,7 @@ impl ContentLayout {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ContainerLayout {
-    pub box_model: BoxModel,
+    pub block_model: BlockModel,
     pub horizontal_align: Align,
     pub vertical_align: Align,
     pub content_size: Memo<Limits>,
@@ -78,7 +78,7 @@ pub struct ContainerLayout {
 impl ContainerLayout {
     pub fn base(content_size: impl IntoMemo<Limits>) -> Self {
         Self {
-            box_model: BoxModel::zero(),
+            block_model: BlockModel::zero(),
             horizontal_align: Align::Start,
             vertical_align: Align::Start,
             content_size: content_size.into_memo(),
@@ -86,14 +86,14 @@ impl ContainerLayout {
     }
 
     pub fn min_size(&self) -> Size {
-        self.content_size.get().min() + self.box_model.padding
+        self.content_size.get().min() + self.block_model.padding
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FlexLayout {
     pub wrap: bool,
-    pub box_model: BoxModel,
+    pub block_model: BlockModel,
     // Readonly
     pub(self) axis: Axis,
     pub gap: Size,
@@ -107,7 +107,7 @@ impl FlexLayout {
     pub fn base(axis: Axis, content_size: impl IntoMemo<Limits>) -> Self {
         Self {
             wrap: false,
-            box_model: BoxModel::zero(),
+            block_model: BlockModel::zero(),
             axis,
             gap: Size::zero(),
             horizontal_align: Align::Start,
@@ -121,8 +121,8 @@ impl FlexLayout {
         self
     }
 
-    pub fn box_model(mut self, box_model: BoxModel) -> Self {
-        self.box_model = box_model;
+    pub fn block_model(mut self, block_model: BlockModel) -> Self {
+        self.block_model = block_model;
         self
     }
 
@@ -156,7 +156,7 @@ impl FlexLayout {
     }
 
     pub fn min_size(&self) -> Size {
-        self.content_size.get().min() + self.box_model.padding
+        self.content_size.get().min() + self.block_model.padding
     }
 }
 
@@ -199,11 +199,13 @@ impl DevLayoutKind {
             | DevLayoutKind::Edge
             | DevLayoutKind::Content(_)
             | DevLayoutKind::Scrollable(_) => None,
-            DevLayoutKind::Container(ContainerLayout { box_model, .. })
+            DevLayoutKind::Container(ContainerLayout {
+                block_model, ..
+            })
             | DevLayoutKind::Flex(DevFlexLayout {
-                real: FlexLayout { box_model, .. },
+                real: FlexLayout { block_model, .. },
                 ..
-            }) => Some(box_model.padding),
+            }) => Some(block_model.padding),
         }
     }
 }
@@ -219,7 +221,7 @@ impl Display for DevLayoutKind {
             DevLayoutKind::Container(ContainerLayout {
                 horizontal_align,
                 vertical_align,
-                box_model: _,
+                block_model: _,
                 content_size,
             }) => write!(
                 f,
@@ -232,7 +234,7 @@ impl Display for DevLayoutKind {
                 real:
                     FlexLayout {
                         wrap,
-                        box_model: _,
+                        block_model: _,
                         axis,
                         gap,
                         horizontal_align,
@@ -358,21 +360,21 @@ impl Layout {
     }
 
     // TODO: Panic on invalid layout kind usage?
-    pub fn box_model(&self) -> BoxModel {
+    pub fn block_model(&self) -> BlockModel {
         match self.kind {
             LayoutKind::Edge
             | LayoutKind::Content(..)
-            | LayoutKind::Scrollable(..) => BoxModel::zero(),
-            LayoutKind::Container(ContainerLayout { box_model, .. })
-            | LayoutKind::Flex(FlexLayout { box_model, .. }) => box_model,
+            | LayoutKind::Scrollable(..) => BlockModel::zero(),
+            LayoutKind::Container(ContainerLayout { block_model, .. })
+            | LayoutKind::Flex(FlexLayout { block_model, .. }) => block_model,
         }
     }
 
     pub fn set_border_width(&mut self, border_width: u32) {
         match &mut self.kind {
-            LayoutKind::Container(ContainerLayout { box_model, .. })
-            | LayoutKind::Flex(FlexLayout { box_model, .. }) => {
-                box_model.border_width = border_width
+            LayoutKind::Container(ContainerLayout { block_model, .. })
+            | LayoutKind::Flex(FlexLayout { block_model, .. }) => {
+                block_model.border_width = border_width
             },
             _ => {},
         }
@@ -380,52 +382,14 @@ impl Layout {
 
     pub fn set_padding(&mut self, padding: Padding) {
         match &mut self.kind {
-            LayoutKind::Container(ContainerLayout { box_model, .. })
-            | LayoutKind::Flex(FlexLayout { box_model, .. }) => {
-                box_model.padding = padding
+            LayoutKind::Container(ContainerLayout { block_model, .. })
+            | LayoutKind::Flex(FlexLayout { block_model, .. }) => {
+                block_model.padding = padding
             },
             _ => {},
         }
     }
 }
-
-// pub struct LayoutTree {
-//     layout: Signal<Layout>,
-//     children: Vec<LayoutTree>,
-// }
-
-// impl LayoutTree {
-//     pub fn build<C: WidgetCtx>(el: &El<C>) -> Self {
-//         Self {
-//             layout: el.layout(),
-//             children: el.children().iter().map(Self::build).collect(),
-//         }
-//     }
-// }
-
-// pub struct Layout<K> {
-//     pub size: Signal<Size<Length>>,
-//     pub kind: Signal<K>,
-// }
-
-// impl<K: 'static> Layout<K> {
-//     pub fn new(size: Size<Length>, kind: K) -> Self {
-//         Self { size: use_signal(size), kind: use_signal(kind) }
-//     }
-// }
-
-// impl Layout {
-//     // /// Shrink limits by paddings to get free space for content/children
-//     // fn content_limits(&self, limits: &Limits) -> Limits {
-//     //     let full_padding = self.box_model.border + self.box_model.padding;
-//     //     let self_limits = limits.limit_by(self.size);
-//     //     self_limits.shrink(full_padding)
-//     // }
-// }
-
-// pub struct Viewport {
-//     size: Size,
-// }
 
 /// Layout tree representation with real position in viewport
 #[derive(Clone, Copy)]
@@ -586,14 +550,9 @@ pub fn model_layout(
     tree: MemoTree<Layout>,
     parent_limits: Limits,
     parent_size: Size<Length>,
-    // TODO: is_growing and is_shrinking
 ) -> LayoutModel {
     let layout = tree.data.get();
     let size = layout.size.in_parent(parent_size);
-    // let content_size = layout.content_size.get();
-
-    // TODO: Resolve size container against `content_size` (limits), not only
-    // min
 
     match layout.kind {
         LayoutKind::Edge => {
@@ -617,17 +576,17 @@ pub fn model_layout(
         },
         LayoutKind::Container(container_layout) => {
             let ContainerLayout {
-                box_model,
+                block_model,
                 horizontal_align,
                 vertical_align,
                 // TODO: Useless?
-                content_size,
+                content_size: _,
             } = container_layout;
 
-            let min_content = content_size.get().min();
+            // let min_content = content_size.get().min();
 
-            let full_padding =
-                box_model.padding + Padding::new_equal(box_model.border_width);
+            let full_padding = block_model.padding
+                + Padding::new_equal(block_model.border_width);
 
             let limits = parent_limits.limit_by(size).shrink(full_padding);
 
@@ -688,4 +647,29 @@ pub fn model_layout(
             model_flex(tree, parent_limits, flex_layout, size)
         },
     }
+}
+
+#[cfg(test)]
+mod tests {
+    
+    
+
+    // #[test]
+    // fn flex_row() {
+    //     let flex_layout = MemoTree {
+    //         data: Layout {
+    //             kind: super::LayoutKind::Flex(super::FlexLayout {
+    //                 wrap: (),
+    //                 block_model: (),
+    //                 axis: super::Axis::X,
+    //                 gap: Size::new_equal(5),
+    //                 horizontal_align: super::Align::Center,
+    //                 vertical_align: super::Align::Center,
+    //                 content_size: ,
+    //             }),
+    //             size: Size::fill(),
+    //         },
+    //         children: vec![],
+    //     };
+    // }
 }

@@ -75,20 +75,6 @@ pub trait Axial {
         (self.x(), self.y())
     }
 
-    // fn with_main(self, axis: Axis, main: Self::Data) -> Self
-    // where
-    //     Self: Sized,
-    // {
-    //     axis.canon(main, self.cross_for(axis))
-    // }
-
-    // fn with_cross(self, axis: Axis, cross: Self::Data) -> Self
-    // where
-    //     Self: Sized,
-    // {
-    //     axis.canon(self.main_for(axis), cross)
-    // }
-
     #[inline]
     fn main(&self, axis: Axis) -> Self::Data {
         match axis {
@@ -129,6 +115,7 @@ pub trait Axial {
         AxialData { axis, data: self }
     }
 
+    #[inline]
     fn with_main(self, axis: Axis, main: Self::Data) -> Self
     where
         Self: Sized,
@@ -136,6 +123,7 @@ pub trait Axial {
         axis.canon(main, self.cross(axis))
     }
 
+    #[inline]
     fn with_cross(self, axis: Axis, cross: Self::Data) -> Self
     where
         Self: Sized,

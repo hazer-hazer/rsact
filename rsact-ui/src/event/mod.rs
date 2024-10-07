@@ -1,41 +1,79 @@
+use crate::{
+    el::ElId,
+    layout::Axis,
+    widget::{
+        button::ButtonEvent, scrollable::ScrollEvent, slider::SliderEvent,
+        WidgetCtx,
+    },
+};
+use core::{fmt::Debug, ops::ControlFlow};
 use dev::{DevElHover, DevToolsToggle};
 use embedded_graphics::prelude::Point;
-
-use crate::el::ElId;
-use crate::layout::Axis;
-use crate::widgets::button::ButtonEvent;
-use crate::widgets::scrollable::ScrollEvent;
-use crate::widgets::slider::SliderEvent;
-use core::fmt::Debug;
-use core::ops::ControlFlow;
+use message::Message;
 
 pub mod dev;
 
+pub mod message;
 #[cfg(feature = "simulator")]
 pub mod simulator;
 
-#[derive(Clone, Debug)]
-pub enum BubbledData<Custom = ()> {
-    /// Focused element bubbles its absolute position so parent can react to
-    /// that event, for example, by scrolling to it
-    Focused(ElId, Point),
-    Custom(Custom),
+#[derive(Clone, Copy)]
+pub struct FocusedWidget {
+    pub id: ElId,
+    pub absolute_position: Point,
+}
+
+pub struct EventPass {
+    // /// Count of focusable elements in the tree
+    // pub focusable: usize,
+    /// Absolute element index to focus
+    pub focus_search: Option<usize>,
+
+    focused: Option<FocusedWidget>,
+}
+
+impl EventPass {
+    pub fn new(focus_target: Option<usize>) -> Self {
+        Self { focus_search: focus_target, focused: None }
+    }
+
+    pub fn set_focused(&mut self, focused: FocusedWidget) {
+        self.focused = Some(focused);
+        self.focus_search = None;
+    }
+
+    pub fn focused(&self) -> Option<FocusedWidget> {
+        self.focused
+    }
+}
+
+pub enum UnhandledEvent<W: WidgetCtx> {
+    Event(W::Event),
+    Bubbled(BubbledData<W>),
 }
 
 #[derive(Clone, Debug)]
-pub enum Capture<E: Event> {
+pub enum BubbledData<W: WidgetCtx> {
+    // /// Focused element bubbles its absolute position so parent can react
+    // to /// that event, for example, by scrolling to it
+    // Focused(ElId, Point),
+    Message(Message<W>),
+    Custom(<W::Event as Event>::BubbledData),
+}
+
+#[derive(Debug)]
+pub enum Capture<W: WidgetCtx> {
     /// Event is captured by element and should not be handled by its parents
     Captured,
-
     // TODO: Maybe here should not be event but some mapped type to allow user
     // to change the logic?
     /// BubbleUp captured by parent
-    Bubble(BubbledData<E::BubbledData>),
+    Bubble(BubbledData<W>),
 }
 
-impl<E: Event> Into<EventResponse<E>> for Capture<E> {
+impl<W: WidgetCtx> Into<EventResponse<W>> for Capture<W> {
     #[inline]
-    fn into(self) -> EventResponse<E> {
+    fn into(self) -> EventResponse<W> {
         EventResponse::Break(self)
     }
 }
@@ -53,14 +91,14 @@ pub enum Propagate {
     // up. BubbleUp(ElId, E),
 }
 
-impl<E: Event> Into<EventResponse<E>> for Propagate {
+impl<W: WidgetCtx> Into<EventResponse<W>> for Propagate {
     #[inline]
-    fn into(self) -> EventResponse<E> {
+    fn into(self) -> EventResponse<W> {
         EventResponse::Continue(self)
     }
 }
 
-pub type EventResponse<E> = ControlFlow<Capture<E>, Propagate>;
+pub type EventResponse<W> = ControlFlow<Capture<W>, Propagate>;
 
 #[derive(Clone, Copy)]
 pub enum ButtonEdge {
@@ -80,6 +118,7 @@ impl ButtonEdge {
 }
 
 pub trait FocusEvent {
+    fn zero() -> Self;
     fn as_focus_move(&self) -> Option<i32>;
     fn as_focus_press(&self) -> bool;
     fn as_focus_release(&self) -> bool;
@@ -90,9 +129,10 @@ pub trait ExitEvent {
 }
 
 pub trait Event:
-    FocusEvent + ExitEvent + DevToolsToggle + DevElHover + Clone
+    FocusEvent + ExitEvent + DevToolsToggle + DevElHover + Debug + Clone
 {
-    type BubbledData;
+    /// User-defined bubbled data found in event responses
+    type BubbledData: Clone + Debug;
 }
 
 #[derive(Clone, Debug)]
@@ -118,6 +158,10 @@ impl ExitEvent for NullEvent {
 }
 
 impl FocusEvent for NullEvent {
+    fn zero() -> Self {
+        Self
+    }
+
     fn as_focus_move(&self) -> Option<i32> {
         None
     }

@@ -1,8 +1,9 @@
 {
-  "rust-analyzer.check.allTargets": true,
+  "rust-analyzer.check.allTargets": false,
   "git.ignoreLimitWarning": true,
-  "cSpell.words": [
-    "flexbox",
-    "textbox"
-  ]
+  "rust-analyzer.cargo.noDefaultFeatures": true,
+  "rust-analyzer.check.noDefaultFeatures": true,
+  "rust-analyzer.check.features": [],
+  "rust-analyzer.cargo.features": [],
+  "cSpell.words": ["flexbox", "textbox"]
 }

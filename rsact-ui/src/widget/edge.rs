@@ -1,9 +1,9 @@
-use crate::widget::prelude::*;
+use crate::widget::{prelude::*, Meta, MetaTree};
 use rsact_core::memo_chain::IntoMemoChain;
 
 pub struct Edge<W: WidgetCtx> {
     pub layout: Signal<Layout>,
-    style: MemoChain<BoxStyle<W::Color>>,
+    style: MemoChain<BlockStyle<W::Color>>,
 }
 
 impl<W: WidgetCtx + 'static> Edge<W> {
@@ -12,13 +12,13 @@ impl<W: WidgetCtx + 'static> Edge<W> {
             layout: Layout::shrink(LayoutKind::Edge)
                 .size(Size::fill())
                 .into_signal(),
-            style: BoxStyle::base().into_memo_chain(),
+            style: BlockStyle::base().into_memo_chain(),
         }
     }
 
     pub fn style(
         self,
-        styler: impl Fn(BoxStyle<W::Color>) -> BoxStyle<W::Color> + 'static,
+        styler: impl Fn(BlockStyle<W::Color>) -> BlockStyle<W::Color> + 'static,
     ) -> Self {
         self.style.last(move |prev_style| styler(*prev_style));
         self
@@ -28,6 +28,9 @@ impl<W: WidgetCtx + 'static> Edge<W> {
 impl<W: WidgetCtx + 'static> SizedWidget<W> for Edge<W> {}
 
 impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
+    fn meta(&self) -> crate::widget::MetaTree {
+        MetaTree::childless(Meta::none())
+    }
     fn layout(&self) -> Signal<Layout> {
         self.layout
     }
@@ -43,7 +46,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
 
         ctx.renderer.block(Block::from_layout_style(
             ctx.layout.area,
-            self.layout.get().box_model(),
+            self.layout.get().block_model(),
             style,
         ))
     }
@@ -51,8 +54,8 @@ impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
     fn on_event(
         &mut self,
         _ctx: &mut crate::widget::EventCtx<'_, W>,
-    ) -> crate::event::EventResponse<<W as WidgetCtx>::Event> {
-        Propagate::Ignored.into()
+    ) -> EventResponse<W> {
+        W::ignore()
     }
 }
 

@@ -49,7 +49,7 @@ pub fn model_flex(
 ) -> LayoutModel {
     let FlexLayout {
         wrap,
-        box_model,
+        block_model,
         axis,
         gap,
         horizontal_align,
@@ -58,7 +58,7 @@ pub fn model_flex(
     } = flex_layout;
 
     let full_padding =
-        box_model.padding + Padding::new_equal(box_model.border_width);
+        block_model.padding + Padding::new_equal(block_model.border_width);
 
     struct FlexItem {
         // Cross axis line number

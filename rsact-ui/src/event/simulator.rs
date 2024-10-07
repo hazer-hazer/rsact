@@ -5,7 +5,7 @@ use super::{
     dev::{DevElHover, DevToolsToggle},
     Event, ExitEvent, FocusEvent,
 };
-use crate::widgets::{
+use crate::widget::{
     button::ButtonEvent, scrollable::ScrollEvent, select::SelectEvent,
     slider::SliderEvent,
 };
@@ -32,6 +32,10 @@ impl ButtonEvent for SimulatorEvent {
 }
 
 impl FocusEvent for SimulatorEvent {
+    fn zero() -> Self {
+        Self::FocusMove(0)
+    }
+
     fn as_focus_move(&self) -> Option<i32> {
         match self {
             &SimulatorEvent::FocusMove(offset) => Some(offset),

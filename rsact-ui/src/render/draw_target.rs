@@ -13,7 +13,6 @@ use embedded_graphics::{
     },
 };
 use embedded_graphics_core::Drawable as _;
-use log::log;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Layer {

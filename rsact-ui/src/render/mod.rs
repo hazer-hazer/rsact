@@ -1,6 +1,6 @@
 use crate::{
-    layout::{box_model::BoxModel, padding::Padding, size::Size},
-    style::block::{BorderRadius, BorderStyle, BoxStyle},
+    layout::{block_model::BlockModel, padding::Padding, size::Size},
+    style::block::{BlockStyle, BorderRadius, BorderStyle},
     widget::DrawResult,
 };
 use color::Color;
@@ -33,11 +33,11 @@ impl<C: Color> Border<C> {
     //     Self { color: None, width: 1, radius: BorderRadius::zero() }
     // }
 
-    pub fn new(box_style: BoxStyle<C>, box_model: BoxModel) -> Self {
+    pub fn new(block_style: BlockStyle<C>, block_model: BlockModel) -> Self {
         Self {
-            color: box_style.border.color,
-            width: box_model.border_width,
-            radius: box_style.border.radius,
+            color: block_style.border.color.get(),
+            width: block_model.border_width,
+            radius: block_style.border.radius,
         }
     }
 
@@ -96,16 +96,20 @@ impl<C: Color + Copy> Block<C> {
     #[inline]
     pub fn from_layout_style(
         area: Rectangle,
-        BoxModel { border_width, padding: _ }: BoxModel,
-        BoxStyle {
+        BlockModel { border_width, padding: _ }: BlockModel,
+        BlockStyle {
             background_color,
             border: BorderStyle { color: border_color, radius },
-        }: BoxStyle<C>,
+        }: BlockStyle<C>,
     ) -> Self {
         Self {
-            border: Border { color: border_color, width: border_width, radius },
+            border: Border {
+                color: border_color.get(),
+                width: border_width,
+                radius,
+            },
             rect: area,
-            background: background_color,
+            background: background_color.get(),
         }
     }
 }

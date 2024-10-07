@@ -1,4 +1,6 @@
-use crate::widget::{prelude::*, BoxModelWidget, SizedWidget};
+use crate::widget::{
+    prelude::*, BlockModelWidget, Meta, MetaTree, SizedWidget,
+};
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 use layout::flex::flex_content_size;
@@ -117,20 +119,19 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Flex<W, Dir> {
 }
 
 impl<W: WidgetCtx + 'static, Dir: Direction> SizedWidget<W> for Flex<W, Dir> {}
-impl<W: WidgetCtx + 'static, Dir: Direction> BoxModelWidget<W>
+impl<W: WidgetCtx + 'static, Dir: Direction> BlockModelWidget<W>
     for Flex<W, Dir>
 {
 }
 
 impl<W: WidgetCtx + 'static, Dir: Direction> Widget<W> for Flex<W, Dir> {
-    fn children_ids(&self) -> Memo<Vec<ElId>> {
-        self.children.mapped(|children| {
-            children
-                .iter()
-                .map(|child| child.children_ids().get_cloned())
-                .flatten()
-                .collect()
-        })
+    fn meta(&self) -> MetaTree {
+        MetaTree {
+            data: Meta::none().into_memo(),
+            children: self
+                .children
+                .mapped(|children| children.iter().map(Widget::meta).collect()),
+        }
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
@@ -160,7 +161,7 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Widget<W> for Flex<W, Dir> {
     fn on_event(
         &mut self,
         ctx: &mut crate::widget::EventCtx<'_, W>,
-    ) -> crate::event::EventResponse<<W as WidgetCtx>::Event> {
+    ) -> EventResponse<W> {
         self.children.control_flow(|children| ctx.pass_to_children(children))
     }
 }

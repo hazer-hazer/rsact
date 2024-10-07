@@ -1,15 +1,17 @@
-use super::{container::Container, keyed::KeyedEl, mono_text::MonoText};
-use crate::{layout::LayoutKind, widget::prelude::*};
+use super::{
+    container::Container,
+    mono_text::{MonoText, MonoTextStyle},
+};
+use crate::{
+    declare_widget_style,
+    layout::LayoutKind,
+    style::{ColorStyle, Styler},
+    widget::{prelude::*, Meta, MetaTree},
+};
+use alloc::string::ToString;
 use core::{fmt::Display, marker::PhantomData};
-use embedded_graphics::{
-    prelude::{Point, Primitive, Transform},
-    primitives::{Line, PrimitiveStyleBuilder},
-};
-use layout::{
-    axis::{Anchor, AxisAnchorPoint},
-    flex::flex_content_size,
-    size::RectangleExt,
-};
+use embedded_graphics::prelude::{Point, Transform};
+use layout::{axis::Anchor, flex::flex_content_size, size::RectangleExt};
 use rsact_core::memo_chain::IntoMemoChain;
 
 pub trait SelectEvent {
@@ -18,8 +20,8 @@ pub trait SelectEvent {
 
 #[derive(Clone, Copy)]
 pub struct SelectState {
-    pressed: bool,
-    active: bool,
+    pub pressed: bool,
+    pub active: bool,
 }
 
 impl SelectState {
@@ -28,21 +30,32 @@ impl SelectState {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
-pub struct SelectStyle<C: Color> {
-    block: BoxStyle<C>,
-    selected: BoxStyle<C>,
+declare_widget_style! {
+    SelectStyle (SelectState) {
+        container: container,
+        selected: container {
+            selected_background_color: background_color,
+            selected_border_color: border_color,
+            selected_border_radius: border_radius,
+        },
+        selected_text_color: color {
+            transparent_selected_text_color: transparent,
+        },
+        text_color: color {
+            transparent_text_color: transparent,
+        },
+    }
 }
 
 impl<C: Color> SelectStyle<C> {
     pub fn base() -> Self {
         Self {
-            block: BoxStyle::base(),
-            selected: BoxStyle::base().border(
-                BorderStyle::base()
-                    .radius(5.into())
-                    .color(C::default_foreground()),
+            container: BlockStyle::base(),
+            selected: BlockStyle::base().border(
+                BorderStyle::base().radius(5).color(C::default_foreground()),
             ),
+            selected_text_color: ColorStyle::DefaultForeground,
+            text_color: ColorStyle::DefaultForeground,
         }
     }
 }
@@ -55,6 +68,7 @@ pub struct SelectOption<W: WidgetCtx, K: PartialEq> {
 impl<W: WidgetCtx, K: PartialEq> SelectOption<W, K> {
     pub fn new(key: K) -> Self
     where
+        W::Styler: Styler<MonoTextStyle<W::Color>, Class = ()>,
         K: Display,
     {
         let string = key.to_string();
@@ -75,86 +89,6 @@ impl<W: WidgetCtx, K: PartialEq> PartialEq for SelectOption<W, K> {
     }
 }
 
-// pub trait IntoSelectOption<W: WidgetCtx>: PartialEq {
-//     type Key: PartialEq + Clone;
-
-//     fn into_select_option(self) -> SelectOption<W, Self::Key>;
-// }
-
-// impl<W: WidgetCtx, K: PartialEq + Clone> IntoSelectOption<W>
-//     for SelectOption<W, K>
-// {
-//     type Key = K;
-
-//     fn into_select_option(self) -> SelectOption<W, Self::Key> {
-//         self
-//     }
-// }
-
-// impl<W: WidgetCtx, K: PartialEq + Clone + Display> IntoSelectOption<W> for K
-// {     type Key = K;
-
-//     fn into_select_option(self) -> SelectOption<W, Self::Key> {
-//         let string = self.to_string();
-//         SelectOption { key: self, el: MonoText::new(string).el() }
-//     }
-// }
-
-// impl<W: WidgetCtx, K: PartialEq + Clone> IntoSelectOption<W> for KeyedEl<W,
-// K> {     type Key = K;
-
-//     fn into_select_option(self) -> SelectOption<W, Self::Key> {
-//         SelectOption { key: self.key, el: self.el }
-//     }
-// }
-
-// pub trait IntoSelectOptions<W: WidgetCtx, K: PartialEq> {
-//     fn into_select_options(self) -> Vec<SelectOption<W, K>>;
-// }
-
-// impl<T, W, K> IntoSelectOptions<W, K> for T
-// where
-//     T: IntoIterator<Item = SelectOption<W, K>> + 'static,
-//     W: WidgetCtx,
-//     K: PartialEq + Clone + 'static,
-// {
-//     fn into_select_options(self) -> Vec<SelectOption<W, K>> {
-//         let options = self.into_iter().collect::<Vec<SelectOption<W, K>>>();
-//         use_memo(move |_| options)
-//     }
-// }
-
-// impl<W: WidgetCtx, K: PartialEq + Display + 'static> SelectOption<W, K> {
-//     pub fn new(key: impl IntoMemo<K>) -> Self {
-//         let key = key.into_memo();
-
-//         Self {
-//             key,
-//             el: Container::new(
-//                 MonoText::new(key.mapped(alloc::string::ToString::to_string))
-//                     .el(),
-//             )
-//             .padding(5)
-//             .el(),
-//         }
-//     }
-// }
-
-// pub trait SelectOption<W: WidgetCtx>: PartialEq {
-//     fn eq(&self, other: &Self) -> bool;
-//     fn el(&self) -> &El<W>;
-// }
-
-// impl<W: WidgetCtx, K: PartialEq> SelectOption<W> for (K, El<W>) {
-//     fn eq(&self, other: &Self) -> bool {
-//         self.0 == other.0
-//     }
-
-//     fn el(&self) -> &El<W> {
-//         &self.1
-//     }
-// }
-
 pub struct Select<W: WidgetCtx, K: PartialEq, Dir: Direction> {
     id: ElId,
     layout: Signal<Layout>,
@@ -165,27 +99,10 @@ pub struct Select<W: WidgetCtx, K: PartialEq, Dir: Direction> {
     dir: PhantomData<Dir>,
 }
 
-impl<W, K, Dir> BoxModelWidget<W> for Select<W, K, Dir>
-where
-    W::Event: SelectEvent,
-    W: WidgetCtx,
-    K: PartialEq + Display + 'static,
-    Dir: Direction,
-{
-}
-
-impl<W, K, Dir> SizedWidget<W> for Select<W, K, Dir>
-where
-    W::Event: SelectEvent,
-    W: WidgetCtx,
-    K: PartialEq + Clone + Display + 'static,
-    Dir: Direction,
-{
-}
-
 impl<W, K> Select<W, K, ColDir>
 where
     W: WidgetCtx,
+    W::Styler: Styler<MonoTextStyle<W::Color>, Class = ()>,
     K: PartialEq + Clone + Display + 'static,
 {
     pub fn vertical(options: impl IntoMemo<Vec<K>>) -> Self {
@@ -195,6 +112,7 @@ where
 
 impl<W, K> Select<W, K, RowDir>
 where
+    W::Styler: Styler<MonoTextStyle<W::Color>, Class = ()>,
     W: WidgetCtx,
     K: PartialEq + Clone + Display + 'static,
 {
@@ -207,6 +125,7 @@ impl<W, K, Dir> Select<W, K, Dir>
 where
     K: PartialEq + Clone + Display + 'static,
     W: WidgetCtx,
+    W::Styler: Styler<MonoTextStyle<W::Color>, Class = ()>,
     Dir: Direction,
 {
     pub fn new(options: impl IntoMemo<Vec<K>>) -> Self {
@@ -272,19 +191,38 @@ where
     }
 }
 
+impl<W, K, Dir> BlockModelWidget<W> for Select<W, K, Dir>
+where
+    W::Event: SelectEvent,
+    W: WidgetCtx,
+    K: PartialEq + Display + 'static,
+    Dir: Direction,
+    W::Styler: Styler<SelectStyle<W::Color>, Class = ()>,
+{
+}
+
+impl<W, K, Dir> SizedWidget<W> for Select<W, K, Dir>
+where
+    W::Event: SelectEvent,
+    W: WidgetCtx,
+    K: PartialEq + Clone + Display + 'static,
+    Dir: Direction,
+    W::Styler: Styler<SelectStyle<W::Color>, Class = ()>,
+{
+}
+
 impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> Widget<W>
     for Select<W, K, Dir>
 where
     W::Event: SelectEvent,
+    W::Styler: Styler<SelectStyle<W::Color>, Class = ()>,
 {
-    fn children_ids(&self) -> Memo<Vec<ElId>> {
-        let id = self.id;
-        use_memo(move |_| vec![id])
+    fn meta(&self) -> MetaTree {
+        MetaTree::childless(Meta::focusable(self.id))
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
-        // TODO: Styles
-        let _ = ctx;
+        ctx.accept_styles(self.style, self.state);
     }
 
     fn layout(&self) -> Signal<Layout> {
@@ -305,30 +243,11 @@ where
 
         ctx.draw_focus_outline(self.id)?;
 
-        // ctx.renderer.line(
-        //     Line::new(
-        //         ctx.layout.area.anchor_point(
-        //             Dir::AXIS
-        //                 .canon::<AxisAnchorPoint>(Anchor::Center,
-        // Anchor::Start)                 .into(),
-        //         ),
-        //         ctx.layout.area.anchor_point(
-        //             Dir::AXIS
-        //                 .canon::<AxisAnchorPoint>(Anchor::Center,
-        // Anchor::End)                 .into(),
-        //         ),
-        //     )
-        //     .into_styled(
-        //         PrimitiveStyleBuilder::new()
-        //             .stroke_width(2)
-        //             .stroke_color(W::Color::default_foreground())
-        //             .build(),
-        //     ),
-        // )?;
-
         let children_layouts = ctx.layout.children().collect::<Vec<_>>();
 
-        let options_offset = if let Some(selected) = self.selected.get() {
+        let selected = self.selected.get();
+
+        let options_offset = if let Some(selected) = selected {
             let selected_child_layout = children_layouts.get(selected).unwrap();
 
             let options_offset =
@@ -343,7 +262,7 @@ where
                         ctx.layout.area.size.cross(Dir::AXIS),
                         Anchor::Center,
                     ),
-                BoxModel::zero().border_width(1),
+                BlockModel::zero().border_width(1),
                 style.selected,
             ))?;
 
@@ -356,11 +275,26 @@ where
 
         self.options.with(move |options| {
             ctx.renderer.clipped(ctx.layout.area, |renderer| {
-                DrawCtx { state: ctx.state, renderer, layout: ctx.layout }
-                    .draw_mapped_layouts(
-                        options.iter().map(SelectOption::widget),
-                        |layout| layout.translate(options_offset),
-                    )
+                options
+                    .iter()
+                    .zip(ctx.layout.children())
+                    .enumerate()
+                    .try_for_each(|(index, (option, option_layout))| {
+                        let mut ctx = DrawCtx {
+                            state: ctx.state,
+                            renderer,
+                            layout: &option_layout.translate(options_offset),
+                            tree_style: ctx.tree_style.text_color(
+                                if Some(index) == selected {
+                                    style.selected_text_color
+                                } else {
+                                    style.text_color
+                                }
+                                .get(),
+                            ),
+                        };
+                        option.widget().draw(&mut ctx)
+                    })
             })
         })
     }
@@ -368,7 +302,7 @@ where
     fn on_event(
         &mut self,
         ctx: &mut EventCtx<'_, W>,
-    ) -> EventResponse<<W as WidgetCtx>::Event> {
+    ) -> EventResponse<W> {
         let current_state = self.state.get();
 
         if current_state.active && ctx.is_focused(self.id) {
@@ -397,7 +331,7 @@ where
                     self.selected.set(new);
                 }
 
-                return Capture::Captured.into();
+                return W::capture();
             }
         }
 
@@ -416,9 +350,9 @@ where
                     }
                 });
 
-                Capture::Captured.into()
+                W::capture()
             } else {
-                Propagate::Ignored.into()
+                W::ignore()
             }
         })
     }

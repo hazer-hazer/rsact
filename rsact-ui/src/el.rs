@@ -64,8 +64,8 @@ where
         }
     }
 
-    fn children_ids(&self) -> Memo<Vec<ElId>> {
-        self.widget.children_ids()
+    fn meta(&self) -> crate::widget::MetaTree {
+        self.widget.meta()
     }
 
     fn layout(&self) -> Signal<Layout> {
@@ -80,50 +80,40 @@ where
         self.widget.draw(ctx)
     }
 
-    fn on_event(
-        &mut self,
-        ctx: &mut EventCtx<'_, W>,
-    ) -> EventResponse<<W as WidgetCtx>::Event> {
+    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse<W> {
         self.widget.on_event(ctx)
-        //     ctx.is_focused = Some(self.id) == ctx.page_state.focused;
-
-        //     let behavior = self.behavior();
-        //     if behavior.focusable {
-        //         if let Some(common) = ctx.event.as_common() {
-        //             match common {
-        //                 crate::event::CommonEvent::FocusMove(_)
-        //                     if ctx.is_focused =>
-        //                 {
-        //                     return Propagate::BubbleUp(self.id,
-        // ctx.event.clone())                         .into()
-        //                 },
-        //                 _ => {},
-        //             }
-        //         }
-        //     }
-
-        //     self.widget.on_event(ctx)
     }
 }
 
-// impl<T, W: WidgetCtx> IntoSignal<El<W>> for T
-// where
-//     T: Widget<W>,
-// {
-//     fn into_signal(self) -> Signal<El<W>> {
-//         todo!()
-//     }
+// macro_rules! el {
+//     ($ctor:path $({
+//         $($builder:ident : $value:expr,)*
+//         $($children: tt)?
+//         $(,)?
+//     })?) => {
+//         $ctor($($crate::el::el!(@children $children))?)
+//             $(.$builder($value))*
+//             .el()
+//     };
+
+//     (@ctor $ctor:path) => {
+//         $ctor
+//     };
+
+//     (@children [
+//         $($el: tt),*
+//         $(,)?
+//     ]) => {
+//         vec![$($crate::el::el!($el)),*]
+//     };
+
+//     (@children $el: tt) => {
+//         $crate::el::el!($el)
+//     };
 // }
 
-// pub trait IntoElSignal<W: WidgetCtx> {
-//     fn into_el(self) -> Signal<El<W>>;
-// }
-
-// impl<W: WidgetCtx, T> IntoElSignal<W> for T
-// where
-//     T: ReadSignal<El<W>>,
-// {
-//     fn into_el(self) -> Signal<El<W>> {
-
-//     }
+// fn foo() {
+//     let a = el!(Button::new {
+//         Mono
+//     });
 // }

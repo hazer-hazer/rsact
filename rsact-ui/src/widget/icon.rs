@@ -1,9 +1,11 @@
 use crate::{
-    event::Propagate,
+    declare_widget_style,
+    event::EventResponse,
     font::FontSize,
-    layout::{size::Size, Layout, LayoutKind, Limits},
+    layout::{Layout, LayoutKind},
     render::{color::Color, Renderer},
-    widget::{Widget, WidgetCtx},
+    style::{ColorStyle, Styler},
+    widget::{Meta, MetaTree, MountCtx, Widget, WidgetCtx},
 };
 use embedded_graphics::{
     iterator::raw::RawDataSlice,
@@ -15,7 +17,7 @@ use rsact_core::{
     mapped,
     memo::{IntoMemo, MemoTree},
     memo_chain::IntoMemoChain,
-    prelude::{use_memo, use_signal, MemoChain},
+    prelude::{use_signal, MemoChain},
     signal::{IntoSignal, ReadSignal, Signal, SignalMapper, SignalSetter},
 };
 
@@ -34,15 +36,19 @@ impl IconKind {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
-pub struct IconStyle<C: Color> {
-    background: Option<C>,
-    color: Option<C>,
+declare_widget_style! {
+    IconStyle () {
+        background: color,
+        color: color,
+    }
 }
 
 impl<C: Color> IconStyle<C> {
     pub fn base() -> Self {
-        Self { background: None, color: Some(C::default_foreground()) }
+        Self {
+            background: ColorStyle::Unset,
+            color: ColorStyle::DefaultForeground,
+        }
     }
 }
 
@@ -69,8 +75,17 @@ impl<W: WidgetCtx> Icon<W> {
     }
 }
 
-impl<W: WidgetCtx> Widget<W> for Icon<W> {
-    fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
+impl<W: WidgetCtx> Widget<W> for Icon<W>
+where
+    W::Styler: Styler<IconStyle<W::Color>, Class = ()>,
+{
+    fn meta(&self) -> MetaTree {
+        MetaTree::childless(Meta::none())
+    }
+
+    fn on_mount(&mut self, ctx: MountCtx<W>) {
+        ctx.accept_styles(self.style, ());
+
         let viewport = ctx.viewport;
         let size = self.size;
 
@@ -98,8 +113,8 @@ impl<W: WidgetCtx> Widget<W> for Icon<W> {
         ctx.renderer.translucent_pixel_iter(
             icon.data.into_iter().enumerate().map(|(index, color)| {
                 let color = match color.into_inner() {
-                    0 => style.background,
-                    1 => style.color,
+                    0 => style.background.get(),
+                    1 => style.color.get(),
                     _ => None,
                 }?;
 
@@ -122,9 +137,9 @@ impl<W: WidgetCtx> Widget<W> for Icon<W> {
     fn on_event(
         &mut self,
         ctx: &mut crate::widget::EventCtx<'_, W>,
-    ) -> crate::event::EventResponse<<W as WidgetCtx>::Event> {
+    ) -> EventResponse<W> {
         let _ = ctx;
 
-        Propagate::Ignored.into()
+        W::ignore()
     }
 }

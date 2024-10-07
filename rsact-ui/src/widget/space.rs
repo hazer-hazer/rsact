@@ -1,12 +1,12 @@
 use crate::layout::LayoutKind;
-use crate::widget::prelude::*;
+use crate::widget::{prelude::*, Meta, MetaTree};
 use crate::{
     el::El,
-    event::{EventResponse, Propagate},
+    event::EventResponse,
     layout::{
         axis::{ColDir, Direction, RowDir},
         size::Length,
-        Layout, Limits,
+        Layout,
     },
     widget::{DrawCtx, DrawResult, EventCtx, Widget, WidgetCtx},
 };
@@ -51,6 +51,10 @@ impl<W: WidgetCtx, Dir: Direction> Space<W, Dir> {
 }
 
 impl<W: WidgetCtx, Dir: Direction> Widget<W> for Space<W, Dir> {
+    fn meta(&self) -> MetaTree {
+        MetaTree::childless(Meta::none())
+    }
+
     fn layout(&self) -> Signal<Layout> {
         self.layout
     }
@@ -65,11 +69,8 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Space<W, Dir> {
         Ok(())
     }
 
-    fn on_event(
-        &mut self,
-        _ctx: &mut EventCtx<'_, W>,
-    ) -> EventResponse<<W as WidgetCtx>::Event> {
-        Propagate::Ignored.into()
+    fn on_event(&mut self, _ctx: &mut EventCtx<'_, W>) -> EventResponse<W> {
+        W::ignore()
     }
 }
 
