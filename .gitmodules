@@ -1,3 +1,9 @@
 [submodule "rsact-icons/build/MaterialDesign"]
 	path = rsact-icons/build/MaterialDesign
 	url = git@github.com:Templarian/MaterialDesign.git
+[submodule "rsact-icons/icon-libs/material-design-icons"]
+	path = rsact-icons/icon-libs/material-design-icons
+	url = git@github.com:google/material-design-icons.git
+[submodule "rsact-icons/icon-libs/material-design"]
+	path = rsact-icons/icon-libs/material-design
+	url = git@github.com:Templarian/MaterialDesign.git
