@@ -1,98 +1,39 @@
-macro_rules! icon_set {
-    (@icon $set: ident $icon_kind: ident: $filename: literal $({
-        $($modifier: ident: $value: expr),*
-    })?) => {{
-        let icon = crate::Icon {
-            source_filename: $filename,
-            data: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/icon-libs/material-design/svg/", $filename, ".svg")),
-            name: stringify!($icon_kind),
-            // modifiers: icon_set!(@modifiers $($($modifier: $value),*)?),
-            kind: $set::$icon_kind,
-        };
-
-        icon
-    }};
-
-    (@modifiers $modifiers: expr; $($modifier: ident: $value: expr),*) => {{
-        let modifiers = $modifiers;
-
-        $(
-            let modifiers = modifiers.$modifier($value);
-        )*
-
-        modifiers
-    }};
-
-    // (@inner $filename: ident) => {
-    //     icons!(@inner $filename: &stringify!($filename).to_case(convert_case::Case::Camel))
-    // };
-
-    // (@filename $filename: ident) => {
-    //     stringify!($filename)
-    // };
-
-    // (@filename $filename: literal) => {
-    //     $filename
-    // };
-
-    ($set: ident [($sizes: literal),*] $alpha_cutoff: literal {
-        $($icon_kind: ident $(: $filename: literal)? $({
-            $($modifier: ident: $modifier_value: expr),*
-            $(, $size: literal => {
-                $($size_modifier: ident: $size_modifier_value: expr),*
-            })?
-            $(,)?
-        })?),* $(,)?
-    }) => {
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-        pub enum $set {
-            $($icon_kind),*
-        }
-
-        impl crate::IconSet for $set {
-            const BASE_ALPHA_CUTOFF: u8 = $alpha_cutoff;
-
-            fn name() -> &'static str {
-                stringify!($set)
-            }
-
-            fn sizes() -> &'static [u32] {
-                const SIZES: &[u32] = &[$($sizes),*];
-                SIZES
-            }
-
-            fn icons() -> &'static [Icon<Self>] {
-                const ICONS: &[crate::Icon<$set>] = &[
-                    $(icon_set!(@icon $set $icon_kind $(: $filename)? $({
-                        $($modifier: $modifier_value),*
-                    })?)),*
-                ];
-
-                ICONS
-            }
-
-            fn modifiers(size: u32, kind: Self) -> Modifiers {
-                match kind {
-                    $($icon_kind => {
-                        let modifiers = icon_set!(@modifiers Modifiers::none(); $($modifier: $modifier_value),*);
-                        
-                    }),*
-                }
-            }
-        }
-    };
-}
+use crate::icon_set::icon_set;
 
 // Note: Keep alphabetic order of icon names, please.
 // Extended means that symbols aren't universal for all sizes and should be
 // added in the future extended icon packs
 icon_set! {
-    CommonIcon [
+    CommonIcon 0x60 [
+        6 {alpha_cutoff: 0x60},
+        7 {alpha_cutoff: 0x40},
+        8 {alpha_cutoff: 0x3f},
+        9 {alpha_cutoff: 0x7f},
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+    ] {
         // atom: Atom,
         Account: "account",
         AccountBox: "account-box",
         AccountCircle: "account-circle",
-        Add: "plus",
+        Add: "plus" [
+            6 {
+                alpha_cutoff: 0x00,
+            },
+        ],
         // TODO: Extended
         // AddBox: "plus-box" {
         //     alpha_cutoff: 0xc0,
@@ -107,7 +48,17 @@ icon_set! {
         },
         AlertBox: "alert-box" {
             alpha_cutoff: 0xa0,
-        },
+        } [
+            6 {
+                alpha_cutoff: 0xd0,
+            },
+            7 {
+                alpha_cutoff: 0xba,
+            },
+            9 {
+                alpha_cutoff: 0x40,
+            }
+        ],
         // TODO: Looks bad
         // AllInclusive: "all-inclusive" {
         //     alpha_cutoff: 0x5a,
@@ -624,5 +575,5 @@ icon_set! {
         Wifi: "wifi" {
             alpha_cutoff: 0x70,
         },
-    ]
+    }
 }

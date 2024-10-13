@@ -13,6 +13,7 @@ use syn::Ident;
 use usvg::{Transform, Tree};
 
 mod common;
+pub mod icon_set;
 
 use common::CommonIcon;
 
@@ -78,27 +79,27 @@ type Bits = BitVec<u8, Msb0>;
 // }
 
 pub struct Modifiers {
-    alpha_cutoff: Option<u8>,
-    scale: (Option<f32>, Option<f32>),
+    alpha_cutoff: u8,
+    scale: (f32, f32),
 }
 
 impl Modifiers {
-    const fn none() -> Self {
-        Self { alpha_cutoff: None, scale: (None, None) }
+    const fn base(alpha_cutoff: u8) -> Self {
+        Self { alpha_cutoff, scale: (1.0, 1.0) }
     }
 
     const fn alpha_cutoff(mut self, alpha_cutoff: u8) -> Self {
-        self.alpha_cutoff = Some(alpha_cutoff);
+        self.alpha_cutoff = alpha_cutoff;
         self
     }
 
     const fn scale_x(mut self, scale: f32) -> Self {
-        self.scale.0 = Some(scale);
+        self.scale.0 = scale;
         self
     }
 
     const fn scale_y(mut self, scale: f32) -> Self {
-        self.scale.1 = Some(scale);
+        self.scale.1 = scale;
         self
     }
 }
@@ -108,8 +109,6 @@ pub struct Icon<S: IconSet> {
     data: &'static str,
     name: &'static str,
     kind: S,
-    // /// Base modifier per icon in set, for all sizes
-    // modifiers: Modifiers,
 }
 
 impl<S: IconSet> Icon<S> {
@@ -119,16 +118,9 @@ impl<S: IconSet> Icon<S> {
 }
 
 pub trait IconSet: Sized + Copy + 'static {
-    const BASE_ALPHA_CUTOFF: u8;
-
     fn name() -> &'static str;
     fn sizes() -> &'static [u32];
     fn icons() -> &'static [Icon<Self>];
-    fn alpha_cutoff(size: u32, kind: Self) -> u8 {
-        Self::modifiers(size, kind)
-            .alpha_cutoff
-            .unwrap_or(Self::BASE_ALPHA_CUTOFF)
-    }
     fn modifiers(size: u32, kind: Self) -> Modifiers;
 }
 
@@ -156,8 +148,8 @@ fn draw(bit_vec: &Bits, size: usize) -> String {
 }
 
 fn render<S: IconSet>(size: u32, icon: &Icon<S>) -> Bits {
-    let opts = S::modifiers(size, icon.kind);
-    let scale = opts.scale;
+    let mods = S::modifiers(size, icon.kind);
+    let scale = mods.scale;
 
     let mut pixmap = Pixmap::new(size, size).unwrap();
 
@@ -183,7 +175,7 @@ fn render<S: IconSet>(size: u32, icon: &Icon<S>) -> Bits {
 
     // println!("Translate {pre_translate:?}");
 
-    let scale = (scale.0.unwrap_or(1.0), scale.1.unwrap_or(1.0));
+    let scale = (scale.0, scale.1);
 
     resvg::render(
         &Tree::from_str(
@@ -208,15 +200,13 @@ fn render<S: IconSet>(size: u32, icon: &Icon<S>) -> Bits {
         &mut pixmap.as_mut(),
     );
 
-    let alpha_cutoff = S::alpha_cutoff(size, icon.kind);
-
     pixmap
         .data()
         .iter()
         .enumerate()
         .filter(|(a, _)| a % 4 == 3 /* select alpha channel */)
         .map(|(_, b)| *b) // discard index
-        .map(|alpha| alpha > alpha_cutoff)
+        .map(|alpha| alpha > mods.alpha_cutoff)
         .collect()
 }
 
@@ -343,10 +333,6 @@ fn gen_set<S: IconSet>() -> usize {
             #[cfg(feature = #size_features)]
             pub mod #mod_names;
         )*
-
-        // pub enum CommonIcon {
-        //     #(#),*
-        // }
     };
 
     let mod_filepath = &Path::new(OUTPUT_DIR).join("mod").with_extension("rs");
@@ -367,92 +353,92 @@ fn gen_set<S: IconSet>() -> usize {
     set_memory
 }
 
-// const OPTS: &[RenderOptions] = &[
-//     RenderOptions::new(6, 0x60).modify(|kind| match kind {
-//         CommonIcon::Add => Modifiers::none().alpha_cutoff(0x00),
-//         CommonIcon::ArrowExpand | CommonIcon::ArrowExpandAll => {
-//             Modifiers::none().alpha_cutoff(0xa0)
-//         },
-//         CommonIcon::AlertBox => Modifiers::none().alpha_cutoff(0xd0),
-//         CommonIcon::Archive => Modifiers::none().alpha_cutoff(0xbf),
-//         CommonIcon::Bars => Modifiers::none().scale_y(1.2),
-//         CommonIcon::Bell => Modifiers::none().scale_y(0.91),
-//         CommonIcon::Bolt =>
-// Modifiers::none().alpha_cutoff(0x40).scale_y(1.2),         CommonIcon::Clock
-// => Modifiers::none().alpha_cutoff(0x3f).scale_x(1.01),
-//         CommonIcon::CloseCircle => Modifiers::none().alpha_cutoff(0xc0),
-//         CommonIcon::Comment => {
-//             Modifiers::none().alpha_cutoff(0xb0).scale_x(0.9)
-//         },
-//         CommonIcon::Commit => Modifiers::none().alpha_cutoff(0x30),
-//         CommonIcon::Cup => Modifiers::none().alpha_cutoff(0x30),
-//         // IconKind::Delete => Modifiers::none().alpha_cutoff(0x60),
-//         // IconKind::Eject =>
-// Modifiers::none().alpha_cutoff(0xa0).scale_y(2.0),
-//         CommonIcon::DotsHorizontal => {
-//             Modifiers::none().alpha_cutoff(0x80).scale_y(1.2).scale_x(0.9)
-//         },
-//         CommonIcon::DotsVertical => {
-//             Modifiers::none().scale_x(1.2).alpha_cutoff(0x8f).scale_y(0.9)
-//         },
-//         CommonIcon::Eye => Modifiers::none().alpha_cutoff(0x70),
-//         CommonIcon::Equal => Modifiers::none().alpha_cutoff(0x3f),
-//         CommonIcon::Function => {
-//             Modifiers::none().alpha_cutoff(0x20).scale_x(1.1)
-//         },
-//         CommonIcon::Heart => Modifiers::none().alpha_cutoff(0xc0),
-//         CommonIcon::Magnet => {
-//             Modifiers::none().alpha_cutoff(0xb0).scale_y(1.05)
-//         },
-//         // IconKind::Lock => Modifiers::none().alpha_cutoff(0x30),
-//         CommonIcon::Thermometer => Modifiers::none().alpha_cutoff(0x60),
-//         CommonIcon::Pencil => Modifiers::none().alpha_cutoff(0x60),
-//         CommonIcon::PlusMinus => Modifiers::none().alpha_cutoff(0x30),
-//         CommonIcon::Send => Modifiers::none().alpha_cutoff(0x80),
-//         CommonIcon::StepForward | CommonIcon::StepBackward => {
-//             Modifiers::none().alpha_cutoff(0xa0).scale_x(1.1)
-//         },
-//         CommonIcon::Terminal => Modifiers::none().alpha_cutoff(0x50),
-//         _ => Modifiers::none(),
-//     }),
-//     RenderOptions::new(7, 0x40).modify(|kind| match kind {
-//         CommonIcon::AlertBox => Modifiers::none().alpha_cutoff(0xba),
-//         CommonIcon::Archive => Modifiers::none().alpha_cutoff(0x80),
-//         CommonIcon::ArrowLeft | CommonIcon::ArrowRight => {
-//             Modifiers::none().alpha_cutoff(0x10)
-//         },
-//         CommonIcon::Bell => Modifiers::none().scale_y(0.9),
-//         CommonIcon::Delete => Modifiers::none().alpha_cutoff(0x7f),
-//         CommonIcon::Exclamation => Modifiers::none().alpha_cutoff(0x40),
-//         CommonIcon::Heart => Modifiers::none().alpha_cutoff(0xa0),
-//         CommonIcon::Hourglass => Modifiers::none().alpha_cutoff(0x7a),
-//         // IconKind::Lock => Modifiers::none().alpha_cutoff(0x30),
-//         CommonIcon::Thermometer => Modifiers::none().alpha_cutoff(0x30),
-//         _ => Modifiers::none(),
-//     }),
-//     RenderOptions::new(8, 0x3f).modify(|kind| match kind {
-//         CommonIcon::Archive => {
-//             Modifiers::none().alpha_cutoff(0xc0).scale_y(1.1)
-//         },
-//         CommonIcon::Delete => Modifiers::none().alpha_cutoff(0x70),
-//         CommonIcon::Link => Modifiers::none().alpha_cutoff(0x60),
-//         CommonIcon::Pencil => Modifiers::none().alpha_cutoff(0x70),
-//         CommonIcon::Pin => Modifiers::none().alpha_cutoff(0x30),
-//         CommonIcon::PlusMinus => {
-//             Modifiers::none().alpha_cutoff(0x60).scale_y(1.1)
-//         },
-//         CommonIcon::Share => Modifiers::none().alpha_cutoff(0x20),
-//         _ => Modifiers::none(),
-//     }),
-//     RenderOptions::new(9, 0x7f).modify(|kind| match kind {
-//         CommonIcon::AlertBox => Modifiers::none().alpha_cutoff(0x40),
-//         CommonIcon::Bookmark => Modifiers::none().alpha_cutoff(0xb0),
-//         CommonIcon::Droplet => Modifiers::none().alpha_cutoff(0x10),
-//         CommonIcon::Heart => Modifiers::none().alpha_cutoff(0x50),
-//         _ => Modifiers::none(),
-//     }),
-//     RenderOptions::new(24, 0x80),
-// ];
+const OPTS: &[RenderOptions] = &[
+    RenderOptions::new(6, 0x60).modify(|kind| match kind {
+        CommonIcon::Add => Modifiers::none().alpha_cutoff(0x00),
+        CommonIcon::ArrowExpand | CommonIcon::ArrowExpandAll => {
+            Modifiers::none().alpha_cutoff(0xa0)
+        },
+        CommonIcon::AlertBox => Modifiers::none().alpha_cutoff(0xd0),
+        CommonIcon::Archive => Modifiers::none().alpha_cutoff(0xbf),
+        CommonIcon::Bars => Modifiers::none().scale_y(1.2),
+        CommonIcon::Bell => Modifiers::none().scale_y(0.91),
+        CommonIcon::Bolt =>
+Modifiers::none().alpha_cutoff(0x40).scale_y(1.2),         CommonIcon::Clock
+=> Modifiers::none().alpha_cutoff(0x3f).scale_x(1.01),
+        CommonIcon::CloseCircle => Modifiers::none().alpha_cutoff(0xc0),
+        CommonIcon::Comment => {
+            Modifiers::none().alpha_cutoff(0xb0).scale_x(0.9)
+        },
+        CommonIcon::Commit => Modifiers::none().alpha_cutoff(0x30),
+        CommonIcon::Cup => Modifiers::none().alpha_cutoff(0x30),
+        // IconKind::Delete => Modifiers::none().alpha_cutoff(0x60),
+        // IconKind::Eject =>
+Modifiers::none().alpha_cutoff(0xa0).scale_y(2.0),
+        CommonIcon::DotsHorizontal => {
+            Modifiers::none().alpha_cutoff(0x80).scale_y(1.2).scale_x(0.9)
+        },
+        CommonIcon::DotsVertical => {
+            Modifiers::none().scale_x(1.2).alpha_cutoff(0x8f).scale_y(0.9)
+        },
+        CommonIcon::Eye => Modifiers::none().alpha_cutoff(0x70),
+        CommonIcon::Equal => Modifiers::none().alpha_cutoff(0x3f),
+        CommonIcon::Function => {
+            Modifiers::none().alpha_cutoff(0x20).scale_x(1.1)
+        },
+        CommonIcon::Heart => Modifiers::none().alpha_cutoff(0xc0),
+        CommonIcon::Magnet => {
+            Modifiers::none().alpha_cutoff(0xb0).scale_y(1.05)
+        },
+        // IconKind::Lock => Modifiers::none().alpha_cutoff(0x30),
+        CommonIcon::Thermometer => Modifiers::none().alpha_cutoff(0x60),
+        CommonIcon::Pencil => Modifiers::none().alpha_cutoff(0x60),
+        CommonIcon::PlusMinus => Modifiers::none().alpha_cutoff(0x30),
+        CommonIcon::Send => Modifiers::none().alpha_cutoff(0x80),
+        CommonIcon::StepForward | CommonIcon::StepBackward => {
+            Modifiers::none().alpha_cutoff(0xa0).scale_x(1.1)
+        },
+        CommonIcon::Terminal => Modifiers::none().alpha_cutoff(0x50),
+        _ => Modifiers::none(),
+    }),
+    RenderOptions::new(7, 0x40).modify(|kind| match kind {
+        CommonIcon::AlertBox => Modifiers::none().alpha_cutoff(0xba),
+        CommonIcon::Archive => Modifiers::none().alpha_cutoff(0x80),
+        CommonIcon::ArrowLeft | CommonIcon::ArrowRight => {
+            Modifiers::none().alpha_cutoff(0x10)
+        },
+        CommonIcon::Bell => Modifiers::none().scale_y(0.9),
+        CommonIcon::Delete => Modifiers::none().alpha_cutoff(0x7f),
+        CommonIcon::Exclamation => Modifiers::none().alpha_cutoff(0x40),
+        CommonIcon::Heart => Modifiers::none().alpha_cutoff(0xa0),
+        CommonIcon::Hourglass => Modifiers::none().alpha_cutoff(0x7a),
+        // IconKind::Lock => Modifiers::none().alpha_cutoff(0x30),
+        CommonIcon::Thermometer => Modifiers::none().alpha_cutoff(0x30),
+        _ => Modifiers::none(),
+    }),
+    RenderOptions::new(8, 0x3f).modify(|kind| match kind {
+        CommonIcon::Archive => {
+            Modifiers::none().alpha_cutoff(0xc0).scale_y(1.1)
+        },
+        CommonIcon::Delete => Modifiers::none().alpha_cutoff(0x70),
+        CommonIcon::Link => Modifiers::none().alpha_cutoff(0x60),
+        CommonIcon::Pencil => Modifiers::none().alpha_cutoff(0x70),
+        CommonIcon::Pin => Modifiers::none().alpha_cutoff(0x30),
+        CommonIcon::PlusMinus => {
+            Modifiers::none().alpha_cutoff(0x60).scale_y(1.1)
+        },
+        CommonIcon::Share => Modifiers::none().alpha_cutoff(0x20),
+        _ => Modifiers::none(),
+    }),
+    RenderOptions::new(9, 0x7f).modify(|kind| match kind {
+        CommonIcon::AlertBox => Modifiers::none().alpha_cutoff(0x40),
+        CommonIcon::Bookmark => Modifiers::none().alpha_cutoff(0xb0),
+        CommonIcon::Droplet => Modifiers::none().alpha_cutoff(0x10),
+        CommonIcon::Heart => Modifiers::none().alpha_cutoff(0x50),
+        _ => Modifiers::none(),
+    }),
+    RenderOptions::new(24, 0x80),
+];
 
 fn main() {
     if !fs::exists(OUTPUT_DIR).unwrap() {
