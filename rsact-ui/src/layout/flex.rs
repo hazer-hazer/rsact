@@ -46,6 +46,7 @@ pub fn model_flex(
     parent_limits: Limits,
     flex_layout: FlexLayout,
     size: Size<Length>,
+    viewport: Memo<Size>,
 ) -> LayoutModel {
     let FlexLayout {
         wrap,
@@ -148,6 +149,7 @@ pub fn model_flex(
                         axis.canon(line.free_main, container_free_cross),
                     ),
                     size,
+                    viewport,
                 );
 
                 // Min content size of child must have been less or
@@ -328,6 +330,7 @@ pub fn model_flex(
                     *child,
                     Limits::new(child_min_size, child_max_size),
                     size,
+                    viewport,
                 );
             }
 
@@ -396,4 +399,5 @@ pub fn model_flex(
             }),
         ),
     )
+    .full_padding(full_padding)
 }

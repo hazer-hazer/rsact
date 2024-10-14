@@ -19,6 +19,11 @@ proc-macro2 = "1.0.87"
 quote = "1.0.37"
 
 [features]
+# TODO: Default to common when IconKind implemented
+default = ["system", "all-sizes"]
+
+# Icon sizes
+5px = []
 6px = []
 7px = []
 8px = []
@@ -38,3 +43,10 @@ quote = "1.0.37"
 22px = []
 23px = []
 24px = []
+
+all-sizes = ["5px", "6px", "7px", "8px", "9px", "10px", "11px", "12px", "13px", "14px", "15px", "16px", "17px", "18px", "19px", "20px", "21px", "22px", "23px", "24px"]
+
+# Icon Sets
+system = []
+common = ["system"]
+extended = ["common"]

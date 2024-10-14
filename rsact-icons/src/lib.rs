@@ -1,11 +1,15 @@
 use embedded_graphics::{
-    pixelcolor::raw::ByteOrder,
-    prelude::{PixelColor, Point},
+    pixelcolor::raw::{BigEndian, ByteOrder},
+    prelude::{PixelColor, PixelIteratorExt, Point},
     Drawable, Pixel,
 };
 use std::marker::PhantomData;
 
 mod rendered;
+pub use rendered::*;
+
+// TODO: Should constants be private to crate so user is not distracted with
+// thousands of constants with the same name for different icon sizes modules?
 
 #[derive(Clone, Copy)]
 pub struct IconRaw<BO: ByteOrder> {
@@ -25,6 +29,7 @@ impl<BO: ByteOrder> IconRaw<BO> {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct Icon<C: PixelColor, BO: ByteOrder> {
     raw: IconRaw<BO>,
     position: Point,
@@ -40,6 +45,21 @@ impl<C: PixelColor, BO: ByteOrder> Icon<C, BO> {
         foreground: Option<C>,
     ) -> Self {
         Self { raw, position, background, foreground }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = Option<Pixel<C>>> + '_ {
+        (0..self.raw.size)
+            .map(move |y| {
+                (0..self.raw.size).map(move |x| {
+                    self.color(self.raw.bit(x, y)).map(|color| {
+                        Pixel(
+                            Point::new(x as i32, y as i32) + self.position,
+                            color,
+                        )
+                    })
+                })
+            })
+            .flatten()
     }
 
     fn color(&self, bit: bool) -> Option<C> {
@@ -73,4 +93,11 @@ impl<C: PixelColor, BO: ByteOrder> Drawable for Icon<C, BO> {
 
         Ok(())
     }
+}
+
+pub trait IconSet<BO: embedded_graphics::pixelcolor::raw::ByteOrder = BigEndian>
+{
+    const SIZES: &[u32];
+
+    fn size(&self, size: u32) -> crate::IconRaw<BO>;
 }

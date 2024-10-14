@@ -158,12 +158,16 @@ impl<W: WidgetCtx> Page<W> {
         root.on_mount(MountCtx { viewport, styler: styler.into_memo() });
 
         let layout_tree = root.build_layout_tree();
-        let layout = viewport.mapped(move |&viewport| {
+        let layout = viewport.mapped(move |&viewport_size| {
             // println!("Relayout");
+            // TODO: Possible optimization is to use previous memo result, pass
+            // it to model_layout as tree and don't relayout parents if layouts
+            // inside Fixed-sized container changed, returning previous result
             let layout = model_layout(
                 layout_tree,
-                Limits::only_max(viewport),
-                viewport.into(),
+                Limits::only_max(viewport_size),
+                viewport_size.into(),
+                viewport,
             );
 
             // println!("{:#?}", layout.tree_root());
@@ -260,26 +264,16 @@ impl<W: WidgetCtx> Page<W> {
                                     "new_focus must be set in this case",
                                 ));
                                 self.state.focused = Some(focused.id);
+
+                                None
+                            } else {
+                                // TODO: Should only bubbled events be returned?
+                                Some(UnhandledEvent::Event(event))
                             }
-                            // TODO: Should only bubbled events be returned?
-                            Some(UnhandledEvent::Event(event))
                         },
-                        // Propagate::BubbleUp(_, event) => Some(event),
                     },
                     EventResponse::Break(capture) => match capture {
                         Capture::Captured => None,
-                        // Capture::Bubble(BubbledData::Focused(
-                        //     el_id,
-                        //     _point,
-                        // )) => {
-                        //     self.tree.focused =
-                        //         Some(new_focus.expect(
-                        //             "new_focus must be set in this case",
-                        //         ));
-                        //     assert_eq!(pass.focus_search, Some(0));
-                        //     self.state.focused = Some(el_id);
-                        //     None
-                        // },
                         Capture::Bubble(data) => {
                             Some(UnhandledEvent::Bubbled(data))
                         },
@@ -319,16 +313,5 @@ impl<W: WidgetCtx> Page<W> {
         self.renderer.finish(target);
 
         Ok(result)
-
-        // self.style.with(|style| {
-        //     if let Some(focused) = self.state.focused {
-        //         renderer.block(Block {
-        //             border:
-        // Border::zero().color(style.focus_outline.color).radius(style.
-        // focus_outline.radius).width(1),             rect: ,
-        //             background: todo!(),
-        //         })
-        //     }
-        // });
     }
 }

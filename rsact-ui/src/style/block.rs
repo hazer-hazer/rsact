@@ -86,7 +86,8 @@ impl BorderRadius {
         Self::new_equal(Radius::SizeEqual(0))
     }
 
-    pub fn into_corner_radii(self, block_size: Size) -> CornerRadii {
+    pub fn into_corner_radii(self, block_size: impl Into<Size>) -> CornerRadii {
+        let block_size = block_size.into();
         CornerRadii {
             top_left: self.top_left.into_real(block_size),
             top_right: self.top_right.into_real(block_size),
@@ -152,6 +153,8 @@ impl<C: Color> BorderStyle<C> {
     }
 }
 
+// TODO: Define styles with declare_widget_style for consistency and
+//  universality (deep setters such as border_radius)
 #[derive(PartialEq)]
 pub struct BlockStyle<C: Color> {
     pub background_color: ColorStyle<C>,

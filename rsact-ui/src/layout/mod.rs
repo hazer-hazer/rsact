@@ -1,4 +1,5 @@
 use alloc::vec::Vec;
+pub use axis::{Axial as _, Axis};
 use block_model::BlockModel;
 use core::{
     fmt::{Debug, Display},
@@ -9,6 +10,7 @@ use embedded_graphics::{
     primitives::Rectangle,
 };
 use flex::model_flex;
+pub use limits::Limits;
 use padding::Padding;
 use rsact_reactive::prelude::*;
 use size::{Length, Size};
@@ -19,9 +21,6 @@ pub mod flex;
 pub mod limits;
 pub mod padding;
 pub mod size;
-
-pub use axis::{Axial as _, Axis};
-pub use limits::Limits;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Align {
@@ -42,15 +41,6 @@ impl Align {
         }
     }
 }
-
-// #[derive(Clone, Copy, PartialEq)]
-// pub struct EdgeLayout {}
-
-// impl EdgeLayout {
-//     pub fn base() -> Self {
-//         Self {}
-//     }
-// }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ContentLayout {
@@ -161,6 +151,21 @@ impl FlexLayout {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScrollableLayout {
+    pub content_size: Memo<Limits>,
+}
+
+impl ScrollableLayout {
+    pub fn new(content_size: impl IntoMemo<Limits>) -> Self {
+        Self { content_size: content_size.into_memo() }
+    }
+
+    pub fn min_size(&self) -> Size {
+        self.content_size.get().min()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DevFlexLayout {
     // lines: Vec<Rectangle>,
     real: FlexLayout,
@@ -189,7 +194,7 @@ pub enum DevLayoutKind {
     Content(ContentLayout),
     Container(ContainerLayout),
     Flex(DevFlexLayout),
-    Scrollable(ContentLayout),
+    Scrollable(ScrollableLayout),
 }
 
 impl DevLayoutKind {
@@ -261,7 +266,7 @@ impl Display for DevLayoutKind {
                     content_size.get()
                 )
             },
-            DevLayoutKind::Scrollable(ContentLayout { content_size }) => {
+            DevLayoutKind::Scrollable(ScrollableLayout { content_size }) => {
                 write!(f, "Scrollable content:{}", content_size.get())
             },
         }
@@ -284,7 +289,7 @@ pub enum LayoutKind {
     Content(ContentLayout),
     Container(ContainerLayout),
     Flex(FlexLayout),
-    Scrollable(ContentLayout),
+    Scrollable(ScrollableLayout),
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -322,7 +327,7 @@ impl Layout {
             LayoutKind::Content(ContentLayout { content_size })
             | LayoutKind::Container(ContainerLayout { content_size, .. })
             | LayoutKind::Flex(FlexLayout { content_size, .. })
-            | LayoutKind::Scrollable(ContentLayout { content_size }) => {
+            | LayoutKind::Scrollable(ScrollableLayout { content_size }) => {
                 content_size.get()
             },
         }
@@ -394,14 +399,16 @@ impl Layout {
 /// Layout tree representation with real position in viewport
 #[derive(Clone, Copy)]
 pub struct LayoutModelNode<'a> {
-    pub area: Rectangle,
+    pub outer: Rectangle,
+    pub inner: Rectangle,
     model: &'a LayoutModel,
 }
 
 impl<'a> Debug for LayoutModelNode<'a> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut f = f.debug_struct("LayoutModelNode");
-        f.field("area", &self.area);
+        f.field("inner", &self.inner);
+        f.field("outer", &self.outer);
         f.field("dev", &self.model.dev);
         // TODO: How can I avoid collecting to vector without `field_with`?
         f.field("children", &self.children().collect::<Vec<_>>());
@@ -423,22 +430,23 @@ impl<'a> Debug for LayoutModelNode<'a> {
 
 impl<'a> LayoutModelNode<'a> {
     pub fn translate(&self, by: Point) -> Self {
-        Self { area: self.area.translate(by), model: self.model }
+        Self {
+            outer: self.outer.translate(by),
+            inner: self.inner.translate(by),
+            model: self.model,
+        }
     }
 
     pub fn children(&'a self) -> impl Iterator<Item = LayoutModelNode<'a>> {
-        self.model
-            .children
-            .iter()
-            .map(|child| LayoutModel::node(child, self.area))
+        self.model.children.iter().map(|child| child.node(self.inner))
     }
 
     // Note: May be slow and expensive
     pub fn dev_hover(&'a self, point: Point) -> Option<DevHoveredLayout> {
         self.children().find_map(|child| child.dev_hover(point)).or_else(|| {
-            if self.area.contains(point) {
+            if self.outer.contains(point) {
                 Some(DevHoveredLayout {
-                    area: self.area,
+                    area: self.outer,
                     children_count: self.model.children.len(),
                     layout: self.model.dev.clone(),
                     size: self.model.dev.size,
@@ -454,6 +462,8 @@ impl<'a> LayoutModelNode<'a> {
 #[derive(Debug, PartialEq)]
 pub struct LayoutModel {
     relative_area: Rectangle,
+    /// Full-padding: padding + border width
+    full_padding: Padding,
     // Note: `dev` goes before `children` which is intentional to make more
     // readable pretty-printed debug
     dev: DevLayout,
@@ -464,25 +474,35 @@ impl LayoutModel {
     pub fn new(size: Size, children: Vec<LayoutModel>, dev: DevLayout) -> Self {
         Self {
             relative_area: Rectangle::new(Point::zero(), size.into()),
+            full_padding: Padding::zero(),
             children,
             dev,
         }
     }
 
-    pub fn tree_root(&self) -> LayoutModelNode {
-        LayoutModelNode { area: self.relative_area, model: self }
+    fn full_padding(mut self, full_padding: Padding) -> Self {
+        self.full_padding = full_padding;
+        self
     }
 
-    fn node(&self, parent_area: Rectangle) -> LayoutModelNode {
+    pub fn tree_root(&self) -> LayoutModelNode {
         LayoutModelNode {
-            area: self.relative_area.translate(parent_area.top_left),
+            outer: self.relative_area,
+            inner: self.relative_area - self.full_padding,
             model: self,
         }
+    }
+
+    fn node(&self, parent_inner: Rectangle) -> LayoutModelNode {
+        let outer = self.relative_area.translate(parent_inner.top_left);
+
+        LayoutModelNode { outer, inner: outer - self.full_padding, model: self }
     }
 
     fn zero() -> Self {
         Self {
             relative_area: Rectangle::zero(),
+            full_padding: Padding::zero(),
             children: vec![],
             dev: DevLayout::zero(),
         }
@@ -546,10 +566,13 @@ impl LayoutModel {
     }
 }
 
+// TODO: Should viewport be unwrapped value as we depend modeling on viewport
+// value?
 pub fn model_layout(
     tree: MemoTree<Layout>,
     parent_limits: Limits,
     parent_size: Size<Length>,
+    viewport: Memo<Size>,
 ) -> LayoutModel {
     let layout = tree.data.get();
     let size = layout.size.in_parent(parent_size);
@@ -597,6 +620,7 @@ pub fn model_layout(
                 tree.children.with(|children| children[0]),
                 limits,
                 size,
+                viewport,
             );
 
             let content_size = content_layout.size();
@@ -609,6 +633,8 @@ pub fn model_layout(
                 );
 
             LayoutModel::new(
+                // TODO: Generalize logic with real_size.expand/shrink and
+                // full_padding
                 real_size.expand(full_padding),
                 vec![content_layout],
                 DevLayout::new(
@@ -616,10 +642,11 @@ pub fn model_layout(
                     DevLayoutKind::Container(container_layout),
                 ),
             )
+            .full_padding(full_padding)
         },
         LayoutKind::Scrollable(scrollable_layout) => {
             // TODO: Useless?
-            let ContentLayout { content_size: _ } = scrollable_layout;
+            let ScrollableLayout { content_size: _ } = scrollable_layout;
 
             let limits = parent_limits.limit_by(size);
 
@@ -627,6 +654,7 @@ pub fn model_layout(
                 tree.children.with(|children| children[0]),
                 limits,
                 size,
+                viewport,
             );
 
             // Note: For [`LayoutKind::Scrollable`], parent_limits are used as
@@ -644,7 +672,7 @@ pub fn model_layout(
             )
         },
         LayoutKind::Flex(flex_layout) => {
-            model_flex(tree, parent_limits, flex_layout, size)
+            model_flex(tree, parent_limits, flex_layout, size, viewport)
         },
     }
 }

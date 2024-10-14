@@ -222,7 +222,7 @@ where
 
             ctx.renderer.mono_text(TextBox::with_textbox_style(
                 content,
-                ctx.layout.area,
+                ctx.layout.inner,
                 MonoTextStyleBuilder::new()
                     .font(&self.font.get())
                     .text_color(style.text_color.expect())

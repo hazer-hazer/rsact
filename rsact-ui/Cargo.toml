@@ -1,10 +1,11 @@
 [package]
 name = "rsact-ui"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
 
 [dependencies]
-rsact-reactive = { path = "../rsact-reactive" }
+rsact-reactive = { path = "../rsact-reactive"}
+rsact-icons = {path = "../rsact-icons", default-features = false, features = ["system", "all-sizes"]}
 defmt = { version = "0.3.8", optional = true }
 embedded-graphics = "0.8.1"
 embedded-graphics-core = "0.4.0"

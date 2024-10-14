@@ -2,8 +2,10 @@ use super::Styler;
 use crate::{
     render::color::Color,
     widget::{
+        bar::BarStyle,
         button::{ButtonState, ButtonStyle},
         checkbox::{CheckboxState, CheckboxStyle},
+        knob::{KnobState, KnobStyle},
         mono_text::MonoTextStyle,
         scrollable::{ScrollableState, ScrollableStyle},
         select::{SelectState, SelectStyle},
@@ -19,6 +21,25 @@ pub struct AccentStyler<C: Color> {
 impl<C: Color> AccentStyler<C> {
     pub fn new(accent: C) -> Self {
         Self { accent }
+    }
+}
+
+impl<C: Color + 'static> Styler<BarStyle<C>> for AccentStyler<C> {
+    type Class = ();
+
+    fn default() -> Self::Class {
+        ()
+    }
+
+    fn style(
+        self,
+        _class: Self::Class,
+    ) -> impl Fn(
+        BarStyle<C>,
+        <BarStyle<C> as super::WidgetStyle>::Inputs,
+    ) -> BarStyle<C>
+           + 'static {
+        move |base, ()| base.color(self.accent)
     }
 }
 
@@ -65,6 +86,28 @@ impl<C: Color + 'static> Styler<CheckboxStyle<C>> for AccentStyler<C> {
             CheckboxState { pressed: true } => base.container(
                 base.container.border(base.container.border.color(self.accent)),
             ),
+            _ => base,
+        }
+    }
+}
+
+impl<C: Color + 'static> Styler<KnobStyle<C>> for AccentStyler<C> {
+    type Class = ();
+
+    fn default() -> Self::Class {
+        ()
+    }
+
+    fn style(
+        self,
+        _class: Self::Class,
+    ) -> impl Fn(
+        KnobStyle<C>,
+        <KnobStyle<C> as super::WidgetStyle>::Inputs,
+    ) -> KnobStyle<C>
+           + 'static {
+        move |base, state| match state {
+            KnobState { pressed: _, active: true } => base.color(self.accent),
             _ => base,
         }
     }

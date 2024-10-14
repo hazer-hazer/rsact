@@ -1,3 +1,4 @@
+pub mod bar;
 pub mod button;
 pub mod checkbox;
 pub mod container;
@@ -5,6 +6,7 @@ pub mod edge;
 pub mod flex;
 pub mod icon;
 pub mod image;
+pub mod knob;
 pub mod mono_text;
 pub mod scrollable;
 pub mod select;
@@ -159,7 +161,7 @@ impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
                 border: Border::zero()
                     .color(Some(<W::Color as Color>::default_foreground()))
                     .width(2),
-                rect: self.layout.area,
+                rect: self.layout.outer,
                 background: None,
             })
         } else {
@@ -242,7 +244,7 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
                 // .into();
                 self.pass.set_focused(FocusedWidget {
                     id,
-                    absolute_position: self.layout.area.top_left,
+                    absolute_position: self.layout.outer.top_left,
                 });
             } else {
                 self.pass
@@ -353,34 +355,6 @@ where
     fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse<W>;
 }
 
-// impl<W: WidgetCtx, T> Widget<W> for T
-// where
-//     T: ReadSignal<El<W>> + WriteSignal<El<W>>,
-// {
-//     fn on_mount(&mut self, ctx: MountCtx<W>) {
-//         self.update_untracked(|this| this.on_mount(ctx))
-//     }
-
-//     fn layout(&self) -> Signal<Layout> {
-//         self.with(|this| this.layout())
-//     }
-
-//     fn build_layout_tree(&self) -> MemoTree<Layout> {
-//         todo!()
-//     }
-
-//     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
-//         todo!()
-//     }
-
-//     fn on_event(
-//         &mut self,
-//         ctx: &mut EventCtx<'_, W>,
-//     ) -> EventResponse<W> {
-//         todo!()
-//     }
-// }
-
 /// Not implementing [`SizedWidget`] and [`BlockModelWidget`] does not mean that
 /// Widget has layout without size or box model, it can be intentional to
 /// disallow user to set size or box model properties.
@@ -469,7 +443,10 @@ pub mod prelude {
         },
         layout::{
             self,
-            axis::{Axial as _, Axis, ColDir, Direction, RowDir},
+            axis::{
+                Anchor, Axial as _, Axis, AxisAnchorPoint, ColDir, Direction,
+                RowDir,
+            },
             block_model::BlockModel,
             padding::Padding,
             size::{Length, Size},
@@ -477,10 +454,10 @@ pub mod prelude {
             LayoutModelNode, Limits,
         },
         render::{color::Color, Block, Border, Renderer},
-        style::block::*,
+        style::{block::*, declare_widget_style, ColorStyle, Styler},
         widget::{
-            BlockModelWidget, DrawCtx, DrawResult, EventCtx, LayoutCtx,
-            SizedWidget, Widget, WidgetCtx,
+            BlockModelWidget, DrawCtx, DrawResult, EventCtx, LayoutCtx, Meta,
+            MetaTree, SizedWidget, Widget, WidgetCtx,
         },
     };
     pub use alloc::{boxed::Box, string::String, vec::Vec};

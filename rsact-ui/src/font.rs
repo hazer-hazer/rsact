@@ -4,7 +4,7 @@ use crate::layout::size::Size;
 /// For now, FontSize is about the width of the mono font, but it might be
 /// extended in the future with specific height as there're different variants
 /// of same width.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FontSize {
     Unset,
     /// Fixed font-size in pixels.

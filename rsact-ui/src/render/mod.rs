@@ -10,7 +10,9 @@ use embedded_graphics::{
     mono_font::MonoTextStyle,
     pixelcolor::raw::ByteOrder,
     prelude::{DrawTarget, PixelColor},
-    primitives::{Line, PrimitiveStyle, Rectangle, RoundedRectangle, Styled},
+    primitives::{
+        Arc, Line, PrimitiveStyle, Rectangle, RoundedRectangle, Styled,
+    },
     Pixel,
 };
 use embedded_text::TextBox;
@@ -93,9 +95,11 @@ impl<C: Color + Copy> Block<C> {
     //     Self { border: Border::zero(), rect: bounds, background }
     // }
 
+    // TODO: Find better way to construct Block. border width inside layout
+    // makes it complex
     #[inline]
     pub fn from_layout_style(
-        area: Rectangle,
+        outer: Rectangle,
         BlockModel { border_width, padding: _ }: BlockModel,
         BlockStyle {
             background_color,
@@ -108,7 +112,7 @@ impl<C: Color + Copy> Block<C> {
                 width: border_width,
                 radius,
             },
-            rect: area,
+            rect: outer,
             background: background_color.get(),
         }
     }
@@ -128,6 +132,11 @@ pub trait Renderer {
         area: Rectangle,
         f: impl FnOnce(&mut Self) -> DrawResult,
     ) -> DrawResult;
+    fn on_layer(
+        &mut self,
+        index: usize,
+        f: impl FnOnce(&mut Self) -> DrawResult,
+    ) -> DrawResult;
 
     fn line(
         &mut self,
@@ -138,6 +147,10 @@ pub trait Renderer {
         rect: Styled<RoundedRectangle, PrimitiveStyle<Self::Color>>,
     ) -> DrawResult;
     fn block(&mut self, block: Block<Self::Color>) -> DrawResult;
+    fn arc(
+        &mut self,
+        arc: Styled<Arc, PrimitiveStyle<Self::Color>>,
+    ) -> DrawResult;
     fn mono_text<'a>(
         &mut self,
         text_box: TextBox<'a, MonoTextStyle<'a, Self::Color>>,

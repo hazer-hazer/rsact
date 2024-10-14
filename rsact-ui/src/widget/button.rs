@@ -147,7 +147,7 @@ where
         let style = self.style.get();
 
         ctx.renderer.block(Block::from_layout_style(
-            ctx.layout.area,
+            ctx.layout.outer,
             self.layout.get().block_model(),
             style.container,
         ))?;

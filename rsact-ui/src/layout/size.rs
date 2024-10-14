@@ -1,17 +1,13 @@
-use core::{
-    fmt::Display,
-    ops::{Add, AddAssign, Div, Mul, Rem, Sub, SubAssign},
-};
-use embedded_graphics::{
-    geometry::Point,
-    primitives::Rectangle,
-};
-
 use super::{
     axis::{Anchor, Axial},
     padding::Padding,
     Axis,
 };
+use core::{
+    fmt::Display,
+    ops::{Add, AddAssign, Div, Mul, Rem, Sub, SubAssign},
+};
+use embedded_graphics::{geometry::Point, primitives::Rectangle};
 
 pub trait SubTake<Rhs = Self> {
     fn sub_take(&mut self, sub: Rhs) -> Self;

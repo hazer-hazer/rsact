@@ -1,10 +1,11 @@
 macro_rules! icon_set {
-    (@icon $set: ident $icon_kind: ident: $filename: literal) => {{
+    (@icon $set: ident $icon_kind: ident: $filename: literal ($($aliases: ident),*)) => {{
         let icon = crate::Icon {
             source_filename: $filename,
             data: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/icon-libs/material-design/svg/", $filename, ".svg")),
             name: stringify!($icon_kind),
             kind: $set::$icon_kind,
+            aliases: &[$(stringify!($aliases)),*]
         };
 
         icon
@@ -20,19 +21,7 @@ macro_rules! icon_set {
         modifiers
     }};
 
-    // (@inner $filename: ident) => {
-    //     icons!(@inner $filename: &stringify!($filename).to_case(convert_case::Case::Camel))
-    // };
-
-    // (@filename $filename: ident) => {
-    //     stringify!($filename)
-    // };
-
-    // (@filename $filename: literal) => {
-    //     $filename
-    // };
-
-    ($set: ident $alpha_cutoff: literal [
+    ($set: ident $set_mod_name: literal $alpha_cutoff: literal [
         $($sizes: literal $({
             $($size_mod: ident: $size_mod_value: expr),*
             $(,)?
@@ -40,6 +29,9 @@ macro_rules! icon_set {
     ] {
         $(
             $icon_kind: ident: $filename: literal
+            $((
+                $($aliases: ident),* $(,)?
+            ))?
             $({
                 $($modifier: ident: $modifier_value: expr),*
                 $(,)?
@@ -59,18 +51,24 @@ macro_rules! icon_set {
         }
 
         impl crate::IconSet for $set {
-            fn name() -> &'static str {
-                stringify!($set)
+            fn mod_name() -> &'static str {
+                $set_mod_name
+            }
+
+            fn ident() -> syn::Ident {
+                quote::format_ident!("{}", stringify!($set))
             }
 
             fn sizes() -> &'static [u32] {
-                const SIZES: &[u32] = &[$($sizes),*];
+                const SIZES: &[u32] = &[$(
+                    $sizes
+                ),*];
                 SIZES
             }
 
             fn icons() -> &'static [crate::Icon<Self>] {
                 const ICONS: &[crate::Icon<$set>] = &[
-                    $(icon_set!(@icon $set $icon_kind: $filename)),*
+                    $(icon_set!(@icon $set $icon_kind: $filename ($($($aliases),*)?))),*
                 ];
 
                 ICONS

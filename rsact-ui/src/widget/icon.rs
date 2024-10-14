@@ -1,3 +1,4 @@
+use super::{layout::ContentLayout, Limits, Size};
 use crate::{
     declare_widget_style,
     event::EventResponse,
@@ -7,34 +8,16 @@ use crate::{
     style::{ColorStyle, Styler},
     widget::{Meta, MetaTree, MountCtx, Widget, WidgetCtx},
 };
-use embedded_graphics::{
-    iterator::raw::RawDataSlice,
-    pixelcolor::raw::{BigEndian, RawU1},
-    prelude::{Point, RawData},
-    Pixel,
-};
+use rsact_icons::IconSet;
 use rsact_reactive::{
     mapped,
     memo::{IntoMemo, MemoTree},
     memo_chain::IntoMemoChain,
     prelude::{use_signal, MemoChain},
-    signal::{IntoSignal, ReadSignal, Signal, SignalMapper, SignalSetter},
+    signal::{
+        IntoSignal, MaybeSignal, ReadSignal, Signal, SignalMapper, SignalSetter,
+    },
 };
-
-pub struct IconRaw<'a> {
-    data: RawDataSlice<'a, RawU1, BigEndian>,
-}
-
-#[derive(Clone, Copy)]
-pub enum IconKind {
-    Check,
-}
-
-impl IconKind {
-    pub fn data(&self) -> IconRaw<'static> {
-        todo!()
-    }
-}
 
 declare_widget_style! {
     IconStyle () {
@@ -52,30 +35,41 @@ impl<C: Color> IconStyle<C> {
     }
 }
 
-pub struct Icon<W: WidgetCtx> {
-    kind: Signal<IconKind>,
+pub struct Icon<W: WidgetCtx, I: IconSet> {
+    pub icon: Signal<I>,
     size: Signal<FontSize>,
     real_size: Signal<u32>,
     layout: Signal<Layout>,
     style: MemoChain<IconStyle<W::Color>>,
 }
 
-impl<W: WidgetCtx> Icon<W> {
-    pub fn new(kind: impl IntoSignal<IconKind> + 'static) -> Self {
+impl<W: WidgetCtx, I: IconSet + 'static> Icon<W, I> {
+    pub fn new(icon: impl IntoSignal<I> + 'static) -> Self {
         let real_size = use_signal(10);
-        let layout = Layout::shrink(LayoutKind::Edge).into_signal();
+        let layout = Layout::shrink(LayoutKind::Content(ContentLayout::new(
+            real_size.mapped(|size| Limits::exact(Size::new_equal(*size))),
+        )))
+        .into_signal();
 
         Self {
-            kind: kind.into_signal(),
+            icon: icon.into_signal(),
             size: use_signal(FontSize::Unset),
             real_size,
             layout,
             style: IconStyle::base().into_memo_chain(),
         }
     }
+
+    pub fn size<S: Into<FontSize> + PartialEq + Copy + 'static>(
+        self,
+        size: impl IntoMemo<S>,
+    ) -> Self {
+        self.size.set_from(size.into_memo().mapped(|&size| size.into()));
+        self
+    }
 }
 
-impl<W: WidgetCtx> Widget<W> for Icon<W>
+impl<W: WidgetCtx, I: IconSet + 'static> Widget<W> for Icon<W, I>
 where
     W::Styler: Styler<IconStyle<W::Color>, Class = ()>,
 {
@@ -107,31 +101,15 @@ where
         ctx: &mut crate::widget::DrawCtx<'_, W>,
     ) -> crate::widget::DrawResult {
         let style = self.style.get();
-        let icon = self.kind.get().data();
-        let data_width = ctx.layout.area.size.width.max(8);
+        let icon_raw = self.icon.with(|kind| kind.size(self.real_size.get()));
+        let icon = rsact_icons::Icon::new(
+            icon_raw,
+            ctx.layout.inner.top_left,
+            style.background.get(),
+            style.color.get(),
+        );
 
-        ctx.renderer.translucent_pixel_iter(
-            icon.data.into_iter().enumerate().map(|(index, color)| {
-                let color = match color.into_inner() {
-                    0 => style.background.get(),
-                    1 => style.color.get(),
-                    _ => None,
-                }?;
-
-                let x = index as u32 % data_width;
-                let y = index as u32 / data_width;
-
-                if x >= data_width {
-                    None
-                } else {
-                    Some(Pixel(
-                        ctx.layout.area.top_left
-                            + Point::new(x as i32, y as i32),
-                        color,
-                    ))
-                }
-            }),
-        )
+        ctx.renderer.translucent_pixel_iter(icon.iter())
     }
 
     fn on_event(

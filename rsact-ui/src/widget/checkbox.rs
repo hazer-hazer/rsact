@@ -1,4 +1,7 @@
-use super::icon::{Icon, IconKind, IconStyle};
+use super::{
+    icon::{Icon, IconStyle},
+    BlockModel, ContainerLayout,
+};
 use crate::{
     declare_widget_style,
     el::ElId,
@@ -8,6 +11,7 @@ use crate::{
     style::{block::BlockStyle, Styler},
     widget::{Meta, MetaTree, Widget, WidgetCtx},
 };
+use rsact_icons::system::SystemIcon;
 use rsact_reactive::{
     memo::{IntoMemo, MemoTree},
     memo_chain::IntoMemoChain,
@@ -41,11 +45,13 @@ impl<C: Color> CheckboxStyle<C> {
 // TODO: Do we need `on_change` event with signal value?
 // TODO: Add custom icons
 
+type IconType = SystemIcon;
+
 pub struct Checkbox<W: WidgetCtx> {
     id: ElId,
     state: Signal<CheckboxState>,
     layout: Signal<Layout>,
-    icon: Icon<W>,
+    icon: Icon<W, IconType>,
     value: Signal<bool>,
     style: MemoChain<CheckboxStyle<W::Color>>,
 }
@@ -55,21 +61,27 @@ where
     W::Styler: Styler<IconStyle<W::Color>, Class = ()>,
 {
     pub fn new(value: impl IntoSignal<bool>) -> Self {
-        let icon = Icon::new(IconKind::Check);
-        let icon_layout = icon.layout();
+        let icon = Icon::new(SystemIcon::Check);
 
         Self {
             id: ElId::unique(),
             state: CheckboxState::none().into_signal(),
-            layout: Layout::shrink(LayoutKind::Content(ContentLayout {
-                content_size: icon_layout
-                    .mapped(move |layout| layout.content_size()),
-            }))
+            layout: Layout::shrink(LayoutKind::Container(
+                ContainerLayout::base(
+                    icon.layout()
+                        .mapped(|icon_layout| icon_layout.content_size()),
+                ),
+            ))
             .into_signal(),
             icon,
             value: value.into_signal(),
             style: CheckboxStyle::base().into_memo_chain(),
         }
+    }
+
+    pub fn check_icon(self, icon: IconType) -> Self {
+        self.icon.icon.set(icon);
+        self
     }
 }
 
@@ -102,7 +114,7 @@ where
         let style = self.style.get();
 
         ctx.renderer.block(Block::from_layout_style(
-            ctx.layout.area,
+            ctx.layout.outer,
             self.layout.get().block_model(),
             style.container,
         ))?;

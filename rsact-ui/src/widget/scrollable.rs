@@ -8,7 +8,7 @@ use embedded_graphics::{
     prelude::{Point, Primitive, Transform},
     primitives::{Line, PrimitiveStyle, PrimitiveStyleBuilder},
 };
-use layout::ContentLayout;
+use layout::ScrollableLayout;
 
 #[derive(Clone, Copy)]
 pub enum ScrollableMode {
@@ -125,7 +125,7 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
         let state = use_signal(ScrollableState::none());
 
         let layout = Layout {
-            kind: LayoutKind::Scrollable(ContentLayout {
+            kind: LayoutKind::Scrollable(ScrollableLayout {
                 content_size: content.mapped(|content| {
                     content.layout().with(|layout| layout.content_size())
                 }),
@@ -144,7 +144,7 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
 
         if content_layout_length.is_grow() {
             panic!(
-                "Don't use growing Length (Div/fill) for content {}!",
+                "Don't use growing Length (Div/fill) for content {} inside Scrollable!",
                 Dir::AXIS.length_name()
             );
 
@@ -187,9 +187,9 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
 
     fn max_offset(&self, ctx: &EventCtx<'_, W>) -> u32 {
         let content_length =
-            ctx.layout.children().next().unwrap().area.size.main(Dir::AXIS);
+            ctx.layout.children().next().unwrap().inner.size.main(Dir::AXIS);
 
-        content_length.saturating_sub(ctx.layout.area.size.main(Dir::AXIS))
+        content_length.saturating_sub(ctx.layout.inner.size.main(Dir::AXIS))
     }
 }
 
@@ -271,7 +271,7 @@ where
         ctx.draw_focus_outline(self.id)?;
 
         ctx.renderer.block(Block::from_layout_style(
-            ctx.layout.area,
+            ctx.layout.outer,
             layout.block_model(),
             style.container,
         ))?;
@@ -279,8 +279,8 @@ where
         let child_layout = ctx.layout.children().next();
         let child_layout = child_layout.as_ref().unwrap();
 
-        let mut content_length = child_layout.area.size.main(Dir::AXIS);
-        let scrollable_length = ctx.layout.area.size.main(Dir::AXIS);
+        let mut content_length = child_layout.outer.size.main(Dir::AXIS);
+        let scrollable_length = ctx.layout.inner.size.main(Dir::AXIS);
 
         let draw_scrollbar = match style.show {
             ScrollbarShow::Always => {
@@ -300,18 +300,18 @@ where
             let style = self.style.get();
 
             let track_start = match Dir::AXIS {
-                Axis::X => ctx.layout.area.anchor_point(
+                Axis::X => ctx.layout.inner.anchor_point(
                     embedded_graphics::geometry::AnchorPoint::BottomLeft,
                 ),
-                Axis::Y => ctx.layout.area.anchor_point(
+                Axis::Y => ctx.layout.inner.anchor_point(
                     embedded_graphics::geometry::AnchorPoint::TopRight,
                 ),
             };
             let track_end = ctx
                 .layout
-                .area
+                .inner
                 .bottom_right()
-                .unwrap_or(ctx.layout.area.top_left);
+                .unwrap_or(ctx.layout.inner.top_left);
 
             let scrollbar_translation =
                 Dir::AXIS.canon(0, -(style.scrollbar_width as i32 / 2));
@@ -344,7 +344,10 @@ where
         }
 
         self.content.with(|content| {
-            ctx.renderer.clipped(ctx.layout.area, |renderer| {
+            // Does not matter, Scrollable layout does not have padding, so
+            // outer == inner
+            // // TODO: Should be clipping outer rect???!??!?
+            ctx.renderer.clipped(ctx.layout.inner, |renderer| {
                 content.draw(&mut DrawCtx {
                     state: ctx.state,
                     renderer,
@@ -356,10 +359,7 @@ where
         })
     }
 
-    fn on_event(
-        &mut self,
-        ctx: &mut EventCtx<'_, W>,
-    ) -> EventResponse<W> {
+    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse<W> {
         let current_state = self.state.get();
 
         match self.mode {
@@ -425,7 +425,7 @@ where
                         .absolute_position
                         .main(Dir::AXIS)
                         .saturating_sub(
-                            ctx.layout.area.top_left.main(Dir::AXIS),
+                            ctx.layout.inner.top_left.main(Dir::AXIS),
                         ) as u32;
                     let new_offset = new_offset.clamp(0, self.max_offset(ctx));
 

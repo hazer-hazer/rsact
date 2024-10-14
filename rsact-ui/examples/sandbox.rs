@@ -12,8 +12,8 @@ use rsact_ui::{
     style::accent::AccentStyler,
     ui::UI,
     widget::{
-        button::Button, flex::Flex, mono_text::MonoText, SizedWidget,
-        Widget as _,
+        bar::Bar, button::Button, flex::Flex, knob::Knob, mono_text::MonoText,
+        SizedWidget, Widget as _,
     },
 };
 use std::time::{Duration, Instant};
@@ -28,35 +28,39 @@ fn main() {
 
     window.update(&display);
 
-    let page1 = Flex::row(vec![Button::new("kek")
-        .on_click(|| {
-            println!("Go to page 2");
-            Some(Message::GoTo(2))
-        })
-        .el()])
-    .fill()
-    .el();
+    // let page1 = Flex::row(vec![Button::new("kek")
+    //     .on_click(|| {
+    //         println!("Go to page 2");
+    //         Some(Message::GoTo(2))
+    //     })
+    //     .el()])
+    // .fill()
+    // .el();
 
-    let page2 = Flex::row(vec![Button::new("lol")
-        .on_click(|| {
-            println!("Go to page 1");
-            Some(Message::GoTo(1))
-        })
-        .el()])
-    .fill()
-    .el();
+    // let page2 = Flex::row(vec![Button::new("lol")
+    //     .on_click(|| {
+    //         println!("Go to page 1");
+    //         Some(Message::GoTo(1))
+    //     })
+    //     .el()])
+    // .fill()
+    // .el();
 
-    let mut ui = UI::new(
-        1,
-        page1,
+    let page = Flex::row(vec![
+        Bar::horizontal(127u8).el(),
+        Knob::new(127u8).size(50).el(),
+    ])
+    .fill();
+
+    let mut ui = UI::single_page(
+        page,
         display.bounding_box().size,
         AccentStyler::new(Rgb888::RED),
     )
-    .with_page(2, page2)
     .on_exit(|| std::process::exit(0));
 
     ui.current_page().auto_focus();
-    ui.page(2).auto_focus();
+    // ui.page(2).auto_focus();
 
     let mut fps = 0;
     let mut last_time = Instant::now();

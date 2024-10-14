@@ -1,6 +1,8 @@
 {
   "rust-analyzer.check.allTargets": true,
   "cSpell.words": [
-    "rsact"
-  ],
+    "fullscreen",
+    "rsact",
+    "vals"
+  ]
 }

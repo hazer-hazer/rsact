@@ -20,7 +20,7 @@ pub mod prelude {
         effect::{use_effect, Effect},
         macros::*,
         memo::{IntoMemo, Memo, MemoTree},
-        memo_chain::{use_memo_chain, MemoChain},
+        memo_chain::{use_memo_chain, IntoMemoChain, MemoChain},
         runtime::{create_runtime, with_current_runtime, with_scoped_runtime},
         signal::{
             IntoSignal, MaybeSignal, ReadSignal, RwSignal, Signal,

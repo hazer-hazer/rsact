@@ -1,3 +1,8 @@
 {
-    "rust-analyzer.cargo.buildScripts.rebuildOnSave": false
+    // "rust-analyzer.cargo.buildScripts.rebuildOnSave": true,
+    "rust-analyzer.check.allTargets": true,
+    "rust-analyzer.cargo.features": [
+        "system",
+        // "common",
+    ]
 }

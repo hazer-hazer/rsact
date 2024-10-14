@@ -251,15 +251,15 @@ where
             let selected_child_layout = children_layouts.get(selected).unwrap();
 
             let options_offset =
-                ctx.layout.area.center_offset_of(selected_child_layout.area);
+                ctx.layout.inner.center_offset_of(selected_child_layout.inner);
 
             ctx.renderer.block(Block::from_layout_style(
                 selected_child_layout
-                    .area
+                    .inner
                     .translate(options_offset)
                     .resized_axis(
                         Dir::AXIS.inverted(),
-                        ctx.layout.area.size.cross(Dir::AXIS),
+                        ctx.layout.inner.size.cross(Dir::AXIS),
                         Anchor::Center,
                     ),
                 BlockModel::zero().border_width(1),
@@ -268,13 +268,13 @@ where
 
             options_offset
         } else if let Some(first_option) = children_layouts.first() {
-            ctx.layout.area.center_offset_of(first_option.area)
+            ctx.layout.inner.center_offset_of(first_option.inner)
         } else {
             Point::zero()
         };
 
         self.options.with(move |options| {
-            ctx.renderer.clipped(ctx.layout.area, |renderer| {
+            ctx.renderer.clipped(ctx.layout.inner, |renderer| {
                 options
                     .iter()
                     .zip(ctx.layout.children())
@@ -333,6 +333,7 @@ where
         }
 
         ctx.handle_focusable(self.id, |pressed| {
+            // TODO: Generalize
             if current_state.pressed != pressed {
                 let toggle_active = if !current_state.pressed && pressed {
                     true

@@ -83,7 +83,7 @@ impl<C: Color> SliderStyle<C> {
                 embedded_graphics::prelude::Size::new_equal(self.thumb_size),
                 embedded_graphics::geometry::AnchorPoint::Center,
             ),
-            self.thumb.border.radius.into_corner_radii(rect.size.into()),
+            self.thumb.border.radius.into_corner_radii(rect.size),
         )
         .into_styled(style.build())
     }
@@ -166,12 +166,12 @@ where
         ctx.draw_focus_outline(self.id)?;
 
         let track_len =
-            ctx.layout.area.size.main(Dir::AXIS) - style.thumb_size - 1;
+            ctx.layout.inner.size.main(Dir::AXIS) - style.thumb_size - 1;
 
-        let start = ctx.layout.area.top_left
+        let start = ctx.layout.inner.top_left
             + Dir::AXIS.canon::<Point>(
                 style.thumb_size as i32 / 2,
-                ctx.layout.area.size.cross(Dir::AXIS) as i32 / 2,
+                ctx.layout.inner.size.cross(Dir::AXIS) as i32 / 2,
             );
 
         let end = start + Dir::AXIS.canon::<Point>(track_len as i32, 0);
@@ -183,9 +183,9 @@ where
         let thumb_offset = (self.value.get() as f32 / 256.0) * track_len as f32;
 
         ctx.renderer.rect(style.thumb_style(Rectangle::new(
-            ctx.layout.area.top_left
+            ctx.layout.inner.top_left
                 + Dir::AXIS.canon::<Point>(thumb_offset as i32, 0),
-            Into::<Size>::into(ctx.layout.area.size).min_square().into(),
+            Into::<Size>::into(ctx.layout.inner.size).min_square().into(),
         )))?;
 
         Ok(())

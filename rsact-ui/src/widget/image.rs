@@ -1,6 +1,6 @@
 use crate::{
     event::EventResponse,
-    layout::{ContentLayout, Layout, LayoutKind, Limits},
+    layout::{Layout, LayoutKind},
     render::Renderer,
     widget::{Meta, MetaTree, Widget, WidgetCtx},
 };
@@ -26,10 +26,7 @@ impl<'a, W: WidgetCtx, BO: ByteOrder> Image<'a, W, BO> {
 
         Self {
             data,
-            layout: Layout::shrink(LayoutKind::Content(ContentLayout {
-                content_size: Limits::new(size, size).into_memo(),
-            }))
-            .into_signal(),
+            layout: Layout { kind: LayoutKind::Edge, size }.into_signal(),
         }
     }
 }
@@ -61,7 +58,7 @@ where
     ) -> crate::widget::DrawResult {
         ctx.renderer.image(embedded_graphics::image::Image::new(
             &self.data,
-            ctx.layout.area.top_left,
+            ctx.layout.inner.top_left,
         ))
     }
 

@@ -1,15 +1,16 @@
-use embedded_graphics::prelude::Point;
-use embedded_graphics_simulator::sdl2::{Keycode, Mod, MouseWheelDirection};
-
 use super::{
     dev::{DevElHover, DevToolsToggle},
     Event, ExitEvent, FocusEvent,
 };
 use crate::widget::{
-    button::ButtonEvent, scrollable::ScrollEvent, select::SelectEvent,
-    slider::SliderEvent,
+    button::ButtonEvent, knob::KnobEvent, scrollable::ScrollEvent,
+    select::SelectEvent, slider::SliderEvent,
 };
-use embedded_graphics_simulator::SimulatorEvent as SE;
+use embedded_graphics::prelude::Point;
+use embedded_graphics_simulator::{
+    sdl2::{Keycode, Mod, MouseWheelDirection},
+    SimulatorEvent as SE,
+};
 
 #[derive(Clone, Debug)]
 pub enum SimulatorEvent {
@@ -83,6 +84,13 @@ impl SliderEvent for SimulatorEvent {
 impl SelectEvent for SimulatorEvent {
     fn as_select(&self, _axis: crate::layout::Axis) -> Option<i32> {
         self.as_focus_move()
+    }
+}
+
+impl KnobEvent for SimulatorEvent {
+    fn as_knob_rotate(&self) -> Option<i32> {
+        self.as_focus_move()
+        // .map(core::ops::Neg::neg)
     }
 }
 

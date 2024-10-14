@@ -1,0 +1,7 @@
+[package]
+name = "rsact-encoder"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+rsact-ui = { workspace = true }

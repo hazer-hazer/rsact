@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 rsact-reactive = {path = "./rsact-reactive"}
+rsact-encoder = {path = "./rsact-encoder"}
 rsact-ui = {path = "./rsact-ui"}
 
 [workspace]
@@ -12,8 +13,12 @@ resolver = "2"
 members = [
     "rsact-ui",
     "rsact-reactive",
-    # "rsact-icons"
+    "rsact-encoder",
+    "rsact-icons"
 ]
+authors = ["hazer-hazer"]
+repository = "https://github.com/hazer-hazer/rsact"
+license = "MIT"
 exclude = ["examples"]
 
 [workspace.package]
@@ -23,6 +28,7 @@ version = "0.1.0"
 [workspace.dependencies]
 rsact-reactive = { path = "./rsact-reactive" }
 rsact-ui = { path = "./rsact-ui" }
+rsact-encoder = {path = "./rsact-encoder"}
 
 [profile.dev]
 # opt-level = 0

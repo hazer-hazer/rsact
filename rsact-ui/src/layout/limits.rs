@@ -24,6 +24,10 @@ impl Limits {
         Self { min: Size::zero(), max }
     }
 
+    pub fn exact(exact: Size<u32>) -> Self {
+        Self::new(exact, exact)
+    }
+
     pub fn zero() -> Self {
         Self { min: Size::zero(), max: Size::zero() }
     }
