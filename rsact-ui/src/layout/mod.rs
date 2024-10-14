@@ -21,6 +21,7 @@ pub mod flex;
 pub mod limits;
 pub mod padding;
 pub mod size;
+pub mod grid;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Align {

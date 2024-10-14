@@ -10,9 +10,7 @@ use embedded_graphics::{
     mono_font::MonoTextStyle,
     pixelcolor::raw::ByteOrder,
     prelude::{DrawTarget, PixelColor},
-    primitives::{
-        Arc, Line, PrimitiveStyle, Rectangle, RoundedRectangle, Styled,
-    },
+    primitives::{PrimitiveStyle, Rectangle, RoundedRectangle, Styled},
     Pixel,
 };
 use embedded_text::TextBox;
@@ -84,7 +82,7 @@ impl<C: Color> Into<Padding> for Border<C> {
 }
 
 #[derive(Clone, Copy)]
-pub struct Block<C: Color + Copy> {
+pub struct Block<C: Color> {
     pub border: Border<C>,
     pub rect: Rectangle,
     pub background: Option<C>,
@@ -118,6 +116,13 @@ impl<C: Color + Copy> Block<C> {
     }
 }
 
+// TODO: Custom MonoText struct with String to pass from Canvas widget. Lifetime
+// in TextBox require Canvas only to draw 'static strings
+pub type Line<C> =
+    Styled<embedded_graphics::primitives::Line, PrimitiveStyle<C>>;
+pub type Rect<C> = Styled<RoundedRectangle, PrimitiveStyle<C>>;
+pub type Arc<C> = Styled<embedded_graphics::primitives::Arc, PrimitiveStyle<C>>;
+
 pub trait Renderer {
     type Color: Color;
 
@@ -138,19 +143,10 @@ pub trait Renderer {
         f: impl FnOnce(&mut Self) -> DrawResult,
     ) -> DrawResult;
 
-    fn line(
-        &mut self,
-        line: Styled<Line, PrimitiveStyle<Self::Color>>,
-    ) -> DrawResult;
-    fn rect(
-        &mut self,
-        rect: Styled<RoundedRectangle, PrimitiveStyle<Self::Color>>,
-    ) -> DrawResult;
+    fn line(&mut self, line: Line<Self::Color>) -> DrawResult;
+    fn rect(&mut self, rect: Rect<Self::Color>) -> DrawResult;
     fn block(&mut self, block: Block<Self::Color>) -> DrawResult;
-    fn arc(
-        &mut self,
-        arc: Styled<Arc, PrimitiveStyle<Self::Color>>,
-    ) -> DrawResult;
+    fn arc(&mut self, arc: Arc<Self::Color>) -> DrawResult;
     fn mono_text<'a>(
         &mut self,
         text_box: TextBox<'a, MonoTextStyle<'a, Self::Color>>,

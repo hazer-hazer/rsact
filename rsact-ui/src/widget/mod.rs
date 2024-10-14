@@ -12,6 +12,7 @@ pub mod scrollable;
 pub mod select;
 pub mod slider;
 pub mod space;
+pub mod canvas;
 
 use crate::{
     event::{BubbledData, EventPass, FocusedWidget},
