@@ -1,23 +1,9 @@
 use super::{
     icon::{Icon, IconStyle},
-    BlockModel, ContainerLayout,
+    ContainerLayout,
 };
-use crate::{
-    declare_widget_style,
-    el::ElId,
-    event::EventResponse,
-    layout::{ContentLayout, Layout, LayoutKind},
-    render::{color::Color, Block, Renderer},
-    style::{block::BlockStyle, Styler},
-    widget::{Meta, MetaTree, Widget, WidgetCtx},
-};
+use crate::widget::prelude::*;
 use rsact_icons::system::SystemIcon;
-use rsact_reactive::{
-    memo::{IntoMemo, MemoTree},
-    memo_chain::IntoMemoChain,
-    prelude::MemoChain,
-    signal::{IntoSignal, ReadSignal, Signal, SignalMapper, WriteSignal},
-};
 
 #[derive(Clone, Copy)]
 pub struct CheckboxState {

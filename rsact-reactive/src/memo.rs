@@ -6,7 +6,7 @@ use crate::{
     storage::ValueId,
 };
 use alloc::{rc::Rc, vec::Vec};
-use core::{cell::RefCell, fmt::Debug, marker::PhantomData};
+use core::{cell::RefCell, fmt::Debug, marker::PhantomData, ops::Deref};
 
 pub struct MemoCallback<T, F>
 where
@@ -136,6 +136,15 @@ pub struct MemoTree<T: PartialEq + 'static> {
     pub children: Memo<Vec<MemoTree<T>>>,
 }
 
+impl<T: PartialEq + Default + 'static> Default for MemoTree<T> {
+    fn default() -> Self {
+        Self {
+            data: use_memo(|_| T::default()),
+            children: Vec::new().into_memo(),
+        }
+    }
+}
+
 impl<T: PartialEq + 'static> Copy for MemoTree<T> {}
 
 impl<T: PartialEq + 'static> PartialEq for MemoTree<T> {
@@ -175,6 +184,25 @@ impl<T: PartialEq + 'static> MemoTree<T> {
 // pub struct MemoTreeIter<'a> {
 //     stack: Vec<&'a Memo2>
 // }
+
+pub struct Keyed<K: PartialEq, V> {
+    key: K,
+    value: V,
+}
+
+impl<K: PartialEq, V> Deref for Keyed<K, V> {
+    type Target = V;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+impl<K: PartialEq, V> PartialEq for Keyed<K, V> {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key
+    }
+}
 
 #[cfg(test)]
 mod tests {

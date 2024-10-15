@@ -1,3 +1,7 @@
+// Note: Impossible, ambiguous
+// TODO: Match `$($prefix .)* $param` to simplify usage in cases like
+// self.value, to avoid `let value = self.value`
+
 #[macro_export]
 macro_rules! with {
     (|$param: ident $(,)?| $body: expr) => {

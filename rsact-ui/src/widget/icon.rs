@@ -1,23 +1,6 @@
 use super::{layout::ContentLayout, Limits, Size};
-use crate::{
-    declare_widget_style,
-    event::EventResponse,
-    font::FontSize,
-    layout::{Layout, LayoutKind},
-    render::{color::Color, Renderer},
-    style::{ColorStyle, Styler},
-    widget::{Meta, MetaTree, MountCtx, Widget, WidgetCtx},
-};
+use crate::widget::prelude::*;
 use rsact_icons::IconSet;
-use rsact_reactive::{
-    mapped,
-    memo::{IntoMemo, MemoTree},
-    memo_chain::IntoMemoChain,
-    prelude::{use_signal, MemoChain},
-    signal::{
-        IntoSignal, MaybeSignal, ReadSignal, Signal, SignalMapper, SignalSetter,
-    },
-};
 
 declare_widget_style! {
     IconStyle () {
@@ -101,7 +84,11 @@ where
         ctx: &mut crate::widget::DrawCtx<'_, W>,
     ) -> crate::widget::DrawResult {
         let style = self.style.get();
-        let icon_raw = self.icon.with(|kind| kind.size(self.real_size.get()));
+
+        let icon = self.icon;
+        let real_size = self.real_size;
+        let icon_raw = with!(|icon, real_size| icon.size(*real_size));
+
         let icon = rsact_icons::Icon::new(
             icon_raw,
             ctx.layout.inner.top_left,

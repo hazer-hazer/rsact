@@ -1,6 +1,8 @@
 pub mod bar;
 pub mod button;
+pub mod canvas;
 pub mod checkbox;
+pub mod combinators;
 pub mod container;
 pub mod edge;
 pub mod flex;
@@ -12,7 +14,7 @@ pub mod scrollable;
 pub mod select;
 pub mod slider;
 pub mod space;
-pub mod canvas;
+pub mod show;
 
 use crate::{
     event::{BubbledData, EventPass, FocusedWidget},
@@ -33,10 +35,16 @@ bitflags! {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct Meta {
     pub behavior: Behavior,
     pub id: Option<ElId>,
+}
+
+impl Default for Meta {
+    fn default() -> Self {
+        Self::none()
+    }
 }
 
 impl Meta {
@@ -439,9 +447,10 @@ pub mod prelude {
     pub use crate::{
         el::{El, ElId},
         event::{
-            Capture, Event, EventResponse, ExitEvent, FocusEvent, NullEvent,
-            Propagate,
+            message::Message, BubbledData, Capture, Event, EventResponse,
+            ExitEvent, FocusEvent, NullEvent, Propagate,
         },
+        font::{FontSize, FontStyle},
         layout::{
             self,
             axis::{
@@ -458,7 +467,7 @@ pub mod prelude {
         style::{block::*, declare_widget_style, ColorStyle, Styler},
         widget::{
             BlockModelWidget, DrawCtx, DrawResult, EventCtx, LayoutCtx, Meta,
-            MetaTree, SizedWidget, Widget, WidgetCtx,
+            MetaTree, MountCtx, SizedWidget, Widget, WidgetCtx,
         },
     };
     pub use alloc::{boxed::Box, string::String, vec::Vec};

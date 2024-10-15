@@ -18,10 +18,10 @@ use size::{Length, Size};
 pub mod axis;
 pub mod block_model;
 pub mod flex;
+pub mod grid;
 pub mod limits;
 pub mod padding;
 pub mod size;
-pub mod grid;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Align {
@@ -286,6 +286,7 @@ pub struct DevHoveredLayout {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LayoutKind {
+    Zero,
     Edge,
     Content(ContentLayout),
     Container(ContainerLayout),
@@ -300,6 +301,10 @@ pub struct Layout {
 }
 
 impl Layout {
+    pub fn zero() -> Self {
+        Self { kind: LayoutKind::Zero, size: Size::zero().into() }
+    }
+
     pub fn shrink(kind: LayoutKind) -> Self {
         Self { kind, size: Size::shrink() }
     }
@@ -324,6 +329,7 @@ impl Layout {
 
     pub fn content_size(&self) -> Limits {
         match self.kind {
+            LayoutKind::Zero => Limits::zero(),
             LayoutKind::Edge => Limits::unlimited(),
             LayoutKind::Content(ContentLayout { content_size })
             | LayoutKind::Container(ContainerLayout { content_size, .. })
@@ -336,6 +342,7 @@ impl Layout {
 
     pub fn min_size(&self) -> Size {
         match self.kind {
+            LayoutKind::Zero => Size::zero(),
             LayoutKind::Edge => Size::zero(),
             LayoutKind::Content(content_layout) => content_layout.min_size(),
             LayoutKind::Container(container_layout) => {
@@ -368,7 +375,8 @@ impl Layout {
     // TODO: Panic on invalid layout kind usage?
     pub fn block_model(&self) -> BlockModel {
         match self.kind {
-            LayoutKind::Edge
+            LayoutKind::Zero
+            | LayoutKind::Edge
             | LayoutKind::Content(..)
             | LayoutKind::Scrollable(..) => BlockModel::zero(),
             LayoutKind::Container(ContainerLayout { block_model, .. })
@@ -579,6 +587,7 @@ pub fn model_layout(
     let size = layout.size.in_parent(parent_size);
 
     match layout.kind {
+        LayoutKind::Zero => LayoutModel::zero(),
         LayoutKind::Edge => {
             let limits = parent_limits.limit_by(size);
 
