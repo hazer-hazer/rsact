@@ -1,5 +1,8 @@
 {
-  "rust-analyzer.check.allTargets": false,
+  "rust-analyzer.check.allTargets": true,
+  "rust-analyzer.testExplorer": true,
   "editor.defaultFormatter": "rust-lang.rust-analyzer",
-  "editor.formatOnSave": true
+  "editor.formatOnSave": true,
+  "rust-analyzer.check.noDefaultFeatures": true,
+  "rust-analyzer.check.features": ["mutex-critical-section"]
 }

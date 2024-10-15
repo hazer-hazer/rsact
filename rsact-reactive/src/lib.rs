@@ -1,5 +1,8 @@
-#![feature(thread_local)]
+// #![feature(thread_local)]
 #![cfg_attr(not(feature = "std"), no_std)]
+
+#[cfg(feature = "std")]
+extern crate std;
 
 extern crate alloc;
 
@@ -9,6 +12,7 @@ pub mod effect;
 pub mod macros;
 pub mod memo;
 pub mod memo_chain;
+mod mutex;
 pub mod runtime;
 pub mod signal;
 mod storage;

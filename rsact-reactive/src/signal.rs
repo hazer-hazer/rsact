@@ -119,7 +119,7 @@ pub struct Signal<T, M: marker::Any = marker::Rw> {
     rw: PhantomData<M>,
 }
 
-impl<T: 'static, M: marker::Any> Signal<T, M> {
+impl<T: Send + 'static, M: marker::Any> Signal<T, M> {
     #[track_caller]
     pub fn new(value: T) -> Self {
         let caller = Location::caller();
@@ -137,10 +137,10 @@ impl<T: 'static, M: marker::Any> Signal<T, M> {
 pub trait SignalSetter<T: 'static> {
     fn setter<U: 'static>(
         self,
-        other: impl ReadSignal<U> + 'static,
-        f: impl Fn(&U, &mut T) + 'static,
+        other: impl ReadSignal<U> + Send + 'static,
+        f: impl Fn(&U, &mut T) + Send + 'static,
     );
-    fn set_from(self, other: impl ReadSignal<T> + 'static)
+    fn set_from(self, other: impl ReadSignal<T> + Send + 'static)
     where
         T: Clone,
         Self: Sized + 'static,
@@ -151,13 +151,13 @@ pub trait SignalSetter<T: 'static> {
 
 impl<S, T> SignalSetter<T> for S
 where
-    S: WriteSignal<T> + 'static,
-    T: 'static,
+    S: WriteSignal<T> + Send + 'static,
+    T: Send + 'static,
 {
     fn setter<U: 'static>(
         self,
-        other: impl ReadSignal<U> + 'static,
-        f: impl Fn(&U, &mut T) + 'static,
+        other: impl ReadSignal<U> + Send + 'static,
+        f: impl Fn(&U, &mut T) + Send + 'static,
     ) {
         use_effect(move |_| {
             other.with(|other| {
@@ -167,15 +167,15 @@ where
     }
 }
 
-pub trait SignalMapper<T: 'static> {
-    fn mapped<U: PartialEq + 'static>(
+pub trait SignalMapper<T: Send + 'static> {
+    fn mapped<U: PartialEq + Send + 'static>(
         self,
-        map: impl Fn(&T) -> U + 'static,
+        map: impl Fn(&T) -> U + Send + 'static,
     ) -> Memo<U>;
 
-    fn mapped_clone<U: PartialEq + 'static>(
+    fn mapped_clone<U: PartialEq + Send + 'static>(
         self,
-        map: impl Fn(T) -> U + 'static,
+        map: impl Fn(T) -> U + Send + 'static,
     ) -> Memo<U>
     where
         Self: Sized + 'static,
@@ -185,13 +185,13 @@ pub trait SignalMapper<T: 'static> {
     }
 }
 
-impl<S, T: 'static> SignalMapper<T> for S
+impl<S, T: Send + 'static> SignalMapper<T> for S
 where
-    S: ReadSignal<T> + 'static,
+    S: ReadSignal<T> + Send + 'static,
 {
-    fn mapped<U: PartialEq + 'static>(
+    fn mapped<U: PartialEq + Send + 'static>(
         self,
-        map: impl Fn(&T) -> U + 'static,
+        map: impl Fn(&T) -> U + Send + 'static,
     ) -> Memo<U> {
         use_memo(move |_| self.with(|value| map(value)))
     }
@@ -289,8 +289,8 @@ macro_rules! impl_arith_with_assign {
         $(
             impl<T, M> $trait for Signal<T, M>
             where
-                T: $trait<Output = T> + PartialEq + Clone + 'static,
-                M: marker::CanRead + 'static,
+                T: $trait<Output = T> + PartialEq + Clone + Send + 'static,
+                M: marker::CanRead + Send + 'static,
             {
                 type Output = Memo<T>;
 
@@ -353,8 +353,8 @@ impl_arith_with_assign! {
 
 impl<T, M> Neg for Signal<T, M>
 where
-    T: Neg<Output = T> + PartialEq + Clone + 'static,
-    M: marker::CanRead + 'static,
+    T: Neg<Output = T> + PartialEq + Clone + Send + 'static,
+    M: marker::CanRead + Send + 'static,
 {
     type Output = Memo<T>;
 
@@ -366,8 +366,8 @@ where
 
 impl<T, M> Not for Signal<T, M>
 where
-    T: Not<Output = T> + PartialEq + Clone + 'static,
-    M: marker::CanRead + 'static,
+    T: Not<Output = T> + PartialEq + Clone + Send + 'static,
+    M: marker::CanRead + Send + 'static,
 {
     type Output = Memo<T>;
 
@@ -462,7 +462,7 @@ impl<T: 'static> IntoSignal<T> for Signal<T> {
     }
 }
 
-impl<T: 'static> IntoSignal<T> for T {
+impl<T: Send + 'static> IntoSignal<T> for T {
     fn into_signal(self) -> Signal<T> {
         use_signal(self)
     }
@@ -474,7 +474,7 @@ pub struct SignalTree<T: 'static> {
     pub children: Signal<Vec<SignalTree<T>>>,
 }
 
-impl<T: 'static> SignalTree<T> {
+impl<T: Send + 'static> SignalTree<T> {
     pub fn childless(data: Signal<T>) -> Self {
         Self { data, children: use_signal(Vec::new()) }
     }
@@ -515,6 +515,13 @@ mod tests {
     //     assert_eq!(signal2.get(), 4);
     //     assert_eq!(signal1.get(), signal2.get());
     // }
+
+    #[test]
+    fn simple_memo() {
+        let a = use_memo(move |_| 123);
+
+        assert_eq!(a.get(), 123);
+    }
 
     #[test]
     fn one_level_memo() {
