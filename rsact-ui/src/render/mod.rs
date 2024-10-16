@@ -129,6 +129,7 @@ pub trait Renderer {
     fn new(viewport: Size) -> Self;
 
     // TODO: Generic targets
+    // TODO: This is the same as implementing Drawable for Renderer
     fn finish(&self, target: &mut impl DrawTarget<Color = Self::Color>);
 
     fn clear(&mut self, color: Self::Color) -> DrawResult;

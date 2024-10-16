@@ -287,6 +287,7 @@ impl<W: WidgetCtx> Page<W> {
         &mut self,
         target: &mut impl DrawTarget<Color = <W::Renderer as Renderer>::Color>,
     ) -> DrawResult {
+        // FIXME: Performance?
         self.style.with(|style| {
             if let Some(background_color) = style.background_color {
                 Renderer::clear(&mut self.renderer, background_color)

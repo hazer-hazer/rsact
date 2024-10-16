@@ -7,7 +7,9 @@ use embedded_graphics::{
     image::{Image, ImageRaw},
     iterator::raw::RawDataSlice,
     pixelcolor::raw::ByteOrder,
-    prelude::{Dimensions, DrawTarget, DrawTargetExt, PixelColor, Point},
+    prelude::{
+        Dimensions, DrawTarget, DrawTargetExt, PixelColor, Point, PointsIter,
+    },
     primitives::{
         Arc, Line, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle,
         RoundedRectangle, Styled, StyledDrawable as _,
@@ -60,6 +62,13 @@ impl<C: Color> LayeringRenderer<C> {
 
     fn sub_viewport(&self, kind: ViewportKind) -> Viewport {
         Viewport { layer: self.layer_index(), kind }
+    }
+
+    #[inline(always)]
+    fn pixel(&self, point: Point) -> Option<Pixel<C>> {
+        self.layers.iter().rev().find_map(|layer| {
+            layer.1.get_pixel(point).map(|color| Pixel(point, color))
+        })
     }
 }
 
@@ -114,9 +123,17 @@ where
     }
 
     fn finish(&self, target: &mut impl DrawTarget<Color = C>) {
-        self.layers.iter().for_each(|(_, canvas)| {
-            canvas.draw(target).ok().unwrap();
-        });
+        // self.layers.iter().for_each(|(_, canvas)| {
+        //     canvas.draw(target).ok().unwrap();
+        // });
+        target
+            .draw_iter(
+                Rectangle::new(Point::zero(), self.main_viewport.into())
+                    .points()
+                    .filter_map(|point| self.pixel(point)),
+            )
+            .ok()
+            .unwrap()
     }
 
     fn clear(&mut self, color: Self::Color) -> DrawResult {
