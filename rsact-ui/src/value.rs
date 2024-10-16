@@ -41,4 +41,27 @@ macro_rules! impl_range_value_ints {
 
 impl_range_value_ints!(u8, u16, u32);
 
+// impl RangeValue for f32 {
+//     fn min() -> Self {
+//         0.0
+//     }
+
+//     fn max() -> Self {
+//         1.0
+//     }
+
+//     fn real_point(&self) -> f32 {
+//         *self
+//     }
+
+//     fn point(&self, len: u32) -> u32 {
+//         (*self / len as f32) as u32
+//     }
+
+//     fn offset(&self, offset: i32) -> Self {
+
+//     }
+// }
+
 // TODO: f32/f64
+// TODO: Events with offsets must return f32 or other type with known offset properties

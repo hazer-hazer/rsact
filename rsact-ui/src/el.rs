@@ -83,36 +83,3 @@ where
         self.widget.on_event(ctx)
     }
 }
-
-// macro_rules! el {
-//     ($ctor:path $({
-//         $($builder:ident : $value:expr,)*
-//         $($children: tt)?
-//         $(,)?
-//     })?) => {
-//         $ctor($($crate::el::el!(@children $children))?)
-//             $(.$builder($value))*
-//             .el()
-//     };
-
-//     (@ctor $ctor:path) => {
-//         $ctor
-//     };
-
-//     (@children [
-//         $($el: tt),*
-//         $(,)?
-//     ]) => {
-//         vec![$($crate::el::el!($el)),*]
-//     };
-
-//     (@children $el: tt) => {
-//         $crate::el::el!($el)
-//     };
-// }
-
-// fn foo() {
-//     let a = el!(Button::new {
-//         Mono
-//     });
-// }

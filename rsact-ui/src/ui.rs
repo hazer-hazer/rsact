@@ -10,7 +10,7 @@ use crate::{
         DevToolsState, Page,
     },
     render::{color::Color, draw_target::LayeringRenderer, Renderer},
-    widget::{DrawResult, WidgetCtx, WTF},
+    widget::{DrawResult, WidgetCtx, Wtf},
 };
 use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use embedded_graphics::prelude::DrawTarget;
@@ -38,14 +38,14 @@ where
     }
 }
 
-impl<R, E, S> UI<WTF<R, E, S, SinglePage>>
+impl<R, E, S> UI<Wtf<R, E, S, SinglePage>>
 where
     R: Renderer + 'static,
     E: Event + 'static,
     S: PartialEq + Copy + 'static,
 {
     pub fn single_page(
-        root: impl Into<El<WTF<R, E, S, SinglePage>>>,
+        root: impl Into<El<Wtf<R, E, S, SinglePage>>>,
         viewport: impl Into<Size> + Copy,
         styler: S,
     ) -> Self {
@@ -53,7 +53,7 @@ where
     }
 }
 
-impl<R, E, S, I> UI<WTF<R, E, S, I>>
+impl<R, E, S, I> UI<Wtf<R, E, S, I>>
 where
     R: Renderer + 'static,
     E: Event + 'static,
@@ -62,7 +62,7 @@ where
 {
     pub fn new(
         page_id: I,
-        start_page_root: impl Into<El<WTF<R, E, S, I>>>,
+        start_page_root: impl Into<El<Wtf<R, E, S, I>>>,
         viewport: impl Into<Size> + Copy,
         styler: S,
     ) -> Self {

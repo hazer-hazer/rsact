@@ -8,7 +8,6 @@ pub trait ButtonEvent {
 #[derive(Clone, Copy)]
 pub struct ButtonState {
     pub pressed: bool,
-    // pub focused: bool,
 }
 
 impl ButtonState {
@@ -157,14 +156,6 @@ where
         ctx.handle_focusable(self.id, |pressed| {
             let current_state = self.state.get();
 
-            // if current_state.focused != is_focused {
-            //     self.state.update(|state| state.focused = is_focused);
-            // }
-
-            // if !is_focused {
-            //     return W::ignore();
-            // }
-
             if current_state.pressed != pressed {
                 self.state.update(|state| state.pressed = pressed);
 
@@ -184,13 +175,3 @@ where
         })
     }
 }
-
-// impl<C> From<Button<C>> for El<C>
-// where
-//     C::Event: ButtonEvent,
-//     C: WidgetCtx + 'static,
-// {
-//     fn from(value: Button<C>) -> Self {
-//         El::new(value)
-//     }
-// }

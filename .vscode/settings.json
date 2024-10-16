@@ -1,8 +1,17 @@
 {
-  "rust-analyzer.check.allTargets": true,
+  "rust-analyzer.check.allTargets": false,
   "cSpell.words": [
     "fullscreen",
     "rsact",
     "vals"
+  ],
+  "rust-analyzer.runnables.extraTestBinaryArgs": ["--test-threads=1"],
+  "rust-analyzer.cargo.noDefaultFeatures": true,
+  "rust-analyzer.cargo.features": [
+    "single-thread"
+  ],
+  "rust-analyzer.check.noDefaultFeatures": true,
+  "rust-analyzer.check.features": [
+    "single-thread"
   ]
 }

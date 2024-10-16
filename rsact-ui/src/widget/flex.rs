@@ -175,14 +175,3 @@ where
         El::new(value)
     }
 }
-
-// macro_rules! row {
-//     ($($el: expr),* $(,)?) => [
-//         Flex::row(vec![$($el.el()),*])
-//     ];
-
-//     (let ($var: ident, $flex: ident) = $($el: expr),* $(,)?) => {
-//         let $var = use_signal(vec![$($el.el()),*]);
-//         let flex =
-//     };
-// }

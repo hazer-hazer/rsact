@@ -4,9 +4,7 @@ use crate::{
     memo::MemoCallback,
     runtime::Runtime,
 };
-use alloc::{
-    boxed::Box, collections::btree_map::BTreeMap, format, rc::Rc, vec::Vec,
-};
+use alloc::{collections::btree_map::BTreeMap, format, rc::Rc, vec::Vec};
 use core::{
     any::{type_name, Any},
     cell::RefCell,
@@ -28,47 +26,49 @@ pub enum NotifyError {
 pub type NotifyResult = Result<(), NotifyError>;
 
 impl ValueId {
-    // fn debug_info(&self, rt: &Runtime) -> ValueDebugInfo {
-    //     match rt.storage.get(*self).map(|value| &value.kind) {
-    //         Some(&ValueKind::Signal(debug_info)) => debug_info,
-    //         _ => ValueDebugInfo::none(),
-    //     }
-    // }
+    fn debug_info(&self, rt: &Runtime) -> ValueDebugInfo {
+        match rt.storage.get(*self).map(|value| value.kind) {
+            Some(ValueKind::Signal(debug_info)) => debug_info,
+            _ => ValueDebugInfo::none(),
+        }
+    }
 
-    // pub(crate) fn get_untracked(&self, rt: &Runtime) -> Rc<RefCell<dyn Any>>
-    // {     // let values = &runtime.storage.values.borrow();
-    //     let value = rt.storage.values.get(*self).unwrap().value();
+    pub(crate) fn get_untracked(
+        &self,
+        runtime: &Runtime,
+    ) -> Rc<RefCell<dyn Any>> {
+        let values = &runtime.storage.values.borrow();
+        let value = values.get(*self).unwrap().value();
 
-    //     value
-    // }
+        value
+    }
 
     // TODO: Add `subscribe_with_current_rt` for simplicity
-    pub(crate) fn subscribe(&self, rt: &mut Runtime) {
+    pub(crate) fn subscribe(&self, rt: &Runtime) {
         rt.subscribe(*self);
     }
 
     #[inline(always)]
     pub(crate) fn with_untracked<T: 'static, U>(
         &self,
-        rt: &mut Runtime,
+        rt: &Runtime,
         f: impl FnOnce(&T) -> U,
     ) -> U {
         rt.maybe_update(*self);
 
-        // let value = self.get_untracked(rt);
-        // let value = match RefCell::try_borrow(&value) {
-        //     Ok(value) => value,
-        //     Err(err) => {
-        //         panic!(
-        //             "Failed to borrow reactive value: {err} {}",
-        //             self.debug_info(rt)
-        //         )
-        //     },
-        // };
-        let value =
-            rt.storage.get(*self).unwrap().value.downcast_ref::<T>().expect(
-                &format!("Failed to cast value to {}", type_name::<T>()),
-            );
+        let value = self.get_untracked(rt);
+        let value = match RefCell::try_borrow(&value) {
+            Ok(value) => value,
+            Err(err) => {
+                panic!(
+                    "Failed to borrow reactive value: {err} {}",
+                    self.debug_info(rt)
+                )
+            },
+        };
+        let value = value
+            .downcast_ref::<T>()
+            .expect(&format!("Failed to cast value to {}", type_name::<T>()));
 
         f(value)
     }
@@ -76,7 +76,7 @@ impl ValueId {
     #[track_caller]
     pub(crate) fn notify(
         &self,
-        rt: &mut Runtime,
+        rt: &Runtime,
         caller: &'static Location<'static>,
     ) -> NotifyResult {
         // if rt.is_dirty(*self) {
@@ -93,23 +93,17 @@ impl ValueId {
     #[inline(always)]
     pub(crate) fn update_untracked<T: 'static, U>(
         &self,
-        rt: &mut Runtime,
+        rt: &Runtime,
         f: impl FnOnce(&mut T) -> U,
     ) -> U {
         let result = {
-            // let value = self.get_untracked(rt);
-            // let mut value = RefCell::borrow_mut(&value);
+            let value = self.get_untracked(rt);
+            let mut value = RefCell::borrow_mut(&value);
 
-            let value = rt
-                .storage
-                .get_mut(*self)
-                .unwrap()
-                .value
-                .downcast_mut::<T>()
-                .expect(&format!(
-                    "Failed to mut cast value to {}",
-                    type_name::<T>()
-                ));
+            let value = value.downcast_mut::<T>().expect(&format!(
+                "Failed to mut cast value to {}",
+                type_name::<T>()
+            ));
             f(value)
         };
 
@@ -141,20 +135,20 @@ impl core::fmt::Display for ValueDebugInfo {
     }
 }
 
-// #[derive(Clone)]
+#[derive(Clone)]
 pub enum ValueKind {
     Signal(ValueDebugInfo),
     Effect {
-        f: Box<dyn AnyCallback + Send>,
+        f: Rc<dyn AnyCallback>,
     },
     Memo {
-        f: Box<dyn AnyCallback + Send>,
+        f: Rc<dyn AnyCallback>,
     },
     MemoChain {
-        initial: Box<dyn AnyCallback + Send>,
+        initial: Rc<dyn AnyCallback>,
         // TODO: Optimize, don't use BtreeMap but fixed structure with each
         // EffectOrder
-        fs: Box<BTreeMap<EffectOrder, Vec<Box<dyn AnyCallback + Send>>>>,
+        fs: Rc<RefCell<BTreeMap<EffectOrder, Vec<Rc<dyn AnyCallback>>>>>,
     },
 }
 
@@ -181,17 +175,17 @@ pub enum ValueState {
     Dirty,
 }
 
-// #[derive(Clone)]
+#[derive(Clone)]
 pub struct StoredValue {
-    pub value: Box<dyn Any + Send>,
+    pub value: Rc<RefCell<dyn Any>>,
     pub kind: ValueKind,
     pub state: ValueState,
 }
 
 impl StoredValue {
-    // pub(crate) fn value(&self) -> Rc<RefCell<dyn Any>> {
-    //     self.value.clone()
-    // }
+    pub(crate) fn value(&self) -> Rc<RefCell<dyn Any>> {
+        self.value.clone()
+    }
 
     fn mark(&mut self, state: ValueState) {
         self.state = state;
@@ -200,18 +194,18 @@ impl StoredValue {
 
 #[derive(Default)]
 pub struct Storage {
-    values: SlotMap<ValueId, StoredValue>,
+    values: RefCell<SlotMap<ValueId, StoredValue>>,
 }
 
 impl Storage {
     #[track_caller]
-    pub fn create_signal<T: Send + 'static>(
-        &mut self,
+    pub fn create_signal<T: 'static>(
+        &self,
         value: T,
         caller: &'static Location<'static>,
     ) -> ValueId {
-        self.values.insert(StoredValue {
-            value: Box::new(value),
+        self.values.borrow_mut().insert(StoredValue {
+            value: Rc::new(RefCell::new(value)),
             kind: ValueKind::Signal(ValueDebugInfo {
                 creator: Some(caller),
                 dirten: None,
@@ -221,15 +215,15 @@ impl Storage {
     }
 
     #[track_caller]
-    pub fn create_effect<T, F>(&mut self, f: F) -> ValueId
+    pub fn create_effect<T, F>(&self, f: F) -> ValueId
     where
-        T: Send + 'static,
-        F: Fn(Option<T>) -> T + Send + 'static,
+        T: 'static,
+        F: Fn(Option<T>) -> T + 'static,
     {
-        self.values.insert(StoredValue {
-            value: Box::new(None::<T>),
+        self.values.borrow_mut().insert(StoredValue {
+            value: Rc::new(RefCell::new(None::<T>)),
             kind: ValueKind::Effect {
-                f: Box::new(EffectCallback { f, ty: PhantomData }),
+                f: Rc::new(EffectCallback { f, ty: PhantomData }),
             },
             // Note: Check this, might need to be Dirty
             state: ValueState::Dirty,
@@ -237,52 +231,48 @@ impl Storage {
     }
 
     #[track_caller]
-    pub fn create_memo<T, F>(&mut self, f: F) -> ValueId
+    pub fn create_memo<T, F>(&self, f: F) -> ValueId
     where
-        T: Send + PartialEq + 'static,
-        F: Fn(Option<&T>) -> T + Send + 'static,
+        T: PartialEq + 'static,
+        F: Fn(Option<&T>) -> T + 'static,
     {
-        self.values.insert(StoredValue {
-            value: Box::new(None::<T>),
+        self.values.borrow_mut().insert(StoredValue {
+            value: Rc::new(RefCell::new(None::<T>)),
             kind: ValueKind::Memo {
-                f: Box::new(MemoCallback { f, ty: PhantomData }),
+                f: Rc::new(MemoCallback { f, ty: PhantomData }),
             },
             state: ValueState::Dirty,
         })
     }
 
-    pub fn create_memo_chain<T, F>(&mut self, f: F) -> ValueId
+    pub fn create_memo_chain<T, F>(&self, f: F) -> ValueId
     where
-        T: Send + PartialEq + 'static,
-        F: Fn(Option<&T>) -> T + Send + 'static,
+        T: PartialEq + 'static,
+        F: Fn(Option<&T>) -> T + 'static,
     {
-        self.values.insert(StoredValue {
-            value: Box::new(None::<T>),
+        self.values.borrow_mut().insert(StoredValue {
+            value: Rc::new(RefCell::new(None::<T>)),
             kind: ValueKind::MemoChain {
-                initial: Box::new(MemoCallback { f, ty: PhantomData }),
-                fs: Box::new(BTreeMap::new()),
+                initial: Rc::new(MemoCallback { f, ty: PhantomData }),
+                fs: Rc::new(RefCell::new(BTreeMap::new())),
             },
             state: ValueState::Dirty,
         })
     }
 
-    pub(crate) fn get(&self, id: ValueId) -> Option<&StoredValue> {
+    pub(crate) fn get(&self, id: ValueId) -> Option<StoredValue> {
         // self.values.borrow().get(id).unwrap().clone()
-        self.values.get(id)
-    }
-
-    pub(crate) fn get_mut(&mut self, id: ValueId) -> Option<&mut StoredValue> {
-        self.values.get_mut(id)
+        self.values.borrow().get(id).cloned()
     }
 
     pub(crate) fn mark(
-        &mut self,
+        &self,
         id: ValueId,
         state: ValueState,
         caller: Option<&'static Location<'static>>,
     ) {
-        // let mut values = self.values.borrow_mut();
-        let value = self.values.get_mut(id).unwrap();
+        let mut values = self.values.borrow_mut();
+        let value = values.get_mut(id).unwrap();
         value.mark(state);
 
         match (&mut value.kind, state, caller) {

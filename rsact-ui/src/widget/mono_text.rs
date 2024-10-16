@@ -64,10 +64,6 @@ fn pick_font(
 // TODO: Text wrap
 fn measure_text_content_size(text: &str, font: &MonoFont) -> Limits {
     let char_size = font.character_size;
-    // let max_size = text.chars().fold((0u32, Size::zero()), |(max_line, size),
-    // char| {
-
-    // });
 
     let max_size =
         text.split(|char| char == '\n').fold(Size::zero(), |size, a| {
@@ -172,14 +168,6 @@ impl<W: WidgetCtx + 'static> MonoText<W> {
         });
         self
     }
-
-    // pub fn style(
-    //     mut self,
-    //     style: impl IntoSignal<MonoTextStyle<C::Color>>,
-    // ) -> Self {
-    //     self.style = style.signal();
-    //     self
-    // }
 }
 
 impl<W: WidgetCtx + 'static> Widget<W> for MonoText<W>
@@ -230,9 +218,6 @@ where
                 TextBoxStyleBuilder::new()
                 // TODO: Style clip/only_visible/visible
                     .height_mode(embedded_text::style::HeightMode::ShrinkToText(embedded_text::style::VerticalOverdraw::Visible))
-                    // .height_mode(embedded_text::style::HeightMode::Exact(
-                    //     embedded_text::style::VerticalOverdraw::Visible,
-                    // ))
                     .build(),
             ))
         })

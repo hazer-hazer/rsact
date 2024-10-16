@@ -111,12 +111,12 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
     }
 }
 
-// FIXME: Remove?
-impl<W> From<Container<W>> for El<W>
-where
-    W: WidgetCtx + 'static,
-{
-    fn from(value: Container<W>) -> Self {
-        El::new(value)
-    }
-}
+// // FIXME: Remove?
+// impl<W> From<Container<W>> for El<W>
+// where
+//     W: WidgetCtx + 'static,
+// {
+//     fn from(value: Container<W>) -> Self {
+//         El::new(value)
+//     }
+// }

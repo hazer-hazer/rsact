@@ -302,6 +302,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "critical-section"
+version = "1.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f64009896348fc5af4222e9cf7d7d82a95a256c634ebcf61c53e4ea461422242"
+
+[[package]]
 name = "crossbeam-deque"
 version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -809,6 +815,10 @@ name = "once_cell"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
+dependencies = [
+ "critical-section",
+ "portable-atomic",
+]
 
 [[package]]
 name = "oorandom"
@@ -887,6 +897,12 @@ dependencies = [
  "flate2",
  "miniz_oxide 0.7.4",
 ]
+
+[[package]]
+name = "portable-atomic"
+version = "1.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc9c68a3f6da06753e9335d63e27f6b9754dd1920d941135b7ea8224f141adb2"
 
 [[package]]
 name = "ppv-lite86"
@@ -1090,7 +1106,6 @@ name = "rsact"
 version = "0.1.0"
 dependencies = [
  "rsact-encoder",
- "rsact-reactive",
  "rsact-ui",
 ]
 
@@ -1121,7 +1136,6 @@ name = "rsact-reactive"
 version = "0.1.0"
 dependencies = [
  "criterion",
- "lazy_static",
  "log",
  "once_cell",
  "slotmap",
@@ -1145,6 +1159,13 @@ dependencies = [
  "rand",
  "rsact-icons",
  "rsact-reactive",
+]
+
+[[package]]
+name = "rsact-widgets"
+version = "0.1.0"
+dependencies = [
+ "rsact-ui",
 ]
 
 [[package]]

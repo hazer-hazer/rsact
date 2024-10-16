@@ -1,10 +1,12 @@
 use crate::{
     memo::Memo,
-    signal::{Signal, StaticSignal},
+    signal::{
+        Signal, StaticSignal,
+    },
 };
 
 #[track_caller]
-pub fn use_signal<T: Send + 'static>(value: T) -> Signal<T> {
+pub fn use_signal<T: 'static>(value: T) -> Signal<T> {
     Signal::new(value)
 }
 
@@ -14,8 +16,8 @@ pub fn use_static<T: 'static>(value: T) -> StaticSignal<T> {
 }
 
 #[track_caller]
-pub fn use_memo<T: PartialEq + Send + 'static>(
-    f: impl Fn(Option<&T>) -> T + Send + 'static,
+pub fn use_memo<T: PartialEq + 'static>(
+    f: impl Fn(Option<&T>) -> T + 'static,
 ) -> Memo<T> {
     Memo::new(f)
 }

@@ -1,10 +1,4 @@
-use super::{El, Layout, Meta, MetaTree, Widget, WidgetCtx};
-use alloc::vec::Vec;
-use rsact_reactive::{
-    memo::{IntoMemo, Keyed, Memo, MemoTree},
-    prelude::use_memo,
-    signal::{IntoSignal, ReadSignal, SignalMapper},
-};
+use super::prelude::*;
 
 // pub struct Maybe<W: WidgetCtx> {
 //     widget: Memo<bool>,
@@ -146,8 +140,6 @@ use rsact_reactive::{
 //     }
 // }
 
-
-
 /*
  * let state = use_signal(100);
  * let child = move || if state % 2 == 0 {
@@ -172,7 +164,7 @@ pub struct Unit;
 
 impl<W: WidgetCtx> Widget<W> for Unit {
     fn meta(&self) -> MetaTree {
-        MetaTree::default()
+        MetaTree::childless(Meta::none())
     }
 
     fn on_mount(&mut self, ctx: super::MountCtx<W>) {

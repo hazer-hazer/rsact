@@ -1,5 +1,4 @@
 use core::fmt::Debug;
-
 use embedded_graphics::{
     pixelcolor::{BinaryColor, Rgb555, Rgb565, Rgb666, Rgb888},
     prelude::PixelColor,

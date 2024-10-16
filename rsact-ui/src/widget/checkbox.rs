@@ -29,7 +29,6 @@ impl<C: Color> CheckboxStyle<C> {
 }
 
 // TODO: Do we need `on_change` event with signal value?
-// TODO: Add custom icons
 
 type IconType = SystemIcon;
 

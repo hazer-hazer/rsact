@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-rsact-reactive = { path = "../rsact-reactive"}
+rsact-reactive = { path = "../rsact-reactive" }
 rsact-icons = {path = "../rsact-icons", default-features = false, features = ["system", "all-sizes"]}
 defmt = { version = "0.3.8", optional = true }
 embedded-graphics = "0.8.1"
@@ -30,5 +30,6 @@ rand = "0.8.5"
 default = []
 
 defmt = ["dep:defmt"]
-std = ["log/std"]
+std = ["log/std", "rsact-reactive/std"]
+single-thread = ["rsact-reactive/single-thread"]
 simulator = ["dep:embedded-graphics-simulator"]

@@ -52,7 +52,6 @@ impl ScrollableState {
 declare_widget_style! {
     ScrollableStyle (ScrollableState) {
         track_color: color,
-        // thumb: container,
         thumb_color: color,
         container: container,
         scrollbar_width: u32,
@@ -64,7 +63,6 @@ impl<C: Color> ScrollableStyle<C> {
     pub fn base() -> Self {
         Self {
             track_color: ColorStyle::Unset,
-            // thumb: BlockStyle::base(),
             thumb_color: ColorStyle::DefaultForeground,
             container: BlockStyle::base(),
             scrollbar_width: 5,
@@ -147,13 +145,6 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
                 "Don't use growing Length (Div/fill) for content {} inside Scrollable!",
                 Dir::AXIS.length_name()
             );
-
-            // warn!("Don't use growing Length (Div/fill) for content {}.
-            // Resetting it to Shrink!", Dir::AXIS.length_name());
-
-            // content_layout.update_untracked(|layout| {
-            //     *layout.size.main_mut(Dir::AXIS) = Length::Shrink
-            // })
         }
 
         Self {

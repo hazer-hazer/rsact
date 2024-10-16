@@ -29,11 +29,11 @@ where
     F: Fn(&T) -> T,
     T: PartialEq + 'static,
 {
-    fn run(&self, value: &mut dyn Any) -> bool {
+    fn run(&self, value: Rc<RefCell<dyn Any>>) -> bool {
         let (new_value, changed) = {
-            // let value = value.borrow();
+            let value = value.borrow();
             let value = value
-                .downcast_mut::<Option<T>>()
+                .downcast_ref::<Option<T>>()
                 .unwrap()
                 .as_ref()
                 .expect("Must already been set");
@@ -44,7 +44,7 @@ where
         };
 
         if changed {
-            // let mut value = value.borrow_mut();
+            let mut value = value.borrow_mut();
             let value = value.downcast_mut::<Option<T>>().unwrap();
             value.replace(new_value);
         }
@@ -58,8 +58,8 @@ pub struct MemoChain<T: PartialEq> {
     ty: PhantomData<T>,
 }
 
-impl<T: PartialEq + Send + 'static> MemoChain<T> {
-    pub fn new(f: impl Fn(Option<&T>) -> T + Send + 'static) -> Self {
+impl<T: PartialEq + 'static> MemoChain<T> {
+    pub fn new(f: impl Fn(Option<&T>) -> T + 'static) -> Self {
         Self {
             id: with_current_runtime(|rt| rt.storage.create_memo_chain(f)),
             ty: PhantomData,
@@ -69,21 +69,21 @@ impl<T: PartialEq + Send + 'static> MemoChain<T> {
     pub fn chain(
         self,
         order: EffectOrder,
-        map: impl Fn(&T) -> T + Send + 'static,
+        map: impl Fn(&T) -> T + 'static,
     ) -> Self {
         with_current_runtime(|rt| rt.add_memo_chain(self.id, order, map));
         self
     }
 
-    pub fn then(self, map: impl Fn(&T) -> T + Send + 'static) -> Self {
+    pub fn then(self, map: impl Fn(&T) -> T + 'static) -> Self {
         self.chain(EffectOrder::Normal, map)
     }
 
-    pub fn first(self, map: impl Fn(&T) -> T + Send + 'static) -> Self {
+    pub fn first(self, map: impl Fn(&T) -> T + 'static) -> Self {
         self.chain(EffectOrder::First, map)
     }
 
-    pub fn last(self, map: impl Fn(&T) -> T + Send + 'static) -> Self {
+    pub fn last(self, map: impl Fn(&T) -> T + 'static) -> Self {
         self.chain(EffectOrder::Last, map)
     }
 }
@@ -110,8 +110,8 @@ impl<T: PartialEq> Clone for MemoChain<T> {
 
 impl<T: PartialEq> Copy for MemoChain<T> {}
 
-pub fn use_memo_chain<T: PartialEq + Send + 'static>(
-    f: impl Fn(Option<&T>) -> T + Send + 'static,
+pub fn use_memo_chain<T: PartialEq + 'static>(
+    f: impl Fn(Option<&T>) -> T + 'static,
 ) -> MemoChain<T> {
     MemoChain::new(f)
 }
@@ -126,7 +126,7 @@ impl<T: PartialEq> IntoMemoChain<T> for MemoChain<T> {
     }
 }
 
-impl<T: PartialEq + Clone + Send + 'static> IntoMemoChain<T> for T {
+impl<T: PartialEq + Clone + 'static> IntoMemoChain<T> for T {
     fn into_memo_chain(self) -> MemoChain<T> {
         use_memo_chain(move |_| self.clone())
     }

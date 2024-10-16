@@ -12,9 +12,9 @@ pub mod knob;
 pub mod mono_text;
 pub mod scrollable;
 pub mod select;
+pub mod show;
 pub mod slider;
 pub mod space;
-pub mod show;
 
 use crate::{
     event::{BubbledData, EventPass, FocusedWidget},
@@ -85,7 +85,7 @@ pub trait WidgetCtx: Sized + 'static {
 
 /// WidgetTypeFamily
 /// Type family of types used in Widgets
-pub struct WTF<R, E, S, I>
+pub struct Wtf<R, E, S, I>
 where
     R: Renderer,
     E: Event,
@@ -96,7 +96,7 @@ where
     _page_id: I,
 }
 
-impl<R, E, S, I> WidgetCtx for WTF<R, E, S, I>
+impl<R, E, S, I> WidgetCtx for Wtf<R, E, S, I>
 where
     R: Renderer + 'static,
     E: Event + 'static,

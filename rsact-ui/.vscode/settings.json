@@ -4,7 +4,8 @@
   "rust-analyzer.cargo.noDefaultFeatures": true,
   "rust-analyzer.check.noDefaultFeatures": true,
   "rust-analyzer.check.features": [
-    "simulator"
+    "simulator",
+    "single-thread"
   ],
   "rust-analyzer.cargo.features": [],
   "cSpell.words": ["flexbox", "textbox"]

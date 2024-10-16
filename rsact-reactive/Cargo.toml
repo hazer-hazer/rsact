@@ -4,27 +4,20 @@ edition.workspace = true
 version.workspace = true
 
 [dependencies]
-lazy_static = { version = "1.5.0", default-features = false }
 log = { version = "0.4.22", default-features = false }
 slotmap = { version = "1.0.7", default-features = false }
-once_cell = { version = "1.19.0", default-features = false, features = ["critical-section"]}
-lock_api = {version = "0.4.12", optional = true}
-spin = {version = "0.9.8", optional = true}
-critical-section = {version = "1.1.3", optional = true}
+once_cell = { version = "1.19.0", default-features = false, features = [
+    "critical-section",
+] }
 
 [dev-dependencies]
 criterion = "0.5.1"
 
 [features]
 default = []
-
 std = []
-spin = ["dep:spin"]
-mutex-critical-section = ["dep:critical-section", "dep:lock_api"]
+single-thread = []
 
 [[bench]]
 name = "reactivity"
 harness = false
-
-[profile.test]
-debug = "full"

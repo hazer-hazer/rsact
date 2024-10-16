@@ -1,0 +1,7 @@
+[package]
+name = "rsact-widgets"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+rsact-ui = {path = "../rsact-ui"}

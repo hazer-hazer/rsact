@@ -4,7 +4,6 @@ use crate::{
     storage::{Storage, ValueId, ValueKind, ValueState},
 };
 use alloc::{
-    boxed::Box,
     collections::{btree_map::BTreeMap, btree_set::BTreeSet},
     rc::Rc,
     vec::Vec,
@@ -19,19 +18,21 @@ slotmap::new_key_type! {
     pub struct RuntimeId;
 }
 
-// TODO: Maybe better use Slab instead of SlotMap for efficiency?
+// TODO: Maybe better use Slab instead of SlotMap for efficiency
 
 impl RuntimeId {
     pub fn leave(&self) {
-        let rt = RUNTIMES
-            .lock()
-            .remove(*self)
-            .expect("Attempt to leave non-existent runtime");
+        let rt = RUNTIMES.with(|rts| {
+            rts.borrow_mut()
+                .remove(*self)
+                .expect("Attempt to leave non-existent runtime")
+        });
 
-        let mut current = CURRENT_RUNTIME.lock();
-        if *current == Some(*self) {
-            current.take();
-        }
+        CURRENT_RUNTIME.with(|current| {
+            if current.get() == Some(*self) {
+                current.take();
+            }
+        });
 
         drop(rt);
     }
@@ -39,15 +40,17 @@ impl RuntimeId {
 
 #[inline(always)]
 #[track_caller]
-pub fn with_current_runtime<T>(f: impl FnOnce(&mut Runtime) -> T) -> T {
-    let mut runtimes = RUNTIMES.try_lock().unwrap();
-    let rt = runtimes.get_mut(CURRENT_RUNTIME.lock().unwrap()).unwrap();
-
-    f(rt)
+pub fn with_current_runtime<T>(f: impl FnOnce(&Runtime) -> T) -> T {
+    RUNTIMES.with(|rts| {
+        let rts = rts.borrow();
+        let current = CURRENT_RUNTIME.with(|current| current.get());
+        let rt = rts.get(current.unwrap()).unwrap();
+        f(rt)
+    })
 }
 
 #[inline(always)]
-pub fn with_scoped_runtime<T>(f: impl FnOnce(&mut Runtime) -> T) -> T {
+pub fn with_scoped_runtime<T>(f: impl FnOnce(&Runtime) -> T) -> T {
     let rt = create_runtime();
     let result = with_current_runtime(f);
     rt.leave();
@@ -57,61 +60,29 @@ pub fn with_scoped_runtime<T>(f: impl FnOnce(&mut Runtime) -> T) -> T {
 #[must_use]
 #[inline(always)]
 pub fn create_runtime() -> RuntimeId {
-    RUNTIMES.lock().insert(Runtime::new())
+    RUNTIMES.with(|rts| rts.borrow_mut().insert(Runtime::new()))
 }
 
-#[cfg(feature = "std")]
-thread_local! {
-    static CURRENT_RUNTIME: Cell<Option<RuntimeId>> = Mutex::new(None);
-}
+crate::thread_local::thread_local_impl! {
+    static CURRENT_RUNTIME: Cell<Option<RuntimeId>> = Cell::new(None);
 
-#[cfg(feature = "spin")]
-static CURRENT_RUNTIME: spin::Mutex<Option<RuntimeId>> = Mutex::new(None);
-
-#[cfg(feature = "mutex-critical-section")]
-static CURRENT_RUNTIME: critical_section::Mutex<Option<RuntimeId>> =
-    critical_section::Mutex::new(None);
-
-static RUNTIMES: once_cell::sync::Lazy<Mutex<SlotMap<RuntimeId, Runtime>>> =
-    once_cell::sync::Lazy::new(|| {
+    static RUNTIMES: RefCell<SlotMap<RuntimeId, Runtime>> = {
         let mut runtimes = SlotMap::default();
-        {
-            let mut current = CURRENT_RUNTIME.lock();
-            *current = Some(runtimes.insert(Runtime::new()));
-        }
-        Mutex::new(runtimes)
-    });
 
-// #[derive(Clone, Copy, Default)]
-// pub enum Observer {
-//     /// Should only be used outside of actual reactive context.
-//     #[default]
-//     None,
-//     Effect(ValueId),
-// }
+        CURRENT_RUNTIME.with(|current| current.set(Some(runtimes.insert(Runtime::new()))));
 
-// #[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
-// pub enum Observer {
-//     /// TODO: Remove? Useless unreachable
-//     None,
-//     #[default]
-//     Root,
-//     // FIXME: Wrong name, can be Memo, not only Effect
-//     Effect(ValueId),
-// }
-
-// struct PendingEffects {
-//     ordered: BTreeMap<EffectOrder, Btre>,
-// }
+        RefCell::new(runtimes)
+    };
+}
 
 #[derive(Default)]
 pub struct Runtime {
     pub(crate) storage: Storage,
-    pub(crate) observer: Option<ValueId>,
+    pub(crate) observer: Cell<Option<ValueId>>,
     // TODO: Use SlotMap
-    pub(crate) subscribers: BTreeMap<ValueId, BTreeSet<ValueId>>,
-    pub(crate) sources: BTreeMap<ValueId, BTreeSet<ValueId>>,
-    pub(crate) pending_effects: BTreeSet<ValueId>,
+    pub(crate) subscribers: RefCell<BTreeMap<ValueId, BTreeSet<ValueId>>>,
+    pub(crate) sources: RefCell<BTreeMap<ValueId, BTreeSet<ValueId>>>,
+    pub(crate) pending_effects: RefCell<BTreeSet<ValueId>>,
 }
 
 impl Runtime {
@@ -128,26 +99,30 @@ impl Runtime {
 
     #[track_caller]
     pub(crate) fn with_observer<T>(
-        &mut self,
+        &self,
         observer: ValueId,
-        f: impl FnOnce(&mut Self) -> T,
+        f: impl FnOnce(&Self) -> T,
     ) -> T {
-        let prev_observer = self.observer;
+        let prev_observer = self.observer.get();
 
-        self.observer = Some(observer);
+        self.observer.set(Some(observer));
 
         let result = f(self);
 
-        self.observer = prev_observer;
+        self.observer.set(prev_observer);
 
         result
     }
 
-    pub(crate) fn subscribe(&mut self, id: ValueId) {
-        if let Some(observer) = self.observer {
-            self.sources.entry(observer).or_default().insert(id);
+    pub(crate) fn subscribe(&self, id: ValueId) {
+        if let Some(observer) = self.observer.get() {
+            self.sources.borrow_mut().entry(observer).or_default().insert(id);
 
-            self.subscribers.entry(id).or_default().insert(observer);
+            self.subscribers
+                .borrow_mut()
+                .entry(id)
+                .or_default()
+                .insert(observer);
         }
         // match self.observer.get() {
         //     Observer::None => panic!(
@@ -173,9 +148,12 @@ impl Runtime {
         // }
     }
 
-    pub(crate) fn maybe_update(&mut self, id: ValueId) {
+    pub(crate) fn maybe_update(&self, id: ValueId) {
         if self.is(id, ValueState::Check) {
-            let subs = self.sources.get(&id).cloned().into_iter().flatten();
+            let subs = {
+                let subs = self.sources.borrow();
+                subs.get(&id).cloned().into_iter().flatten()
+            };
             for source in subs {
                 self.maybe_update(source);
                 if self.is(id, ValueState::Dirty) {
@@ -191,80 +169,40 @@ impl Runtime {
         self.mark_clean(id);
     }
 
-    pub(crate) fn update(&mut self, id: ValueId) {
-        let value = self.storage.get_mut(id);
+    pub(crate) fn update(&self, id: ValueId) {
+        let value = self.storage.get(id);
 
         if let Some(value) = value {
-            let changed = match &value.kind {
+            let changed = match value.kind {
                 ValueKind::MemoChain { initial, fs } => {
-                    // let value = value.value;
+                    let value = value.value;
 
-                    let prev_observer = self.observer;
-                    self.observer = Some(id);
-                    // self.cleanup(id);
-                    if let Some(sources) = self.sources.get(&id) {
-                        for source in sources.iter() {
-                            if let Some(source) =
-                                self.subscribers.get_mut(source)
-                            {
-                                source.remove(&id);
-                            }
-                        }
-                    }
+                    self.with_observer(id, move |rt| {
+                        rt.cleanup(id);
 
-                    let result = fs.values().fold(
-                        initial.run(value.value.as_mut()),
-                        |changed, cbs| {
-                            cbs.iter().fold(changed, |changed, cb| {
-                                cb.run(value.value.as_mut()) || changed
-                            })
-                        },
-                    );
-                    self.observer = prev_observer;
-
-                    result
-                    // self.with_observer(id, |rt| {
-                    //     rt.cleanup(id);
-
-                    //     fs.values().fold(
-                    //         initial.run(&mut value.value),
-                    //         |changed, cbs| {
-                    //             cbs.iter().fold(changed, |changed, cb| {
-                    //                 cb.run(&mut value.value) || changed
-                    //             })
-                    //         },
-                    //     )
-                    // })
+                        fs.borrow().values().fold(
+                            initial.run(value.clone()),
+                            |changed, cbs| {
+                                cbs.iter().fold(changed, |changed, cb| {
+                                    cb.run(value.clone()) || changed
+                                })
+                            },
+                        )
+                    })
                 },
                 ValueKind::Memo { f } | ValueKind::Effect { f } => {
-                    let prev_observer = self.observer;
-                    self.observer = Some(id);
-                    if let Some(sources) = self.sources.get(&id) {
-                        for source in sources.iter() {
-                            if let Some(source) =
-                                self.subscribers.get_mut(source)
-                            {
-                                source.remove(&id);
-                            }
-                        }
-                    }
+                    let value = value.value;
+                    self.with_observer(id, move |rt| {
+                        rt.cleanup(id);
 
-                    let result = f.run(value.value.as_mut());
-                    self.observer = prev_observer;
-
-                    result
-                    // self
-                    // .with_observer(id, |rt| {
-                    //     rt.cleanup(id);
-
-                    //     f.run(&mut value.value)
-                    // })},
+                        f.run(value)
+                    })
                 },
                 ValueKind::Signal { .. } => true,
             };
 
             if changed {
-                if let Some(subs) = self.subscribers.get(&id) {
+                if let Some(subs) = self.subscribers.borrow().get(&id) {
                     for sub in subs {
                         self.storage.mark(*sub, ValueState::Dirty, None);
                     }
@@ -276,14 +214,14 @@ impl Runtime {
     }
 
     #[track_caller]
-    pub(crate) fn mark_clean(&mut self, id: ValueId) {
+    pub(crate) fn mark_clean(&self, id: ValueId) {
         self.storage.mark(id, ValueState::Clean, None);
         // TODO: Cleanup subs?
     }
 
     #[track_caller]
     pub(crate) fn mark_dir(
-        &mut self,
+        &self,
         id: ValueId,
         caller: Option<&'static Location<'static>>,
     ) {
@@ -292,7 +230,7 @@ impl Runtime {
         self.mark_node(id, ValueState::Dirty, caller);
 
         let mut deps = Vec::new();
-        Self::get_deep_deps(&self.subscribers, &mut deps, id);
+        Self::get_deep_deps(&self.subscribers.borrow(), &mut deps, id);
         for dep in deps {
             self.mark_node(dep, ValueState::Check, caller);
         }
@@ -339,7 +277,7 @@ impl Runtime {
 
     #[track_caller]
     fn mark_node(
-        &mut self,
+        &self,
         id: ValueId,
         state: ValueState,
         caller: Option<&'static Location<'static>>,
@@ -350,17 +288,22 @@ impl Runtime {
 
         if let Some(node) = self.storage.get(id) {
             if let (ValueKind::Effect { .. }, true) =
-                (&node.kind, self.observer != Some(id))
+                (node.kind, self.observer.get() != Some(id))
             {
-                self.pending_effects.insert(id);
+                let mut pending_effects =
+                    RefCell::borrow_mut(&self.pending_effects);
+                pending_effects.insert(id);
             }
         }
     }
 
-    fn cleanup(&mut self, id: ValueId) {
-        if let Some(sources) = self.sources.get(&id) {
+    fn cleanup(&self, id: ValueId) {
+        let sources = self.sources.borrow_mut();
+
+        if let Some(sources) = sources.get(&id) {
+            let mut subs = self.subscribers.borrow_mut();
             for source in sources.iter() {
-                if let Some(source) = self.subscribers.get_mut(source) {
+                if let Some(source) = subs.get_mut(source) {
                     source.remove(&id);
                 }
             }
@@ -368,24 +311,25 @@ impl Runtime {
     }
 
     #[track_caller]
-    pub(crate) fn run_effects(&mut self) {
-        while let Some(effect) = self.pending_effects.pop_last() {
+    pub(crate) fn run_effects(&self) {
+        self.pending_effects.take().iter().copied().for_each(|effect| {
             self.maybe_update(effect);
-        }
+        });
     }
 
-    pub(crate) fn add_memo_chain<T: PartialEq + Send + 'static>(
-        &mut self,
+    pub(crate) fn add_memo_chain<T: PartialEq + 'static>(
+        &self,
         id: ValueId,
         order: EffectOrder,
-        map: impl Fn(&T) -> T + Send + 'static,
+        map: impl Fn(&T) -> T + 'static,
     ) {
-        let kind = &mut self.storage.get_mut(id).unwrap().kind;
+        let kind = self.storage.get(id).unwrap().kind;
         match kind {
             ValueKind::MemoChain { initial: _, fs } => {
-                fs.entry(order)
+                fs.borrow_mut()
+                    .entry(order)
                     .or_default()
-                    .push(Box::new(MemoChainCallback::new(map)));
+                    .push(Rc::new(MemoChainCallback::new(map)));
             },
             _ => panic!("Cannot add memo chain to {}", kind),
         }
@@ -401,9 +345,7 @@ mod tests {
     fn primary_runtime() {
         assert!(
             RUNTIMES
-                // .borrow()
-                .lock()
-                .contains_key(CURRENT_RUNTIME.lock().unwrap()),
+                .with(|rts| rts.borrow().contains_key(CURRENT_RUNTIME.with(|current| current.get().unwrap()))),
             "First insertion into RUNTIMES does not have key of RuntimeId::default()"
         );
     }

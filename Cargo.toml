@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-rsact-reactive = {path = "./rsact-reactive"}
+# rsact-reactive = {path = "./rsact-reactive", features = ["single-thread"]}
 rsact-encoder = {path = "./rsact-encoder"}
 rsact-ui = {path = "./rsact-ui"}
 
@@ -14,7 +14,8 @@ members = [
     "rsact-ui",
     "rsact-reactive",
     "rsact-encoder",
-    "rsact-icons"
+    "rsact-icons",
+    "rsact-widgets"
 ]
 authors = ["hazer-hazer"]
 repository = "https://github.com/hazer-hazer/rsact"
@@ -33,3 +34,7 @@ rsact-encoder = {path = "./rsact-encoder"}
 [profile.dev]
 # opt-level = 0
 debug = "full"
+
+[features]
+std = ["rsact-ui/std"]
+single-thread = ["rsact-ui/single-thread"]

@@ -12,10 +12,10 @@ pub mod effect;
 pub mod macros;
 pub mod memo;
 pub mod memo_chain;
-mod mutex;
 pub mod runtime;
 pub mod signal;
 mod storage;
+mod thread_local;
 pub mod trigger;
 
 pub mod prelude {

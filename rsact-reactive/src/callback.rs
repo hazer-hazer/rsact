@@ -7,5 +7,5 @@ use core::{any::Any, cell::RefCell};
 // }
 
 pub trait AnyCallback {
-    fn run(&self, value: &mut dyn Any) -> bool;
+    fn run(&self, value: Rc<RefCell<dyn Any>>) -> bool;
 }

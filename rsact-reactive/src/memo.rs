@@ -21,10 +21,10 @@ where
     F: Fn(Option<&T>) -> T,
     T: PartialEq + 'static,
 {
-    fn run(&self, value: &mut dyn core::any::Any) -> bool {
+    fn run(&self, value: Rc<RefCell<dyn core::any::Any>>) -> bool {
         let (new_value, changed) = {
-            // let value = value.borrow();
-            let value = value.downcast_mut::<Option<T>>().unwrap().as_ref();
+            let value = value.borrow();
+            let value = value.downcast_ref::<Option<T>>().unwrap().as_ref();
 
             let new_value = (self.f)(value);
             let changed = Some(&new_value) != value;
@@ -32,7 +32,7 @@ where
         };
 
         if changed {
-            // let mut value = value.borrow_mut();
+            let mut value = value.borrow_mut();
             let value = value.downcast_mut::<Option<T>>().unwrap();
             value.replace(new_value);
         }
@@ -60,8 +60,8 @@ impl<T: PartialEq> Clone for Memo<T> {
 
 impl<T: PartialEq> Copy for Memo<T> {}
 
-impl<T: PartialEq + Send + 'static> Memo<T> {
-    pub fn new(f: impl Fn(Option<&T>) -> T + Send + 'static) -> Self {
+impl<T: PartialEq + 'static> Memo<T> {
+    pub fn new(f: impl Fn(Option<&T>) -> T + 'static) -> Self {
         Self {
             id: with_current_runtime(|rt| rt.storage.create_memo(f)),
             ty: PhantomData,
@@ -101,10 +101,8 @@ pub trait IntoMemo<T: PartialEq> {
     fn into_memo(self) -> Memo<T>;
 }
 
-impl<
-        T: PartialEq + Clone + Send + 'static,
-        M: marker::CanRead + Send + 'static,
-    > IntoMemo<T> for Signal<T, M>
+impl<T: PartialEq + Clone + 'static, M: marker::CanRead + 'static> IntoMemo<T>
+    for Signal<T, M>
 {
     fn into_memo(self) -> Memo<T> {
         use_memo(move |_| self.get_cloned())
@@ -120,7 +118,7 @@ impl<
 //     }
 // }
 
-impl<T: PartialEq + Clone + Send + 'static> IntoMemo<T> for T {
+impl<T: PartialEq + Clone + 'static> IntoMemo<T> for T {
     fn into_memo(self) -> Memo<T> {
         use_memo(move |_| self.clone())
     }
@@ -138,7 +136,7 @@ pub struct MemoTree<T: PartialEq + 'static> {
     pub children: Memo<Vec<MemoTree<T>>>,
 }
 
-impl<T: PartialEq + Default + Send + 'static> Default for MemoTree<T> {
+impl<T: PartialEq + Default + 'static> Default for MemoTree<T> {
     fn default() -> Self {
         Self {
             data: use_memo(|_| T::default()),
@@ -161,7 +159,7 @@ impl<T: PartialEq + 'static> Clone for MemoTree<T> {
     }
 }
 
-impl<T: PartialEq + Send + 'static> MemoTree<T> {
+impl<T: PartialEq + 'static> MemoTree<T> {
     pub fn childless(data: impl IntoMemo<T>) -> Self {
         Self { data: data.into_memo(), children: use_memo(|_| alloc::vec![]) }
     }
