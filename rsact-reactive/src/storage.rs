@@ -33,15 +33,12 @@ impl ValueId {
         }
     }
 
-    pub(crate) fn get_untracked(
-        &self,
-        runtime: &Runtime,
-    ) -> Rc<RefCell<dyn Any>> {
-        let values = &runtime.storage.values.borrow();
-        let value = values.get(*self).unwrap().value();
+    // pub(crate) fn get_untracked(&self, rt: &Runtime) -> Rc<RefCell<dyn Any>> {
+    //     // let values = &runtime.storage.values.borrow();
+    //     // let value = values.get(*self).unwrap().value();
 
-        value
-    }
+    //     rt.storage.get(*self).unwrap().value
+    // }
 
     // TODO: Add `subscribe_with_current_rt` for simplicity
     pub(crate) fn subscribe(&self, rt: &Runtime) {
@@ -56,8 +53,9 @@ impl ValueId {
     ) -> U {
         rt.maybe_update(*self);
 
-        let value = self.get_untracked(rt);
-        let value = match RefCell::try_borrow(&value) {
+        // let value = self.get_untracked(rt);
+        let value = rt.storage.get(*self).unwrap();
+        let value = match RefCell::try_borrow(&value.value) {
             Ok(value) => value,
             Err(err) => {
                 panic!(
@@ -83,28 +81,42 @@ impl ValueId {
         //     return Err(NotifyError::Cycle(self.debug_info(rt)));
         // }
 
-        rt.mark_dir(*self, Some(caller));
+        rt.mark_dirty(*self, Some(caller));
         rt.run_effects();
         // rt.mark_clean(*self);
 
         Ok(())
     }
 
+    #[track_caller]
     #[inline(always)]
     pub(crate) fn update_untracked<T: 'static, U>(
         &self,
         rt: &Runtime,
         f: impl FnOnce(&mut T) -> U,
+        caller: Option<&'static Location<'static>>,
     ) -> U {
         let result = {
-            let value = self.get_untracked(rt);
-            let mut value = RefCell::borrow_mut(&value);
+            // let value = self.get_untracked(rt);
+            rt.storage.set_debug_info(*self, |debug_info| {
+                debug_info.borrowed = caller;
+            });
+            let value = rt.storage.get(*self).unwrap();
+
+            let mut value = RefCell::borrow_mut(&value.value);
 
             let value = value.downcast_mut::<T>().expect(&format!(
                 "Failed to mut cast value to {}",
                 type_name::<T>()
             ));
-            f(value)
+
+            let result = f(value);
+
+            rt.storage.set_debug_info(*self, |debug_info| {
+                debug_info.borrowed = None;
+            });
+
+            result
         };
 
         result
@@ -115,21 +127,25 @@ impl ValueId {
 pub struct ValueDebugInfo {
     creator: Option<&'static Location<'static>>,
     dirten: Option<&'static Location<'static>>,
+    borrowed: Option<&'static Location<'static>>,
 }
 
 impl ValueDebugInfo {
     pub fn none() -> Self {
-        Self { creator: None, dirten: None }
+        Self { creator: None, dirten: None, borrowed: None }
     }
 }
 
 impl core::fmt::Display for ValueDebugInfo {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         if let Some(creator) = self.creator {
-            write!(f, "Created at {}\n", creator)?;
+            write!(f, "created at {}\n", creator)?;
         }
         if let Some(dirten) = self.dirten {
-            write!(f, "Dirten at {}\n", dirten)?;
+            write!(f, "dirten at {}\n", dirten)?;
+        }
+        if let Some(borrowed) = self.borrowed {
+            write!(f, "Mutably borrowed at {}\n", borrowed)?;
         }
         Ok(())
     }
@@ -183,9 +199,9 @@ pub struct StoredValue {
 }
 
 impl StoredValue {
-    pub(crate) fn value(&self) -> Rc<RefCell<dyn Any>> {
-        self.value.clone()
-    }
+    // pub(crate) fn value(&self) -> Rc<RefCell<dyn Any>> {
+    //     self.value.clone()
+    // }
 
     fn mark(&mut self, state: ValueState) {
         self.state = state;
@@ -209,6 +225,7 @@ impl Storage {
             kind: ValueKind::Signal(ValueDebugInfo {
                 creator: Some(caller),
                 dirten: None,
+                borrowed: None,
             }),
             state: ValueState::Clean,
         })
@@ -271,18 +288,26 @@ impl Storage {
         state: ValueState,
         caller: Option<&'static Location<'static>>,
     ) {
+        self.set_debug_info(id, |debug_info| match state {
+            ValueState::Clean => debug_info.dirten = None,
+            ValueState::Check | ValueState::Dirty => debug_info.dirten = caller,
+        });
+
         let mut values = self.values.borrow_mut();
         let value = values.get_mut(id).unwrap();
         value.mark(state);
+    }
 
-        match (&mut value.kind, state, caller) {
-            (
-                ValueKind::Signal(ValueDebugInfo { creator: _, dirten }),
-                ValueState::Dirty,
-                Some(caller),
-            ) => {
-                dirten.replace(caller);
-            },
+    pub(crate) fn set_debug_info(
+        &self,
+        id: ValueId,
+        f: impl FnOnce(&mut ValueDebugInfo),
+    ) {
+        let mut values = self.values.borrow_mut();
+        let value = values.get_mut(id).unwrap();
+
+        match &mut value.kind {
+            ValueKind::Signal(debug_info) => f(debug_info),
             _ => {},
         }
     }

@@ -241,7 +241,8 @@ impl<T: 'static, M: marker::CanWrite> WriteSignal<T> for Signal<T, M> {
 
     #[track_caller]
     fn update_untracked<U>(&self, f: impl FnOnce(&mut T) -> U) -> U {
-        with_current_runtime(|rt| self.id.update_untracked(rt, f))
+        let caller = Location::caller();
+        with_current_runtime(|rt| self.id.update_untracked(rt, f, Some(caller)))
     }
 }
 
@@ -457,12 +458,14 @@ pub trait IntoSignal<T: 'static> {
 }
 
 impl<T: 'static> IntoSignal<T> for Signal<T> {
+    #[track_caller]
     fn into_signal(self) -> Signal<T> {
         self
     }
 }
 
 impl<T: 'static> IntoSignal<T> for T {
+    #[track_caller]
     fn into_signal(self) -> Signal<T> {
         use_signal(self)
     }
@@ -490,7 +493,11 @@ impl<T: 'static> SignalTree<T> {
 #[cfg(test)]
 mod tests {
     use super::{ReadSignal, WriteSignal};
-    use crate::prelude::{use_memo, use_signal};
+    use crate::{
+        effect::use_effect,
+        prelude::{use_memo, use_signal},
+        signal::Signal,
+    };
 
     // #[test]
     // fn codependency() {
@@ -919,5 +926,49 @@ mod tests {
         j.get();
         y.set(1);
         j.get();
+    }
+
+    // Effects //
+    #[test]
+    fn effect_run_order() {
+        let s = use_signal(1);
+
+        let runs = use_signal(0);
+        use_effect(move |_| {
+            runs.update_untracked(|runs| *runs += 1);
+
+            s.get();
+        });
+
+        assert_eq!(runs.get(), 1);
+
+        s.set(2);
+        assert_eq!(runs.get(), 2);
+
+        s.update(|s| {
+            *s = 123;
+            assert_eq!(runs.get(), 2);
+        });
+        assert_eq!(runs.get(), 3);
+    }
+
+    #[test]
+    fn borrow_in_effect() {
+        struct ValueUser {
+            value: Signal<i32>,
+        }
+
+        let user = use_signal(ValueUser { value: use_signal(123) });
+        let runs = use_signal(0);
+        use_effect(move |_| {
+            runs.update_untracked(|runs| *runs += 1);
+
+            // Use value
+            user.with(|user| user.value.with(|_| {}));
+        });
+
+        user.update(|user| {
+            user.value.update(|_| {});
+        })
     }
 }

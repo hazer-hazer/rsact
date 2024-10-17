@@ -66,7 +66,7 @@ impl<W: WidgetCtx> Widget<W> for Show<W> {
         if self.show.get() {
             self.el.on_event(ctx)
         } else {
-            W::ignore()
+            ctx.ignore()
         }
     }
 }

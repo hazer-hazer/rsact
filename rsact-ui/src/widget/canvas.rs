@@ -101,6 +101,6 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
 
     fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse<W> {
         let _ = ctx;
-        W::ignore()
+        ctx.ignore()
     }
 }

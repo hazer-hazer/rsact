@@ -189,7 +189,7 @@ impl<W: WidgetCtx> Widget<W> for Unit {
         ctx: &mut super::EventCtx<'_, W>,
     ) -> super::EventResponse<W> {
         let _ = ctx;
-        W::ignore()
+        ctx.ignore()
     }
 }
 
@@ -232,6 +232,6 @@ impl<W: WidgetCtx> Widget<W> for Option<El<W>> {
         &mut self,
         ctx: &mut super::EventCtx<'_, W>,
     ) -> super::EventResponse<W> {
-        self.as_mut().map(|widget| widget.on_event(ctx)).unwrap_or(W::ignore())
+        self.as_mut().map(|widget| widget.on_event(ctx)).unwrap_or(ctx.ignore())
     }
 }

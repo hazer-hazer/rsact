@@ -220,7 +220,7 @@ impl Runtime {
     }
 
     #[track_caller]
-    pub(crate) fn mark_dir(
+    pub(crate) fn mark_dirty(
         &self,
         id: ValueId,
         caller: Option<&'static Location<'static>>,
@@ -282,7 +282,7 @@ impl Runtime {
         state: ValueState,
         caller: Option<&'static Location<'static>>,
     ) {
-        if self.state(id) <= state {
+        if state > self.state(id) {
             self.storage.mark(id, state, caller);
         }
 

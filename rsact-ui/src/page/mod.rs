@@ -1,3 +1,4 @@
+pub mod dev;
 pub mod id;
 
 use crate::{
@@ -6,24 +7,17 @@ use crate::{
         dev::DevElHover as _, Capture, EventPass, EventResponse, FocusEvent,
         Propagate, UnhandledEvent,
     },
-    layout::{model_layout, size::Size, DevHoveredLayout, LayoutModel, Limits},
-    render::{color::Color, Block, Border, Renderer},
-    style::{
-        block::{BlockStyle, BorderStyle},
-        TreeStyle,
-    },
+    layout::{model_layout, size::Size, LayoutModel, Limits},
+    render::{color::Color, Renderer},
+    style::TreeStyle,
     widget::{
-        prelude::BlockModel, Behavior, DrawCtx, DrawResult, EventCtx, MetaTree,
-        MountCtx, PageState, Widget as _, WidgetCtx,
+        Behavior, DrawCtx, DrawResult, EventCtx, MetaTree, MountCtx, PageState,
+        Widget as _, WidgetCtx,
     },
 };
 use alloc::vec::Vec;
-use embedded_graphics::{
-    mono_font::{ascii::FONT_8X13, MonoTextStyleBuilder},
-    prelude::{DrawTarget, Point},
-    primitives::Rectangle,
-};
-use embedded_text::{style::TextBoxStyleBuilder, TextBox};
+use dev::{DevHoveredEl, DevTools};
+use embedded_graphics::prelude::{DrawTarget, Point};
 use rsact_reactive::prelude::*;
 
 pub struct PageStyle<C: Color> {
@@ -43,78 +37,6 @@ impl<C: Color> PageStyle<C> {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct DevToolsState {
-    pub enabled: bool,
-    pub hovered: Option<DevHoveredEl>,
-}
-
-#[derive(Clone, Copy)]
-pub struct DevHoveredEl {
-    pub layout: DevHoveredLayout,
-}
-
-impl DevHoveredEl {
-    fn model<C: Color>(area: Rectangle, color: C) -> Block<C> {
-        Block {
-            border: Border::new(
-                BlockStyle::base().border(BorderStyle::base().color(color)),
-                BlockModel::zero().border_width(1),
-            ),
-            rect: area,
-            background: None,
-        }
-    }
-
-    fn draw<C: Color>(
-        &self,
-        r: &mut impl Renderer<Color = C>,
-        viewport: Size,
-    ) -> DrawResult {
-        let area = self.layout.area;
-
-        let [text_color, inner_color, padding_color, ..] = C::accents();
-
-        r.block(Self::model(area, padding_color))?;
-        if let Some(padding) = self.layout.layout.kind.padding() {
-            r.block(Self::model(area - padding, inner_color))?;
-        }
-
-        let area_text = format!(
-            "{} {}x{}({}){}",
-            self.layout.layout.kind,
-            area.size.width,
-            area.size.height,
-            self.layout.size,
-            if self.layout.children_count > 0 {
-                format!(" [{}]", self.layout.children_count)
-            } else {
-                alloc::string::String::new()
-            },
-        );
-
-        // Ignore error, TextBox sometimes fails
-        r.mono_text(TextBox::with_textbox_style(
-            &area_text,
-            Rectangle::new(Point::zero(), viewport.into()),
-            MonoTextStyleBuilder::new()
-                .font(&FONT_8X13)
-                .text_color(text_color)
-                .background_color(C::default_background())
-                .build(),
-            TextBoxStyleBuilder::new()
-                .alignment(embedded_text::alignment::HorizontalAlignment::Right)
-                .vertical_alignment(
-                    embedded_text::alignment::VerticalAlignment::Bottom,
-                )
-                .build(),
-        ))
-        .ok();
-
-        Ok(())
-    }
-}
-
 /// Tree of info about widget tree. Elements are mostly
 struct PageTree {
     /// Page elements meta tree
@@ -128,36 +50,41 @@ struct PageTree {
 }
 
 pub struct Page<W: WidgetCtx> {
-    root: El<W>,
+    root: Signal<El<W>>,
     // ids: Memo<Vec<ElId>>,
     tree: PageTree,
     layout: Memo<LayoutModel>,
-    state: PageState<W>,
+    state: Signal<PageState<W>>,
     // TODO: Should be Memo?
     style: Signal<PageStyle<W::Color>>,
-    renderer: W::Renderer,
+    renderer: Signal<W::Renderer>,
     viewport: Memo<Size>,
-    dev_tools: Signal<DevToolsState>,
+    dev_tools: Signal<DevTools>,
+    needs_redraw: Signal<bool>,
+    interacting: Signal<bool>,
 }
 
 impl<W: WidgetCtx> Page<W> {
-    pub fn new(
-        root: impl Into<El<W>>,
+    pub(crate) fn new(
+        root: impl IntoSignal<El<W>>,
         viewport: Signal<Size>,
         styler: Signal<W::Styler>,
-        dev_tools: Signal<DevToolsState>,
+        dev_tools: Signal<DevTools>,
+        renderer: Signal<W::Renderer>,
     ) -> Self {
-        let mut root: El<W> = root.into();
-        let state = PageState::new();
+        let root = root.into_signal();
+        let state = PageState::new().into_signal();
         let viewport = viewport.into_memo();
 
         // TODO: `on_mount` dependency on viewport can be removed for text,
         //  icon, etc. by adding special LayoutKind dependent on viewport and
         //  pass viewport to model_layout. In such a way, layout becomes much
         //  more straightforward and single-pass process.
-        root.on_mount(MountCtx { viewport, styler: styler.into_memo() });
+        root.update_untracked(|root| {
+            root.on_mount(MountCtx { viewport, styler: styler.into_memo() });
+        });
 
-        let layout_tree = root.build_layout_tree();
+        let layout_tree = root.with(|root| root.build_layout_tree());
         let layout = viewport.mapped(move |&viewport_size| {
             // println!("Relayout");
             // TODO: Possible optimization is to use previous memo result, pass
@@ -175,7 +102,7 @@ impl<W: WidgetCtx> Page<W> {
             layout
         });
 
-        let meta = root.meta();
+        let meta = root.with(|root| root.meta());
         let focusable = use_memo(move |_| {
             meta.flat_collect().iter().fold(0, |count, el| {
                 el.with(|el| {
@@ -191,10 +118,69 @@ impl<W: WidgetCtx> Page<W> {
             style: PageStyle::base().into_signal(),
             tree: PageTree { meta, focusable, focused: None },
             // TODO: Signal viewport in Renderer
-            renderer: W::Renderer::new(viewport.get()),
+            renderer,
             viewport,
             dev_tools,
+            needs_redraw: false.into_signal(),
+            interacting: false.into_signal(),
         }
+        .drawing()
+    }
+
+    fn drawing(self) -> Self {
+        let renderer = self.renderer;
+        let state = self.state;
+        let root = self.root;
+
+        use_effect(move |_| {
+            if self.interacting.get() {
+                return;
+            }
+
+            with!(|state, root| {
+                renderer.update(|renderer| {
+                    // FIXME: Performance?
+                    self.style
+                        .with(|style| {
+                            if let Some(background_color) =
+                                style.background_color
+                            {
+                                Renderer::clear(renderer, background_color)
+                            } else {
+                                Ok(())
+                            }
+                        })
+                        .unwrap();
+
+                    // TODO: How to handle results?
+                    let _result = self
+                        .layout
+                        .with(|layout| {
+                            root.draw(&mut DrawCtx {
+                                state,
+                                renderer,
+                                layout: &layout.tree_root(),
+                                tree_style: TreeStyle::base(),
+                            })
+                        })
+                        .unwrap();
+
+                    if self.dev_tools.with(|dt| dt.enabled) {
+                        if let Some(hovered) =
+                            self.dev_tools.with(|dt| dt.hovered)
+                        {
+                            hovered
+                                .draw(renderer, self.viewport.get())
+                                .unwrap();
+                        }
+                    }
+                })
+            });
+
+            self.needs_redraw.set(true);
+        });
+
+        self
     }
 
     // pub fn style(
@@ -246,12 +232,21 @@ impl<W: WidgetCtx> Page<W> {
                 let mut pass = EventPass::new(new_focus);
 
                 let response = with!(|layout| {
-                    self.root.on_event(&mut EventCtx {
-                        event: &event,
-                        page_state: &mut self.state,
-                        layout: &layout.tree_root(),
-                        pass: &mut pass,
-                    })
+                    self.interacting.set(true);
+
+                    let response = self.root.update_untracked(|root| {
+                        root.on_event(&mut EventCtx {
+                            event: &event,
+                            page_state: self.state,
+                            layout: &layout.tree_root(),
+                            pass: &mut pass,
+                        })
+                    });
+                    self.interacting.set(false);
+
+                    self.root.notify();
+
+                    response
                 });
 
                 match response {
@@ -263,7 +258,9 @@ impl<W: WidgetCtx> Page<W> {
                                 self.tree.focused = Some(new_focus.expect(
                                     "new_focus must be set in this case",
                                 ));
-                                self.state.focused = Some(focused.id);
+                                self.state.update(|state| {
+                                    state.focused = Some(focused.id)
+                                });
 
                                 None
                             } else {
@@ -287,32 +284,11 @@ impl<W: WidgetCtx> Page<W> {
         &mut self,
         target: &mut impl DrawTarget<Color = <W::Renderer as Renderer>::Color>,
     ) -> DrawResult {
-        // FIXME: Performance?
-        self.style.with(|style| {
-            if let Some(background_color) = style.background_color {
-                Renderer::clear(&mut self.renderer, background_color)
-            } else {
-                Ok(())
-            }
-        })?;
-
-        let result = self.layout.with(|layout| {
-            self.root.draw(&mut DrawCtx {
-                state: &self.state,
-                renderer: &mut self.renderer,
-                layout: &layout.tree_root(),
-                tree_style: TreeStyle::base(),
-            })
-        })?;
-
-        if self.dev_tools.with(|dt| dt.enabled) {
-            if let Some(hovered) = self.dev_tools.with(|dt| dt.hovered) {
-                hovered.draw(&mut self.renderer, self.viewport.get())?;
-            }
+        if self.needs_redraw.get() {
+            self.needs_redraw.set(false);
+            self.renderer.with(|renderer| renderer.finish_frame(target));
         }
 
-        self.renderer.finish(target);
-
-        Ok(result)
+        Ok(())
     }
 }

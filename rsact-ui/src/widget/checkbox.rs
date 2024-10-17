@@ -115,7 +115,7 @@ where
         &mut self,
         ctx: &mut crate::widget::EventCtx<'_, W>,
     ) -> EventResponse<W> {
-        ctx.handle_focusable(self.id, |pressed| {
+        ctx.handle_focusable(self.id, |ctx, pressed| {
             let current_state = self.state.get();
 
             if current_state.pressed != pressed {
@@ -125,9 +125,9 @@ where
 
                 self.state.update(|state| state.pressed = pressed);
 
-                W::capture()
+                ctx.capture()
             } else {
-                W::ignore()
+                ctx.ignore()
             }
         })
     }

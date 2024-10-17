@@ -69,7 +69,7 @@ pub struct Knob<W: WidgetCtx, V: RangeValue> {
 }
 
 impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
-    pub fn new(value: impl IntoSignal<V>) -> Self {
+    pub fn new(value: Signal<V>) -> Self {
         Self {
             id: ElId::unique(),
             layout: Layout {
@@ -77,7 +77,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
                 size: Size::new_equal(Length::Fixed(25)),
             }
             .into_signal(),
-            value: value.into_signal(),
+            value,
             state: KnobState::none().into_signal(),
             style: KnobStyle::base().into_memo_chain(),
         }
@@ -150,11 +150,11 @@ where
                     self.value.set(new);
                 }
 
-                return W::capture();
+                return ctx.capture();
             }
         }
 
-        ctx.handle_focusable(self.id, |pressed| {
+        ctx.handle_focusable(self.id, |ctx, pressed| {
             if current_state.pressed != pressed {
                 let toggle_active = if !current_state.pressed && pressed {
                     true
@@ -169,9 +169,9 @@ where
                     }
                 });
 
-                W::capture()
+                ctx.capture()
             } else {
-                W::ignore()
+                ctx.ignore()
             }
         })
     }

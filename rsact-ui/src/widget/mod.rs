@@ -65,13 +65,7 @@ pub trait WidgetCtx: Sized + 'static {
     type Styler: PartialEq + Copy;
     type Color: Color;
     type PageId: PageId;
-
-    // Events //
     type Event: Event;
-
-    fn capture() -> EventResponse<Self>;
-    fn bubble(bubbled_data: BubbledData<Self>) -> EventResponse<Self>;
-    fn ignore() -> EventResponse<Self>;
 
     // Methods delegated from renderer //
     fn default_background() -> Self::Color {
@@ -107,20 +101,7 @@ where
     type Color = R::Color;
     type Styler = S;
     type PageId = I;
-
     type Event = E;
-
-    fn capture() -> EventResponse<Self> {
-        EventResponse::Break(Capture::Captured)
-    }
-
-    fn bubble(bubbled_data: BubbledData<Self>) -> EventResponse<Self> {
-        EventResponse::Break(Capture::Bubble(bubbled_data))
-    }
-
-    fn ignore() -> EventResponse<Self> {
-        EventResponse::Continue(Propagate::Ignored)
-    }
 }
 
 pub struct PageState<W: WidgetCtx> {
@@ -202,7 +183,7 @@ impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
 
 pub struct EventCtx<'a, W: WidgetCtx> {
     pub event: &'a W::Event,
-    pub page_state: &'a mut PageState<W>,
+    pub page_state: Signal<PageState<W>>,
     pub layout: &'a LayoutModelNode<'a>,
     pub pass: &'a mut EventPass,
     // TODO: Instant now
@@ -219,12 +200,12 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
         {
             child.on_event(&mut EventCtx {
                 event: self.event,
-                page_state: &mut self.page_state,
+                page_state: self.page_state,
                 layout: &child_layout,
                 pass: &mut self.pass,
             })?;
         }
-        W::ignore()
+        self.ignore()
     }
 
     pub fn pass_to_child(
@@ -235,14 +216,14 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
     }
 
     pub fn is_focused(&self, id: ElId) -> bool {
-        self.page_state.focused == Some(id)
+        self.page_state.with(|state| state.focused == Some(id))
     }
 
     #[must_use]
     pub fn handle_focusable(
         &mut self,
         id: ElId,
-        press: impl FnOnce(bool) -> EventResponse<W>,
+        press: impl FnOnce(&mut Self, bool) -> EventResponse<W>,
     ) -> EventResponse<W> {
         if let Some(_) = self.event.as_focus_move() {
             if self.pass.focus_search == Some(0) {
@@ -271,13 +252,28 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
             };
 
             return if let Some(activate) = focus_click {
-                press(activate)
+                press(self, activate)
             } else {
-                W::ignore()
+                self.ignore()
             };
         }
 
-        W::ignore()
+        self.ignore()
+    }
+
+    #[inline]
+    pub fn capture(&self) -> EventResponse<W> {
+        EventResponse::Break(Capture::Captured)
+    }
+
+    #[inline]
+    pub fn bubble(&self, bubbled_data: BubbledData<W>) -> EventResponse<W> {
+        EventResponse::Break(Capture::Bubble(bubbled_data))
+    }
+
+    #[inline]
+    pub fn ignore(&self) -> EventResponse<W> {
+        EventResponse::Continue(Propagate::Ignored)
     }
 }
 

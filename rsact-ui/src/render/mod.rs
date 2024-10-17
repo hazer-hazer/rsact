@@ -14,6 +14,7 @@ use embedded_graphics::{
     Pixel,
 };
 use embedded_text::TextBox;
+use rsact_reactive::memo::Memo;
 
 pub mod color;
 pub mod draw_target;
@@ -125,12 +126,14 @@ pub type Arc<C> = Styled<embedded_graphics::primitives::Arc, PrimitiveStyle<C>>;
 
 pub trait Renderer {
     type Color: Color;
+    type Options: PartialEq + Default;
 
     fn new(viewport: Size) -> Self;
+    fn set_options(&mut self, options: Self::Options);
 
     // TODO: Generic targets
     // TODO: This is the same as implementing Drawable for Renderer
-    fn finish(&self, target: &mut impl DrawTarget<Color = Self::Color>);
+    fn finish_frame(&self, target: &mut impl DrawTarget<Color = Self::Color>);
 
     fn clear(&mut self, color: Self::Color) -> DrawResult;
     fn clipped(

@@ -105,6 +105,6 @@ where
     ) -> EventResponse<W> {
         let _ = ctx;
 
-        W::ignore()
+        ctx.ignore()
     }
 }

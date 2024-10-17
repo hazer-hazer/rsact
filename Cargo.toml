@@ -38,3 +38,7 @@ debug = "full"
 [features]
 std = ["rsact-ui/std"]
 single-thread = ["rsact-ui/single-thread"]
+
+[profile.sandbox]
+inherits = "dev"
+opt-level = 3

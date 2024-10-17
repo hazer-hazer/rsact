@@ -23,7 +23,7 @@ derivative = { version = "2.2.0", default-features = false, features = [
 ] }
 
 [dev-dependencies]
-embedded-graphics-simulator = "0.7.0"
+embedded-graphics-simulator = { version = "0.7.0" }
 rand = "0.8.5"
 
 [features]

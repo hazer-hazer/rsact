@@ -6,8 +6,9 @@ use crate::{
     },
     layout::size::Size,
     page::{
+        dev::DevTools,
         id::{PageId, SinglePage},
-        DevToolsState, Page,
+        Page,
     },
     render::{color::Color, draw_target::LayeringRenderer, Renderer},
     widget::{DrawResult, WidgetCtx, Wtf},
@@ -22,7 +23,8 @@ pub struct UI<W: WidgetCtx> {
     viewport: Signal<Size>,
     on_exit: Option<Box<dyn Fn()>>,
     styler: Signal<W::Styler>,
-    dev_tools: Signal<DevToolsState>,
+    dev_tools: Signal<DevTools>,
+    renderer: Signal<W::Renderer>,
 }
 
 impl<C, W> UI<W>
@@ -45,7 +47,7 @@ where
     S: PartialEq + Copy + 'static,
 {
     pub fn single_page(
-        root: impl Into<El<Wtf<R, E, S, SinglePage>>>,
+        root: impl IntoSignal<El<Wtf<R, E, S, SinglePage>>>,
         viewport: impl Into<Size> + Copy,
         styler: S,
     ) -> Self {
@@ -62,26 +64,24 @@ where
 {
     pub fn new(
         page_id: I,
-        start_page_root: impl Into<El<Wtf<R, E, S, I>>>,
+        start_page_root: impl IntoSignal<El<Wtf<R, E, S, I>>>,
         viewport: impl Into<Size> + Copy,
         styler: S,
     ) -> Self {
         let viewport = use_signal(viewport.into());
         let styler = use_signal(styler);
-        let dev_tools =
-            use_signal(DevToolsState { enabled: false, hovered: None });
+        let dev_tools = use_signal(DevTools { enabled: false, hovered: None });
 
         Self {
             active_page: page_id,
             viewport,
-            pages: BTreeMap::from([(
-                page_id,
-                Page::new(start_page_root, viewport, styler, dev_tools),
-            )]),
+            pages: BTreeMap::new(),
             on_exit: None,
             styler,
             dev_tools,
+            renderer: R::new(viewport.get()).into_signal(),
         }
+        .with_page(page_id, start_page_root)
     }
 }
 
@@ -89,6 +89,14 @@ impl<W: WidgetCtx> UI<W> {
     /// Add ExitEvent handler that eats exit event
     pub fn on_exit(mut self, on_exit: impl Fn() + 'static) -> Self {
         self.on_exit = Some(Box::new(on_exit));
+        self
+    }
+
+    pub fn with_renderer_options(
+        self,
+        options: <W::Renderer as Renderer>::Options,
+    ) -> Self {
+        self.renderer.update(|renderer| renderer.set_options(options));
         self
     }
 
@@ -100,7 +108,11 @@ impl<W: WidgetCtx> UI<W> {
         self.pages.get_mut(&id).unwrap()
     }
 
-    pub fn add_page(&mut self, id: W::PageId, page_root: impl Into<El<W>>) {
+    pub fn add_page(
+        &mut self,
+        id: W::PageId,
+        page_root: impl IntoSignal<El<W>>,
+    ) {
         assert!(self
             .pages
             .insert(
@@ -109,7 +121,8 @@ impl<W: WidgetCtx> UI<W> {
                     page_root,
                     self.viewport,
                     self.styler,
-                    self.dev_tools
+                    self.dev_tools,
+                    self.renderer
                 )
             )
             .is_none())
@@ -118,7 +131,7 @@ impl<W: WidgetCtx> UI<W> {
     pub fn with_page(
         mut self,
         id: W::PageId,
-        page_root: impl Into<El<W>>,
+        page_root: impl IntoSignal<El<W>>,
     ) -> Self {
         self.add_page(id, page_root);
         self

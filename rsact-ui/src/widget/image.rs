@@ -64,8 +64,8 @@ where
 
     fn on_event(
         &mut self,
-        _ctx: &mut crate::widget::EventCtx<'_, W>,
+        ctx: &mut crate::widget::EventCtx<'_, W>,
     ) -> EventResponse<W> {
-        W::ignore()
+        ctx.ignore()
     }
 }

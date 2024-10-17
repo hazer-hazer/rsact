@@ -1,4 +1,4 @@
-use core::{fmt::Debug, ops::Add};
+use core::fmt::Debug;
 use embedded_graphics::{
     pixelcolor::{BinaryColor, Rgb555, Rgb565, Rgb666, Rgb888},
     prelude::PixelColor,
@@ -10,9 +10,19 @@ pub trait Color:
     fn default_foreground() -> Self;
     fn default_background() -> Self;
     fn accents() -> [Self; 6];
+    fn fold(&self, other: Self, f: impl Fn(u8, u8) -> u8) -> Self;
+
+    fn mix(&self, alpha: f32, other: Self) -> Self {
+        let this_alpha = 1.0 - alpha;
+        self.fold(other, |this, other| {
+            (this as f32 * this_alpha + other as f32 * alpha) as u8
+        })
+    }
 }
 
-pub trait RgbColor: Sized + embedded_graphics::pixelcolor::RgbColor {
+pub trait RgbColor:
+    Sized + embedded_graphics::pixelcolor::RgbColor + Color
+{
     fn rgb(r: u8, g: u8, b: u8) -> Self;
 
     #[inline]
@@ -24,21 +34,21 @@ pub trait RgbColor: Sized + embedded_graphics::pixelcolor::RgbColor {
         )
     }
 
-    #[inline]
-    fn fold(&self, other: Self, f: impl Fn(u8, u8) -> u8) -> Self {
-        Self::rgb(
-            f(self.r(), other.r()),
-            f(self.g(), other.g()),
-            f(self.b(), other.b()),
-        )
-    }
+    // #[inline]
+    // fn fold(&self, other: Self, f: impl Fn(u8, u8) -> u8) -> Self {
+    //     Self::rgb(
+    //         f(self.r(), other.r()),
+    //         f(self.g(), other.g()),
+    //         f(self.b(), other.b()),
+    //     )
+    // }
 
-    fn mix(&self, alpha: f32, other: Self) -> Self {
-        let this_alpha = 1.0 - alpha;
-        self.fold(other, |this, other| {
-            (this as f32 * this_alpha + other as f32 * alpha) as u8
-        })
-    }
+    // fn mix(&self, alpha: f32, other: Self) -> Self {
+    //     let this_alpha = 1.0 - alpha;
+    //     self.fold(other, |this, other| {
+    //         (this as f32 * this_alpha + other as f32 * alpha) as u8
+    //     })
+    // }
 }
 
 macro_rules! impl_rgb_colors {
@@ -62,6 +72,15 @@ macro_rules! impl_rgb_colors {
                         <$color_ty as embedded_graphics::pixelcolor::RgbColor>::MAGENTA,
                         <$color_ty as embedded_graphics::pixelcolor::RgbColor>::CYAN,
                     ]
+                }
+
+                fn fold(&self, other: Self, f: impl Fn(u8, u8) -> u8) -> Self {
+                    use embedded_graphics_core::pixelcolor::RgbColor;
+                    Self::rgb(
+                        f(self.r(), other.r()),
+                        f(self.g(), other.g()),
+                        f(self.b(), other.b()),
+                    )
                 }
             }
 
@@ -88,5 +107,23 @@ impl Color for BinaryColor {
 
     fn accents() -> [Self; 6] {
         [Self::On; 6]
+    }
+
+    fn fold(&self, other: Self, f: impl Fn(u8, u8) -> u8) -> Self {
+        if f(
+            match self {
+                BinaryColor::Off => 0,
+                BinaryColor::On => 255,
+            },
+            match other {
+                BinaryColor::Off => 0,
+                BinaryColor::On => 255,
+            },
+        ) > 127
+        {
+            Self::On
+        } else {
+            Self::Off
+        }
     }
 }

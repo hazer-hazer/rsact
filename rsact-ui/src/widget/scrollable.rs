@@ -371,11 +371,11 @@ where
                                 .update(|state| state.offset = new_offset);
                         }
 
-                        return W::capture();
+                        return ctx.capture();
                     }
                 }
 
-                ctx.handle_focusable(self.id, |pressed| {
+                ctx.handle_focusable(self.id, |ctx, pressed| {
                     let current_state = self.state.get();
 
                     if current_state.focus_pressed != pressed {
@@ -393,9 +393,9 @@ where
                             }
                         });
 
-                        W::capture()
+                        ctx.capture()
                     } else {
-                        W::ignore()
+                        ctx.ignore()
                     }
                 })
             },

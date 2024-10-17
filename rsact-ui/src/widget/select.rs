@@ -328,11 +328,11 @@ where
                     self.selected.set(new);
                 }
 
-                return W::capture();
+                return ctx.capture();
             }
         }
 
-        ctx.handle_focusable(self.id, |pressed| {
+        ctx.handle_focusable(self.id, |ctx, pressed| {
             // TODO: Generalize
             if current_state.pressed != pressed {
                 let toggle_active = if !current_state.pressed && pressed {
@@ -348,9 +348,9 @@ where
                     }
                 });
 
-                W::capture()
+                ctx.capture()
             } else {
-                W::ignore()
+                ctx.ignore()
             }
         })
     }

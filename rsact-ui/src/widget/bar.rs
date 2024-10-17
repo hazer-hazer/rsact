@@ -44,21 +44,21 @@ pub struct Bar<W: WidgetCtx, V: RangeValue, Dir: Direction> {
 }
 
 impl<W: WidgetCtx, V: RangeValue + 'static> Bar<W, V, ColDir> {
-    pub fn vertical(value: impl IntoSignal<V> + 'static) -> Self {
+    pub fn vertical(value: Signal<V>) -> Self {
         Self::new(value)
     }
 }
 
 impl<W: WidgetCtx, V: RangeValue + 'static> Bar<W, V, RowDir> {
-    pub fn horizontal(value: impl IntoSignal<V> + 'static) -> Self {
+    pub fn horizontal(value: Signal<V>) -> Self {
         Self::new(value)
     }
 }
 
 impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction> Bar<W, V, Dir> {
-    pub fn new(value: impl IntoSignal<V> + 'static) -> Self {
+    pub fn new(value: Signal<V>) -> Self {
         Self {
-            value: value.into_signal(),
+            value,
             layout: Layout {
                 kind: LayoutKind::Edge,
                 size: Dir::AXIS.canon(Length::fill(), Length::Fixed(10)),
@@ -142,6 +142,6 @@ where
 
     fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse<W> {
         let _ = ctx;
-        W::ignore()
+        ctx.ignore()
     }
 }
