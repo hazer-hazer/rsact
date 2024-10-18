@@ -1,7 +1,7 @@
 use embedded_graphics::{
     pixelcolor::Rgb888,
-    prelude::{Dimensions, RgbColor as _},
-    Drawable,
+    prelude::{Dimensions, Point, Primitive, RgbColor},
+    Drawable, Pixel,
 };
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
@@ -9,8 +9,12 @@ use embedded_graphics_simulator::{
 use rsact_reactive::prelude::*;
 use rsact_ui::{
     event::simulator::simulator_single_encoder,
-    layout::size::Size,
-    render::draw_target::{AntiAliasing, LayeringRendererOptions},
+    layout::size::{PointExt, Size},
+    prelude::Color,
+    render::{
+        draw_target::{AntiAliasing, LayeringRendererOptions},
+        line::xiaolin_wu,
+    },
     style::accent::AccentStyler,
     ui::UI,
     value::RangeU8,
@@ -69,6 +73,20 @@ fn main() {
     ui.current_page().auto_focus();
     // ui.page(2).auto_focus();
 
+    let start = Point::new(15, 15);
+    let end = Point::new(200, 200);
+    let width = 10;
+    let color = Rgb888::BLACK;
+    let eg_line = embedded_graphics::primitives::Line::new(start, end)
+        .into_styled(
+            embedded_graphics::primitives::PrimitiveStyleBuilder::new()
+                .stroke_color(color)
+                .stroke_width(width)
+                .build(),
+        );
+
+    let second_line = (start.add_x(50), end.add_x(50));
+
     let mut fps = 0;
     let mut last_time = Instant::now();
     loop {
@@ -89,6 +107,19 @@ fn main() {
                 .inspect(|e| println!("Event: {e:?}")),
         );
         ui.draw(&mut display).unwrap();
+
+        eg_line.draw(&mut display).unwrap();
+
+        xiaolin_wu(second_line.0, second_line.1, width, |point, blend| {
+            let color = Rgb888::WHITE.mix(blend, color);
+            Pixel(point, color).draw(&mut display).unwrap();
+        });
+
+        Pixel(start, Rgb888::RED).draw(&mut display).unwrap();
+        Pixel(end, Rgb888::RED).draw(&mut display).unwrap();
+
+        Pixel(second_line.0, Rgb888::RED).draw(&mut display).unwrap();
+        Pixel(second_line.1, Rgb888::RED).draw(&mut display).unwrap();
 
         window.update(&display);
     }

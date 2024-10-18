@@ -9,8 +9,8 @@
       "cargo": {
         "args": [
           "build",
-          "--profile",
-          "sandbox",
+          // "--profile",
+          // "sandbox",
           "--example",
           "sandbox",
           "--manifest-path",

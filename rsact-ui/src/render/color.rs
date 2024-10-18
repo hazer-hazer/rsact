@@ -12,6 +12,15 @@ pub trait Color:
     fn accents() -> [Self; 6];
     fn fold(&self, other: Self, f: impl Fn(u8, u8) -> u8) -> Self;
 
+    // TODO: Rewrite to use integer math
+    // fn mix(&self, alpha: u8, other: Self) -> Self {
+    //     // let this_alpha = 1.0 - alpha;
+    //     let alpha = alpha as u16;
+    //     let this_alpha = 256 - alpha;
+    //     self.fold(other, |this, other| {
+    //         ((this as u16 * this_alpha + other as u16 * alpha) >> 8) as u8
+    //     })
+    // }
     fn mix(&self, alpha: f32, other: Self) -> Self {
         let this_alpha = 1.0 - alpha;
         self.fold(other, |this, other| {

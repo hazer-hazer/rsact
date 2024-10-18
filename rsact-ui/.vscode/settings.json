@@ -7,5 +7,12 @@
     "single-thread"
   ],
   "rust-analyzer.cargo.features": [],
-  "cSpell.words": ["flexbox", "textbox"]
+  "cSpell.words": [
+    "Bresenham",
+    "flexbox",
+    "fract",
+    "textbox",
+    "trunc",
+    "Xiaolin"
+  ]
 }

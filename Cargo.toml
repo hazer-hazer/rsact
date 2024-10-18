@@ -39,6 +39,12 @@ debug = "full"
 std = ["rsact-ui/std"]
 single-thread = ["rsact-ui/single-thread"]
 
-[profile.sandbox]
-inherits = "dev"
-opt-level = 3
+# [profile.sandbox]
+# inherits = "dev"
+# opt-level = 3
+
+# [profile.dev.package."embedded-graphics-simulator"]
+# opt-level = 3
+
+# [profile.test.package."embedded-graphics-simulator"]
+# opt-level = 3
