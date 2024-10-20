@@ -718,6 +718,9 @@ impl RectangleExt for Rectangle {
 }
 
 pub trait PointExt: Sized {
+    fn new_rounded(x: f32, y: f32) -> Self;
+    fn new_floor(x: f32, y: f32) -> Self;
+
     fn swap_axis(self) -> Self;
 
     fn swap_axis_if(self, cond: bool) -> Self {
@@ -737,6 +740,14 @@ pub trait PointExt: Sized {
 }
 
 impl PointExt for Point {
+    fn new_rounded(x: f32, y: f32) -> Self {
+        Self::new(x.round() as i32, y.round() as i32)
+    }
+
+    fn new_floor(x: f32, y: f32) -> Self {
+        Self::new(x.floor() as i32, y.floor() as i32)
+    }
+
     fn swap_axis(self) -> Self {
         Self::new(self.y, self.x)
     }

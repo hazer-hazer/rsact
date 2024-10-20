@@ -13,7 +13,7 @@ use rsact_ui::{
     prelude::Color,
     render::{
         draw_target::{AntiAliasing, LayeringRendererOptions},
-        line::xiaolin_wu,
+        line::line_aa,
     },
     style::accent::AccentStyler,
     ui::UI,
@@ -110,8 +110,8 @@ fn main() {
 
         eg_line.draw(&mut display).unwrap();
 
-        xiaolin_wu(second_line.0, second_line.1, width, |point, blend| {
-            let color = Rgb888::WHITE.mix(blend, color);
+        line_aa(second_line.0, second_line.1, width, |point, blend| {
+            let color = color.mix(blend, Rgb888::WHITE);
             Pixel(point, color).draw(&mut display).unwrap();
         });
 

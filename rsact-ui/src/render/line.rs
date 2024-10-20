@@ -587,83 +587,315 @@ if self.x <= self.end_x {
 //     }
 // }
 
-pub fn xiaolin_wu<F>(start: Point, end: Point, width: u32, mut draw: F)
-where
-    F: FnMut(Point, f32),
-{
-    let steep = (end.y - start.y).abs() > (end.x - start.x).abs();
+// pub fn xiaolin_wu<F>(start: Point, end: Point, width: u32, mut draw: F)
+// where
+//     F: FnMut(Point, f32),
+// {
+//     let steep = (end.y - start.y).abs() > (end.x - start.x).abs();
 
-    let mut start = start.swap_axis_if(steep);
-    let mut end = end.swap_axis_if(steep);
+//     let mut start = start.swap_axis_if(steep);
+//     let mut end = end.swap_axis_if(steep);
 
-    if start.x > end.x {
-        core::mem::swap(&mut start.x, &mut end.x);
-        core::mem::swap(&mut start.y, &mut end.y);
-    }
+//     if start.x > end.x {
+//         core::mem::swap(&mut start.x, &mut end.x);
+//         core::mem::swap(&mut start.y, &mut end.y);
+//     }
 
-    let dx = end.x - start.x;
-    let dy = end.y - start.y;
-    let gradient = if dx > 0 { dy as f32 / dx as f32 } else { 1.0 };
+//     let dx = end.x - start.x;
+//     let dy = end.y - start.y;
+//     let gradient = if dx > 0 { dy as f32 / dx as f32 } else { 1.0 };
 
-    let width = width as f32 * (1.0 + gradient * gradient).sqrt();
+//     let width = width as f32 * (1.0 + gradient * gradient).sqrt();
 
-    let end_x = start.x as f32;
-    let end_y = start.y as f32 - (width - 1.0) * 0.5
-        + gradient * (end_x - start.x as f32);
-    let x_gap = 1.0 - (start.x as f32 + 0.5 - end_x);
-    let x_pixel1 = end_x;
-    let y_pixel1 = end_y.floor();
-    let fpart = end_y.fract();
-    let rfpart = 1.0 - fpart;
+//     let end_x = start.x as f32;
+//     let end_y = start.y as f32 - (width - 1.0) * 0.5
+//         + gradient * (end_x - start.x as f32);
+//     let x_gap = 1.0 - (start.x as f32 + 0.5 - end_x);
+//     let x_pixel1 = end_x;
+//     let y_pixel1 = end_y.floor();
+//     let fpart = end_y.fract();
+//     let rfpart = 1.0 - fpart;
 
-    // Draw first endpoint
-    let point = Point::new(x_pixel1.round() as i32, y_pixel1.round() as i32);
-    draw(point.swap_axis_if(steep), rfpart * x_gap);
-    for i in 1..width.round() as i32 {
-        draw(point.add_y(i).swap_axis_if(steep), 1.0);
-    }
-    draw(point.add_y_round(width).swap_axis_if(steep), fpart * x_gap);
+//     // Draw first endpoint
+//     // let point = Point::new(x_pixel1.round() as i32, y_pixel1.round() as i32);
+//     // draw(point.swap_axis_if(steep), rfpart * x_gap);
+//     // for i in 1..width.round() as i32 {
+//     //     draw(point.add_y(i).swap_axis_if(steep), 1.0);
+//     // }
+//     // draw(point.add_y_round(width).swap_axis_if(steep), fpart * x_gap);
 
-    return;
+//     let mut inter_y = end_y + gradient;
 
-    let mut inter_y = end_y + gradient;
+//     // Draw second endpoint
+//     let end_x = end.x as f32;
+//     let end_y =
+//         // Note end_x was integer, end.x is integer too, so `gradient * (end_x - end.x)` is always 0
+//         end.y as f32 - (width - 1.0) * 0.5 + gradient * (end_x - end.x as f32);
+//     let x_gap = 1.0 - (end.x as f32 + 0.5 - end_x);
+//     let x_pixel2 = end_x;
+//     let y_pixel2 = end_y.floor();
+//     let fpart = end_y.fract();
+//     let rfpart = 1.0 - fpart;
 
-    // Draw second endpoint
-    let end_x = end.x as f32;
-    let end_y =
-        // Note end_x was integer, end.x is integer too, so `gradient * (end_x - end.x)` is always 0
-        end.y as f32 - (width - 1.0) * 0.5 + gradient * (end_x - end.x as f32);
-    let x_gap = 1.0 - (end.x as f32 + 0.5 - end_x);
-    let x_pixel2 = end_x;
-    let y_pixel2 = end_y.floor();
-    let fpart = end_y.fract();
-    let rfpart = 1.0 - fpart;
+//     // let point = Point::new(x_pixel2.round() as i32, y_pixel2.round() as i32);
+//     // draw(point.swap_axis_if(steep), rfpart * x_gap);
+//     // for i in 1..width.round() as i32 {
+//     //     draw(point.add_y(i).swap_axis_if(steep), 1.0);
+//     // }
+//     // draw(point.add_y_round(width).swap_axis_if(steep), fpart * x_gap);
 
-    let point = Point::new(x_pixel2.round() as i32, y_pixel2.round() as i32);
-    draw(point.swap_axis_if(steep), rfpart * x_gap);
-    for i in 1..width.round() as i32 {
-        draw(point.add_y(i).swap_axis_if(steep), 1.0);
-    }
-    draw(point.add_y_round(width).swap_axis_if(steep), fpart * x_gap);
+//     for x in x_pixel1 as i32 + 1..x_pixel2 as i32 {
+//         let fpart = inter_y.fract();
+//         let rfpart = 1.0 - fpart;
 
-    for x in x_pixel1 as i32 + 1..x_pixel2 as i32 {
-        let fpart = inter_y.fract();
-        let rfpart = 1.0 - fpart;
+//         let y = inter_y.floor() as i32;
+//         let point = Point::new(x, y);
+//         draw(point.swap_axis_if(steep), rfpart);
+//         for i in 1..(width.round()) as i32 {
+//             draw(point.add_y(dy).add_x(dx).swap_axis_if(steep), 1.0);
+//         }
+//         draw(point.add_y_round(width).swap_axis_if(steep), fpart);
 
-        let y = inter_y.floor() as i32;
-        let point = Point::new(x, y);
-        draw(point.swap_axis_if(steep), rfpart);
-        for i in 1..width.round() as i32 {
-            draw(point.add_y(i).swap_axis_if(steep), 1.0);
-        }
-        draw(point.add_y_round(width).swap_axis_if(steep), fpart);
+//         inter_y += gradient;
+//     }
+// }
+// Xiaolin Wu's line drawing algorithm with arbitrary width and orthogonal endpoints
+// pub fn xiaolin_wu<F>(start: Point, end: Point, width: u32, mut draw_pixel: F)
+// where
+//     F: FnMut(Point, f32), // draw_pixel(Point, alpha) where alpha is 0-255
+// {
+//     let mut dx = (end.x - start.x).abs();
+//     let mut dy = (end.y - start.y).abs();
 
-        inter_y += gradient;
-    }
-}
+//     let steep = dy > dx;
 
-pub fn line_downscale<F>(start: Point, end: Point, width: u32, mut draw: F)
-where
-    F: FnMut(Point, f32),
-{
-}
+//     // Swap x and y coordinates if the line is steep
+//     let (mut x0, mut y0, mut x1, mut y1) = if steep {
+//         (start.y, start.x, end.y, end.x)
+//     } else {
+//         (start.x, start.y, end.x, end.y)
+//     };
+
+//     if x0 > x1 {
+//         core::mem::swap(&mut x0, &mut x1);
+//         core::mem::swap(&mut y0, &mut y1);
+//     }
+
+//     dx = x1 - x0;
+//     dy = (y1 - y0).abs();
+//     let gradient = if dx == 0 { 1.0 } else { dy as f32 / dx as f32 };
+
+//     // Compute the half-width of the thick line
+//     let half_width = (width as f32 - 1.0) / 2.0;
+
+//     // Calculate the perpendicular vector for orthogonal endpoints
+//     let length = ((dx * dx + dy * dy) as f32).sqrt();
+//     let perp_x = -((y1 - y0) as f32) / length;
+//     let perp_y = ((x1 - x0) as f32) / length;
+
+//     // Handle the first endpoint with orthogonal cap
+//     let x_end = x0;
+//     let y_end = y0 as f32 + gradient * (x_end as f32 - x0 as f32);
+//     let mut x_px1 = x_end;
+//     let mut y_px1 = y_end as i32;
+
+//     let x_gap = 1.0 - (x0 as f32 + 0.5).fract();
+//     let intery = y_end + gradient; // First y-intersection for the main loop
+
+//     // Draw the first orthogonal endpoint cap
+//     for offset in -(half_width.ceil() as i32)..=(half_width.ceil() as i32) {
+//         let shift_x = (perp_x * offset as f32).round() as i32;
+//         let shift_y = (perp_y * offset as f32).round() as i32;
+
+//         let alpha_start = (1.0 - y_end.fract()) * x_gap;
+//         let alpha_end = y_end.fract() * x_gap;
+
+//         let point = Point::new(x_px1, y_px1);
+//         draw_pixel(
+//             point.swap_axis_if(steep).add_x(shift_x).add_y(shift_y),
+//             alpha_start,
+//         );
+//         draw_pixel(
+//             point.add_y(1).swap_axis_if(steep).add_x(shift_x).add_y(shift_y),
+//             alpha_end,
+//         );
+
+//         // if steep {
+//         //     draw_pixel(
+//         //         Point { x: y_px1 + shift_x, y: x_px1 + shift_y },
+//         //         alpha_start,
+//         //     );
+//         //     draw_pixel(
+//         //         Point { x: y_px1 + shift_x + 1, y: x_px1 + shift_y },
+//         //         alpha_end,
+//         //     );
+//         // } else {
+//         //     draw_pixel(
+//         //         Point { x: x_px1 + shift_x, y: y_px1 + shift_y },
+//         //         alpha_start,
+//         //     );
+//         //     draw_pixel(
+//         //         Point { x: x_px1 + shift_x, y: y_px1 + shift_y + 1 },
+//         //         alpha_end,
+//         //     );
+//         // }
+//     }
+
+//     // Handle the second endpoint with orthogonal cap
+//     let x_end = x1;
+//     let y_end = y1 as f32 + gradient * (x_end as f32 - x1 as f32);
+//     let mut x_px2 = x_end;
+//     let mut y_px2 = y_end as i32;
+
+//     let x_gap = (x1 as f32 + 0.5).fract();
+//     for offset in -(half_width.ceil() as i32)..=(half_width.ceil() as i32) {
+//         let shift_x = (perp_x * offset as f32).round() as i32;
+//         let shift_y = (perp_y * offset as f32).round() as i32;
+
+//         let alpha_start = (1.0 - y_end.fract()) * x_gap;
+//         let alpha_end = y_end.fract() * x_gap;
+
+//         let point = Point::new(x_px2, y_px2);
+
+//         draw_pixel(
+//             point.swap_axis_if(steep).add_x(shift_x).add_y(shift_y),
+//             alpha_start,
+//         );
+//         draw_pixel(
+//             point.add_y(1).swap_axis_if(steep).add_x(shift_x).add_y(shift_y),
+//             alpha_end,
+//         );
+
+//         // if steep {
+//         //     draw_pixel(
+//         //         Point { x: y_px2 + shift_x, y: x_px2 + shift_y },
+//         //         alpha_start,
+//         //     );
+//         //     draw_pixel(
+//         //         Point { x: y_px2 + shift_x + 1, y: x_px2 + shift_y },
+//         //         alpha_end,
+//         //     );
+//         // } else {
+//         //     draw_pixel(
+//         //         Point { x: x_px2 + shift_x, y: y_px2 + shift_y },
+//         //         alpha_start,
+//         //     );
+//         //     draw_pixel(
+//         //         Point { x: x_px2 + shift_x, y: y_px2 + shift_y + 1 },
+//         //         alpha_end,
+//         //     );
+//         // }
+//     }
+
+//     // Main loop to draw the line between the endpoints with thickness
+//     let mut inter_y = intery; // Start y-intersection from first pixel
+//     for x in (x_px1 + 1)..x_px2 {
+//         for offset in -(half_width.ceil() as i32)..=(half_width.ceil() as i32) {
+//             let shift_x = (perp_x * offset as f32).round() as i32;
+//             let shift_y = (perp_y * offset as f32).round() as i32;
+
+//             let alpha1 = (inter_y + offset as f32).fract();
+//             let alpha2 = 1.0 - alpha1;
+
+//             let point = Point::new(x, inter_y.round() as i32);
+
+//             draw_pixel(
+//                 point
+//                     .add_y(1)
+//                     .add_x(shift_x)
+//                     .add_y(shift_y)
+//                     .swap_axis_if(steep),
+//                 alpha1,
+//             );
+//             draw_pixel(
+//                 point.swap_axis_if(steep).add_x(shift_x).add_y(shift_y),
+//                 alpha2,
+//             );
+
+//             // if steep {
+//             //     draw_pixel(
+//             //         Point { x: inter_y as i32 + shift_x, y: x + shift_y },
+//             //         alpha1,
+//             //     );
+//             //     draw_pixel(
+//             //         Point { x: (inter_y as i32 + shift_x) + 1, y: x + shift_y },
+//             //         alpha2,
+//             //     );
+//             // } else {
+//             //     draw_pixel(
+//             //         Point { x: x + shift_x, y: inter_y as i32 + shift_y },
+//             //         alpha1,
+//             //     );
+//             //     draw_pixel(
+//             //         Point { x: x + shift_x, y: (inter_y as i32 + shift_y) + 1 },
+//             //         alpha2,
+//             //     );
+//             // }
+//         }
+//         inter_y += gradient;
+//     }
+// }
+
+// pub fn line_aa<F>(start: Point, end: Point, thickness: u32, mut draw_pixel: F)
+// where
+//     F: FnMut(Point, f32),
+// {
+//     let mut dx = (end.x - start.x).abs();
+//     let mut dy = (end.y - start.y).abs();
+//     let sx = if start.x < end.x { 1 } else { -1 };
+//     let sy = if start.y < end.y { 1 } else { -1 };
+
+//     let mut err = dx - dy;
+
+//     let half_thickness = (thickness as f32) / 2.0;
+
+//     // Helper to draw a thick, anti-aliased pixel
+//     let mut plot_thick_pixel =
+//         |x: i32, y: i32, offset_x: f32, offset_y: f32| {
+//             for i in -(half_thickness as i32)..=(half_thickness as i32) {
+//                 for j in -(half_thickness as i32)..=(half_thickness as i32) {
+//                     let dist = ((i as f32 + offset_x).powi(2)
+//                         + (j as f32 + offset_y).powi(2))
+//                     .sqrt();
+//                     if dist <= half_thickness {
+//                         // Compute alpha for anti-aliasing based on distance to the center
+//                         let alpha = 1.0 - (dist / half_thickness);
+//                         draw_pixel(Point::new(x + i, y + j), alpha);
+//                     }
+//                 }
+//             }
+//         };
+
+//     let mut x0 = start.x;
+//     let mut y0 = start.y;
+
+//     while x0 != end.x || y0 != end.y {
+//         // Calculate offset based on error to smooth edges
+//         let offset_x = (err as f32) / (dx.max(dy) as f32);
+//         let offset_y = ((dx - err) as f32) / (dx.max(dy) as f32);
+
+//         // Plot anti-aliased thick pixel at the current point
+//         plot_thick_pixel(x0, y0, offset_x, offset_y);
+
+//         let err2 = 2 * err;
+//         if err2 > -dy {
+//             err -= dy;
+//             x0 += sx;
+//         }
+//         if err2 < dx {
+//             err += dx;
+//             y0 += sy;
+//         }
+//     }
+
+//     plot_thick_pixel(start.x, start.y, 0.0, 0.0);
+
+//     // Plot the last point
+//     plot_thick_pixel(end.x, end.y, 0.0, 0.0);
+// }
+
+// pub fn circle_aa<F>(start: Point, end: Point, radius: u32, mut draw_pixel: F)
+// where
+//     F: FnMut(Point, f32),
+// {
+// }
