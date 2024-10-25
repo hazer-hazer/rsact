@@ -32,10 +32,7 @@ where
     C: Color,
     W: WidgetCtx<Renderer = LayeringRenderer<C>, Color = C>,
 {
-    pub fn draw(
-        &mut self,
-        target: &mut impl DrawTarget<Color = C>,
-    ) -> DrawResult {
+    pub fn draw(&mut self, target: &mut impl DrawTarget<Color = C>) -> bool {
         self.current_page().draw(target)
     }
 }

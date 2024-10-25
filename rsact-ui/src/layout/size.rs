@@ -8,6 +8,7 @@ use core::{
     ops::{Add, AddAssign, Div, Mul, Rem, Sub, SubAssign},
 };
 use embedded_graphics::{geometry::Point, primitives::Rectangle};
+use num::integer::Roots;
 
 pub trait SubTake<Rhs = Self> {
     fn sub_take(&mut self, sub: Rhs) -> Self;
@@ -737,6 +738,12 @@ pub trait PointExt: Sized {
     fn add_y_round(self, y: f32) -> Self;
     fn add_x_floor(self, x: f32) -> Self;
     fn add_y_floor(self, y: f32) -> Self;
+
+    fn scale_round(self, scale: f32) -> Self;
+    fn dist_sq(self, other: Self) -> f32;
+    fn dist_to(self, other: Self) -> f32;
+    fn dot(self, other: Self) -> i32;
+    fn determinant(self, other: Self) -> i32;
 }
 
 impl PointExt for Point {
@@ -774,5 +781,28 @@ impl PointExt for Point {
 
     fn add_y_floor(self, y: f32) -> Self {
         Self::new(self.x, (self.y as f32 + y).floor() as i32)
+    }
+
+    fn scale_round(self, scale: f32) -> Self {
+        Self::new(
+            (self.x as f32 * scale).round() as i32,
+            (self.y as f32 * scale).round() as i32,
+        )
+    }
+
+    fn dist_sq(self, other: Self) -> f32 {
+        (self.x - other.x).pow(2) as f32 + (self.y - other.y).pow(2) as f32
+    }
+
+    fn dist_to(self, other: Self) -> f32 {
+        self.dist_sq(other).sqrt()
+    }
+
+    fn dot(self, other: Self) -> i32 {
+        self.x * other.x + self.y * other.y
+    }
+
+    fn determinant(self, other: Self) -> i32 {
+        self.x * other.y - self.y * other.x
     }
 }

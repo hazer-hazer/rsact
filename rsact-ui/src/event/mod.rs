@@ -65,8 +65,6 @@ pub enum BubbledData<W: WidgetCtx> {
 pub enum Capture<W: WidgetCtx> {
     /// Event is captured by element and should not be handled by its parents
     Captured,
-    // TODO: Maybe here should not be event but some mapped type to allow user
-    // to change the logic?
     /// BubbleUp captured by parent
     Bubble(BubbledData<W>),
 }

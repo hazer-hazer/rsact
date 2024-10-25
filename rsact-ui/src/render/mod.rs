@@ -19,6 +19,8 @@ use rsact_reactive::memo::Memo;
 pub mod color;
 pub mod draw_target;
 pub mod line;
+pub mod polygon;
+pub mod arc;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Border<C: Color>

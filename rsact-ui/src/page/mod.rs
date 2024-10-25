@@ -283,12 +283,13 @@ impl<W: WidgetCtx> Page<W> {
     pub fn draw(
         &mut self,
         target: &mut impl DrawTarget<Color = <W::Renderer as Renderer>::Color>,
-    ) -> DrawResult {
+    ) -> bool {
         if self.needs_redraw.get() {
             self.needs_redraw.set(false);
             self.renderer.with(|renderer| renderer.finish_frame(target));
+            true
+        } else {
+            false
         }
-
-        Ok(())
     }
 }
