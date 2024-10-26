@@ -104,6 +104,10 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Flex<W, Dir> {
         self
     }
 
+    pub fn center(self) -> Self {
+        self.vertical_align(Align::Center).horizontal_align(Align::Center)
+    }
+
     pub fn horizontal_align(
         self,
         horizontal_align: impl MaybeSignal<Align> + 'static,

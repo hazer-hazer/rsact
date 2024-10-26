@@ -8,7 +8,7 @@ use crate::{
         model_layout,
         padding::Padding,
         size::{DivFactors, SubTake as _},
-        DevFlexLayout, DevLayout,
+        Align, DevFlexLayout, DevLayout,
     },
     widget::{Widget, WidgetCtx},
 };
@@ -166,10 +166,6 @@ pub fn model_flex(
                 line.free_main =
                     line.free_main.saturating_sub(child_layout_size.main(axis));
 
-                // // Subtract actual cross axis length from remaining
-                // // space
-                // line.max_fixed_cross =
-                //     line.max_fixed_cross.max(child_layout_size.cross(axis));
                 line.min_cross =
                     line.min_cross.max(child_layout_size.cross(axis));
             } else {
@@ -264,10 +260,6 @@ pub fn model_flex(
 
             let fluid_space = axis.canon::<Size>(line.free_main, cross);
 
-            // let main_base_div =
-            //     line.free_main / line.div_factors.main(axis) as u32;
-            // let line_div_remainder =
-            //     line.fluid_space % line.div_factors;
             let base_divs = fluid_space / div_factors;
             let line_div_remainder = fluid_space % div_factors;
 
@@ -353,17 +345,18 @@ pub fn model_flex(
                 // *next_pos.main_mut(axis) = 0;
                 // *next_pos.cross_mut(axis) += used_cross as i32;
 
-                *next_pos.main_mut(axis) = 0;
-                *next_pos.cross_mut(axis) +=
-                    (model_line.cross.saturating_add(gap.cross(axis))) as i32;
-
                 longest_line = longest_line.max(model_line.used_main);
+
                 used_cross += model_line.cross
                     + if item.line < model_lines.len() - 1 {
                         gap.cross(axis)
                     } else {
                         0
                     };
+
+                *next_pos.main_mut(axis) = 0;
+                *next_pos.cross_mut(axis) = used_cross as i32;
+                // (model_line.cross.saturating_add(gap.cross(axis))) as i32;
             } else {
                 model_line.used_main += gap.main(axis);
 
@@ -375,14 +368,21 @@ pub fn model_flex(
     let layout_size =
         limits.resolve_size(size, axis.canon(longest_line, used_cross));
 
-    for (child_layout, item) in children_layouts.iter_mut().zip(items) {
-        let line = model_lines[item.line];
+    if !matches!(
+        (horizontal_align, vertical_align),
+        (Align::Start, Align::Start)
+    ) {
+        for (child_layout, item) in children_layouts.iter_mut().zip(items) {
+            let line = model_lines[item.line];
 
-        // let free_space = layout_size
-        //     - axis.canon::<Size>(line.used_main, layout_size.cross(axis));
-
-        let free_space = layout_size - axis.canon::<Size>(line.used_main, 0);
-        child_layout.align_mut(horizontal_align, vertical_align, free_space);
+            let free_space =
+                layout_size - axis.canon::<Size>(line.used_main, line.cross);
+            child_layout.align_mut(
+                horizontal_align,
+                vertical_align,
+                free_space,
+            );
+        }
     }
 
     LayoutModel::new(
@@ -391,6 +391,7 @@ pub fn model_flex(
         DevLayout::new(
             size,
             crate::layout::DevLayoutKind::Flex(DevFlexLayout {
+                // TODO: Implement dev representation of lines such as browsers does.
                 // lines: model_lines.iter().fold((Vec::new(),
                 // Point::zero()),|line| {
                 //     Rectangle::new(line.)

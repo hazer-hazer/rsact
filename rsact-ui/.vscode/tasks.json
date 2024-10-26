@@ -1,0 +1,23 @@
+{
+  "inputs": [
+    {
+      "id": "pickExample",
+      "type": "command",
+      "command": "extension.commandvariable.transform",
+      "args": {
+        "text": "${pickFile:example}",
+        "find": ".*\\/(\\w+)\\.rs",
+        "replace": "$1",
+        "pickFile": {
+          "example": {
+            "description": "Choose an example",
+            "fromFolder": {
+              "fixed": "${workspaceFolder}/examples/"
+            },
+            "display": "fileName"
+          }
+        }
+      }
+    }
+  ]
+}

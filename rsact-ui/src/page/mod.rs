@@ -11,7 +11,7 @@ use crate::{
     render::{color::Color, Renderer},
     style::TreeStyle,
     widget::{
-        Behavior, DrawCtx, DrawResult, EventCtx, MetaTree, MountCtx, PageState,
+        Behavior, DrawCtx, EventCtx, MetaTree, MountCtx, PageState,
         Widget as _, WidgetCtx,
     },
 };

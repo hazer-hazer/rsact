@@ -1,6 +1,5 @@
 use core::u8;
 
-use rsact_reactive::signal::{IntoSignal, Signal};
 
 pub trait RangeValue: PartialEq + Copy {
     // fn min() -> Self;

@@ -3,10 +3,7 @@ use crate::{layout::size::Size, widget::DrawResult};
 use alloc::{collections::BTreeMap, vec::Vec};
 use core::{
     convert::Infallible,
-    f32::{
-        self,
-        consts::{E, PI},
-    },
+    f32::{self, consts::PI},
 };
 use embedded_canvas::CanvasAt;
 use embedded_graphics::{
@@ -23,10 +20,7 @@ use embedded_graphics::{
     Pixel,
 };
 use embedded_graphics_core::Drawable as _;
-use rsact_reactive::{
-    memo::{IntoMemo, Memo},
-    signal::{ReadSignal, Signal},
-};
+use rsact_reactive::signal::ReadSignal;
 
 #[derive(Clone, Copy, Debug)]
 pub enum ViewportKind {
@@ -52,36 +46,10 @@ impl Viewport {
     }
 }
 
-/// Not the "real" anti-aliasing, but the term in wider meaning.
-/// No complex algorithms implemented, it is actually a blurring.
-/// Just don't use it, it is just for fun.
 #[derive(PartialEq, Clone)]
 pub enum AntiAliasing {
-    Mean(usize),
-    Kernel(usize, Vec<f32>),
-}
-
-impl AntiAliasing {
-    pub fn gaussian(radius: usize, sigma: f32) -> Self {
-        let size = radius * 2 + 1;
-        let rf = radius as f32;
-
-        let kernel = (0..size)
-            .map(move |y| {
-                (0..size).map(move |x| {
-                    let y = y as f32 - rf;
-                    let x = x as f32 - rf;
-
-                    let sigma2_sq = 2.0 * sigma.powf(2.0);
-                    (1.0 / (PI * sigma2_sq))
-                        * (-(x.powf(2.0) + y.powf(2.0)) / sigma2_sq).exp()
-                })
-            })
-            .flatten()
-            .collect();
-
-        Self::Kernel(radius, kernel)
-    }
+    Disabled,
+    Enabled,
 }
 
 #[derive(Default, Clone, PartialEq)]
@@ -124,50 +92,9 @@ impl<C: Color> LayeringRenderer<C> {
     }
 
     #[inline(always)]
-    fn raw_pixel(&self, point: Point) -> Option<C> {
+    fn get_pixel(&self, point: Point) -> Option<C> {
         // TODO: Alpha-chanel blending goes here
         self.layers.iter().rev().find_map(|layer| layer.1.get_pixel(point))
-    }
-
-    fn neighbors(
-        &self,
-        point: Point,
-        radius: i32,
-    ) -> impl Iterator<Item = Option<C>> + '_ {
-        let offsets = -radius..=radius;
-
-        offsets
-            .clone()
-            .map(move |yd| {
-                offsets
-                    .clone()
-                    .map(move |xd| self.raw_pixel(point + Point::new(xd, yd)))
-            })
-            .flatten()
-    }
-
-    fn pixel_gaussian(
-        &self,
-        point: Point,
-        kernel: &[f32],
-        radius: usize,
-    ) -> Option<C> {
-        self.raw_pixel(point).map(|initial| {
-            self.neighbors(point, radius as i32).enumerate().fold(
-                initial,
-                |mix, (nb_i, nb)| {
-                    nb.map(|nb| mix.mix(kernel[nb_i], nb)).unwrap_or(mix)
-                },
-            )
-        })
-    }
-
-    fn pixel_mean(&self, point: Point, radius: usize) -> Option<C> {
-        self.raw_pixel(point).map(|initial| {
-            self.neighbors(point, radius as i32).fold(initial, |mix, nb| {
-                nb.map(|nb| mix.mix(0.5, nb)).unwrap_or(mix)
-            })
-        })
     }
 }
 
@@ -177,9 +104,9 @@ impl<C: Color> Dimensions for LayeringRenderer<C> {
     }
 }
 
+// TODO: DrawTarget is not the valid usage as one can mistakenly draw on LayeringRenderer, but this logic is intended only for layering handling.
 impl<C: Color> DrawTarget for LayeringRenderer<C> {
     type Color = C;
-
     type Error = Infallible;
 
     fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
@@ -228,33 +155,9 @@ where
     }
 
     fn finish_frame(&self, target: &mut impl DrawTarget<Color = C>) {
-        // self.layers.iter().for_each(|(_, canvas)| {
-        //     canvas.draw(target).ok().unwrap();
-        // });
-        let viewport_points =
-            Rectangle::new(Point::zero(), self.main_viewport.into()).points();
-
-        match &self.options.anti_aliasing {
-            Some(aa) => match aa {
-                AntiAliasing::Mean(radius) => {
-                    target.draw_iter(viewport_points.filter_map(|point| {
-                        self.pixel_mean(point, *radius)
-                            .map(|color| Pixel(point, color))
-                    }))
-                },
-                AntiAliasing::Kernel(radius, kernel) => {
-                    target.draw_iter(viewport_points.filter_map(|point| {
-                        self.pixel_gaussian(point, kernel, *radius)
-                            .map(|color| Pixel(point, color))
-                    }))
-                },
-            },
-            None => target.draw_iter(viewport_points.filter_map(|point| {
-                self.raw_pixel(point).map(|color| Pixel(point, color))
-            })),
-        }
-        .ok()
-        .unwrap();
+        self.layers.iter().for_each(|(_, canvas)| {
+            canvas.draw(target).ok().unwrap();
+        });
     }
 
     fn clear(&mut self, color: Self::Color) -> DrawResult {
@@ -292,89 +195,19 @@ where
         result
     }
 
-    fn line(
+    fn render(
         &mut self,
-        line: Styled<Line, PrimitiveStyle<Self::Color>>,
+        renderable: &impl super::Renderable<Color = Self::Color>,
     ) -> DrawResult {
-        line.draw(self).ok().unwrap();
-        Ok(())
-    }
-
-    fn rect(
-        &mut self,
-        rect: Styled<RoundedRectangle, PrimitiveStyle<Self::Color>>,
-    ) -> DrawResult {
-        rect.draw(self).ok().unwrap();
-        Ok(())
-    }
-
-    fn block(&mut self, block: Block<Self::Color>) -> DrawResult {
-        let style =
-            PrimitiveStyleBuilder::new().stroke_width(block.border.width);
-
-        let style = if let Some(border_color) = block.border.color {
-            style.stroke_color(border_color)
+        if matches!(self.options.anti_aliasing, Some(AntiAliasing::Enabled)) {
+            renderable.render_aa(self)
         } else {
-            style
-        };
-
-        let style = if let Some(background) = block.background {
-            style.fill_color(background)
-        } else {
-            style
-        };
-
-        RoundedRectangle::new(
-            block.rect,
-            block.border.radius.into_corner_radii(block.rect.size),
-        )
-        .draw_styled(&style.build(), self)
-        .ok()
-        .unwrap();
-
-        Ok(())
-    }
-
-    fn arc(
-        &mut self,
-        arc: Styled<Arc, PrimitiveStyle<Self::Color>>,
-    ) -> DrawResult {
-        arc.draw(self).ok().unwrap();
-
-        Ok(())
-    }
-
-    fn mono_text<'a>(
-        &mut self,
-        text_box: embedded_text::TextBox<
-            'a,
-            embedded_graphics::mono_font::MonoTextStyle<'a, Self::Color>,
-        >,
-    ) -> DrawResult {
-        let residual = text_box.draw(self).unwrap();
-
-        if !residual.is_empty() {
-            log::warn!("Residual text: {residual}");
+            renderable.render(self)
         }
-
-        Ok(())
-    }
-
-    fn image<'a, BO: ByteOrder>(
-        &mut self,
-        image: Image<'_, ImageRaw<'a, Self::Color, BO>>,
-    ) -> DrawResult
-    where
-        RawDataSlice<'a, <Self::Color as PixelColor>::Raw, BO>:
-            IntoIterator<Item = <Self::Color as PixelColor>::Raw>,
-    {
-        image.draw(self).ok().unwrap();
-
-        Ok(())
     }
 
     fn pixel(&mut self, pixel: Pixel<Self::Color>) -> DrawResult {
-        pixel.draw(self).ok().unwrap();
+        pixel.draw(self).unwrap();
         Ok(())
     }
 }

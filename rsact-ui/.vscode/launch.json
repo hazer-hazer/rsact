@@ -4,25 +4,23 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug Sandbox",
+      "name": "Debug Example",
       "cwd": "${workspaceFolder}",
       "cargo": {
         "args": [
           "build",
-          // "--profile",
-          // "sandbox",
           "--example",
-          "sandbox",
+          "${input:pickExample}",
           "--manifest-path",
           "${workspaceFolder}/Cargo.toml",
           "--features",
           "std,simulator"
         ],
-        "filter": {
-          "name": "sandbox",
-          "kind": "example"
-        }
+        // "filter": {
+        //   "name": "${input:pickExample}",
+        //   "kind": "example"
+        // }
       }
-    }
-  ]
+    },
+  ],
 }

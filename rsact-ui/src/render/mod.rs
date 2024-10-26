@@ -3,6 +3,7 @@ use crate::{
     style::block::{BlockStyle, BorderRadius, BorderStyle},
     widget::DrawResult,
 };
+use alpha::AlphaDrawable;
 use color::Color;
 use embedded_graphics::{
     image::{Image, ImageRaw},
@@ -10,17 +11,18 @@ use embedded_graphics::{
     mono_font::MonoTextStyle,
     pixelcolor::raw::ByteOrder,
     prelude::{DrawTarget, PixelColor},
-    primitives::{PrimitiveStyle, Rectangle, RoundedRectangle, Styled},
-    Pixel,
+    primitives::{
+        PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, RoundedRectangle,
+        Styled, StyledDrawable,
+    },
+    Drawable, Pixel,
 };
 use embedded_text::TextBox;
-use rsact_reactive::memo::Memo;
 
+pub mod alpha;
 pub mod color;
 pub mod draw_target;
-pub mod line;
-pub mod polygon;
-pub mod arc;
+pub mod primitives;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Border<C: Color>
@@ -92,6 +94,41 @@ pub struct Block<C: Color> {
     pub background: Option<C>,
 }
 
+impl<C: Color> Drawable for Block<C> {
+    type Color = C;
+    type Output = ();
+
+    fn draw<D>(&self, target: &mut D) -> Result<Self::Output, D::Error>
+    where
+        D: DrawTarget<Color = Self::Color>,
+    {
+        let style =
+            PrimitiveStyleBuilder::new().stroke_width(self.border.width);
+
+        let style = if let Some(border_color) = self.border.color {
+            style.stroke_color(border_color)
+        } else {
+            style
+        };
+
+        let style = if let Some(background) = self.background {
+            style.fill_color(background)
+        } else {
+            style
+        };
+
+        RoundedRectangle::new(
+            self.rect,
+            self.border.radius.into_corner_radii(self.rect.size),
+        )
+        .draw_styled(&style.build(), self)
+        .ok()
+        .unwrap();
+
+        Ok(())
+    }
+}
+
 impl<C: Color + Copy> Block<C> {
     // pub fn new_filled(bounds: Rectangle, background: Option<C>) -> Self {
     //     Self { border: Border::zero(), rect: bounds, background }
@@ -120,12 +157,42 @@ impl<C: Color + Copy> Block<C> {
     }
 }
 
+pub trait Renderable {
+    type Color: Color;
+
+    fn render(
+        &self,
+        renderer: &mut impl Renderer<Color = Self::Color>,
+    ) -> DrawResult;
+
+    fn render_aa(
+        &self,
+        renderer: &mut impl Renderer<Color = Self::Color>,
+    ) -> DrawResult {
+        self.render(renderer)
+    }
+}
+
+// TODO: Get rid of embedded_graphics usage?
+// impl<C: Color, T> Renderable for T
+// where
+//     T: Drawable<Color = C> + AlphaDrawable<Color = C>,
+// {
+//     type Color = C;
+
+//     fn render(
+//         &self,
+//         renderer: &mut impl Renderer<Color = Self::Color>,
+//     ) -> DrawResult {
+//         self.draw(renderer).unwrap();
+//         Ok(())
+//     }
+// }
+
 // TODO: Custom MonoText struct with String to pass from Canvas widget. Lifetime
 // in TextBox require Canvas only to draw 'static strings
-pub type Line<C> =
-    Styled<embedded_graphics::primitives::Line, PrimitiveStyle<C>>;
-pub type Rect<C> = Styled<RoundedRectangle, PrimitiveStyle<C>>;
-pub type Arc<C> = Styled<embedded_graphics::primitives::Arc, PrimitiveStyle<C>>;
+
+pub type Alpha = f32;
 
 pub trait Renderer {
     type Color: Color;
@@ -150,30 +217,17 @@ pub trait Renderer {
         f: impl FnOnce(&mut Self) -> DrawResult,
     ) -> DrawResult;
 
-    fn line(&mut self, line: Line<Self::Color>) -> DrawResult;
-    fn rect(&mut self, rect: Rect<Self::Color>) -> DrawResult;
-    fn block(&mut self, block: Block<Self::Color>) -> DrawResult;
-    fn arc(&mut self, arc: Arc<Self::Color>) -> DrawResult;
-    fn mono_text<'a>(
-        &mut self,
-        text_box: TextBox<'a, MonoTextStyle<'a, Self::Color>>,
-    ) -> DrawResult;
-    fn image<'a, BO: ByteOrder>(
-        &mut self,
-        image: Image<'_, ImageRaw<'a, Self::Color, BO>>,
-    ) -> DrawResult
-    where
-        RawDataSlice<'a, <Self::Color as PixelColor>::Raw, BO>:
-            IntoIterator<Item = <Self::Color as PixelColor>::Raw>;
-
     fn pixel_iter(
         &mut self,
         mut pixels: impl Iterator<Item = Pixel<Self::Color>>,
     ) -> DrawResult {
-        pixels.try_for_each(|pixel| self.pixel(pixel))?;
-
-        Ok(())
+        pixels.try_for_each(|pixel| self.pixel(pixel))
     }
+
+    // fn pixel_iter_alpha(
+    //     &mut self,
+    //     pixels: impl Iterator<Item = (Pixel<Self::Color>, Alpha)>,
+    // ) -> DrawResult;
 
     fn translucent_pixel_iter(
         &mut self,
@@ -185,10 +239,18 @@ pub trait Renderer {
             } else {
                 Ok(())
             }
-        })?;
-
-        Ok(())
+        })
     }
 
+    fn render(
+        &mut self,
+        renderable: &impl Renderable<Color = Self::Color>,
+    ) -> DrawResult;
+
     fn pixel(&mut self, pixel: Pixel<Self::Color>) -> DrawResult;
+    // fn pixel_alpha(
+    //     &mut self,
+    //     pixel: Pixel<Self::Color>,
+    //     alpha: Alpha,
+    // ) -> DrawResult;
 }

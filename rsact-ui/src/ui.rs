@@ -11,7 +11,7 @@ use crate::{
         Page,
     },
     render::{color::Color, draw_target::LayeringRenderer, Renderer},
-    widget::{DrawResult, WidgetCtx, Wtf},
+    widget::{WidgetCtx, Wtf},
 };
 use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use embedded_graphics::prelude::DrawTarget;
