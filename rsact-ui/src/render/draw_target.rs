@@ -1,4 +1,4 @@
-use super::{color::Color, Block, Renderer};
+use super::{alpha::AlphaDrawTarget, color::Color, Block, Renderer};
 use crate::{layout::size::Size, widget::DrawResult};
 use alloc::{collections::BTreeMap, vec::Vec};
 use core::{
@@ -24,7 +24,7 @@ use rsact_reactive::signal::ReadSignal;
 
 #[derive(Clone, Copy, Debug)]
 pub enum ViewportKind {
-    FullScreen,
+    Fullscreen,
     /// Clipped part of parent layer with absolute positions relative to screen
     /// top-left point
     Clipped(Rectangle),
@@ -42,7 +42,7 @@ pub struct Viewport {
 
 impl Viewport {
     pub fn root() -> Self {
-        Self { layer: 0, kind: ViewportKind::FullScreen }
+        Self { layer: 0, kind: ViewportKind::Fullscreen }
     }
 }
 
@@ -68,11 +68,23 @@ impl LayeringRendererOptions {
     }
 }
 
+// Note: Real alpha channel is not supported. Now, alpha channel is more like blending parameter for drawing on a single layer, so each layer is not transparent and alpha parameter only affects blending on current layer.
+// TODO: Real alpha-channel
+struct Layer<C: Color> {
+    canvas: CanvasAt<C>,
+}
+
+impl<C: Color> Layer<C> {
+    fn fullscreen(size: Size) -> Self {
+        Self { canvas: CanvasAt::new(Point::zero(), size.into()) }
+    }
+}
+
 // TODO: Possibly we can only use 2 layers for now, main and the overlaying
 // one
 pub struct LayeringRenderer<C: Color> {
     viewport_stack: Vec<Viewport>,
-    layers: BTreeMap<usize, CanvasAt<C>>,
+    layers: BTreeMap<usize, Layer<C>>,
     main_viewport: Size,
     options: LayeringRendererOptions,
 }
@@ -91,11 +103,14 @@ impl<C: Color> LayeringRenderer<C> {
         Viewport { layer: self.layer_index(), kind }
     }
 
-    #[inline(always)]
-    fn get_pixel(&self, point: Point) -> Option<C> {
-        // TODO: Alpha-chanel blending goes here
-        self.layers.iter().rev().find_map(|layer| layer.1.get_pixel(point))
-    }
+    // #[inline(always)]
+    // fn get_pixel(&self, point: Point) -> Option<C> {
+    //     // TODO: Alpha-chanel blending goes here
+    //     self.layers
+    //         .iter()
+    //         .rev()
+    //         .find_map(|layer| layer.1.canvas.get_pixel(point))
+    // }
 }
 
 impl<C: Color> Dimensions for LayeringRenderer<C> {
@@ -116,16 +131,52 @@ impl<C: Color> DrawTarget for LayeringRenderer<C> {
         let index = self.layer_index();
         let viewport = self.viewport_stack.get(index).unwrap();
         let layer = self.layers.get_mut(&index).unwrap();
+        let canvas = &mut layer.canvas;
 
         match viewport.kind {
-            ViewportKind::FullScreen => layer.draw_iter(pixels),
+            ViewportKind::Fullscreen => canvas.draw_iter(pixels),
             ViewportKind::Clipped(area) => {
-                layer.clipped(&area).draw_iter(pixels)
+                canvas.clipped(&area).draw_iter(pixels)
             },
             ViewportKind::Cropped(area) => {
-                layer.cropped(&area).draw_iter(pixels)
+                canvas.cropped(&area).draw_iter(pixels)
             },
         }
+        .unwrap();
+
+        Ok(())
+    }
+}
+
+impl<C: Color> AlphaDrawTarget for LayeringRenderer<C> {
+    fn pixel_alpha(
+        &mut self,
+        pixel: Pixel<Self::Color>,
+        blend: f32,
+    ) -> DrawResult {
+        let index = self.layer_index();
+        let viewport = self.viewport_stack.get(index).unwrap();
+        let layer = self.layers.get_mut(&index).unwrap();
+        let canvas = &mut layer.canvas;
+
+        let current = canvas.get_pixel(pixel.0);
+        let color = current
+            .map(|current| pixel.1.mix(blend, current))
+            .unwrap_or(pixel.1);
+
+        let pixels = core::iter::once(Pixel(pixel.0, color));
+        match viewport.kind {
+            ViewportKind::Fullscreen => canvas.draw_iter(pixels),
+            ViewportKind::Clipped(area) => {
+                canvas.clipped(&area).draw_iter(pixels)
+            },
+            ViewportKind::Cropped(area) => {
+                canvas.cropped(&area).draw_iter(pixels)
+            },
+        }
+        .unwrap();
+
+        Ok(())
     }
 }
 
@@ -139,10 +190,7 @@ where
     fn new(viewport: Size) -> Self {
         Self {
             viewport_stack: vec![Viewport::root()],
-            layers: BTreeMap::from([(
-                0,
-                CanvasAt::new(Point::zero(), viewport.into()),
-            )]),
+            layers: BTreeMap::from([(0, Layer::fullscreen(viewport.into()))]),
             // TODO: Can avoid storing by getting main viewport from the first
             // layer in the stack
             main_viewport: viewport,
@@ -154,9 +202,10 @@ where
         self.options = options;
     }
 
+    // TODO: Real alpha channels
     fn finish_frame(&self, target: &mut impl DrawTarget<Color = C>) {
-        self.layers.iter().for_each(|(_, canvas)| {
-            canvas.draw(target).ok().unwrap();
+        self.layers.iter().for_each(|(_, layer)| {
+            layer.canvas.draw(target).ok().unwrap();
         });
     }
 
@@ -182,13 +231,10 @@ where
         index: usize,
         f: impl FnOnce(&mut Self) -> DrawResult,
     ) -> DrawResult {
-        self.layers.insert(
-            index,
-            CanvasAt::new(Point::zero(), self.main_viewport.into()),
-        );
+        self.layers.insert(index, Layer::fullscreen(self.main_viewport.into()));
 
         self.viewport_stack
-            .push(Viewport { layer: index, kind: ViewportKind::FullScreen });
+            .push(Viewport { layer: index, kind: ViewportKind::Fullscreen });
         let result = f(self);
         self.viewport_stack.pop();
 
@@ -197,13 +243,15 @@ where
 
     fn render(
         &mut self,
-        renderable: &impl super::Renderable<Color = Self::Color>,
+        renderable: &impl super::Renderable<Self::Color>,
     ) -> DrawResult {
         if matches!(self.options.anti_aliasing, Some(AntiAliasing::Enabled)) {
-            renderable.render_aa(self)
+            renderable.draw_alpha(self).ok().unwrap();
         } else {
-            renderable.render(self)
+            renderable.draw(self).ok().unwrap();
         }
+
+        Ok(())
     }
 
     fn pixel(&mut self, pixel: Pixel<Self::Color>) -> DrawResult {

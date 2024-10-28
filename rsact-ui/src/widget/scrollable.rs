@@ -1,12 +1,13 @@
 use crate::{
     declare_widget_style,
+    render::{primitives::line::Line, Renderable},
     style::{ColorStyle, Styler},
     widget::{prelude::*, Meta, MetaTree, SizedWidget},
 };
 use core::marker::PhantomData;
 use embedded_graphics::{
     prelude::{Point, Primitive, Transform},
-    primitives::{Line, PrimitiveStyle, PrimitiveStyleBuilder},
+    primitives::{PrimitiveStyle, PrimitiveStyleBuilder},
 };
 use layout::ScrollableLayout;
 
@@ -261,11 +262,12 @@ where
 
         ctx.draw_focus_outline(self.id)?;
 
-        ctx.renderer.block(Block::from_layout_style(
+        Block::from_layout_style(
             ctx.layout.outer,
             layout.block_model(),
             style.container,
-        ))?;
+        )
+        .render(ctx.renderer)?;
 
         let child_layout = ctx.layout.children().next();
         let child_layout = child_layout.as_ref().unwrap();
@@ -311,7 +313,7 @@ where
                 .translate(scrollbar_translation);
 
             // Draw track
-            ctx.renderer.line(track_line.into_styled(style.track_style()))?;
+            track_line.into_styled(style.track_style()).render(ctx.renderer)?;
 
             let thumb_len = (scrollable_length as f32
                 * (scrollable_length as f32 / content_length as f32))
@@ -324,14 +326,13 @@ where
             let thumb_start =
                 track_start + Dir::AXIS.canon::<Point>(thumb_offset as i32, 0);
 
-            ctx.renderer.line(
-                Line::new(
-                    thumb_start,
-                    thumb_start + Dir::AXIS.canon::<Point>(thumb_len as i32, 0),
-                )
-                .translate(scrollbar_translation)
-                .into_styled(style.thumb_style()),
-            )?;
+            Line::new(
+                thumb_start,
+                thumb_start + Dir::AXIS.canon::<Point>(thumb_len as i32, 0),
+            )
+            .translate(scrollbar_translation)
+            .into_styled(style.thumb_style())
+            .render(ctx.renderer)?;
         }
 
         self.content.with(|content| {

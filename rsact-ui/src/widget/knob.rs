@@ -1,9 +1,10 @@
 use super::prelude::*;
+use crate::render::primitives::arc::Arc;
+use crate::render::primitives::sector::Sector;
+use crate::render::Renderable;
 use crate::value::RangeValue;
-use embedded_graphics::{
-    prelude::{Angle, Primitive},
-    primitives::{Arc, PrimitiveStyle, PrimitiveStyleBuilder},
-};
+use embedded_graphics::prelude::{Angle, Primitive};
+use embedded_graphics::primitives::{PrimitiveStyle, PrimitiveStyleBuilder};
 use layout::size::SizeExt;
 
 pub trait KnobEvent {
@@ -43,7 +44,7 @@ impl<C: Color> KnobStyle<C> {
         }
     }
 
-    fn arc_style(&self) -> PrimitiveStyle<C> {
+    fn sector_style(&self) -> PrimitiveStyle<C> {
         let base = PrimitiveStyleBuilder::new()
             .stroke_width(self.thickness)
             .stroke_alignment(
@@ -124,17 +125,14 @@ where
         // TODO: Round focus outline
         ctx.draw_focus_outline(self.id)?;
 
-        ctx.renderer.arc(
-            Arc::new(
-                ctx.layout.inner.top_left,
-                ctx.layout.inner.size.max_square(),
-                style.angle_start,
-                value_angle,
-            )
-            .into_styled(style.arc_style()),
-        )?;
-
-        Ok(())
+        Sector::new(
+            ctx.layout.inner.top_left,
+            ctx.layout.inner.size.max_square(),
+            style.angle_start,
+            value_angle,
+        )
+        .into_styled(style.sector_style())
+        .render(ctx.renderer)
     }
 
     fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse<W> {

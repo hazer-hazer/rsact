@@ -5,6 +5,7 @@ use super::{
 use crate::{
     declare_widget_style,
     layout::LayoutKind,
+    render::Renderable,
     style::{ColorStyle, Styler},
     widget::{prelude::*, Meta, MetaTree},
 };
@@ -253,7 +254,7 @@ where
             let options_offset =
                 ctx.layout.inner.center_offset_of(selected_child_layout.inner);
 
-            ctx.renderer.block(Block::from_layout_style(
+            Block::from_layout_style(
                 selected_child_layout
                     .inner
                     .translate(options_offset)
@@ -264,7 +265,8 @@ where
                     ),
                 BlockModel::zero().border_width(1),
                 style.selected,
-            ))?;
+            )
+            .render(ctx.renderer)?;
 
             options_offset
         } else if let Some(first_option) = children_layouts.first() {

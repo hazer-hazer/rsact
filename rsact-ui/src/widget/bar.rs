@@ -1,4 +1,4 @@
-use crate::{value::RangeValue, widget::prelude::*};
+use crate::{render::Renderable as _, value::RangeValue, widget::prelude::*};
 use core::marker::PhantomData;
 use embedded_graphics::{
     prelude::Primitive,
@@ -105,11 +105,12 @@ where
         // let bar_width = ctx.layout.area.size.cross(Dir::AXIS);
 
         let block_model = self.layout.with(|layout| layout.block_model());
-        ctx.renderer.block(Block::from_layout_style(
+        Block::from_layout_style(
             ctx.layout.outer,
             block_model,
             style.container,
-        ))?;
+        )
+        .render(ctx.renderer)?;
 
         let full_len = ctx.layout.inner.size.main(Dir::AXIS);
         let value_len = self.value.get().point(full_len);
@@ -121,17 +122,16 @@ where
         // user needs more likely, but this is not really the right way. Better
         // add `BorderRadius::MaxSquare` variant to make it look like a sausage
         // instead of UFO
-        ctx.renderer.rect(
-            RoundedRectangle::new(
-                bar_area,
-                style
-                    .container
-                    .border
-                    .radius
-                    .into_corner_radii(bar_area.size.max_square()),
-            )
-            .into_styled(style.bar_style()),
-        )?;
+        RoundedRectangle::new(
+            bar_area,
+            style
+                .container
+                .border
+                .radius
+                .into_corner_radii(bar_area.size.max_square()),
+        )
+        .into_styled(style.bar_style())
+        .render(ctx.renderer);
 
         // ctx.renderer.line(
         //     Line::new(start, end).into_styled(style.line_style(bar_width)),

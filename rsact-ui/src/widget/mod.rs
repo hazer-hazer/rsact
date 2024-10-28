@@ -19,6 +19,7 @@ pub mod space;
 use crate::{
     event::{BubbledData, EventPass, FocusedWidget},
     page::id::PageId,
+    render::Renderable,
     style::{Styler, TreeStyle, WidgetStyle},
 };
 use bitflags::bitflags;
@@ -120,6 +121,7 @@ pub struct LayoutCtx<'a, W: WidgetCtx> {
     pub page_state: &'a PageState<W>,
 }
 
+// TODO: Make DrawCtx a delegate to renderer so u can do `Primitive::(...).render(ctx)`
 pub struct DrawCtx<'a, W: WidgetCtx> {
     pub state: &'a PageState<W>,
     pub renderer: &'a mut W::Renderer,
@@ -147,13 +149,14 @@ impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
     #[must_use]
     pub fn draw_focus_outline(&mut self, id: ElId) -> DrawResult {
         if self.state.focused == Some(id) {
-            self.renderer.block(Block {
+            Block {
                 border: Border::zero()
                     .color(Some(<W::Color as Color>::default_foreground()))
                     .width(2),
                 rect: self.layout.outer,
                 background: None,
-            })
+            }
+            .render(self.renderer)
         } else {
             Ok(())
         }

@@ -1,5 +1,6 @@
-use crate::widget::{
-    prelude::*, BlockModelWidget, Meta, MetaTree, SizedWidget,
+use crate::{
+    render::Renderable,
+    widget::{prelude::*, BlockModelWidget, Meta, MetaTree, SizedWidget},
 };
 use rsact_reactive::memo_chain::IntoMemoChain;
 
@@ -94,11 +95,12 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> crate::widget::DrawResult {
         let style = self.style.get();
 
-        ctx.renderer.block(Block::from_layout_style(
+        Block::from_layout_style(
             ctx.layout.outer,
             self.layout.get().block_model(),
             style,
-        ))?;
+        )
+        .render(ctx.renderer)?;
 
         self.content.with(|content| ctx.draw_child(content))
     }
@@ -110,13 +112,3 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
         self.content.control_flow(|content| ctx.pass_to_child(content))
     }
 }
-
-// // FIXME: Remove?
-// impl<W> From<Container<W>> for El<W>
-// where
-//     W: WidgetCtx + 'static,
-// {
-//     fn from(value: Container<W>) -> Self {
-//         El::new(value)
-//     }
-// }

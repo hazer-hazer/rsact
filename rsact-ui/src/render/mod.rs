@@ -3,7 +3,7 @@ use crate::{
     style::block::{BlockStyle, BorderRadius, BorderStyle},
     widget::DrawResult,
 };
-use alpha::AlphaDrawable;
+use alpha::{AlphaDrawTarget, AlphaDrawable};
 use color::Color;
 use embedded_graphics::{
     image::{Image, ImageRaw},
@@ -15,6 +15,7 @@ use embedded_graphics::{
         PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, RoundedRectangle,
         Styled, StyledDrawable,
     },
+    text::renderer::TextRenderer,
     Drawable, Pixel,
 };
 use embedded_text::TextBox;
@@ -94,14 +95,8 @@ pub struct Block<C: Color> {
     pub background: Option<C>,
 }
 
-impl<C: Color> Drawable for Block<C> {
-    type Color = C;
-    type Output = ();
-
-    fn draw<D>(&self, target: &mut D) -> Result<Self::Output, D::Error>
-    where
-        D: DrawTarget<Color = Self::Color>,
-    {
+impl<C: Color> Block<C> {
+    fn style(&self) -> PrimitiveStyle<C> {
         let style =
             PrimitiveStyleBuilder::new().stroke_width(self.border.width);
 
@@ -117,14 +112,39 @@ impl<C: Color> Drawable for Block<C> {
             style
         };
 
+        style.build()
+    }
+}
+
+impl<C: Color> Drawable for Block<C> {
+    type Color = C;
+    type Output = ();
+
+    fn draw<D>(&self, target: &mut D) -> Result<Self::Output, D::Error>
+    where
+        D: DrawTarget<Color = Self::Color>,
+    {
         RoundedRectangle::new(
             self.rect,
             self.border.radius.into_corner_radii(self.rect.size),
         )
-        .draw_styled(&style.build(), self)
+        .draw_styled(&self.style(), target)
         .ok()
         .unwrap();
 
+        Ok(())
+    }
+}
+
+impl<C: Color> AlphaDrawable for Block<C> {
+    type Color = C;
+
+    fn draw_alpha<A>(&self, target: &mut A) -> DrawResult
+    where
+        A: AlphaDrawTarget<Color = Self::Color>,
+    {
+        // TODO: RoundedRectangle AA
+        self.draw(target).ok().unwrap();
         Ok(())
     }
 }
@@ -157,23 +177,37 @@ impl<C: Color + Copy> Block<C> {
     }
 }
 
-pub trait Renderable {
-    type Color: Color;
-
-    fn render(
-        &self,
-        renderer: &mut impl Renderer<Color = Self::Color>,
-    ) -> DrawResult;
-
-    fn render_aa(
-        &self,
-        renderer: &mut impl Renderer<Color = Self::Color>,
-    ) -> DrawResult {
-        self.render(renderer)
+/// Trait to pass any Drawable + AlphaDrawable to Renderer using `render` call instead of `Renderer::render`
+pub trait Renderable<C: Color>:
+    Sized + Drawable<Color = C> + AlphaDrawable<Color = C>
+{
+    fn render(&self, renderer: &mut impl Renderer<Color = C>) -> DrawResult {
+        renderer.render(self)
     }
 }
 
-// TODO: Get rid of embedded_graphics usage?
+impl<C: Color, T> Renderable<C> for T where
+    T: Drawable<Color = C> + AlphaDrawable<Color = C> + Sized
+{
+}
+
+// pub trait Renderable {
+//     type Color: Color;
+
+//     fn render(
+//         &self,
+//         target: &mut impl DrawTarget<Color = Self::Color>,
+//     ) -> DrawResult;
+
+//     fn render_aa(
+//         &self,
+//         target: &mut impl AlphaDrawTarget<Color = Self::Color>,
+//     ) -> DrawResult {
+//         self.render(target)
+//     }
+// }
+
+// // TODO: Get rid of embedded_graphics usage?
 // impl<C: Color, T> Renderable for T
 // where
 //     T: Drawable<Color = C> + AlphaDrawable<Color = C>,
@@ -182,9 +216,17 @@ pub trait Renderable {
 
 //     fn render(
 //         &self,
-//         renderer: &mut impl Renderer<Color = Self::Color>,
+//         target: &mut impl DrawTarget<Color = Self::Color>,
 //     ) -> DrawResult {
-//         self.draw(renderer).unwrap();
+//         self.draw(target).ok().unwrap();
+//         Ok(())
+//     }
+
+//     fn render_aa(
+//         &self,
+//         target: &mut impl AlphaDrawTarget<Color = Self::Color>,
+//     ) -> DrawResult {
+//         self.draw_alpha(target).unwrap();
 //         Ok(())
 //     }
 // }
@@ -229,6 +271,11 @@ pub trait Renderer {
     //     pixels: impl Iterator<Item = (Pixel<Self::Color>, Alpha)>,
     // ) -> DrawResult;
 
+    fn render(
+        &mut self,
+        renderable: &impl Renderable<Self::Color>,
+    ) -> DrawResult;
+
     fn translucent_pixel_iter(
         &mut self,
         mut pixels: impl Iterator<Item = Option<Pixel<Self::Color>>>,
@@ -241,11 +288,6 @@ pub trait Renderer {
             }
         })
     }
-
-    fn render(
-        &mut self,
-        renderable: &impl Renderable<Color = Self::Color>,
-    ) -> DrawResult;
 
     fn pixel(&mut self, pixel: Pixel<Self::Color>) -> DrawResult;
     // fn pixel_alpha(

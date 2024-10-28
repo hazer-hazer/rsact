@@ -1,6 +1,7 @@
 use crate::{
     declare_widget_style,
     font::{FontSize, FontStyle},
+    render::Renderable,
     style::{ColorStyle, Styler, TreeStyled},
     widget::{prelude::*, Meta, MetaTree},
 };
@@ -208,7 +209,7 @@ where
         self.content.with(|content| {
             let style = style.get().with_tree(ctx.tree_style);
 
-            ctx.renderer.mono_text(TextBox::with_textbox_style(
+            TextBox::with_textbox_style(
                 content,
                 ctx.layout.inner,
                 MonoTextStyleBuilder::new()
@@ -219,7 +220,7 @@ where
                 // TODO: Style clip/only_visible/visible
                     .height_mode(embedded_text::style::HeightMode::ShrinkToText(embedded_text::style::VerticalOverdraw::Visible))
                     .build(),
-            ))
+            ).render(ctx.renderer)
         })
     }
 

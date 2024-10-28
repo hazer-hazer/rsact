@@ -1,7 +1,7 @@
 use crate::{
     event::EventResponse,
     layout::{Layout, LayoutKind},
-    render::Renderer,
+    render::{Renderable, Renderer},
     widget::{Meta, MetaTree, Widget, WidgetCtx},
 };
 use embedded_graphics::{
@@ -56,10 +56,11 @@ where
         &self,
         ctx: &mut crate::widget::DrawCtx<'_, W>,
     ) -> crate::widget::DrawResult {
-        ctx.renderer.image(embedded_graphics::image::Image::new(
+        embedded_graphics::image::Image::new(
             &self.data,
             ctx.layout.inner.top_left,
-        ))
+        )
+        .render(ctx.renderer)
     }
 
     fn on_event(

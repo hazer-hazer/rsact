@@ -16,7 +16,10 @@ use rsact_ui::{
     render::{
         alpha::StyledAlphaDrawable as _,
         draw_target::{AntiAliasing, LayeringRendererOptions},
-        primitives::{arc::Arc, circle::Circle, line::Line, polygon::Polygon},
+        primitives::{
+            arc::Arc, circle::Circle, line::Line, polygon::Polygon,
+            sector::Sector,
+        },
     },
     style::accent::AccentStyler,
     ui::UI,
@@ -70,6 +73,9 @@ fn main() {
         display.bounding_box().size,
         AccentStyler::new(Rgb888::RED),
     )
+    .with_renderer_options(
+        LayeringRendererOptions::new().anti_aliasing(AntiAliasing::Enabled),
+    )
     .on_exit(|| std::process::exit(0));
     // .with_renderer_options(
     //     LayeringRendererOptions::new()
@@ -97,10 +103,22 @@ fn main() {
     let arc_style = PrimitiveStyleBuilder::new()
         .stroke_color(Rgb888::BLACK)
         .stroke_width(1)
-        .fill_color(Rgb888::RED)
+        // .fill_color(Rgb888::RED)
         .build();
     let arc = Arc::new(
-        Point::new(300, 100),
+        Point::new(220, 100),
+        50,
+        Angle::zero(),
+        Angle::from_degrees(215.0),
+    );
+
+    let sector_style = PrimitiveStyleBuilder::new()
+        .stroke_color(Rgb888::BLACK)
+        .stroke_width(5)
+        .fill_color(Rgb888::CYAN)
+        .build();
+    let sector = Sector::new(
+        Point::new(340, 100),
         50,
         Angle::zero(),
         Angle::from_degrees(215.0),
@@ -156,6 +174,22 @@ fn main() {
         let drawn = ui.draw(&mut display);
 
         if drawn {
+            embedded_graphics::primitives::Arc::new(
+                Point::new(150, 150),
+                50,
+                Angle::zero(),
+                Angle::from_degrees(256.0),
+            )
+            .draw_styled(
+                &PrimitiveStyleBuilder::new()
+                    .stroke_color(Rgb888::RED)
+                    .stroke_width(1)
+                    .fill_color(Rgb888::CYAN)
+                    .build(),
+                &mut display,
+            )
+            .unwrap();
+
             line.draw_styled(&line_style, &mut display).unwrap();
             line.translate(Point::new(50, 0))
                 .draw_styled_alpha(&line_style, &mut display)
@@ -170,6 +204,12 @@ fn main() {
             arc.draw_styled(&arc_style, &mut display).unwrap();
             arc.translate(Point::new(60, 0))
                 .draw_styled_alpha(&arc_style, &mut display)
+                .unwrap();
+
+            sector.draw_styled(&sector_style, &mut display).unwrap();
+            sector
+                .translate(Point::new(60, 0))
+                .draw_styled_alpha(&sector_style, &mut display)
                 .unwrap();
 
             polygon.draw_styled(&polygon_style, &mut display).unwrap();

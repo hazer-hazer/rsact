@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{prelude::*, render::Renderable};
 
 pub trait ButtonEvent {
     fn as_button_press(&self) -> bool;
@@ -140,11 +140,12 @@ where
 
         let style = self.style.get();
 
-        ctx.renderer.block(Block::from_layout_style(
+        Block::from_layout_style(
             ctx.layout.outer,
             self.layout.get().block_model(),
             style.container,
-        ))?;
+        )
+        .render(ctx.renderer)?;
 
         self.content.with(|content| ctx.draw_child(content))
     }

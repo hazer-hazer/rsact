@@ -1,12 +1,21 @@
+use embedded_graphics::primitives::{
+    PrimitiveStyle, Rectangle, RoundedRectangle, Styled,
+};
+
 use crate::{
-    render::{Arc, Line, Rect},
+    render::{
+        primitives::{arc::Arc, line::Line},
+        Renderable,
+    },
     widget::prelude::*,
 };
 
+// TODO: Replace with box dyn primitive or something else?
 pub enum DrawCommand<C: Color> {
-    Line(Line<C>),
-    Rect(Rect<C>),
-    Arc(Arc<C>),
+    Line(Styled<Line, PrimitiveStyle<C>>),
+    Rect(Styled<Rectangle, PrimitiveStyle<C>>),
+    RoundRect(Styled<RoundedRectangle, PrimitiveStyle<C>>),
+    Arc(Styled<Arc, PrimitiveStyle<C>>),
     Block(Block<C>),
 }
 
@@ -26,20 +35,21 @@ impl<C: Color> DrawQueue<C> {
         self
     }
 
-    pub fn line(self, line: Line<C>) -> Self {
-        self.draw(DrawCommand::Line(line));
-        self
-    }
+    // TODO
+    // pub fn line(self, line: Line<C>) -> Self {
+    //     self.draw(DrawCommand::Line(line));
+    //     self
+    // }
 
-    pub fn rect(self, rect: Rect<C>) -> Self {
-        self.draw(DrawCommand::Rect(rect));
-        self
-    }
+    // pub fn rect(self, rect: Rect<C>) -> Self {
+    //     self.draw(DrawCommand::Rect(rect));
+    //     self
+    // }
 
-    pub fn arc(self, arc: Arc<C>) -> Self {
-        self.draw(DrawCommand::Arc(arc));
-        self
-    }
+    // pub fn arc(self, arc: Arc<C>) -> Self {
+    //     self.draw(DrawCommand::Arc(arc));
+    //     self
+    // }
 
     pub fn block(self, block: Block<C>) -> Self {
         self.draw(DrawCommand::Block(block));
@@ -89,10 +99,13 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         while let Some(command) = self.queue.pop() {
             match command {
-                DrawCommand::Line(line) => ctx.renderer.line(line)?,
-                DrawCommand::Rect(rect) => ctx.renderer.rect(rect)?,
-                DrawCommand::Arc(arc) => ctx.renderer.arc(arc)?,
-                DrawCommand::Block(block) => ctx.renderer.block(block)?,
+                DrawCommand::Line(line) => line.render(ctx.renderer)?,
+                DrawCommand::Rect(rect) => rect.render(ctx.renderer)?,
+                DrawCommand::RoundRect(styled) => {
+                    styled.render(ctx.renderer)?
+                },
+                DrawCommand::Arc(arc) => arc.render(ctx.renderer)?,
+                DrawCommand::Block(block) => block.render(ctx.renderer)?,
             }
         }
 

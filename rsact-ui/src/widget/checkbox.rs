@@ -2,7 +2,7 @@ use super::{
     icon::{Icon, IconStyle},
     ContainerLayout,
 };
-use crate::widget::prelude::*;
+use crate::{render::Renderable, widget::prelude::*};
 use rsact_icons::system::SystemIcon;
 
 #[derive(Clone, Copy)]
@@ -98,11 +98,12 @@ where
     ) -> crate::widget::DrawResult {
         let style = self.style.get();
 
-        ctx.renderer.block(Block::from_layout_style(
+        Block::from_layout_style(
             ctx.layout.outer,
             self.layout.get().block_model(),
             style.container,
-        ))?;
+        )
+        .render(ctx.renderer)?;
 
         if self.value.get() {
             ctx.draw_child(&self.icon)?;

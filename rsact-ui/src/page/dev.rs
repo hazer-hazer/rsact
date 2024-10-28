@@ -8,7 +8,7 @@ use embedded_text::{style::TextBoxStyleBuilder, TextBox};
 use crate::{
     layout::DevHoveredLayout,
     prelude::{BlockModel, BlockStyle, BorderStyle, Size},
-    render::{color::Color, Block, Border, Renderer},
+    render::{color::Color, Block, Border, Renderable, Renderer},
     widget::DrawResult,
 };
 
@@ -44,9 +44,9 @@ impl DevHoveredEl {
 
         let [text_color, inner_color, padding_color, ..] = C::accents();
 
-        r.block(Self::model(area, padding_color))?;
+        Self::model(area, padding_color).render(r)?;
         if let Some(padding) = self.layout.layout.kind.padding() {
-            r.block(Self::model(area - padding, inner_color))?;
+            Self::model(area - padding, inner_color).render(r)?;
         }
 
         let area_text = format!(
@@ -63,7 +63,7 @@ impl DevHoveredEl {
         );
 
         // Ignore error, TextBox sometimes fails
-        r.mono_text(TextBox::with_textbox_style(
+        TextBox::with_textbox_style(
             &area_text,
             Rectangle::new(Point::zero(), viewport.into()),
             MonoTextStyleBuilder::new()
@@ -77,8 +77,8 @@ impl DevHoveredEl {
                     embedded_text::alignment::VerticalAlignment::Bottom,
                 )
                 .build(),
-        ))
-        .ok();
+        )
+        .render(r)?;
 
         Ok(())
     }

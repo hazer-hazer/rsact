@@ -1,6 +1,11 @@
 use embedded_graphics::{
-    prelude::DrawTarget, primitives::Styled, Drawable, Pixel,
+    image::{Image, ImageDrawable},
+    prelude::DrawTarget,
+    primitives::{PrimitiveStyle, Rectangle, RoundedRectangle, Styled},
+    text::renderer::{CharacterStyle, TextRenderer},
+    Drawable, Pixel,
 };
+use embedded_text::TextBox;
 
 use crate::widget::DrawResult;
 
@@ -14,6 +19,7 @@ pub trait AlphaDrawTarget: DrawTarget {
     ) -> DrawResult;
 }
 
+#[cfg(feature = "simulator")]
 impl<C: Color> AlphaDrawTarget
     for embedded_graphics_simulator::SimulatorDisplay<C>
 {
@@ -53,5 +59,56 @@ impl<P: StyledAlphaDrawable<S>, S> AlphaDrawable for Styled<P, S> {
         A: AlphaDrawTarget<Color = Self::Color>,
     {
         self.primitive.draw_styled_alpha(&self.style, target)
+    }
+}
+
+// TODO //
+impl<C: Color> AlphaDrawable for Styled<Rectangle, PrimitiveStyle<C>> {
+    type Color = C;
+
+    fn draw_alpha<A>(&self, target: &mut A) -> DrawResult
+    where
+        A: AlphaDrawTarget<Color = Self::Color>,
+    {
+        self.draw(target).ok().unwrap();
+        Ok(())
+    }
+}
+
+impl<'a, C: Color, S: TextRenderer<Color = C> + CharacterStyle<Color = C>>
+    AlphaDrawable for TextBox<'a, S>
+{
+    type Color = C;
+
+    fn draw_alpha<A>(&self, target: &mut A) -> DrawResult
+    where
+        A: AlphaDrawTarget<Color = Self::Color>,
+    {
+        self.draw(target).ok().unwrap();
+        Ok(())
+    }
+}
+
+impl<C: Color> AlphaDrawable for Styled<RoundedRectangle, PrimitiveStyle<C>> {
+    type Color = C;
+
+    fn draw_alpha<A>(&self, target: &mut A) -> DrawResult
+    where
+        A: AlphaDrawTarget<Color = Self::Color>,
+    {
+        self.draw(target).ok().unwrap();
+        Ok(())
+    }
+}
+
+impl<'a, C: Color, T: ImageDrawable<Color = C>> AlphaDrawable for Image<'a, T> {
+    type Color = C;
+
+    fn draw_alpha<A>(&self, target: &mut A) -> DrawResult
+    where
+        A: AlphaDrawTarget<Color = Self::Color>,
+    {
+        self.draw(target).ok().unwrap();
+        Ok(())
     }
 }

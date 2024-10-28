@@ -1,5 +1,6 @@
 use crate::{
     declare_widget_style,
+    render::{primitives::line::Line, Renderable},
     style::{ColorStyle, Styler},
     widget::{prelude::*, Meta, MetaTree},
 };
@@ -7,8 +8,8 @@ use core::marker::PhantomData;
 use embedded_graphics::{
     prelude::{Point, Primitive},
     primitives::{
-        Line, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle,
-        RoundedRectangle, Styled,
+        PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, RoundedRectangle,
+        Styled,
     },
 };
 use rsact_reactive::memo_chain::IntoMemoChain;
@@ -176,17 +177,19 @@ where
 
         let end = start + Dir::AXIS.canon::<Point>(track_len as i32, 0);
 
-        ctx.renderer.line(
-            Line::new(start, end).into_styled(style.track_line_style()),
-        )?;
+        Line::new(start, end)
+            .into_styled(style.track_line_style())
+            .render(ctx.renderer)?;
 
         let thumb_offset = (self.value.get() as f32 / 256.0) * track_len as f32;
 
-        ctx.renderer.rect(style.thumb_style(Rectangle::new(
-            ctx.layout.inner.top_left
-                + Dir::AXIS.canon::<Point>(thumb_offset as i32, 0),
-            Into::<Size>::into(ctx.layout.inner.size).min_square().into(),
-        )))?;
+        style
+            .thumb_style(Rectangle::new(
+                ctx.layout.inner.top_left
+                    + Dir::AXIS.canon::<Point>(thumb_offset as i32, 0),
+                Into::<Size>::into(ctx.layout.inner.size).min_square().into(),
+            ))
+            .render(ctx.renderer)?;
 
         Ok(())
     }

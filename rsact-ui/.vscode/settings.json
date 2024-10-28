@@ -9,8 +9,11 @@
   "rust-analyzer.cargo.features": [],
   "cSpell.words": [
     "Bresenham",
+    "consts",
     "flexbox",
     "fract",
+    "fullscreen",
+    "powi",
     "Renderable",
     "textbox",
     "trunc",
