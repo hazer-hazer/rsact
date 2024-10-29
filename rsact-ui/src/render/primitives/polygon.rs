@@ -5,7 +5,7 @@ use crate::{
 use alloc::vec::Vec;
 use embedded_graphics::{
     prelude::{Dimensions, Point, Primitive, Transform},
-    primitives::{PrimitiveStyle, Rectangle, StyledDrawable, Triangle},
+    primitives::{PrimitiveStyle, Rectangle, StyledDrawable},
     Pixel,
 };
 

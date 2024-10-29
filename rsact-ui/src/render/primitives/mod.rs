@@ -5,3 +5,4 @@ pub mod polygon;
 pub mod rect;
 pub mod rounded_rect;
 pub mod sector;
+pub mod ellipse;

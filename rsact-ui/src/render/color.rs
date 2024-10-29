@@ -10,7 +10,12 @@ pub trait Color:
     fn default_foreground() -> Self;
     fn default_background() -> Self;
     fn accents() -> [Self; 6];
+    fn map(&self, f: impl Fn(u8) -> u8) -> Self;
     fn fold(&self, other: Self, f: impl Fn(u8, u8) -> u8) -> Self;
+
+    fn invert(&self) -> Self {
+        self.map(|c| 255 - c)
+    }
 
     // TODO: Rewrite to use integer math
     // fn mix(&self, alpha: u8, other: Self) -> Self {
@@ -83,6 +88,11 @@ macro_rules! impl_rgb_colors {
                     ]
                 }
 
+                fn map(&self, f: impl Fn(u8) -> u8) -> Self {
+                    use embedded_graphics_core::pixelcolor::RgbColor;
+                    Self::rgb(f(self.r()), f(self.g()), f(self.b()))
+                }
+
                 fn fold(&self, other: Self, f: impl Fn(u8, u8) -> u8) -> Self {
                     use embedded_graphics_core::pixelcolor::RgbColor;
                     Self::rgb(
@@ -116,6 +126,18 @@ impl Color for BinaryColor {
 
     fn accents() -> [Self; 6] {
         [Self::On; 6]
+    }
+
+    fn map(&self, f: impl Fn(u8) -> u8) -> Self {
+        if f(match self {
+            BinaryColor::Off => 0,
+            BinaryColor::On => 255,
+        }) > 127
+        {
+            Self::On
+        } else {
+            Self::Off
+        }
     }
 
     fn fold(&self, other: Self, f: impl Fn(u8, u8) -> u8) -> Self {

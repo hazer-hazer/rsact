@@ -2,12 +2,14 @@ use core::f32;
 
 use embedded_graphics::{
     prelude::{Angle, Dimensions, Point, Primitive, Transform},
-    primitives::{PrimitiveStyle, Rectangle, StyledDrawable},
+    primitives::{
+        PrimitiveStyle, Rectangle, StyledDrawable,
+    },
     Pixel,
 };
 
 use crate::{
-    layout::size::PointExt as _, prelude::Color,
+    prelude::Color,
     render::alpha::StyledAlphaDrawable,
 };
 
@@ -94,18 +96,29 @@ impl<C: Color> StyledAlphaDrawable<PrimitiveStyle<C>> for Sector {
         let radius = self.diameter as i32 / 2;
         let center = self.top_left + Point::new_equal(radius);
         let r = radius as f32;
-        let r_outer = r + style.stroke_width.div_ceil(2) as f32;
-        let r_inner = r - style.stroke_width as f32 / 2.0;
+        let (r_outer, r_inner) = match style.stroke_alignment {
+            embedded_graphics::primitives::StrokeAlignment::Inside => {
+                (r, r - style.stroke_width as f32)
+            },
+            embedded_graphics::primitives::StrokeAlignment::Center => (
+                r + style.stroke_width.div_ceil(2) as f32,
+                r - (style.stroke_width / 2) as f32,
+            ),
+            embedded_graphics::primitives::StrokeAlignment::Outside => {
+                (r + style.stroke_width as f32, r)
+            },
+        };
 
         let start_radians = self.start_angle.to_radians();
         let sweep_radians = self.sweep_angle.to_radians();
-        let end_radians = start_radians + sweep_radians;
+        let end_angle = Angle::from_radians(start_radians + sweep_radians);
+        let end_radians = end_angle.to_radians();
 
         let draw_radius = r_outer.ceil() as i32;
 
         for y in -draw_radius..=draw_radius {
-            let rx = (r_outer.powi(2) - y.pow(2) as f32).sqrt().ceil() as i32;
-            for x in -rx..=rx {
+            // let rx = (r_outer.powi(2) - y.pow(2) as f32).sqrt().ceil() as i32;
+            for x in -draw_radius..=draw_radius {
                 // Normalize angle
                 let angle = (y as f32)
                     .atan2(x as f32)
@@ -116,6 +129,8 @@ impl<C: Color> StyledAlphaDrawable<PrimitiveStyle<C>> for Sector {
                     angle >= end_radians && angle <= start_radians
                 };
 
+                // TODO: Antialias inner angle line
+
                 if angle_in_range {
                     let point = Point::new(center.x + x, center.y + y);
                     let dist_sq = x * x + y * y;
@@ -123,16 +138,23 @@ impl<C: Color> StyledAlphaDrawable<PrimitiveStyle<C>> for Sector {
 
                     if let Some(fill_color) = style.fill_color {
                         if dist <= r_inner {
+                            let alpha = (r_inner - dist).clamp(0.0, 1.0);
                             target
-                                .pixel_alpha(Pixel(point, fill_color), 1.0)?;
-                        } else if dist <= r_outer && style.stroke_width == 0 {
-                            let alpha = (r_outer - dist).min(1.0).max(0.0);
+                                .pixel_alpha(Pixel(point, fill_color), alpha)?;
+                        } else if dist <= r_outer
+                            && (style.stroke_width == 0
+                                || style.stroke_color.is_none())
+                        {
+                            let alpha =
+                                1.0 - (r_outer - dist).min(1.0).max(0.0);
                             // TODO: Check this case
                             target
                                 .pixel_alpha(Pixel(point, fill_color), alpha)?;
                         }
                     }
 
+                    // TODO: Invalid logic? stroke width is not used
+                    // Note: Stroke width affects r_inner and r_outer
                     if let Some(stroke_color) = style.stroke_color {
                         if dist >= r_inner && dist <= r_outer {
                             let alpha = (r_outer - dist).min(1.0).max(0.0);
@@ -147,6 +169,11 @@ impl<C: Color> StyledAlphaDrawable<PrimitiveStyle<C>> for Sector {
                                 Pixel(point, stroke_color),
                                 alpha,
                             )?;
+                        } else if let alpha @ 0.0..1.0 = r_inner - dist {
+                            target.pixel_alpha(
+                                Pixel(point, stroke_color),
+                                1.0 - alpha,
+                            )?;
                         }
                     }
                 }
@@ -154,22 +181,10 @@ impl<C: Color> StyledAlphaDrawable<PrimitiveStyle<C>> for Sector {
         }
 
         if style.stroke_color.is_some() && style.stroke_width > 0 {
-            let end_point = (end_radians).sin_cos();
-            Line::new(
-                center,
-                center
-                    .add_x_round(end_point.1 * r)
-                    .add_y_round(end_point.0 * r),
-            )
-            .draw_styled_alpha(style, target)?;
-            let start_point = start_radians.sin_cos();
-            Line::new(
-                center,
-                center
-                    .add_x_round(start_point.1 * r)
-                    .add_y_round(start_point.0 * r),
-            )
-            .draw_styled_alpha(style, target)?;
+            Line::with_angle(center, end_angle, r)
+                .draw_styled_alpha(style, target)?;
+            Line::with_angle(center, self.start_angle, r)
+                .draw_styled_alpha(style, target)?;
         }
 
         Ok(())

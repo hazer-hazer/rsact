@@ -6,19 +6,12 @@ use crate::{
 use alpha::{AlphaDrawTarget, AlphaDrawable};
 use color::Color;
 use embedded_graphics::{
-    image::{Image, ImageRaw},
-    iterator::raw::RawDataSlice,
-    mono_font::MonoTextStyle,
-    pixelcolor::raw::ByteOrder,
-    prelude::{DrawTarget, PixelColor},
+    prelude::DrawTarget,
     primitives::{
-        PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, RoundedRectangle,
-        Styled, StyledDrawable,
+        PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, RoundedRectangle, StyledDrawable,
     },
-    text::renderer::TextRenderer,
     Drawable, Pixel,
 };
-use embedded_text::TextBox;
 
 pub mod alpha;
 pub mod color;
@@ -97,8 +90,11 @@ pub struct Block<C: Color> {
 
 impl<C: Color> Block<C> {
     fn style(&self) -> PrimitiveStyle<C> {
-        let style =
-            PrimitiveStyleBuilder::new().stroke_width(self.border.width);
+        let style = PrimitiveStyleBuilder::new()
+            .stroke_width(self.border.width)
+            .stroke_alignment(
+                embedded_graphics::primitives::StrokeAlignment::Outside,
+            );
 
         let style = if let Some(border_color) = self.border.color {
             style.stroke_color(border_color)

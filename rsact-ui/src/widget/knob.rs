@@ -1,5 +1,4 @@
 use super::prelude::*;
-use crate::render::primitives::arc::Arc;
 use crate::render::primitives::sector::Sector;
 use crate::render::Renderable;
 use crate::value::RangeValue;
@@ -27,7 +26,7 @@ declare_widget_style! {
     KnobStyle (KnobState) {
         container: container,
         color: color,
-        thickness: u32,
+        // thickness: u32,
         angle_start: Angle,
         angle: Angle,
     }
@@ -38,7 +37,7 @@ impl<C: Color> KnobStyle<C> {
         Self {
             container: BlockStyle::base(),
             color: ColorStyle::DefaultForeground,
-            thickness: 5,
+            // thickness: 5,
             angle_start: Angle::from_degrees(0.0),
             angle: Angle::from_degrees(360.0),
         }
@@ -46,15 +45,15 @@ impl<C: Color> KnobStyle<C> {
 
     fn sector_style(&self) -> PrimitiveStyle<C> {
         let base = PrimitiveStyleBuilder::new()
-            .stroke_width(self.thickness)
+            // .stroke_width(self.thickness)
             .stroke_alignment(
-                embedded_graphics::primitives::StrokeAlignment::Inside,
+                embedded_graphics::primitives::StrokeAlignment::Outside,
             );
 
         let base = self
             .color
             .get()
-            .map(|color| base.stroke_color(color))
+            .map(|color| base.fill_color(color))
             .unwrap_or(base);
 
         base.build()
@@ -75,7 +74,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
             id: ElId::unique(),
             layout: Layout {
                 kind: LayoutKind::Edge,
-                size: Size::new_equal(Length::Fixed(25)),
+                size: Size::new_equal(Length::Fixed(20)),
             }
             .into_signal(),
             value,
@@ -127,7 +126,7 @@ where
 
         Sector::new(
             ctx.layout.inner.top_left,
-            ctx.layout.inner.size.max_square(),
+            ctx.layout.inner.size.max_square().width,
             style.angle_start,
             value_angle,
         )

@@ -1,22 +1,16 @@
-use super::{alpha::AlphaDrawTarget, color::Color, Block, Renderer};
+use super::{alpha::AlphaDrawTarget, color::Color, Renderer};
 use crate::{layout::size::Size, widget::DrawResult};
 use alloc::{collections::BTreeMap, vec::Vec};
 use core::{
     convert::Infallible,
-    f32::{self, consts::PI},
+    f32::{self},
 };
 use embedded_canvas::CanvasAt;
 use embedded_graphics::{
-    image::{Image, ImageRaw},
-    iterator::raw::RawDataSlice,
-    pixelcolor::raw::ByteOrder,
     prelude::{
-        Dimensions, DrawTarget, DrawTargetExt, PixelColor, Point, PointsIter,
+        Dimensions, DrawTarget, DrawTargetExt, Point,
     },
-    primitives::{
-        Arc, Line, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle,
-        RoundedRectangle, Styled, StyledDrawable as _,
-    },
+    primitives::Rectangle,
     Pixel,
 };
 use embedded_graphics_core::Drawable as _;
@@ -161,7 +155,7 @@ impl<C: Color> AlphaDrawTarget for LayeringRenderer<C> {
 
         let current = canvas.get_pixel(pixel.0);
         let color = current
-            .map(|current| pixel.1.mix(blend, current))
+            .map(|current| current.mix(blend, pixel.1))
             .unwrap_or(pixel.1);
 
         let pixels = core::iter::once(Pixel(pixel.0, color));

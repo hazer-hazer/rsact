@@ -1,7 +1,7 @@
 use embedded_graphics::{
     image::{Image, ImageDrawable},
     prelude::DrawTarget,
-    primitives::{PrimitiveStyle, Rectangle, RoundedRectangle, Styled},
+    primitives::{PrimitiveStyle, Rectangle, Styled},
     text::renderer::{CharacterStyle, TextRenderer},
     Drawable, Pixel,
 };
@@ -78,18 +78,6 @@ impl<C: Color> AlphaDrawable for Styled<Rectangle, PrimitiveStyle<C>> {
 impl<'a, C: Color, S: TextRenderer<Color = C> + CharacterStyle<Color = C>>
     AlphaDrawable for TextBox<'a, S>
 {
-    type Color = C;
-
-    fn draw_alpha<A>(&self, target: &mut A) -> DrawResult
-    where
-        A: AlphaDrawTarget<Color = Self::Color>,
-    {
-        self.draw(target).ok().unwrap();
-        Ok(())
-    }
-}
-
-impl<C: Color> AlphaDrawable for Styled<RoundedRectangle, PrimitiveStyle<C>> {
     type Color = C;
 
     fn draw_alpha<A>(&self, target: &mut A) -> DrawResult

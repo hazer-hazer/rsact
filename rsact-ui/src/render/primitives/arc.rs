@@ -1,8 +1,6 @@
-use super::line::Line;
 use crate::{
-    layout::size::PointExt as _,
     prelude::Color,
-    render::{alpha::StyledAlphaDrawable, Renderable},
+    render::alpha::StyledAlphaDrawable,
 };
 use core::f32::consts::PI;
 use embedded_graphics::{
@@ -96,8 +94,18 @@ impl<C: Color> StyledAlphaDrawable<PrimitiveStyle<C>> for Arc {
         let radius = self.diameter as i32 / 2;
         let center = self.top_left + Point::new_equal(radius);
         let r = radius as f32;
-        let r_outer = r;
-        let r_inner = r - style.stroke_width as f32;
+        let (r_outer, r_inner) = match style.stroke_alignment {
+            embedded_graphics::primitives::StrokeAlignment::Inside => {
+                (r, r - style.stroke_width as f32)
+            },
+            embedded_graphics::primitives::StrokeAlignment::Center => (
+                r + style.stroke_width.div_ceil(2) as f32,
+                r - (style.stroke_width / 2) as f32,
+            ),
+            embedded_graphics::primitives::StrokeAlignment::Outside => {
+                (r + style.stroke_width as f32, r)
+            },
+        };
 
         let start_radians = self.start_angle.to_radians();
         let sweep_radians = self.sweep_angle.to_radians();
@@ -132,6 +140,11 @@ impl<C: Color> StyledAlphaDrawable<PrimitiveStyle<C>> for Arc {
                         // TODO
                         target
                             .pixel_alpha(Pixel(point, stroke_color), alpha)?;
+                    } else if let alpha @ 0.0..1.0 = r_inner - dist {
+                        target.pixel_alpha(
+                            Pixel(point, stroke_color),
+                            1.0 - alpha,
+                        )?;
                     }
                 }
             }

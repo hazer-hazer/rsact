@@ -406,7 +406,11 @@ impl Size<u32> {
         Size::new(Length::Fixed(self.width), Length::Fixed(self.height))
     }
 
-    pub fn min_square(self) -> Self {
+    // pub fn div_ceil(self, rhs: u32) -> Self {
+    //     Self::new(self.width.div_ceil(rhs), self.height.div_ceil(rhs))
+    // }
+
+    pub fn max_square(self) -> Self {
         let min = self.width.min(self.height);
 
         Self::new_equal(min)
@@ -654,9 +658,7 @@ pub trait SizeExt: Copy {
     fn width(self) -> Self::Data;
     fn height(self) -> Self::Data;
 
-    fn max_square(self) -> Self::Data {
-        self.width().min(self.height())
-    }
+    fn max_square(self) -> Self;
 }
 
 impl<S: core::cmp::Ord + core::cmp::Eq + Copy> SizeExt for Size<S> {
@@ -671,6 +673,10 @@ impl<S: core::cmp::Ord + core::cmp::Eq + Copy> SizeExt for Size<S> {
     fn height(self) -> Self::Data {
         self.height
     }
+
+    fn max_square(self) -> Self {
+        Self::new_equal(self.width().min(self.height()))
+    }
 }
 
 impl SizeExt for embedded_graphics_core::geometry::Size {
@@ -684,6 +690,10 @@ impl SizeExt for embedded_graphics_core::geometry::Size {
     #[inline]
     fn height(self) -> Self::Data {
         self.height
+    }
+
+    fn max_square(self) -> Self {
+        Self::new_equal(self.width().min(self.height()))
     }
 }
 
@@ -718,7 +728,7 @@ impl RectangleExt for Rectangle {
     }
 }
 
-pub trait PointExt: Sized {
+pub trait PointExt: Sized + Copy {
     fn new_rounded(x: f32, y: f32) -> Self;
     fn new_floor(x: f32, y: f32) -> Self;
 
@@ -730,6 +740,13 @@ pub trait PointExt: Sized {
         } else {
             self
         }
+    }
+
+    fn mirror_x(self) -> Self;
+    fn mirror_y(self) -> Self;
+    fn each_mirror(self) -> impl Iterator<Item = Self> {
+        [self, self.mirror_x(), self.mirror_y(), self.mirror_x().mirror_y()]
+            .into_iter()
     }
 
     fn add_x(self, x: i32) -> Self;
@@ -757,6 +774,14 @@ impl PointExt for Point {
 
     fn swap_axis(self) -> Self {
         Self::new(self.y, self.x)
+    }
+
+    fn mirror_x(self) -> Self {
+        Self::new(-self.x, self.y)
+    }
+
+    fn mirror_y(self) -> Self {
+        Self::new(self.x, -self.y)
     }
 
     fn add_x(self, x: i32) -> Self {

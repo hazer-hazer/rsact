@@ -1,16 +1,16 @@
 use crate::{
     declare_widget_style,
-    render::{primitives::line::Line, Renderable},
+    render::{
+        primitives::{line::Line, rounded_rect::RoundedRect},
+        Renderable,
+    },
     style::{ColorStyle, Styler},
     widget::{prelude::*, Meta, MetaTree},
 };
 use core::marker::PhantomData;
 use embedded_graphics::{
     prelude::{Point, Primitive},
-    primitives::{
-        PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, RoundedRectangle,
-        Styled,
-    },
+    primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, Styled},
 };
 use rsact_reactive::memo_chain::IntoMemoChain;
 
@@ -59,7 +59,7 @@ impl<C: Color> SliderStyle<C> {
     fn thumb_style(
         &self,
         rect: Rectangle,
-    ) -> Styled<RoundedRectangle, PrimitiveStyle<C>> {
+    ) -> Styled<RoundedRect, PrimitiveStyle<C>> {
         let style = PrimitiveStyleBuilder::new()
             .stroke_width(self.thumb_border_width)
             .stroke_alignment(
@@ -79,12 +79,12 @@ impl<C: Color> SliderStyle<C> {
             style
         };
 
-        RoundedRectangle::new(
+        RoundedRect::new(
             rect.resized(
                 embedded_graphics::prelude::Size::new_equal(self.thumb_size),
                 embedded_graphics::geometry::AnchorPoint::Center,
             ),
-            self.thumb.border.radius.into_corner_radii(rect.size),
+            self.thumb.border.radius,
         )
         .into_styled(style.build())
     }
@@ -187,7 +187,7 @@ where
             .thumb_style(Rectangle::new(
                 ctx.layout.inner.top_left
                     + Dir::AXIS.canon::<Point>(thumb_offset as i32, 0),
-                Into::<Size>::into(ctx.layout.inner.size).min_square().into(),
+                Into::<Size>::into(ctx.layout.inner.size).max_square().into(),
             ))
             .render(ctx.renderer)?;
 

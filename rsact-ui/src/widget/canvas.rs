@@ -1,10 +1,10 @@
 use embedded_graphics::primitives::{
-    PrimitiveStyle, Rectangle, RoundedRectangle, Styled,
+    PrimitiveStyle, Rectangle, Styled,
 };
 
 use crate::{
     render::{
-        primitives::{arc::Arc, line::Line},
+        primitives::{arc::Arc, line::Line, rounded_rect::RoundedRect},
         Renderable,
     },
     widget::prelude::*,
@@ -14,7 +14,7 @@ use crate::{
 pub enum DrawCommand<C: Color> {
     Line(Styled<Line, PrimitiveStyle<C>>),
     Rect(Styled<Rectangle, PrimitiveStyle<C>>),
-    RoundRect(Styled<RoundedRectangle, PrimitiveStyle<C>>),
+    RoundRect(Styled<RoundedRect, PrimitiveStyle<C>>),
     Arc(Styled<Arc, PrimitiveStyle<C>>),
     Block(Block<C>),
 }

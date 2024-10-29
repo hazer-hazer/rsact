@@ -70,11 +70,21 @@ impl<C: Color> StyledAlphaDrawable<PrimitiveStyle<C>> for Circle {
     where
         D: crate::render::alpha::AlphaDrawTarget<Color = Self::Color>,
     {
-        // TODO: Ceil/floor for radiuses
         let radius = self.diameter as i32 / 2;
         let center = self.top_left + Point::new_equal(radius);
-        let r_outer = radius as f32 + style.stroke_width as f32 / 2.0;
-        let r_inner = radius as f32 - style.stroke_width as f32 / 2.0;
+        let r = radius as f32;
+        let (r_outer, r_inner) = match style.stroke_alignment {
+            embedded_graphics::primitives::StrokeAlignment::Inside => {
+                (r, r - style.stroke_width as f32)
+            },
+            embedded_graphics::primitives::StrokeAlignment::Center => (
+                r + style.stroke_width.div_ceil(2) as f32,
+                r - (style.stroke_width / 2) as f32,
+            ),
+            embedded_graphics::primitives::StrokeAlignment::Outside => {
+                (r + style.stroke_width as f32, r)
+            },
+        };
 
         let draw_radius = r_outer.ceil() as i32;
 

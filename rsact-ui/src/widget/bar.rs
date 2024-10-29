@@ -1,10 +1,14 @@
-use crate::{render::Renderable as _, value::RangeValue, widget::prelude::*};
+use crate::{
+    render::{primitives::rounded_rect::RoundedRect, Renderable as _},
+    value::RangeValue,
+    widget::prelude::*,
+};
 use core::marker::PhantomData;
 use embedded_graphics::{
     prelude::Primitive,
-    primitives::{PrimitiveStyle, PrimitiveStyleBuilder, RoundedRectangle},
+    primitives::{PrimitiveStyle, PrimitiveStyleBuilder},
 };
-use layout::size::{RectangleExt, SizeExt};
+use layout::size::RectangleExt;
 
 // TODO: Padding for inner bar
 
@@ -118,20 +122,9 @@ where
         let bar_area =
             ctx.layout.inner.resized_axis(Dir::AXIS, value_len, Anchor::Start);
 
-        // Note: I use `max_square` for corner radius to make it so "round" as
-        // user needs more likely, but this is not really the right way. Better
-        // add `BorderRadius::MaxSquare` variant to make it look like a sausage
-        // instead of UFO
-        RoundedRectangle::new(
-            bar_area,
-            style
-                .container
-                .border
-                .radius
-                .into_corner_radii(bar_area.size.max_square()),
-        )
-        .into_styled(style.bar_style())
-        .render(ctx.renderer);
+        RoundedRect::new(bar_area, style.container.border.radius)
+            .into_styled(style.bar_style())
+            .render(ctx.renderer)?;
 
         // ctx.renderer.line(
         //     Line::new(start, end).into_styled(style.line_style(bar_width)),

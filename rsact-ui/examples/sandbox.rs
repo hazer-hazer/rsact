@@ -1,9 +1,9 @@
 use embedded_graphics::{
     pixelcolor::Rgb888,
-    prelude::{Angle, Dimensions, Point, Primitive, RgbColor},
+    prelude::{Angle, Dimensions, Point, RgbColor},
     primitives::{PrimitiveStyleBuilder, StyledDrawable as _},
     transform::Transform as _,
-    Drawable, Pixel,
+    Drawable,
 };
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
@@ -11,14 +11,14 @@ use embedded_graphics_simulator::{
 use rsact_reactive::prelude::*;
 use rsact_ui::{
     event::simulator::simulator_single_encoder,
-    layout::size::{PointExt, Size},
+    layout::size::Size,
     prelude::Color,
     render::{
         alpha::StyledAlphaDrawable as _,
         draw_target::{AntiAliasing, LayeringRendererOptions},
         primitives::{
-            arc::Arc, circle::Circle, line::Line, polygon::Polygon,
-            sector::Sector,
+            arc::Arc, circle::Circle, ellipse::Ellipse, line::Line,
+            polygon::Polygon, sector::Sector,
         },
     },
     style::accent::AccentStyler,
@@ -26,10 +26,7 @@ use rsact_ui::{
     value::RangeU8,
     widget::{bar::Bar, flex::Flex, knob::Knob, SizedWidget, Widget as _},
 };
-use std::{
-    f32::consts::PI,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 fn main() {
     let output_settings =
@@ -124,6 +121,13 @@ fn main() {
         Angle::from_degrees(215.0),
     );
 
+    let ellipse_style = PrimitiveStyleBuilder::new()
+        .stroke_color(Rgb888::BLACK)
+        .stroke_width(1)
+        .fill_color(Rgb888::YELLOW.invert())
+        .build();
+    let ellipse = Ellipse::new(Point::new(250, 50), Size::new(50, 25));
+
     // let polygon_edges = 5;
     // let polygon_center = Point::new(50, 200);
     // let polygon_radius = 25;
@@ -210,6 +214,12 @@ fn main() {
             sector
                 .translate(Point::new(60, 0))
                 .draw_styled_alpha(&sector_style, &mut display)
+                .unwrap();
+
+            ellipse.draw_styled(&ellipse_style, &mut display).unwrap();
+            ellipse
+                .translate(Point::new(60, 0))
+                .draw_styled_alpha(&ellipse_style, &mut display)
                 .unwrap();
 
             polygon.draw_styled(&polygon_style, &mut display).unwrap();

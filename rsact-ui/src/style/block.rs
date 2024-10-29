@@ -1,5 +1,8 @@
 use super::{ColorStyle, WidgetStyle};
-use crate::{layout::size::Size, render::color::Color};
+use crate::{
+    layout::size::{Size, SizeExt},
+    render::color::Color,
+};
 use embedded_graphics::primitives::CornerRadii;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -87,7 +90,12 @@ impl BorderRadius {
     }
 
     pub fn into_corner_radii(self, block_size: impl Into<Size>) -> CornerRadii {
-        let block_size = block_size.into();
+        // Note: I use `max_square` for corner radius to make it so "round" as
+        // user needs more likely, but this is not really the right way. Better
+        // add `BorderRadius::MaxSquare` variant to make it look like a sausage
+        // instead of UFO. This is invalid logic!
+        // TODO
+        let block_size = block_size.into().max_square();
         CornerRadii {
             top_left: self.top_left.into_real(block_size),
             top_right: self.top_right.into_real(block_size),

@@ -2,7 +2,7 @@ use crate::{
     layout::size::PointExt, prelude::Color, render::alpha::StyledAlphaDrawable,
 };
 use embedded_graphics::{
-    prelude::{Dimensions, Point, Primitive, Transform},
+    prelude::{Angle, Dimensions, Point, Primitive, Transform},
     primitives::{PrimitiveStyle, Rectangle, StyledDrawable},
     Pixel,
 };
@@ -47,6 +47,14 @@ impl Transform for Line {
 impl Line {
     pub fn new(start: Point, end: Point) -> Self {
         Self { start, end }
+    }
+
+    pub fn with_angle(center: Point, angle: Angle, radius: f32) -> Self {
+        let (sin, cos) = angle.to_radians().sin_cos();
+        Self::new(
+            center,
+            center.add_x_round(cos * radius).add_y_round(sin * radius),
+        )
     }
 
     pub fn len_sq(&self) -> u32 {
