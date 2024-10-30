@@ -1,17 +1,14 @@
-use embedded_graphics::{
-    prelude::{Dimensions, Point, Primitive, Transform},
-    primitives::{PrimitiveStyle, Rectangle, StyledDrawable},
-    Pixel,
-};
-use num::{integer::Roots, pow::Pow};
-
+use super::circle::Circle;
 use crate::{
     layout::size::PointExt,
     prelude::{Color, Size},
     render::alpha::StyledAlphaDrawable,
 };
-
-use super::circle::Circle;
+use embedded_graphics::{
+    prelude::{Dimensions, Point, Primitive, Transform},
+    primitives::{PrimitiveStyle, Rectangle, StyledDrawable},
+    Pixel,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Ellipse {
@@ -83,6 +80,8 @@ impl<C: Color> StyledAlphaDrawable<PrimitiveStyle<C>> for Ellipse {
 
         // TODO: StrokeAlignment
 
+        // FIXME: Ellipse looks bad because of issues of Xiaolin Wu thick stroke drawing.
+
         let center = self.top_left
             + Point::new(self.size.width as i32, self.size.height as i32) / 2;
 
@@ -97,60 +96,16 @@ impl<C: Color> StyledAlphaDrawable<PrimitiveStyle<C>> for Ellipse {
                 (r - stroke_size, r - half_stroke_size)
             },
             embedded_graphics::primitives::StrokeAlignment::Center => {
-                (r, r - half_stroke_size)
+                (r, r - stroke_size)
             },
             embedded_graphics::primitives::StrokeAlignment::Outside => {
                 (r + half_stroke_size, r + half_stroke_size)
             },
         };
 
-        // Naive //
-        // let rx = self.size.width as i32 / 2;
-        // let ry = self.size.height as i32 / 2;
-
-        // let area = rx * ry;
-        // let area_sq = area.pow(2);
-
-        // for y in -ry..=ry {
-        //     for x in -rx..=rx {
-        //         let point = center + Point::new(x, y);
-        //         let pixel = Pixel(point, style.stroke_color.unwrap());
-
-        //         // Multiply terms by area_sq to avoid FP arithmetics
-        //         let dist_sq = x.pow(2) * ry.pow(2) + y.pow(2) * rx.pow(2);
-        //         if dist_sq <= area_sq {
-        //             // let alpha = (dist_sq as f32 / area_sq as f32);
-
-        //             target.pixel_alpha(pixel, 1.0)?;
-        //         }
-        //     }
-        // }
-
-        // Wu //
-        // let rx_sq = rx.pow(2) as f32;
-        // let ry_sq = ry.pow(2) as f32;
-
         let r_stroke_sq = r_stroke.map(|r| r.pow(2));
-        let r_fill_area = r_fill.width * r_fill.height;
-        let fill_area_sq = r_fill_area.pow(2);
-        let stroke_offset_x = r_stroke.width as i32 - r_fill.width as i32;
-        let stroke_offset_y = r_stroke.height as i32 - r_fill.height as i32;
-
-        // if let Some(fill_color) = style.fill_color {
-        //     for x in -(r_fill.width as i32)..=r_fill.width as i32 {
-        //         for y in -(r_fill.height as i32)..=r_fill.height as i32 {
-        //             let dist_sq = x.pow(2) as u32 * r_stroke_sq.height
-        //                 + y.pow(2) as u32 * r_stroke_sq.width;
-
-        //             if dist_sq <= fill_area_sq {
-        //                 target.pixel_alpha(
-        //                     Pixel(center + Point::new(x, y), fill_color),
-        //                     1.0,
-        //                 )?;
-        //             }
-        //         }
-        //     }
-        // }
+        let stroke_offset_x = style.stroke_width as i32 / 2;
+        let stroke_offset_y = style.stroke_width as i32 / 2;
 
         let set_point = |target: &mut D, delta: Point, color: C, blend: f32| {
             delta.each_mirror().try_for_each(|delta| {
@@ -162,43 +117,48 @@ impl<C: Color> StyledAlphaDrawable<PrimitiveStyle<C>> for Ellipse {
             })
         };
 
-        // // Can avoid float usage?
-        // let quart = (r_stroke_sq.width as f32
-        //     / (r_stroke_sq.width as f32 + r_stroke_sq.height as f32).sqrt())
-        // .round() as i32;
+        // Can avoid float usage?
+        let quart = (r_stroke_sq.width as f32
+            / (r_stroke_sq.width as f32 + r_stroke_sq.height as f32).sqrt())
+        .round() as i32;
 
-        for x in 0..=r_stroke.width as i32 {
+        for x in 0..=quart {
             let y = r_stroke.height as f32
                 * (1.0 - x.pow(2) as f32 / r_stroke_sq.width as f32).sqrt();
 
+            // TODO: Fill antialiasing
             if let Some(fill_color) = style.fill_color {
-                for y in 0..y.floor() as i32 {
-                    // if dist_sq <= fill_area_sq {
-                    // target.pixel_alpha(
-                    //     Pixel(center + Point::new(x, y), fill_color),
-                    //     1.0,
-                    // )?;
+                for y in 0..=y.floor() as i32 {
                     set_point(target, Point::new(x, y), fill_color, 1.0)?;
-                    // target.pixel_alpha(
-                    //     Pixel(center + Point::new(x, -y), fill_color),
-                    //     1.0,
-                    // )?;
-                    // }
+                }
+
+                if style.stroke_color.is_none() {
+                    set_point(
+                        target,
+                        Point::new(x, y.floor() as i32 + 1),
+                        fill_color,
+                        y.fract(),
+                    )?;
                 }
             }
 
-            // if let (stroke_width @ 1.., Some(_)) =
-            //     (style.stroke_width, style.stroke_color)
-            // {
-            //     let alpha = y.fract();
+            if let (stroke_width @ 1.., Some(stroke_color)) =
+                (style.stroke_width, style.stroke_color)
+            {
+                let alpha = y.fract();
 
-            //     let point = Point::new(x, y.floor() as i32 - stroke_offset_y);
-            //     stroke_point(target, point, 1.0 - alpha)?;
-            //     for w in 1..stroke_width as i32 {
-            //         stroke_point(target, point.add_y(w), 1.0)?;
-            //     }
-            //     stroke_point(target, point.add_y(stroke_width as i32), alpha)?;
-            // }
+                let point = Point::new(x, y.floor() as i32 - stroke_offset_y);
+                set_point(target, point, stroke_color, 1.0 - alpha)?;
+                for w in 1..stroke_width as i32 {
+                    set_point(target, point.add_y(w), stroke_color, 1.0)?;
+                }
+                set_point(
+                    target,
+                    point.add_y(stroke_width as i32),
+                    stroke_color,
+                    alpha,
+                )?;
+            }
         }
 
         // let quart = (r_stroke_sq.height as f32
@@ -209,33 +169,39 @@ impl<C: Color> StyledAlphaDrawable<PrimitiveStyle<C>> for Ellipse {
             let x = r_stroke.width as f32
                 * (1.0 - y.pow(2) as f32 / r_stroke_sq.height as f32).sqrt();
 
-            // if let Some(fill_color) = style.fill_color {
-            //     let w = x.round() as i32;
-            //     for x in -w..w {
-            //         let dist_sq = y.pow(2) as u32 * r_stroke_sq.width
-            //             + x.pow(2) as u32 * r_stroke_sq.height;
+            // TODO: Fix fill with stroke overlap
+            if let Some(fill_color) = style.fill_color {
+                for x in 0..=x.floor() as i32 {
+                    set_point(target, Point::new(x, y), fill_color, 1.0)?;
+                }
 
-            //         if dist_sq <= fill_area_sq {
-            //             target.pixel_alpha(
-            //                 Pixel(center + Point::new(x, y), fill_color),
-            //                 1.0,
-            //             )?;
-            //         }
-            //     }
-            // }
+                if style.stroke_color.is_none() {
+                    set_point(
+                        target,
+                        Point::new(x.floor() as i32 + 1, y),
+                        fill_color,
+                        x.fract(),
+                    )?;
+                }
+            }
 
-            // if let (stroke_width @ 1.., Some(_)) =
-            //     (style.stroke_width, style.stroke_color)
-            // {
-            //     let alpha = x.fract();
+            if let (stroke_width @ 1.., Some(stroke_color)) =
+                (style.stroke_width, style.stroke_color)
+            {
+                let alpha = x.fract();
 
-            //     let point = Point::new(x.floor() as i32 - stroke_offset_x, y);
-            //     stroke_point(target, point, 1.0 - alpha)?;
-            //     for w in 1..stroke_width as i32 {
-            //         stroke_point(target, point.add_x(w), 1.0)?;
-            //     }
-            //     stroke_point(target, point.add_x(stroke_width as i32), alpha)?;
-            // }
+                let point = Point::new(x.floor() as i32 - stroke_offset_x, y);
+                set_point(target, point, stroke_color, 1.0 - alpha)?;
+                for w in 1..stroke_width as i32 {
+                    set_point(target, point.add_x(w), stroke_color, 1.0)?;
+                }
+                set_point(
+                    target,
+                    point.add_x(stroke_width as i32),
+                    stroke_color,
+                    alpha,
+                )?;
+            }
         }
 
         Ok(())

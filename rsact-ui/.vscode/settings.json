@@ -8,6 +8,7 @@
   ],
   "rust-analyzer.cargo.features": [],
   "cSpell.words": [
+    "antialiasing",
     "Bresenham",
     "consts",
     "flexbox",

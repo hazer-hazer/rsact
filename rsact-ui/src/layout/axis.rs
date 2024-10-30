@@ -1,3 +1,5 @@
+use core::ops::Add;
+
 use embedded_graphics::geometry::{AnchorPoint, AnchorX, AnchorY, Point};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -14,8 +16,8 @@ impl Axis {
 
     pub fn canon<T: Axial>(self, main: T::Data, cross: T::Data) -> T {
         match self {
-            Axis::X => T::new(main, cross),
-            Axis::Y => T::new(cross, main),
+            Axis::X => T::axial_new(main, cross),
+            Axis::Y => T::axial_new(cross, main),
         }
     }
 
@@ -61,7 +63,7 @@ pub trait Axial {
     fn y(&self) -> Self::Data;
     fn x_mut(&mut self) -> &mut Self::Data;
     fn y_mut(&mut self) -> &mut Self::Data;
-    fn new(x: Self::Data, y: Self::Data) -> Self;
+    fn axial_new(x: Self::Data, y: Self::Data) -> Self;
 
     fn axial_map<F, U>(&self, f: F) -> (U, U)
     where
@@ -113,6 +115,24 @@ pub trait Axial {
         Self: Sized,
     {
         AxialData { axis, data: self }
+    }
+
+    #[inline]
+    fn add_main(self, axis: Axis, main: Self::Data) -> Self
+    where
+        Self::Data: Add<Self::Data, Output = Self::Data>,
+        Self: Sized + Copy,
+    {
+        self.with_main(axis, self.main(axis) + main)
+    }
+
+    #[inline]
+    fn add_cross(self, axis: Axis, cross: Self::Data) -> Self
+    where
+        Self::Data: Add<Self::Data, Output = Self::Data>,
+        Self: Sized + Copy,
+    {
+        self.with_cross(axis, self.cross(axis) + cross)
     }
 
     #[inline]
@@ -170,7 +190,7 @@ impl Axial for Point {
     }
 
     #[inline]
-    fn new(x: Self::Data, y: Self::Data) -> Self {
+    fn axial_new(x: Self::Data, y: Self::Data) -> Self {
         Self::new(x, y)
     }
 }
@@ -197,7 +217,7 @@ impl Axial for embedded_graphics_core::geometry::Size {
     }
 
     #[inline]
-    fn new(x: Self::Data, y: Self::Data) -> Self {
+    fn axial_new(x: Self::Data, y: Self::Data) -> Self {
         Self::new(x, y)
     }
 }
@@ -224,7 +244,7 @@ impl<T: Copy> Axial for (T, T) {
     }
 
     #[inline]
-    fn new(x: Self::Data, y: Self::Data) -> Self {
+    fn axial_new(x: Self::Data, y: Self::Data) -> Self {
         (x, y)
     }
 }
@@ -326,7 +346,7 @@ impl Axial for AxisAnchorPoint {
         &mut self.y
     }
 
-    fn new(x: Self::Data, y: Self::Data) -> Self {
+    fn axial_new(x: Self::Data, y: Self::Data) -> Self {
         Self { x, y }
     }
 }

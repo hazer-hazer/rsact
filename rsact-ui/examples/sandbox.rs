@@ -1,7 +1,7 @@
 use embedded_graphics::{
     pixelcolor::Rgb888,
-    prelude::{Angle, Dimensions, Point, RgbColor},
-    primitives::{PrimitiveStyleBuilder, StyledDrawable as _},
+    prelude::{Angle, Dimensions, Point, RgbColor, WebColors as _},
+    primitives::{PrimitiveStyleBuilder, Rectangle, StyledDrawable as _},
     transform::Transform as _,
     Drawable,
 };
@@ -12,13 +12,13 @@ use rsact_reactive::prelude::*;
 use rsact_ui::{
     event::simulator::simulator_single_encoder,
     layout::size::Size,
-    prelude::Color,
+    prelude::{BorderRadius, Color},
     render::{
         alpha::StyledAlphaDrawable as _,
         draw_target::{AntiAliasing, LayeringRendererOptions},
         primitives::{
             arc::Arc, circle::Circle, ellipse::Ellipse, line::Line,
-            polygon::Polygon, sector::Sector,
+            polygon::Polygon, rounded_rect::RoundedRect, sector::Sector,
         },
     },
     style::accent::AccentStyler,
@@ -29,8 +29,7 @@ use rsact_ui::{
 use std::time::{Duration, Instant};
 
 fn main() {
-    let output_settings =
-        OutputSettingsBuilder::new().scale(3).max_fps(10000).build();
+    let output_settings = OutputSettingsBuilder::new().max_fps(10000).build();
 
     let mut window = Window::new("SANDBOX", &output_settings);
 
@@ -123,10 +122,23 @@ fn main() {
 
     let ellipse_style = PrimitiveStyleBuilder::new()
         .stroke_color(Rgb888::BLACK)
-        .stroke_width(1)
-        .fill_color(Rgb888::YELLOW.invert())
+        .stroke_width(5)
+        .fill_color(Rgb888::RED)
         .build();
     let ellipse = Ellipse::new(Point::new(250, 50), Size::new(50, 25));
+
+    let rounded_rect_style = PrimitiveStyleBuilder::new()
+        .fill_color(Rgb888::CSS_MEDIUM_SEA_GREEN)
+        .stroke_color(Rgb888::BLACK)
+        .stroke_width(1)
+        .build();
+    let rounded_rect = RoundedRect::new(
+        Rectangle::new(
+            Point::new(320, 200),
+            embedded_graphics::geometry::Size::new(60, 40),
+        ),
+        BorderRadius::new_equal(10.into()),
+    );
 
     // let polygon_edges = 5;
     // let polygon_center = Point::new(50, 200);
@@ -226,6 +238,17 @@ fn main() {
             polygon
                 .translate(Point::new(150, 0))
                 .draw_styled_alpha(&polygon_style, &mut display)
+                .unwrap();
+
+            rounded_rect
+                .draw_styled(&rounded_rect_style, &mut display)
+                .unwrap();
+            rounded_rect
+                .translate(Point::new(
+                    rounded_rect.rect.size.width as i32 + 10,
+                    0,
+                ))
+                .draw_styled_alpha(&rounded_rect_style, &mut display)
                 .unwrap();
         }
 

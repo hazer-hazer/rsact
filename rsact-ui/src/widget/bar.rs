@@ -23,7 +23,7 @@ impl<C: Color> BarStyle<C> {
     pub fn base() -> Self {
         Self {
             container: BlockStyle::base()
-                .border(BorderStyle::base().radius(0.5)),
+                .border(BorderStyle::base().radius(0.4)),
             color: ColorStyle::DefaultForeground,
         }
     }
