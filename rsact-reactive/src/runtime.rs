@@ -1,7 +1,7 @@
 use crate::{
     effect::EffectOrder,
     memo_chain::MemoChainCallback,
-    storage::{Storage, ValueId, ValueKind, ValueState},
+    storage::{Storage, ValueDebugInfo, ValueId, ValueKind, ValueState},
 };
 use alloc::{
     collections::{btree_map::BTreeMap, btree_set::BTreeSet},
@@ -83,6 +83,7 @@ pub struct Runtime {
     pub(crate) subscribers: RefCell<BTreeMap<ValueId, BTreeSet<ValueId>>>,
     pub(crate) sources: RefCell<BTreeMap<ValueId, BTreeSet<ValueId>>>,
     pub(crate) pending_effects: RefCell<BTreeSet<ValueId>>,
+    // pub(crate) updating: Cell<usize>,
 }
 
 impl Runtime {
@@ -94,6 +95,7 @@ impl Runtime {
             // observer: Default::default(),
             observer: Default::default(),
             pending_effects: Default::default(),
+            // updating: Cell::new(0),
         }
     }
 
@@ -252,6 +254,21 @@ impl Runtime {
         self.state(id) == state
     }
 
+    pub(crate) fn debug_info(&self, id: ValueId) -> ValueDebugInfo {
+        let debug_info = self.storage.debug_info(id).unwrap();
+
+        if let Some(ValueDebugInfo { creator: Some(observer), .. }) = self
+            .observer
+            .get()
+            .map(|observer| self.storage.debug_info(observer))
+            .flatten()
+        {
+            debug_info.with_observer(observer)
+        } else {
+            debug_info
+        }
+    }
+
     fn get_deep_deps(
         subscribers: &BTreeMap<ValueId, BTreeSet<ValueId>>,
         deps: &mut Vec<ValueId>,
@@ -312,9 +329,11 @@ impl Runtime {
 
     #[track_caller]
     pub(crate) fn run_effects(&self) {
+        // if self.updating.get() == 0 {
         self.pending_effects.take().iter().copied().for_each(|effect| {
             self.maybe_update(effect);
         });
+        // }
     }
 
     pub(crate) fn add_memo_chain<T: PartialEq + 'static>(
@@ -334,6 +353,10 @@ impl Runtime {
             _ => panic!("Cannot add memo chain to {}", kind),
         }
     }
+}
+
+pub struct Profile {
+    
 }
 
 #[cfg(test)]

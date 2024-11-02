@@ -2,7 +2,7 @@ use crate::{
     callback::AnyCallback, runtime::with_current_runtime, storage::ValueId,
 };
 use alloc::rc::Rc;
-use core::{any::Any, cell::RefCell, marker::PhantomData};
+use core::{any::Any, cell::RefCell, marker::PhantomData, panic::Location};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EffectOrder {
@@ -79,7 +79,9 @@ impl<T> Effect<T> {
         T: 'static,
         F: Fn(Option<T>) -> T + 'static,
     {
-        let effect = with_current_runtime(|rt| rt.storage.create_effect(f));
+        let caller = Location::caller();
+        let effect =
+            with_current_runtime(|rt| rt.storage.create_effect(f, caller));
 
         Self { id: effect, ty: PhantomData }
     }
@@ -132,14 +134,14 @@ where
 mod tests {
     use super::use_effect;
     use crate::{
-        prelude::{use_memo, use_signal},
+        prelude::{create_memo, create_signal},
         signal::{ReadSignal, WriteSignal},
     };
 
     #[test]
     fn effects_work() {
-        let calls = use_signal(0);
-        let a = use_signal(0);
+        let calls = create_signal(0);
+        let a = create_signal(0);
 
         use_effect(move |_| {
             calls.update_untracked(|calls| *calls += 1);
@@ -157,9 +159,9 @@ mod tests {
 
     #[test]
     fn no_unnecessary_rerun() {
-        let calls = use_signal(0);
-        let a = use_signal(0);
-        let a_is_even = use_memo(move |_| a.get() % 2 == 0);
+        let calls = create_signal(0);
+        let a = create_signal(0);
+        let a_is_even = create_memo(move |_| a.get() % 2 == 0);
 
         // Run effect only for even `a` values
         use_effect(move |_| {

@@ -1,5 +1,5 @@
 use crate::{
-    prelude::use_signal,
+    prelude::create_signal,
     signal::{ReadSignal, Signal, WriteSignal},
 };
 
@@ -9,7 +9,7 @@ pub struct Trigger {
 
 impl Trigger {
     pub fn new() -> Self {
-        Self { inner: use_signal(()) }
+        Self { inner: create_signal(()) }
     }
 
     #[track_caller]

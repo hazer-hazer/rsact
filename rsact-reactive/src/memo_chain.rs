@@ -3,7 +3,7 @@ use crate::{
     signal::ReadSignal, storage::ValueId,
 };
 use alloc::rc::Rc;
-use core::{any::Any, cell::RefCell, marker::PhantomData};
+use core::{any::Any, cell::RefCell, marker::PhantomData, panic::Location};
 
 pub struct MemoChainCallback<T, F>
 where
@@ -59,9 +59,13 @@ pub struct MemoChain<T: PartialEq> {
 }
 
 impl<T: PartialEq + 'static> MemoChain<T> {
+    #[track_caller]
     pub fn new(f: impl Fn(Option<&T>) -> T + 'static) -> Self {
+        let caller = Location::caller();
         Self {
-            id: with_current_runtime(|rt| rt.storage.create_memo_chain(f)),
+            id: with_current_runtime(|rt| {
+                rt.storage.create_memo_chain(f, caller)
+            }),
             ty: PhantomData,
         }
     }
@@ -93,11 +97,17 @@ impl<T: PartialEq + 'static> ReadSignal<T> for MemoChain<T> {
         with_current_runtime(|rt| self.id.subscribe(rt))
     }
 
+    #[track_caller]
     fn with_untracked<U>(&self, f: impl FnOnce(&T) -> U) -> U {
+        let caller = Location::caller();
         with_current_runtime(|rt| {
-            self.id.with_untracked(rt, |memoized: &Option<T>| {
-                f(memoized.as_ref().expect("Must already been set"))
-            })
+            self.id.with_untracked(
+                rt,
+                |memoized: &Option<T>| {
+                    f(memoized.as_ref().expect("Must already been set"))
+                },
+                caller,
+            )
         })
     }
 }

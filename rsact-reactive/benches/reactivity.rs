@@ -5,7 +5,7 @@ use rsact_reactive::{
 
 fn single_effect_single_signal() {
     with_scoped_runtime(|_| {
-        let signal = use_signal(1);
+        let signal = create_signal(1);
         use_effect(move |_| {
             signal.get();
         });
@@ -15,7 +15,7 @@ fn single_effect_single_signal() {
 
 fn thousand_effects_single_signal() {
     with_scoped_runtime(|_| {
-        let signal = use_signal(1);
+        let signal = create_signal(1);
         for _ in 0..1000 {
             use_effect(move |_| {
                 signal.get();
@@ -27,7 +27,7 @@ fn thousand_effects_single_signal() {
 
 fn single_effect_thousand_signals() {
     with_scoped_runtime(|_| {
-        let signals = (0..1000).map(|_| use_signal(1)).collect::<Vec<_>>();
+        let signals = (0..1000).map(|_| create_signal(1)).collect::<Vec<_>>();
         use_effect(move |_| {
             signals.iter().for_each(|signal| {
                 signal.get();

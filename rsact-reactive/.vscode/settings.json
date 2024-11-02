@@ -8,5 +8,6 @@
   "rust-analyzer.cargo.features": ["single-thread"],
   "rust-analyzer.testExplorer": true,
   "rustTestExplorer.rootCargoManifestFilePath": "${workspaceFolder}/Cargo.toml",
-  "rust-analyzer.runnables.extraTestBinaryArgs": ["--test-threads=1"]
+  "rust-analyzer.runnables.extraTestBinaryArgs": ["--test-threads=1"],
+  "rustTestExplorer.logpanel": true,
 }

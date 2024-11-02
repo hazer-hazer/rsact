@@ -1,8 +1,8 @@
 use crate::{
-    composables::use_memo,
+    composables::create_memo,
     effect::use_effect,
     memo::Memo,
-    prelude::{use_signal, use_static},
+    prelude::{create_signal, create_static},
     runtime::with_current_runtime,
     storage::ValueId,
 };
@@ -53,6 +53,14 @@ pub trait ReadSignal<T> {
     }
 
     #[track_caller]
+    fn get_untracked(&self) -> T
+    where
+        T: Copy,
+    {
+        self.with_untracked(|value| *value)
+    }
+
+    #[track_caller]
     fn get_cloned(&self) -> T
     where
         T: Clone,
@@ -81,12 +89,18 @@ pub trait WriteSignal<T> {
     fn update<U>(&self, f: impl FnOnce(&mut T) -> U) -> U {
         let result = self.update_untracked(f);
         self.notify();
+
         result
     }
 
     #[track_caller]
     fn set(&self, new: T) {
         self.update(|value| *value = new)
+    }
+
+    #[track_caller]
+    fn set_untracked(&self, new: T) {
+        self.update_untracked(|value| *value = new)
     }
 }
 
@@ -173,6 +187,7 @@ pub trait SignalMapper<T: 'static> {
         map: impl Fn(&T) -> U + 'static,
     ) -> Memo<U>;
 
+    #[track_caller]
     fn mapped_clone<U: PartialEq + 'static>(
         self,
         map: impl Fn(T) -> U + 'static,
@@ -189,11 +204,12 @@ impl<S, T: 'static> SignalMapper<T> for S
 where
     S: ReadSignal<T> + 'static,
 {
+    #[track_caller]
     fn mapped<U: PartialEq + 'static>(
         self,
         map: impl Fn(&T) -> U + 'static,
     ) -> Memo<U> {
-        use_memo(move |_| self.with(|value| map(value)))
+        create_memo(move |_| self.with(|value| map(value)))
     }
 }
 
@@ -212,7 +228,10 @@ impl<T: 'static, M: marker::CanWrite> Signal<T, M> {
 impl<T: 'static, M: marker::CanRead> ReadSignal<T> for Signal<T, M> {
     #[track_caller]
     fn with_untracked<U>(&self, f: impl FnOnce(&T) -> U) -> U {
-        with_current_runtime(|runtime| self.id.with_untracked(runtime, f))
+        let caller = Location::caller();
+        with_current_runtime(|runtime| {
+            self.id.with_untracked(runtime, f, caller)
+        })
     }
 
     #[track_caller]
@@ -297,7 +316,7 @@ macro_rules! impl_arith_with_assign {
 
                 #[track_caller]
                 fn $method(self, rhs: Self) -> Self::Output {
-                    use_memo(move |_| self.get_cloned().$method(rhs.get_cloned()))
+                    create_memo(move |_| self.get_cloned().$method(rhs.get_cloned()))
                 }
             }
 
@@ -361,7 +380,7 @@ where
 
     #[track_caller]
     fn neg(self) -> Self::Output {
-        use_memo(move |_| self.get_cloned().neg())
+        create_memo(move |_| self.get_cloned().neg())
     }
 }
 
@@ -374,10 +393,11 @@ where
 
     #[track_caller]
     fn not(self) -> Self::Output {
-        use_memo(move |_| self.get_cloned().not())
+        create_memo(move |_| self.get_cloned().not())
     }
 }
 
+// TODO: Remove PartialEq and PartialOrd to avoid conflicting with `AsMemo` and to require this methods not to implicitly get reactive value. User should always know if reactive value is unwrapped.
 impl<T, M> PartialEq for Signal<T, M>
 where
     T: PartialEq + Clone + 'static,
@@ -449,7 +469,7 @@ impl<T: 'static> MaybeSignal<T> for T {
     type S = StaticSignal<T>;
 
     fn maybe_signal(self) -> Self::S {
-        use_static(self)
+        create_static(self)
     }
 }
 
@@ -467,7 +487,7 @@ impl<T: 'static> IntoSignal<T> for Signal<T> {
 impl<T: 'static> IntoSignal<T> for T {
     #[track_caller]
     fn into_signal(self) -> Signal<T> {
-        use_signal(self)
+        create_signal(self)
     }
 }
 
@@ -479,7 +499,7 @@ pub struct SignalTree<T: 'static> {
 
 impl<T: 'static> SignalTree<T> {
     pub fn childless(data: Signal<T>) -> Self {
-        Self { data, children: use_signal(Vec::new()) }
+        Self { data, children: create_signal(Vec::new()) }
     }
 }
 
@@ -495,7 +515,7 @@ mod tests {
     use super::{ReadSignal, WriteSignal};
     use crate::{
         effect::use_effect,
-        prelude::{use_memo, use_signal},
+        prelude::{create_memo, create_signal},
         signal::Signal,
     };
 
@@ -525,9 +545,9 @@ mod tests {
 
     #[test]
     fn one_level_memo() {
-        let a = use_signal(5);
-        let b_calls = use_signal(0);
-        let b = use_memo(move |_| {
+        let a = create_signal(5);
+        let b_calls = create_signal(0);
+        let b = create_memo(move |_| {
             b_calls.update_untracked(|calls| *calls += 1);
 
             a.get() * 10
@@ -551,11 +571,11 @@ mod tests {
     */
     #[test]
     fn two_signals() {
-        let a = use_signal(7);
-        let b = use_signal(1);
-        let memo_calls = use_signal(0);
+        let a = create_signal(7);
+        let b = create_signal(1);
+        let memo_calls = create_signal(0);
 
-        let c = use_memo(move |_| {
+        let c = create_memo(move |_| {
             memo_calls.update_untracked(|calls| *calls += 1);
             a.get() * b.get()
         });
@@ -588,18 +608,18 @@ mod tests {
     */
     #[test]
     fn dependent_memos() {
-        let a = use_signal(7);
-        let b = use_signal(1);
+        let a = create_signal(7);
+        let b = create_signal(1);
 
-        let c_memo_calls = use_signal(0);
-        let c = use_memo(move |_| {
+        let c_memo_calls = create_signal(0);
+        let c = create_memo(move |_| {
             c_memo_calls.update_untracked(|calls| *calls += 1);
 
             a.get() * b.get()
         });
 
-        let d_memo_calls = use_signal(0);
-        let d = use_memo(move |_| {
+        let d_memo_calls = create_signal(0);
+        let d = create_memo(move |_| {
             d_memo_calls.update_untracked(|calls| *calls += 1);
             c.get() + 1
         });
@@ -624,9 +644,9 @@ mod tests {
     */
     #[test]
     fn equality_check() {
-        let memo_calls = use_signal(0);
-        let a = use_signal(7);
-        let c = use_memo(move |_| {
+        let memo_calls = create_signal(0);
+        let a = create_signal(7);
+        let c = create_memo(move |_| {
             memo_calls.update_untracked(|calls| *calls += 1);
 
             a.get() + 10
@@ -648,25 +668,25 @@ mod tests {
     */
     #[test]
     fn dynamic_memo_dep() {
-        let a = use_signal(Some(1));
-        let b = use_signal(Some(2));
+        let a = create_signal(Some(1));
+        let b = create_signal(Some(2));
 
-        let m_a_calls = use_signal(0);
-        let m_b_calls = use_signal(0);
-        let m_ab_calls = use_signal(0);
+        let m_a_calls = create_signal(0);
+        let m_b_calls = create_signal(0);
+        let m_ab_calls = create_signal(0);
 
-        let m_a = use_memo(move |_| {
+        let m_a = create_memo(move |_| {
             m_a_calls.update_untracked(|calls| *calls += 1);
 
             a.get()
         });
 
-        let m_b = use_memo(move |_| {
+        let m_b = create_memo(move |_| {
             m_b_calls.update_untracked(|calls| *calls += 1);
             b.get()
         });
 
-        let m_ab = use_memo(move |_| {
+        let m_ab = create_memo(move |_| {
             m_ab_calls.update_untracked(|calls| *calls += 1);
             m_a.get().or_else(|| m_b.get())
         });
@@ -702,11 +722,11 @@ mod tests {
     */
     #[test]
     fn bool_equality_check() {
-        let a = use_signal(0);
-        let b = use_memo(move |_| a.get() > 0);
+        let a = create_signal(0);
+        let b = create_memo(move |_| a.get() > 0);
 
-        let c_calls = use_signal(0);
-        let c = use_memo(move |_| {
+        let c_calls = create_signal(0);
+        let c = create_memo(move |_| {
             c_calls.update_untracked(|calls| *calls += 1);
             if b.get() {
                 1
@@ -729,10 +749,10 @@ mod tests {
 
     #[test]
     fn simple_diamond() {
-        let a = use_signal(10);
-        let b = use_memo(move |_| a.get() * 10);
-        let c = use_memo(move |_| a.get() * 20);
-        let d = use_memo(move |_| b.get() + c.get());
+        let a = create_signal(10);
+        let b = create_memo(move |_| a.get() * 10);
+        let c = create_memo(move |_| a.get() * 20);
+        let d = create_memo(move |_| b.get() + c.get());
 
         assert_eq!(d.get(), 300);
     }
@@ -748,13 +768,13 @@ mod tests {
     */
     #[test]
     fn diamond() {
-        let s = use_signal(1);
-        let a = use_memo(move |_| s.get());
-        let b = use_memo(move |_| a.get() * 2);
-        let c = use_memo(move |_| a.get() * 3);
+        let s = create_signal(1);
+        let a = create_memo(move |_| s.get());
+        let b = create_memo(move |_| a.get() * 2);
+        let c = create_memo(move |_| a.get() * 3);
 
-        let calls = use_signal(0);
-        let d = use_memo(move |_| {
+        let calls = create_signal(0);
+        let d = create_memo(move |_| {
             calls.update_untracked(|calls| *calls += 1);
             b.get() + c.get()
         });
@@ -778,9 +798,9 @@ mod tests {
     */
     #[test]
     fn set_inside_memo() {
-        let s = use_signal(1);
-        let a = use_memo(move |_| s.set(2));
-        let l = use_memo(move |_| s.get() + 100);
+        let s = create_signal(1);
+        let a = create_memo(move |_| s.set(2));
+        let l = create_memo(move |_| s.get() + 100);
 
         a.get();
         assert_eq!(l.get(), 102);
@@ -794,11 +814,11 @@ mod tests {
     */
     #[test]
     fn dynamic() {
-        let a = use_signal(true);
-        let b = use_signal(2);
-        let calls = use_signal(0);
+        let a = create_signal(true);
+        let b = create_signal(2);
+        let calls = create_signal(0);
 
-        let c = use_memo(move |_| {
+        let c = create_memo(move |_| {
             calls.update_untracked(|calls| *calls += 1);
             a.get().then(|| b.get())
         });
@@ -830,14 +850,14 @@ mod tests {
     */
     #[test]
     fn no_unnecessary_recompute() {
-        let s = use_signal(2);
-        let a = use_memo(move |_| s.get() + 1);
-        let b_calls = use_signal(0);
-        let b = use_memo(move |_| {
+        let s = create_signal(2);
+        let a = create_memo(move |_| s.get() + 1);
+        let b_calls = create_signal(0);
+        let b = create_memo(move |_| {
             b_calls.update_untracked(|calls| *calls += 1);
             s.get() + 10
         });
-        let l = use_memo(move |_| {
+        let l = create_memo(move |_| {
             let mut result = a.get();
             if result % 2 == 1 {
                 result += b.get();
@@ -860,11 +880,11 @@ mod tests {
     */
     #[test]
     fn vanishing_dependency() {
-        let s = use_signal(1);
-        let done = use_signal(false);
-        let calls = use_signal(0);
+        let s = create_signal(1);
+        let done = create_signal(false);
+        let calls = create_signal(0);
 
-        let c = use_memo(move |_| {
+        let c = create_memo(move |_| {
             calls.update_untracked(|calls| *calls += 1);
 
             if done.get() {
@@ -898,11 +918,11 @@ mod tests {
 
     #[test]
     fn dynamic_graph_does_not_crash() {
-        let z = use_signal(3);
-        let x = use_signal(0);
+        let z = create_signal(3);
+        let x = create_signal(0);
 
-        let y = use_signal(0);
-        let i = use_memo(move |_| {
+        let y = create_signal(0);
+        let i = create_memo(move |_| {
             let a = y.get();
             z.get();
             if a == 0 {
@@ -911,7 +931,7 @@ mod tests {
                 a
             }
         });
-        let j = use_memo(move |_| {
+        let j = create_memo(move |_| {
             let a = i.get();
             z.get();
             if a == 0 {
@@ -931,9 +951,9 @@ mod tests {
     // Effects //
     #[test]
     fn effect_run_order() {
-        let s = use_signal(1);
+        let s = create_signal(1);
 
-        let runs = use_signal(0);
+        let runs = create_signal(0);
         use_effect(move |_| {
             runs.update_untracked(|runs| *runs += 1);
 
@@ -958,17 +978,23 @@ mod tests {
             value: Signal<i32>,
         }
 
-        let user = use_signal(ValueUser { value: use_signal(123) });
-        let runs = use_signal(0);
+        let user = create_signal(ValueUser { value: create_signal(123) });
+        let runs = create_signal(0);
         use_effect(move |_| {
             runs.update_untracked(|runs| *runs += 1);
 
             // Use value
-            user.with(|user| user.value.with(|_| {}));
+            user.with(|user| user.value.get());
         });
 
+        // This is how user "should" do it. Not borrowing user mutably
+        user.with(|user| {
+            user.value.update(|_| {});
+        });
+
+        // This could panic with borrowing error, but we run effects only in non-reactive contexts.
         user.update(|user| {
             user.value.update(|_| {});
-        })
+        });
     }
 }

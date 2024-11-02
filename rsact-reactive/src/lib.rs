@@ -23,7 +23,7 @@ pub mod prelude {
         composables::*,
         effect::{use_effect, Effect},
         macros::*,
-        memo::{IntoMemo, Memo, MemoTree},
+        memo::{AsMemo, Memo, MemoTree},
         memo_chain::{use_memo_chain, IntoMemoChain, MemoChain},
         runtime::{create_runtime, with_current_runtime, with_scoped_runtime},
         signal::{
