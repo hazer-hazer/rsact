@@ -63,11 +63,13 @@ impl<T: PartialEq + 'static> MemoChain<T> {
     pub fn new(f: impl Fn(Option<&T>) -> T + 'static) -> Self {
         let caller = Location::caller();
         Self {
-            id: with_current_runtime(|rt| {
-                rt.storage.create_memo_chain(f, caller)
-            }),
+            id: with_current_runtime(|rt| rt.create_memo_chain(f, caller)),
             ty: PhantomData,
         }
+    }
+
+    pub fn is_alive(self) -> bool {
+        with_current_runtime(|rt| rt.is_alive(self.id))
     }
 
     pub fn chain(

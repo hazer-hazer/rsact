@@ -1,10 +1,10 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use rsact_reactive::{
-    effect::use_effect, prelude::*, runtime::with_scoped_runtime,
+    effect::use_effect, prelude::*, runtime::with_new_runtime,
 };
 
 fn single_effect_single_signal() {
-    with_scoped_runtime(|_| {
+    with_new_runtime(|_| {
         let signal = create_signal(1);
         use_effect(move |_| {
             signal.get();
@@ -14,7 +14,7 @@ fn single_effect_single_signal() {
 }
 
 fn thousand_effects_single_signal() {
-    with_scoped_runtime(|_| {
+    with_new_runtime(|_| {
         let signal = create_signal(1);
         for _ in 0..1000 {
             use_effect(move |_| {
@@ -26,7 +26,7 @@ fn thousand_effects_single_signal() {
 }
 
 fn single_effect_thousand_signals() {
-    with_scoped_runtime(|_| {
+    with_new_runtime(|_| {
         let signals = (0..1000).map(|_| create_signal(1)).collect::<Vec<_>>();
         use_effect(move |_| {
             signals.iter().for_each(|signal| {

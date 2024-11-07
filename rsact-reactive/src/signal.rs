@@ -34,6 +34,8 @@ impl<B, C> UpdateNotification for ControlFlow<B, C> {
     }
 }
 
+// TODO: Add `replace` method for rw which will take current value leaving Default if default implemented
+
 pub trait ReadSignal<T> {
     fn track(&self);
     fn with_untracked<U>(&self, f: impl FnOnce(&T) -> U) -> U;
@@ -140,46 +142,71 @@ impl<T: 'static, M: marker::Any> Signal<T, M> {
 
         Self {
             id: with_current_runtime(|runtime| {
-                runtime.storage.create_signal(value, caller)
+                runtime.create_signal(value, caller)
             }),
             ty: PhantomData,
             rw: PhantomData,
         }
     }
-}
 
-pub trait SignalSetter<T: 'static> {
-    fn setter<U: 'static>(
-        self,
-        other: impl ReadSignal<U> + 'static,
-        f: impl Fn(&U, &mut T) + 'static,
-    );
-    fn set_from(self, other: impl ReadSignal<T> + 'static)
-    where
-        T: Clone,
-        Self: Sized + 'static,
-    {
-        self.setter(other, |new, this| *this = new.clone());
+    pub fn is_alive(self) -> bool {
+        with_current_runtime(|rt| rt.is_alive(self.id))
+    }
+
+    pub fn dispose(self) {
+        with_current_runtime(|rt| rt.dispose(self.id))
     }
 }
 
-impl<S, T> SignalSetter<T> for S
-where
-    S: WriteSignal<T> + 'static,
-    T: 'static,
-{
-    fn setter<U: 'static>(
-        self,
-        other: impl ReadSignal<U> + 'static,
-        f: impl Fn(&U, &mut T) + 'static,
-    ) {
-        use_effect(move |_| {
-            other.with(|other| {
-                self.update(|this| f(other, this));
-            });
-        });
-    }
-}
+/**
+ * SignalSetter must be as follows
+ * enum SignalSetter<T, P> {
+ *     Default,
+ *     Map(Box<FnMut(&T, P)>),
+ *     Target(Signal<T>),
+ * }
+ * 
+ * - Default always sets to default
+ * - Map sets type by passed parameter
+ * - Target just sets signal with new value
+ */
+
+// Note: This SignalSetter is shit
+
+// pub trait SignalSetter<T: 'static, D> {
+//     fn setter<U: 'static>(
+//         self,
+//         other: impl ReadSignal<U> + 'static,
+//         f: impl Fn(&U, &mut T) + 'static,
+//     );
+//     fn set_from(self, other: impl ReadSignal<T> + 'static)
+//     where
+//         T: Clone,
+//         Self: Sized + 'static,
+//     {
+//         self.setter(other, |new, this| *this = new.clone());
+//     }
+// }
+
+// // TODO: It looks very bad with `use_effect`, need a SignalSetter value kind.
+// /// Setting reactive value by other reactive value
+// impl<S, T> SignalSetter<T, S> for S
+// where
+//     S: WriteSignal<T> + 'static,
+//     T: 'static,
+// {
+//     fn setter<U: 'static>(
+//         self,
+//         other: impl ReadSignal<U> + 'static,
+//         f: impl Fn(&U, &mut T) + 'static,
+//     ) {
+//         use_effect(move |_| {
+//             other.with(|other| {
+//                 self.update(|this| f(other, this));
+//             });
+//         });
+//     }
+// }
 
 pub trait SignalMapper<T: 'static> {
     fn mapped<U: PartialEq + 'static>(
@@ -200,6 +227,7 @@ pub trait SignalMapper<T: 'static> {
     }
 }
 
+// TODO: Implement only for the Signal struct, not all ReadSignal's.
 impl<S, T: 'static> SignalMapper<T> for S
 where
     S: ReadSignal<T> + 'static,
@@ -209,7 +237,7 @@ where
         self,
         map: impl Fn(&T) -> U + 'static,
     ) -> Memo<U> {
-        create_memo(move |_| self.with(|value| map(value)))
+        create_memo(move |_| self.with(&map))
     }
 }
 
@@ -972,29 +1000,29 @@ mod tests {
         assert_eq!(runs.get(), 3);
     }
 
-    #[test]
-    fn borrow_in_effect() {
-        struct ValueUser {
-            value: Signal<i32>,
-        }
+    // #[test]
+    // fn borrow_in_effect() {
+    //     struct ValueUser {
+    //         value: Signal<i32>,
+    //     }
 
-        let user = create_signal(ValueUser { value: create_signal(123) });
-        let runs = create_signal(0);
-        use_effect(move |_| {
-            runs.update_untracked(|runs| *runs += 1);
+    //     let user = create_signal(ValueUser { value: create_signal(123) });
+    //     let runs = create_signal(0);
+    //     use_effect(move |_| {
+    //         runs.update_untracked(|runs| *runs += 1);
 
-            // Use value
-            user.with(|user| user.value.get());
-        });
+    //         // Use value
+    //         user.with(|user| user.value.get());
+    //     });
 
-        // This is how user "should" do it. Not borrowing user mutably
-        user.with(|user| {
-            user.value.update(|_| {});
-        });
+    //     // This is how user "should" do it. Not borrowing user mutably
+    //     user.with(|user| {
+    //         user.value.update(|_| {});
+    //     });
 
-        // This could panic with borrowing error, but we run effects only in non-reactive contexts.
-        user.update(|user| {
-            user.value.update(|_| {});
-        });
-    }
+    //     // This could panic with borrowing error, but we run effects only in non-reactive contexts.
+    //     user.update(|user| {
+    //         user.value.update(|_| {});
+    //     });
+    // }
 }

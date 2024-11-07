@@ -80,10 +80,13 @@ impl<T> Effect<T> {
         F: Fn(Option<T>) -> T + 'static,
     {
         let caller = Location::caller();
-        let effect =
-            with_current_runtime(|rt| rt.storage.create_effect(f, caller));
+        let effect = with_current_runtime(|rt| rt.create_effect(f, caller));
 
         Self { id: effect, ty: PhantomData }
+    }
+
+    pub fn is_alive(self) -> bool {
+        with_current_runtime(|rt| rt.is_alive(self.id))
     }
 }
 

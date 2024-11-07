@@ -12,6 +12,10 @@ impl Trigger {
         Self { inner: create_signal(()) }
     }
 
+    pub fn is_alive(self) -> bool {
+        self.inner.is_alive()
+    }
+
     #[track_caller]
     pub fn track(&self) {
         self.inner.track();

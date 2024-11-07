@@ -1,7 +1,11 @@
 use crate::{
-    effect::EffectOrder,
+    effect::{EffectCallback, EffectOrder},
+    memo::MemoCallback,
     memo_chain::MemoChainCallback,
-    storage::{Storage, ValueDebugInfo, ValueId, ValueKind, ValueState},
+    scope::{ScopeData, ScopeHandle, ScopeId},
+    storage::{
+        Storage, StoredValue, ValueDebugInfo, ValueId, ValueKind, ValueState,
+    },
 };
 use alloc::{
     collections::{btree_map::BTreeMap, btree_set::BTreeSet},
@@ -9,10 +13,13 @@ use alloc::{
     vec::Vec,
 };
 use core::{
+    any::type_name,
     cell::{Cell, RefCell},
+    fmt::Display,
+    marker::PhantomData,
     panic::Location,
 };
-use slotmap::SlotMap;
+use slotmap::{SecondaryMap, SlotMap};
 
 slotmap::new_key_type! {
     pub struct RuntimeId;
@@ -50,7 +57,7 @@ pub fn with_current_runtime<T>(f: impl FnOnce(&Runtime) -> T) -> T {
 }
 
 #[inline(always)]
-pub fn with_scoped_runtime<T>(f: impl FnOnce(&Runtime) -> T) -> T {
+pub fn with_new_runtime<T>(f: impl FnOnce(&Runtime) -> T) -> T {
     let rt = create_runtime();
     let result = with_current_runtime(f);
     rt.leave();
@@ -61,6 +68,31 @@ pub fn with_scoped_runtime<T>(f: impl FnOnce(&Runtime) -> T) -> T {
 #[inline(always)]
 pub fn create_runtime() -> RuntimeId {
     RUNTIMES.with(|rts| rts.borrow_mut().insert(Runtime::new()))
+}
+
+/// Creates new scope, all reactive values will be dropped on scope drop. Scope dropped automatically when returned ScopeHandle drops.
+#[must_use]
+#[track_caller]
+pub fn new_scope() -> ScopeHandle {
+    let caller = Location::caller();
+    with_current_runtime(|rt| {
+        rt.new_scope(
+            #[cfg(debug_assertions)]
+            caller,
+        )
+    })
+}
+
+/// Creates new scope where creation of new reactive values is disallowed and will cause a panic. Useful mostly only for debugging.
+#[track_caller]
+pub fn new_deny_new_scope() -> ScopeHandle {
+    let caller = Location::caller();
+    with_current_runtime(|rt| {
+        rt.new_deny_new_scope(
+            #[cfg(debug_assertions)]
+            caller,
+        )
+    })
 }
 
 crate::thread_local::thread_local_impl! {
@@ -75,13 +107,18 @@ crate::thread_local::thread_local_impl! {
     };
 }
 
+// TODO: Debug call-stack. Value get -> value get -> ... -> value get
 #[derive(Default)]
 pub struct Runtime {
     pub(crate) storage: Storage,
+    scopes: RefCell<SlotMap<ScopeId, ScopeData>>,
+    current_scope: Cell<Option<ScopeId>>,
+    /// Values owned by observers
+    owned: RefCell<SecondaryMap<ValueId, BTreeSet<ValueId>>>,
     pub(crate) observer: Cell<Option<ValueId>>,
     // TODO: Use SlotMap
-    pub(crate) subscribers: RefCell<BTreeMap<ValueId, BTreeSet<ValueId>>>,
-    pub(crate) sources: RefCell<BTreeMap<ValueId, BTreeSet<ValueId>>>,
+    pub(crate) subscribers: RefCell<SecondaryMap<ValueId, BTreeSet<ValueId>>>,
+    pub(crate) sources: RefCell<SecondaryMap<ValueId, BTreeSet<ValueId>>>,
     pub(crate) pending_effects: RefCell<BTreeSet<ValueId>>,
     // pub(crate) updating: Cell<usize>,
 }
@@ -90,6 +127,9 @@ impl Runtime {
     fn new() -> Self {
         Self {
             storage: Default::default(),
+            scopes: Default::default(),
+            current_scope: Default::default(),
+            owned: Default::default(),
             subscribers: Default::default(),
             sources: Default::default(),
             // observer: Default::default(),
@@ -97,6 +137,212 @@ impl Runtime {
             pending_effects: Default::default(),
             // updating: Cell::new(0),
         }
+    }
+
+    pub fn is_alive(&self, id: ValueId) -> bool {
+        self.storage.values.borrow().get(id).is_some()
+    }
+
+    #[must_use]
+    pub fn new_scope(
+        &self,
+        #[cfg(debug_assertions)] created_at: &'static Location<'static>,
+    ) -> ScopeHandle {
+        let id = self.scopes.borrow_mut().insert(ScopeData::new(
+            #[cfg(debug_assertions)]
+            created_at,
+        ));
+        self.current_scope.set(Some(id));
+
+        ScopeHandle::new(id)
+    }
+
+    pub fn new_deny_new_scope(
+        &self,
+        #[cfg(debug_assertions)] created_at: &'static Location<'static>,
+    ) -> ScopeHandle {
+        let id = self.scopes.borrow_mut().insert(ScopeData::new_deny_new(
+            #[cfg(debug_assertions)]
+            created_at,
+        ));
+
+        self.current_scope.set(Some(id));
+
+        ScopeHandle::new(id)
+    }
+
+    #[track_caller]
+    fn add_value(&self, value: StoredValue) -> ValueId {
+        let mut scopes = self.scopes.borrow_mut();
+        let scope = self
+            .current_scope
+            .get()
+            .map(|current| scopes.get_mut(current))
+            .flatten();
+
+        if let Some(ScopeData {
+            deny_new: true,
+            #[cfg(debug_assertions)]
+            created_at,
+            ..
+        }) = scope
+        {
+            panic!("Creating new reactive values is disallowed in special `deny_new` scope. {}", if cfg!(debug_assertions) {
+                created_at
+            } else {
+                Location::caller()
+            })
+        }
+
+        let id = self.storage.add_value(value);
+
+        if let Some(scope) = scope {
+            scope.values.push(id);
+        }
+
+        if let Some(observer) = self.observer.get() {
+            let mut owned = self.owned.borrow_mut();
+            if let Some(owned) = owned.get_mut(observer) {
+                owned.insert(id);
+            }
+        }
+
+        id
+    }
+
+    #[track_caller]
+    pub fn create_signal<T: 'static>(
+        &self,
+        value: T,
+        _caller: &'static Location<'static>,
+    ) -> ValueId {
+        self.add_value(StoredValue {
+            value: Rc::new(RefCell::new(value)),
+            kind: ValueKind::Signal,
+            state: ValueState::Clean,
+            #[cfg(debug_assertions)]
+            debug: ValueDebugInfo {
+                creator: Some(_caller),
+                dirten: None,
+                borrowed: None,
+                borrowed_mut: None,
+                ty: Some(type_name::<T>()),
+                observer: None,
+            },
+        })
+    }
+
+    #[track_caller]
+    pub fn create_effect<T, F>(
+        &self,
+        f: F,
+        _caller: &'static Location<'static>,
+    ) -> ValueId
+    where
+        T: 'static,
+        F: Fn(Option<T>) -> T + 'static,
+    {
+        self.add_value(StoredValue {
+            value: Rc::new(RefCell::new(None::<T>)),
+            kind: ValueKind::Effect {
+                f: Rc::new(EffectCallback { f, ty: PhantomData }),
+            },
+            // Note: Check this, might need to be Dirty
+            state: ValueState::Dirty,
+            #[cfg(debug_assertions)]
+            debug: ValueDebugInfo {
+                creator: Some(_caller),
+                dirten: None,
+                borrowed: None,
+                borrowed_mut: None,
+                ty: Some(type_name::<F>()),
+                observer: None,
+            },
+        })
+    }
+
+    #[track_caller]
+    pub fn create_memo<T, F>(
+        &self,
+        f: F,
+        _caller: &'static Location<'static>,
+    ) -> ValueId
+    where
+        T: PartialEq + 'static,
+        F: Fn(Option<&T>) -> T + 'static,
+    {
+        self.add_value(StoredValue {
+            value: Rc::new(RefCell::new(None::<T>)),
+            kind: ValueKind::Memo {
+                f: Rc::new(MemoCallback { f, ty: PhantomData }),
+            },
+            state: ValueState::Dirty,
+            #[cfg(debug_assertions)]
+            debug: ValueDebugInfo {
+                creator: Some(_caller),
+                dirten: None,
+                borrowed: None,
+                borrowed_mut: None,
+                ty: Some(type_name::<F>()),
+                observer: None,
+            },
+        })
+    }
+
+    pub fn create_memo_chain<T, F>(
+        &self,
+        f: F,
+        _caller: &'static Location<'static>,
+    ) -> ValueId
+    where
+        T: PartialEq + 'static,
+        F: Fn(Option<&T>) -> T + 'static,
+    {
+        self.add_value(StoredValue {
+            value: Rc::new(RefCell::new(None::<T>)),
+            kind: ValueKind::MemoChain {
+                initial: Rc::new(MemoCallback { f, ty: PhantomData }),
+                fs: Rc::new(RefCell::new(BTreeMap::new())),
+            },
+            state: ValueState::Dirty,
+            #[cfg(debug_assertions)]
+            debug: ValueDebugInfo {
+                creator: Some(_caller),
+                dirten: None,
+                borrowed: None,
+                borrowed_mut: None,
+                ty: Some(type_name::<F>()),
+                observer: None,
+            },
+        })
+    }
+
+    pub fn dispose(&self, id: ValueId) {
+        let mut values = self.storage.values.borrow_mut();
+        let mut sources = self.sources.borrow_mut();
+        let mut subscribers = self.subscribers.borrow_mut();
+        let mut pending_effects = self.pending_effects.borrow_mut();
+
+        sources.remove(id);
+        subscribers.remove(id);
+        // TODO: Is it okay to remove from pending_effects?
+        pending_effects.remove(&id);
+        values.remove(id).expect("Removing non-existent scope value");
+
+        self.owned.borrow_mut().get(id).map(|owned| {
+            owned.iter().copied().for_each(|owned| self.dispose(owned));
+        });
+    }
+
+    pub(crate) fn drop_scope(&self, scope_id: ScopeId) {
+        let mut scopes = self.scopes.borrow_mut();
+        let scope_data = scopes.remove(scope_id).unwrap();
+
+        // TODO: Children scopes drop
+
+        scope_data.values.iter().copied().for_each(|id| {
+            self.dispose(id);
+        });
     }
 
     #[track_caller]
@@ -117,14 +363,18 @@ impl Runtime {
     }
 
     pub(crate) fn subscribe(&self, id: ValueId) {
-        if let Some(observer) = self.observer.get() {
-            self.sources.borrow_mut().entry(observer).or_default().insert(id);
+        use alloc::borrow::BorrowMut as _;
 
-            self.subscribers
-                .borrow_mut()
-                .entry(id)
-                .or_default()
-                .insert(observer);
+        if let Some(observer) = self.observer.get() {
+            let mut sources = self.sources.borrow_mut();
+            if let Some(sources) = sources.entry(observer) {
+                sources.or_default().borrow_mut().insert(id);
+            }
+
+            let mut subs = self.subscribers.borrow_mut();
+            if let Some(subs) = subs.entry(id) {
+                subs.or_default().borrow_mut().insert(observer);
+            }
         }
         // match self.observer.get() {
         //     Observer::None => panic!(
@@ -154,7 +404,7 @@ impl Runtime {
         if self.is(id, ValueState::Check) {
             let subs = {
                 let subs = self.sources.borrow();
-                subs.get(&id).cloned().into_iter().flatten()
+                subs.get(id).cloned().into_iter().flatten()
             };
             for source in subs {
                 self.maybe_update(source);
@@ -204,7 +454,7 @@ impl Runtime {
             };
 
             if changed {
-                if let Some(subs) = self.subscribers.borrow().get(&id) {
+                if let Some(subs) = self.subscribers.borrow().get(id) {
                     for sub in subs {
                         self.storage.mark(*sub, ValueState::Dirty, None);
                     }
@@ -254,6 +504,7 @@ impl Runtime {
         self.state(id) == state
     }
 
+    #[cfg(debug_assertions)]
     pub(crate) fn debug_info(&self, id: ValueId) -> ValueDebugInfo {
         let debug_info = self.storage.debug_info(id).unwrap();
 
@@ -270,7 +521,7 @@ impl Runtime {
     }
 
     fn get_deep_deps(
-        subscribers: &BTreeMap<ValueId, BTreeSet<ValueId>>,
+        subscribers: &SecondaryMap<ValueId, BTreeSet<ValueId>>,
         deps: &mut Vec<ValueId>,
         id: ValueId,
     ) {
@@ -284,7 +535,7 @@ impl Runtime {
         }
          */
 
-        if let Some(subs) = subscribers.get(&id) {
+        if let Some(subs) = subscribers.get(id) {
             for sub in subs {
                 deps.push(*sub);
                 Self::get_deep_deps(subscribers, deps, *sub);
@@ -315,15 +566,24 @@ impl Runtime {
     }
 
     fn cleanup(&self, id: ValueId) {
-        let sources = self.sources.borrow_mut();
+        let sources = self.sources.borrow();
 
-        if let Some(sources) = sources.get(&id) {
+        // TODO: Is it better not to cleanup the subs but only changes? Store new temporary subs and remove only not used in new run
+        if let Some(sources) = sources.get(id) {
             let mut subs = self.subscribers.borrow_mut();
             for source in sources.iter() {
-                if let Some(source) = subs.get_mut(source) {
-                    source.remove(&id);
+                if let Some(sources) = subs.get_mut(*source) {
+                    sources.remove(&id);
                 }
             }
+        }
+
+        // FIXME: I am deleting the values created in this observer, but they could be leaked outside.
+        if let Some(owned) = self.owned.borrow_mut().get_mut(id) {
+            owned.iter().copied().for_each(|owned| {
+                self.dispose(owned);
+            });
+            owned.clear();
         }
     }
 
@@ -355,8 +615,73 @@ impl Runtime {
     }
 }
 
+pub fn current_runtime_profile() -> Profile {
+    with_current_runtime(|rt| {
+        let (signals, effects, memos, memo_chains) =
+            rt.storage.values.borrow().values().fold(
+                (0, 0, 0, 0),
+                |(mut signals, mut effects, mut memos, mut memo_chains),
+                 value| {
+                    match &value.kind {
+                        ValueKind::Signal => signals += 1,
+                        ValueKind::Effect { .. } => effects += 1,
+                        ValueKind::Memo { .. } => memos += 1,
+                        ValueKind::MemoChain { .. } => memo_chains += 1,
+                    }
+
+                    (signals, effects, memos, memo_chains)
+                },
+            );
+
+        let subscribers_bindings =
+            rt.subscribers.borrow_mut().values().map(|subs| subs.len()).sum();
+        let sources_bindings =
+            rt.sources.borrow_mut().values().map(|sources| sources.len()).sum();
+
+        Profile {
+            signals,
+            effects,
+            memos,
+            memo_chains,
+            subscribers: rt.subscribers.borrow().len(),
+            subscribers_bindings,
+            sources: rt.sources.borrow().len(),
+            sources_bindings,
+            pending_effects: rt.pending_effects.borrow().len(),
+        }
+    })
+}
+
+#[derive(Clone, Copy)]
 pub struct Profile {
-    
+    signals: usize,
+    effects: usize,
+    memos: usize,
+    memo_chains: usize,
+    subscribers: usize,
+    subscribers_bindings: usize,
+    sources: usize,
+    sources_bindings: usize,
+    pending_effects: usize,
+}
+
+impl Display for Profile {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "{} values:\n  {} signals\n  {} effects\n  {} memos\n  {} memo chains\n{} subscribers ({} bindings), {} sources ({} bindings), {} pending effects",
+            self.signals + self.effects + self.memos + self.memo_chains,
+            self.signals,
+            self.effects,
+            self.memos,
+            self.memo_chains,
+            self.subscribers,
+            self.subscribers_bindings,
+            self.sources,
+            self.sources_bindings,
+            self.pending_effects
+        )
+    }
 }
 
 #[cfg(test)]

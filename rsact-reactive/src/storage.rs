@@ -29,7 +29,6 @@ impl ValueId {
     // pub(crate) fn get_untracked(&self, rt: &Runtime) -> Rc<RefCell<dyn Any>> {
     //     // let values = &runtime.storage.values.borrow();
     //     // let value = values.get(*self).unwrap().value();
-
     //     rt.storage.get(*self).unwrap().value
     // }
 
@@ -38,28 +37,40 @@ impl ValueId {
         rt.subscribe(*self);
     }
 
+    // pub(crate) fn dispose(&self, rt: &Runtime) {
+    //     rt.storage
+    //         .values
+    //         .borrow_mut()
+    //         .remove(*self)
+    //         .expect("Tried to dispose disposed value");
+    // }
+
     #[track_caller]
     #[inline(always)]
     pub(crate) fn with_untracked<T: 'static, U>(
         &self,
         rt: &Runtime,
         f: impl FnOnce(&T) -> U,
-        caller: &'static Location<'static>,
+        _caller: &'static Location<'static>,
     ) -> U {
         rt.maybe_update(*self);
 
         // let value = self.get_untracked(rt);
+        #[cfg(debug_assertions)]
         rt.storage.set_debug_info(*self, |info| {
-            info.borrowed = Some(caller);
+            info.borrowed = Some(_caller);
         });
         let value = rt.storage.get(*self).unwrap();
         let value = match RefCell::try_borrow(&value.value) {
             Ok(value) => value,
             Err(err) => {
+                #[cfg(debug_assertions)]
                 panic!(
                     "Failed to borrow reactive value: {err}\n{}",
                     rt.debug_info(*self)
-                )
+                );
+                #[cfg(not(debug_assertions))]
+                panic!("Failed to borrow reactive value: {err}");
             },
         };
         let value = value
@@ -68,6 +79,7 @@ impl ValueId {
 
         let result = f(value);
 
+        #[cfg(debug_assertions)]
         rt.storage.set_debug_info(*self, |info| {
             // TODO: Invalid, should reset to previous `borrowed`
             info.borrowed = None;
@@ -99,14 +111,16 @@ impl ValueId {
         &self,
         rt: &Runtime,
         f: impl FnOnce(&mut T) -> U,
-        caller: Option<&'static Location<'static>>,
+        _caller: Option<&'static Location<'static>>,
     ) -> U {
         // rt.updating.set(rt.updating.get() + 1);
 
         // let value = self.get_untracked(rt);
+        #[cfg(debug_assertions)]
         rt.storage.set_debug_info(*self, |debug_info| {
-            debug_info.borrowed_mut = caller;
+            debug_info.borrowed_mut = _caller;
         });
+
         let value = rt.storage.get(*self).unwrap();
 
         let mut value = RefCell::borrow_mut(&value.value);
@@ -118,6 +132,7 @@ impl ValueId {
 
         let result = f(value);
 
+        #[cfg(debug_assertions)]
         rt.storage.set_debug_info(*self, |debug_info| {
             // TODO: Reset to previous `borrowed`
             debug_info.borrowed_mut = None;
@@ -219,6 +234,7 @@ pub struct StoredValue {
     pub value: Rc<RefCell<dyn Any>>,
     pub kind: ValueKind,
     pub state: ValueState,
+    #[cfg(debug_assertions)]
     pub debug: ValueDebugInfo,
 }
 
@@ -234,111 +250,12 @@ impl StoredValue {
 
 #[derive(Default)]
 pub struct Storage {
-    values: RefCell<SlotMap<ValueId, StoredValue>>,
+    pub(crate) values: RefCell<SlotMap<ValueId, StoredValue>>,
 }
 
 impl Storage {
-    #[track_caller]
-    pub fn create_signal<T: 'static>(
-        &self,
-        value: T,
-        caller: &'static Location<'static>,
-    ) -> ValueId {
-        self.values.borrow_mut().insert(StoredValue {
-            value: Rc::new(RefCell::new(value)),
-            kind: ValueKind::Signal,
-            state: ValueState::Clean,
-            debug: ValueDebugInfo {
-                creator: Some(caller),
-                dirten: None,
-                borrowed: None,
-                borrowed_mut: None,
-                ty: Some(type_name::<T>()),
-                observer: None,
-            },
-        })
-    }
-
-    #[track_caller]
-    pub fn create_effect<T, F>(
-        &self,
-        f: F,
-        caller: &'static Location<'static>,
-    ) -> ValueId
-    where
-        T: 'static,
-        F: Fn(Option<T>) -> T + 'static,
-    {
-        self.values.borrow_mut().insert(StoredValue {
-            value: Rc::new(RefCell::new(None::<T>)),
-            kind: ValueKind::Effect {
-                f: Rc::new(EffectCallback { f, ty: PhantomData }),
-            },
-            // Note: Check this, might need to be Dirty
-            state: ValueState::Dirty,
-            debug: ValueDebugInfo {
-                creator: Some(caller),
-                dirten: None,
-                borrowed: None,
-                borrowed_mut: None,
-                ty: Some(type_name::<F>()),
-                observer: None,
-            },
-        })
-    }
-
-    #[track_caller]
-    pub fn create_memo<T, F>(
-        &self,
-        f: F,
-        caller: &'static Location<'static>,
-    ) -> ValueId
-    where
-        T: PartialEq + 'static,
-        F: Fn(Option<&T>) -> T + 'static,
-    {
-        self.values.borrow_mut().insert(StoredValue {
-            value: Rc::new(RefCell::new(None::<T>)),
-            kind: ValueKind::Memo {
-                f: Rc::new(MemoCallback { f, ty: PhantomData }),
-            },
-            state: ValueState::Dirty,
-            debug: ValueDebugInfo {
-                creator: Some(caller),
-                dirten: None,
-                borrowed: None,
-                borrowed_mut: None,
-                ty: Some(type_name::<F>()),
-                observer: None,
-            },
-        })
-    }
-
-    pub fn create_memo_chain<T, F>(
-        &self,
-        f: F,
-        caller: &'static Location<'static>,
-    ) -> ValueId
-    where
-        T: PartialEq + 'static,
-        F: Fn(Option<&T>) -> T + 'static,
-    {
-        self.values.borrow_mut().insert(StoredValue {
-            value: Rc::new(RefCell::new(None::<T>)),
-            kind: ValueKind::MemoChain {
-                initial: Rc::new(MemoCallback { f, ty: PhantomData }),
-                fs: Rc::new(RefCell::new(BTreeMap::new())),
-            },
-            state: ValueState::Dirty,
-            debug: ValueDebugInfo {
-                creator: Some(caller),
-                dirten: None,
-                borrowed: None,
-                borrowed_mut: None,
-                ty: Some(type_name::<F>()),
-                observer: None,
-            },
-        })
+    pub(crate) fn add_value(&self, value: StoredValue) -> ValueId {
+        self.values.borrow_mut().insert(value)
     }
 
     pub(crate) fn get(&self, id: ValueId) -> Option<StoredValue> {
@@ -346,6 +263,7 @@ impl Storage {
         self.values.borrow().get(id).cloned()
     }
 
+    #[cfg(debug_assertions)]
     pub(crate) fn debug_info(&self, id: ValueId) -> Option<ValueDebugInfo> {
         self.values.borrow().get(id).cloned().map(|value| value.debug)
     }
@@ -354,11 +272,14 @@ impl Storage {
         &self,
         id: ValueId,
         state: ValueState,
-        caller: Option<&'static Location<'static>>,
+        _caller: Option<&'static Location<'static>>,
     ) {
+        #[cfg(debug_assertions)]
         self.set_debug_info(id, |debug_info| match state {
             ValueState::Clean => debug_info.dirten = None,
-            ValueState::Check | ValueState::Dirty => debug_info.dirten = caller,
+            ValueState::Check | ValueState::Dirty => {
+                debug_info.dirten = _caller
+            },
         });
 
         let mut values = self.values.borrow_mut();
@@ -366,6 +287,7 @@ impl Storage {
         value.mark(state);
     }
 
+    #[cfg(debug_assertions)]
     pub(crate) fn set_debug_info(
         &self,
         id: ValueId,
