@@ -11,8 +11,8 @@ pub struct Show<W: WidgetCtx> {
 }
 
 impl<W: WidgetCtx> Show<W> {
-    pub fn new(show: impl IntoMemo<bool>, el: El<W>) -> Self {
-        Self { show: show.into_memo(), el }
+    pub fn new(show: impl AsMemo<bool>, el: El<W>) -> Self {
+        Self { show: show.as_memo(), el }
     }
 }
 
@@ -39,7 +39,7 @@ impl<W: WidgetCtx> Widget<W> for Show<W> {
         MemoTree {
             data: self.show.mapped(move |&show| {
                 if show {
-                    el_layout_tree.data.get()
+                    el_layout_tree.data.get_cloned()
                 } else {
                     Layout::zero()
                 }

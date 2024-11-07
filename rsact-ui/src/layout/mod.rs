@@ -49,8 +49,8 @@ pub struct ContentLayout {
 }
 
 impl ContentLayout {
-    pub fn new(content_size: impl IntoMemo<Limits>) -> Self {
-        Self { content_size: content_size.into_memo() }
+    pub fn new(content_size: impl AsMemo<Limits>) -> Self {
+        Self { content_size: content_size.as_memo() }
     }
 
     pub fn min_size(&self) -> Size {
@@ -67,12 +67,12 @@ pub struct ContainerLayout {
 }
 
 impl ContainerLayout {
-    pub fn base(content_size: impl IntoMemo<Limits>) -> Self {
+    pub fn base(content_size: impl AsMemo<Limits>) -> Self {
         Self {
             block_model: BlockModel::zero(),
             horizontal_align: Align::Start,
             vertical_align: Align::Start,
-            content_size: content_size.into_memo(),
+            content_size: content_size.as_memo(),
         }
     }
 
@@ -95,7 +95,7 @@ pub struct FlexLayout {
 
 impl FlexLayout {
     /// Default but with specific axis
-    pub fn base(axis: Axis, content_size: impl IntoMemo<Limits>) -> Self {
+    pub fn base(axis: Axis, content_size: impl AsMemo<Limits>) -> Self {
         Self {
             wrap: false,
             block_model: BlockModel::zero(),
@@ -103,7 +103,7 @@ impl FlexLayout {
             gap: Size::zero(),
             horizontal_align: Align::Start,
             vertical_align: Align::Start,
-            content_size: content_size.into_memo(),
+            content_size: content_size.as_memo(),
         }
     }
 
@@ -157,8 +157,8 @@ pub struct ScrollableLayout {
 }
 
 impl ScrollableLayout {
-    pub fn new(content_size: impl IntoMemo<Limits>) -> Self {
-        Self { content_size: content_size.into_memo() }
+    pub fn new(content_size: impl AsMemo<Limits>) -> Self {
+        Self { content_size: content_size.as_memo() }
     }
 
     pub fn min_size(&self) -> Size {
@@ -294,7 +294,7 @@ pub enum LayoutKind {
     Scrollable(ScrollableLayout),
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Layout {
     pub(crate) kind: LayoutKind,
     pub(crate) size: Size<Length>,
@@ -468,11 +468,12 @@ impl<'a> LayoutModelNode<'a> {
 }
 
 /// Layout tree representation with relative positions
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LayoutModel {
-    relative_area: Rectangle,
-    /// Full-padding: padding + border width
-    full_padding: Padding,
+    outer: Rectangle,
+    inner: Rectangle,
+    // /// Full-padding: padding + border width
+    // full_padding: Padding,
     // Note: `dev` goes before `children` which is intentional to make more
     // readable pretty-printed debug
     dev: DevLayout,
@@ -482,52 +483,59 @@ pub struct LayoutModel {
 impl LayoutModel {
     pub fn new(size: Size, children: Vec<LayoutModel>, dev: DevLayout) -> Self {
         Self {
-            relative_area: Rectangle::new(Point::zero(), size.into()),
-            full_padding: Padding::zero(),
+            outer: Rectangle::new(Point::zero(), size.into()),
+            inner: Rectangle::new(Point::zero(), size.into()),
+            // full_padding: Padding::zero(),
             children,
             dev,
         }
     }
 
     fn full_padding(mut self, full_padding: Padding) -> Self {
-        self.full_padding = full_padding;
+        self.inner = self.inner - full_padding;
         self
     }
 
     pub fn tree_root(&self) -> LayoutModelNode {
+        LayoutModelNode { outer: self.outer, inner: self.inner, model: self }
+    }
+
+    fn node(&self, parent_inner: Rectangle) -> LayoutModelNode {
         LayoutModelNode {
-            outer: self.relative_area,
-            inner: self.relative_area - self.full_padding,
+            outer: self.outer.translate(parent_inner.top_left),
+            inner: self.inner.translate(parent_inner.top_left),
             model: self,
         }
     }
 
-    fn node(&self, parent_inner: Rectangle) -> LayoutModelNode {
-        let outer = self.relative_area.translate(parent_inner.top_left);
-
-        LayoutModelNode { outer, inner: outer - self.full_padding, model: self }
-    }
-
     fn zero() -> Self {
         Self {
-            relative_area: Rectangle::zero(),
-            full_padding: Padding::zero(),
+            outer: Rectangle::zero(),
+            inner: Rectangle::zero(),
+            // full_padding: Padding::zero(),
             children: vec![],
             dev: DevLayout::zero(),
         }
     }
 
-    pub fn size(&self) -> Size {
-        self.relative_area.size.into()
+    pub fn outer_size(&self) -> Size {
+        self.outer.size.into()
     }
 
-    pub fn move_mut(&mut self, to: impl Into<Point>) -> &mut Self {
-        self.relative_area.top_left = to.into();
-        self
-    }
+    // pub fn move_mut(&mut self, to: impl Into<Point> + Copy) -> &mut Self {
+    //     self.outer.top_left = to.into();
+    //     self.inner.top_left = to.into();
+    //     self
+    // }
 
-    pub fn moved(mut self, to: impl Into<Point>) -> Self {
-        self.move_mut(to);
+    // pub fn moved(mut self, to: impl Into<Point> + Copy) -> Self {
+    //     self.move_mut(to);
+    //     self
+    // }
+
+    fn translate_mut(&mut self, by: impl Into<Point> + Copy) -> &mut Self {
+        self.outer.top_left += by.into();
+        self.inner.top_left += by.into();
         self
     }
 
@@ -537,29 +545,25 @@ impl LayoutModel {
         vertical: Align,
         free_space: Size,
     ) -> &mut Self {
-        match horizontal {
-            Align::Start => {},
-            Align::Center => {
-                self.relative_area.top_left.x += free_space.width as i32 / 2;
-                // - self.relative_area.size.width as i32 / 2;
-            },
-            Align::End => {
-                self.relative_area.top_left.x += free_space.width as i32;
-                // - self.relative_area.size.width as i32 / 2;
-            },
-        }
+        let x = match horizontal {
+            Align::Start => 0,
+            Align::Center => free_space.width as i32 / 2,
+            Align::End => free_space.width as i32,
+        };
 
-        match vertical {
-            Align::Start => {},
+        let y = match vertical {
+            Align::Start => 0,
             Align::Center => {
-                self.relative_area.top_left.y += free_space.height as i32 / 2;
+                free_space.height as i32 / 2
                 // - self.relative_area.size.height as i32 / 2;
             },
             Align::End => {
-                self.relative_area.top_left.y += free_space.height as i32;
+                free_space.height as i32
                 // - self.relative_area.size.height as i32;
             },
-        }
+        };
+
+        self.translate_mut(Point::new(x, y));
 
         self
     }
@@ -581,110 +585,115 @@ pub fn model_layout(
     tree: MemoTree<Layout>,
     parent_limits: Limits,
     parent_size: Size<Length>,
-    viewport: Memo<Size>,
+    // viewport: Memo<Size>,
 ) -> LayoutModel {
-    let layout = tree.data.get();
-    let size = layout.size.in_parent(parent_size);
+    tree.data.with(|layout| {
+        let size = layout.size.in_parent(parent_size);
 
-    match layout.kind {
-        LayoutKind::Zero => LayoutModel::zero(),
-        LayoutKind::Edge => {
-            let limits = parent_limits.limit_by(size);
+        match layout.kind {
+            LayoutKind::Zero => LayoutModel::zero(),
+            LayoutKind::Edge => {
+                let limits = parent_limits.limit_by(size);
 
-            LayoutModel::new(
-                limits.resolve_size(size, Size::zero()),
-                vec![],
-                DevLayout::new(size, DevLayoutKind::Edge),
-            )
-        },
-        LayoutKind::Content(content_layout) => {
-            let ContentLayout { content_size } = content_layout;
-            let min_content = content_size.get().min();
+                LayoutModel::new(
+                    limits.resolve_size(size, Size::zero()),
+                    vec![],
+                    DevLayout::new(size, DevLayoutKind::Edge),
+                )
+            },
+            LayoutKind::Content(content_layout) => {
+                let ContentLayout { content_size } = content_layout;
+                let min_content = content_size.get().min();
 
-            LayoutModel::new(
-                parent_limits.resolve_size(size, min_content),
-                vec![],
-                DevLayout::new(size, DevLayoutKind::Content(content_layout)),
-            )
-        },
-        LayoutKind::Container(container_layout) => {
-            let ContainerLayout {
-                block_model,
-                horizontal_align,
-                vertical_align,
-                // TODO: Useless?
-                content_size: _,
-            } = container_layout;
+                LayoutModel::new(
+                    parent_limits.resolve_size(size, min_content),
+                    vec![],
+                    DevLayout::new(
+                        size,
+                        DevLayoutKind::Content(content_layout),
+                    ),
+                )
+            },
+            LayoutKind::Container(container_layout) => {
+                let ContainerLayout {
+                    block_model,
+                    horizontal_align,
+                    vertical_align,
+                    // TODO: Useless?
+                    content_size: _,
+                } = container_layout;
 
-            // let min_content = content_size.get().min();
+                // let min_content = content_size.get().min();
 
-            let full_padding = block_model.padding
-                + Padding::new_equal(block_model.border_width);
+                let full_padding = block_model.padding
+                    + Padding::new_equal(block_model.border_width);
 
-            let limits = parent_limits.limit_by(size).shrink(full_padding);
+                let limits = parent_limits.limit_by(size).shrink(full_padding);
 
-            // TODO: Panic or warn in case when there're more than a single
-            // child
+                // TODO: Panic or warn in case when there're more than a single
+                // child
 
-            let content_layout = model_layout(
-                tree.children.with(|children| children[0]),
-                limits,
-                size,
-                viewport,
-            );
+                let content_layout = model_layout(
+                    tree.children.with(|children| children[0]),
+                    limits,
+                    size,
+                    // viewport,
+                );
 
-            let content_size = content_layout.size();
-            let real_size = limits.resolve_size(size, content_size);
-            let content_layout =
-                content_layout.moved(full_padding.top_left()).aligned(
+                let content_size = content_layout.outer_size();
+                let real_size = limits.resolve_size(size, content_size);
+                let content_layout = content_layout
+                // .moved(full_padding.top_left())
+                .aligned(
                     horizontal_align,
                     vertical_align,
                     real_size - content_size,
                 );
 
-            LayoutModel::new(
-                // TODO: Generalize logic with real_size.expand/shrink and
-                // full_padding
-                real_size.expand(full_padding),
-                vec![content_layout],
-                DevLayout::new(
+                LayoutModel::new(
+                    // TODO: Generalize logic with real_size.expand/shrink and
+                    // full_padding
+                    real_size.expand(full_padding),
+                    vec![content_layout],
+                    DevLayout::new(
+                        size,
+                        DevLayoutKind::Container(container_layout),
+                    ),
+                )
+                .full_padding(full_padding)
+            },
+            LayoutKind::Scrollable(scrollable_layout) => {
+                // TODO: Useless?
+                let ScrollableLayout { content_size: _ } = scrollable_layout;
+
+                let limits = parent_limits.limit_by(size);
+
+                let content_layout = model_layout(
+                    tree.children.with(|children| children[0]),
+                    limits,
                     size,
-                    DevLayoutKind::Container(container_layout),
-                ),
-            )
-            .full_padding(full_padding)
-        },
-        LayoutKind::Scrollable(scrollable_layout) => {
-            // TODO: Useless?
-            let ScrollableLayout { content_size: _ } = scrollable_layout;
+                    // viewport,
+                );
 
-            let limits = parent_limits.limit_by(size);
+                // Note: For [`LayoutKind::Scrollable`], parent_limits are used as
+                // content limits are unlimited on one axis
+                let real_size = parent_limits
+                    .resolve_size(size, content_layout.outer_size());
 
-            let content_layout = model_layout(
-                tree.children.with(|children| children[0]),
-                limits,
-                size,
-                viewport,
-            );
-
-            // Note: For [`LayoutKind::Scrollable`], parent_limits are used as
-            // content limits are unlimited on one axis
-            let real_size =
-                parent_limits.resolve_size(size, content_layout.size());
-
-            LayoutModel::new(
-                real_size,
-                vec![content_layout],
-                DevLayout::new(
-                    size,
-                    DevLayoutKind::Scrollable(scrollable_layout),
-                ),
-            )
-        },
-        LayoutKind::Flex(flex_layout) => {
-            model_flex(tree, parent_limits, flex_layout, size, viewport)
-        },
-    }
+                LayoutModel::new(
+                    real_size,
+                    vec![content_layout],
+                    DevLayout::new(
+                        size,
+                        DevLayoutKind::Scrollable(scrollable_layout),
+                    ),
+                )
+            },
+            LayoutKind::Flex(flex_layout) => {
+                model_flex(tree, parent_limits, flex_layout, size)
+            },
+        }
+    })
 }
 
 #[cfg(test)]

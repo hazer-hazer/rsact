@@ -1,7 +1,7 @@
 use crate::{
     event::EventResponse,
     layout::{Layout, LayoutKind},
-    render::{Renderable, Renderer},
+    render::Renderable,
     widget::{Meta, MetaTree, Widget, WidgetCtx},
 };
 use embedded_graphics::{
@@ -9,7 +9,7 @@ use embedded_graphics::{
     prelude::*,
 };
 use rsact_reactive::{
-    memo::{IntoMemo, MemoTree},
+    memo::{AsMemo, MemoTree},
     signal::{IntoSignal, Signal},
 };
 
@@ -37,7 +37,7 @@ where
         IntoIterator<Item = <W::Color as PixelColor>::Raw>,
 {
     fn meta(&self) -> MetaTree {
-        MetaTree::childless(Meta::none())
+        MetaTree::childless(Meta::none)
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
@@ -49,7 +49,7 @@ where
     }
 
     fn build_layout_tree(&self) -> MemoTree<Layout> {
-        MemoTree::childless(self.layout.into_memo())
+        MemoTree::childless(self.layout.as_memo())
     }
 
     fn draw(

@@ -12,7 +12,6 @@ use embedded_graphics::{
     geometry::{AnchorPoint, Point},
     primitives::{CornerRadii, Rectangle},
 };
-use num::integer::Roots;
 
 pub trait SubTake<Rhs = Self> {
     fn sub_take(&mut self, sub: Rhs) -> Self;
@@ -736,15 +735,18 @@ pub trait PointExt: Sized + Copy {
     fn new_rounded(x: f32, y: f32) -> Self;
     fn new_floor(x: f32, y: f32) -> Self;
 
-    fn swap_axis(self) -> Self;
+    fn swap_axes(self) -> Self;
 
-    fn swap_axis_if(self, cond: bool) -> Self {
+    fn swap_axes_if(self, cond: bool) -> Self {
         if cond {
-            self.swap_axis()
+            self.swap_axes()
         } else {
             self
         }
     }
+
+    /// Unlike `PartialOrd::clamp` this method does fine-grained clamping per axis.
+    fn clamp_axes(self, min: Self, max: Self) -> Self;
 
     fn map(self, f: impl FnMut(i32) -> i32) -> Self;
 
@@ -778,8 +780,12 @@ impl PointExt for Point {
         Self::new(x.floor() as i32, y.floor() as i32)
     }
 
-    fn swap_axis(self) -> Self {
+    fn swap_axes(self) -> Self {
         Self::new(self.y, self.x)
+    }
+
+    fn clamp_axes(self, min: Self, max: Self) -> Self {
+        Self::new(self.x.min(max.x).max(min.x), self.y.min(max.y).max(min.y))
     }
 
     fn map(self, mut f: impl FnMut(i32) -> i32) -> Self {
@@ -940,6 +946,15 @@ impl Axial for UnitV2 {
 }
 
 impl UnitV2 {
+    pub const LEFT: Self = Self::const_new(UnitV1::Minus, UnitV1::Zero);
+    pub const RIGHT: Self = Self::const_new(UnitV1::Plus, UnitV1::Zero);
+    pub const UP: Self = Self::const_new(UnitV1::Zero, UnitV1::Minus);
+    pub const DOWN: Self = Self::const_new(UnitV1::Zero, UnitV1::Plus);
+
+    pub const fn const_new(x: UnitV1, y: UnitV1) -> Self {
+        Self { x, y }
+    }
+
     pub fn new(x: impl Into<UnitV1>, y: impl Into<UnitV1>) -> Self {
         Self { x: x.into(), y: y.into() }
     }
@@ -962,6 +977,14 @@ impl Mul<UnitV2> for Point {
 
     fn mul(self, rhs: UnitV2) -> Self::Output {
         Self::new(self.x * rhs.x as i32, self.y * rhs.y as i32)
+    }
+}
+
+impl Mul<i32> for UnitV2 {
+    type Output = Point;
+
+    fn mul(self, rhs: i32) -> Self::Output {
+        Point::new(self.x * rhs, self.y * rhs)
     }
 }
 

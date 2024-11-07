@@ -75,7 +75,9 @@ impl<W: WidgetCtx, K: PartialEq> SelectOption<W, K> {
         let string = key.to_string();
         SelectOption {
             key,
-            el: Container::new(MonoText::new(string).el()).padding(5).el(),
+            el: Container::new(MonoText::new_static(string).el())
+                .padding(5)
+                .el(),
         }
     }
 
@@ -106,7 +108,7 @@ where
     W::Styler: Styler<MonoTextStyle<W::Color>, Class = ()>,
     K: PartialEq + Clone + Display + 'static,
 {
-    pub fn vertical(options: impl IntoMemo<Vec<K>>) -> Self {
+    pub fn vertical(options: impl AsMemo<Vec<K>>) -> Self {
         Self::new(options)
     }
 }
@@ -117,7 +119,7 @@ where
     W: WidgetCtx,
     K: PartialEq + Clone + Display + 'static,
 {
-    pub fn horizontal(options: impl IntoMemo<Vec<K>>) -> Self {
+    pub fn horizontal(options: impl AsMemo<Vec<K>>) -> Self {
         Self::new(options)
     }
 }
@@ -129,9 +131,9 @@ where
     W::Styler: Styler<MonoTextStyle<W::Color>, Class = ()>,
     Dir: Direction,
 {
-    pub fn new(options: impl IntoMemo<Vec<K>>) -> Self {
+    pub fn new(options: impl AsMemo<Vec<K>>) -> Self {
         let options: Memo<Vec<SelectOption<W, K>>> =
-            options.into_memo().mapped(|options| {
+            options.as_memo().mapped(|options| {
                 options
                     .into_iter()
                     .cloned()
@@ -169,27 +171,28 @@ where
             .with(|options| options.iter().position(|opt| &opt.key == key))
     }
 
-    pub fn use_value(
-        self,
-        value: impl WriteSignal<K> + ReadSignal<K> + 'static,
-    ) -> Self {
-        value.with(|initial| {
-            self.selected.set(self.option_position(initial));
-        });
+    // TODO: Use lenses
+    // pub fn use_value(
+    //     self,
+    //     value: impl WriteSignal<K> + ReadSignal<K> + 'static,
+    // ) -> Self {
+    //     value.with(|initial| {
+    //         self.selected.set(self.option_position(initial));
+    //     });
 
-        let options = self.options;
-        value.setter(self.selected, move |pos, value| {
-            if let &Some(pos) = pos {
-                if let Some(opt) = options
-                    .with(|options| options.get(pos).map(|opt| opt.key.clone()))
-                {
-                    *value = opt
-                }
-            }
-        });
+    //     let options = self.options;
+    //     value.setter(self.selected, move |pos, value| {
+    //         if let &Some(pos) = pos {
+    //             if let Some(opt) = options
+    //                 .with(|options| options.get(pos).map(|opt| opt.key.clone()))
+    //             {
+    //                 *value = opt
+    //             }
+    //         }
+    //     });
 
-        self
-    }
+    //     self
+    // }
 }
 
 impl<W, K, Dir> BlockModelWidget<W> for Select<W, K, Dir>
@@ -219,7 +222,8 @@ where
     W::Styler: Styler<SelectStyle<W::Color>, Class = ()>,
 {
     fn meta(&self) -> MetaTree {
-        MetaTree::childless(Meta::focusable(self.id))
+        let id = self.id;
+        MetaTree::childless(create_memo(move |_| Meta::focusable(id)))
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
@@ -232,7 +236,7 @@ where
 
     fn build_layout_tree(&self) -> rsact_reactive::prelude::MemoTree<Layout> {
         MemoTree {
-            data: self.layout.into_memo(),
+            data: self.layout.as_memo(),
             children: self.options.mapped(|options| {
                 options.iter().map(|opt| opt.el.build_layout_tree()).collect()
             }),
@@ -241,8 +245,6 @@ where
 
     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         let style = self.style.get();
-
-        ctx.draw_focus_outline(self.id)?;
 
         let children_layouts = ctx.layout.children().collect::<Vec<_>>();
 
@@ -274,6 +276,9 @@ where
         } else {
             Point::zero()
         };
+
+        // TODO: Review if focus outline visible
+        ctx.draw_focus_outline(self.id)?;
 
         self.options.with(move |options| {
             ctx.renderer.clipped(ctx.layout.inner, |renderer| {

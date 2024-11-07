@@ -164,7 +164,7 @@ pub struct Unit;
 
 impl<W: WidgetCtx> Widget<W> for Unit {
     fn meta(&self) -> MetaTree {
-        MetaTree::childless(Meta::none())
+        MetaTree::childless(Meta::none)
     }
 
     fn on_mount(&mut self, ctx: super::MountCtx<W>) {
@@ -176,7 +176,7 @@ impl<W: WidgetCtx> Widget<W> for Unit {
     }
 
     fn build_layout_tree(&self) -> MemoTree<Layout> {
-        MemoTree::childless(Layout::zero())
+        MemoTree::childless(Layout::zero)
     }
 
     fn draw(&self, ctx: &mut super::DrawCtx<'_, W>) -> super::DrawResult {
@@ -203,7 +203,7 @@ impl<W: WidgetCtx> Widget<W> for Option<El<W>> {
     fn meta(&self) -> MetaTree {
         self.as_ref()
             .map(|widget| widget.meta())
-            .unwrap_or(MetaTree::childless(Meta::none()))
+            .unwrap_or(MetaTree::childless(Meta::none))
     }
 
     fn on_mount(&mut self, ctx: super::MountCtx<W>) {

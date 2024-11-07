@@ -353,9 +353,9 @@ impl Axial for AxisAnchorPoint {
 
 #[cfg(test)]
 mod tests {
-    use embedded_graphics::geometry::Point;
-
     use super::{Axial, Axis};
+    use crate::prelude::Size;
+    use embedded_graphics::geometry::Point;
 
     #[test]
     fn x() {
@@ -371,5 +371,14 @@ mod tests {
         let axial = point.into_axial(Axis::Y);
         assert_eq!(axial.main(), 500);
         assert_eq!(axial.cross(), 100);
+    }
+
+    #[test]
+    fn axial_size() {
+        let size = Size::new(100, 50);
+        assert_eq!(size.main(Axis::X), 100);
+        assert_eq!(size.cross(Axis::X), 50);
+        assert_eq!(size.main(Axis::Y), 50);
+        assert_eq!(size.cross(Axis::Y), 100);
     }
 }

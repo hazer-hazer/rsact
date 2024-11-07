@@ -7,14 +7,11 @@ use core::{
 };
 use embedded_canvas::CanvasAt;
 use embedded_graphics::{
-    prelude::{
-        Dimensions, DrawTarget, DrawTargetExt, Point,
-    },
+    prelude::{Dimensions, DrawTarget, DrawTargetExt, Point},
     primitives::Rectangle,
     Pixel,
 };
 use embedded_graphics_core::Drawable as _;
-use rsact_reactive::signal::ReadSignal;
 
 #[derive(Clone, Copy, Debug)]
 pub enum ViewportKind {
@@ -85,26 +82,17 @@ pub struct LayeringRenderer<C: Color> {
 
 impl<C: Color> LayeringRenderer<C> {
     fn viewport(&self) -> &Viewport {
+        // No need for checked last, there must be always at least a single layer
         self.viewport_stack.last().unwrap()
     }
 
     fn layer_index(&self) -> usize {
-        // No need for checked sub, there must be always at least a single layer
         self.viewport().layer
     }
 
     fn sub_viewport(&self, kind: ViewportKind) -> Viewport {
         Viewport { layer: self.layer_index(), kind }
     }
-
-    // #[inline(always)]
-    // fn get_pixel(&self, point: Point) -> Option<C> {
-    //     // TODO: Alpha-chanel blending goes here
-    //     self.layers
-    //         .iter()
-    //         .rev()
-    //         .find_map(|layer| layer.1.canvas.get_pixel(point))
-    // }
 }
 
 impl<C: Color> Dimensions for LayeringRenderer<C> {

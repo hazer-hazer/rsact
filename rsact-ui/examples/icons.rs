@@ -7,7 +7,7 @@ use embedded_graphics_simulator::{
 use rsact_icons::{common::CommonIcon, system::SystemIcon, IconSet};
 use rsact_ui::{
     event::NullEvent,
-    prelude::{Flex, Icon, MonoText, Size},
+    prelude::{create_memo, Flex, Icon, MonoText, Size},
     style::NullStyler,
     ui::UI,
     widget::{SizedWidget, Widget},
@@ -24,18 +24,18 @@ fn main() {
 
     window.update(&display);
 
-    let icon_size = 24;
+    const ICON_SIZE: u32 = 12;
 
     let system_icons = SystemIcon::KINDS
         .iter()
         .copied()
-        .map(|kind| Icon::new(kind).size(icon_size).el())
+        .map(|kind| Icon::new(kind).size(ICON_SIZE).el())
         .collect::<Vec<_>>();
 
     let common_icons = CommonIcon::KINDS
         .iter()
         .copied()
-        .map(|kind| Icon::new(kind).size(icon_size).el())
+        .map(|kind| Icon::new(kind).size(ICON_SIZE).el())
         .collect::<Vec<_>>();
 
     let mut ui: UI<
@@ -47,11 +47,11 @@ fn main() {
         >,
     > = UI::single_page(
         Flex::col([
-            MonoText::new("System icons").el(),
+            MonoText::new_static("System icons").el(),
             Flex::row(system_icons).wrap(true).gap(5).el(),
-            MonoText::new("Common icons").el(),
+            MonoText::new_static("Common icons").el(),
             Flex::row(common_icons).wrap(true).gap(5).el(),
-            MonoText::new(format!("Icons of size {icon_size}. Auto-generated from Material Design Icons")).el()
+            MonoText::new_static(format!("Icons of size {ICON_SIZE}. Auto-generated from Material Design Icons")).el()
         ])
         .center()
         .fill()

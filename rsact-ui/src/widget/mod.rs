@@ -58,9 +58,10 @@ impl Meta {
     }
 }
 
+// TODO: Custom MemoTree with SmallVec<T, 1>
 pub type MetaTree = MemoTree<Meta>;
 
-// Not an actual context, rename to something like `WidgetTypeFamily`
+// TODO: Not an actual context, rename to something like `WidgetTypeFamily`
 pub trait WidgetCtx: Sized + 'static {
     type Renderer: Renderer<Color = Self::Color>;
     type Styler: PartialEq + Copy;
@@ -151,8 +152,9 @@ impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
         if self.state.focused == Some(id) {
             Block {
                 border: Border::zero()
+                    // TODO: Theme focus color
                     .color(Some(<W::Color as Color>::default_foreground()))
-                    .width(2),
+                    .width(1),
                 rect: self.layout.outer,
                 background: None,
             }
@@ -306,29 +308,41 @@ impl<W: WidgetCtx> MountCtx<W> {
     }
 
     // TODO: Use watch?
+    // FIXME: Wtf
+    // TODO: Use computed
+    // pub fn pass_to_children(
+    //     self,
+    //     children: impl RwSignal<Vec<El<W>>> + 'static,
+    // ) {
+    //     use_effect(move |_| {
+    //         children.track();
+    //         children.update_untracked(|children| {
+    //             for child in children {
+    //                 child.on_mount(self);
+    //             }
+    //         });
+    //     });
+    // }
 
-    pub fn pass_to_children(
-        self,
-        children: impl RwSignal<Vec<El<W>>> + 'static,
-    ) {
-        use_effect(move |_| {
-            children.track();
-            children.update_untracked(|children| {
-                for child in children {
-                    child.on_mount(self);
-                }
-            });
-        });
-    }
+    // pub fn pass_to_child(self, child: impl RwSignal<El<W>> + 'static) {
+    //     use_effect(move |_| {
+    //         child.track();
+    //         child.update_untracked(|child| {
+    //             child.on_mount(self);
+    //         });
+    //     });
+    // }
 
-    pub fn pass_to_child(self, child: impl RwSignal<El<W>> + 'static) {
-        use_effect(move |_| {
-            child.track();
-            child.update_untracked(|child| {
-                child.on_mount(self);
-            });
-        });
-    }
+    // TODO: Rewrite with lenses
+    // pub fn pass_to_children(self, children: &mut [El<W>]) {
+    //     for child in children {
+    //         child.on_mount(self);
+    //     }
+    // }
+
+    // pub fn pass_to_child(self, child: &mut El<W>) {
+    //     child.on_mount(self);
+    // }
 }
 
 impl<W: WidgetCtx> Clone for MountCtx<W> {
@@ -381,55 +395,110 @@ pub trait SizedWidget<W: WidgetCtx>: Widget<W> {
         self.width(Length::Shrink).height(Length::Shrink)
     }
 
-    fn width<L: Into<Length> + Copy + 'static>(
-        self,
-        width: impl MaybeSignal<L> + 'static,
-    ) -> Self
+    // TODO: Use computed/Lenses
+    // fn width<L: Into<Length> + Copy + 'static>(
+    //     self,
+    //     width: impl MaybeSignal<L> + 'static,
+    // ) -> Self
+    // where
+    //     Self: Sized + 'static,
+    // {
+    //     self.layout().setter(width.maybe_signal(), |&width, layout| {
+    //         layout.size.width = width.into();
+    //     });
+    //     self
+    // }
+
+    fn width(self, width: impl Into<Length>) -> Self
     where
-        Self: Sized + 'static,
+        Self: Sized,
     {
-        self.layout().setter(width.maybe_signal(), |&width, layout| {
+        self.layout().update_untracked(|layout| {
             layout.size.width = width.into();
         });
         self
     }
 
-    fn height<L: Into<Length> + Copy + 'static>(
-        self,
-        height: impl MaybeSignal<L> + 'static,
-    ) -> Self
+    fn fill_width(self) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout().setter(height.maybe_signal(), |&height, layout| {
+        self.width(Length::fill())
+    }
+
+    // fn height<L: Into<Length> + Copy + 'static>(
+    //     self,
+    //     height: impl MaybeSignal<L> + 'static,
+    // ) -> Self
+    // where
+    //     Self: Sized + 'static,
+    // {
+    //     self.layout().setter(height.maybe_signal(), |&height, layout| {
+    //         layout.size.height = height.into();
+    //     });
+    //     self
+    // }
+
+    fn height(self, height: impl Into<Length>) -> Self
+    where
+        Self: Sized,
+    {
+        self.layout().update_untracked(|layout| {
             layout.size.height = height.into();
         });
         self
     }
+
+    fn fill_height(self) -> Self
+    where
+        Self: Sized + 'static,
+    {
+        self.height(Length::fill())
+    }
 }
 
 pub trait BlockModelWidget<W: WidgetCtx>: Widget<W> {
-    fn border_width(self, border_width: impl MaybeSignal<u32> + 'static) -> Self
+    // fn border_width(self, border_width: impl MaybeSignal<u32> + 'static) -> Self
+    // where
+    //     Self: Sized + 'static,
+    // {
+    //     self.layout().setter(
+    //         border_width.maybe_signal(),
+    //         |&border_width, layout| {
+    //             layout.set_border_width(border_width);
+    //         },
+    //     );
+    //     self
+    // }
+
+    // fn padding<P: Into<Padding> + Copy + 'static>(
+    //     self,
+    //     padding: impl MaybeSignal<P> + 'static,
+    // ) -> Self
+    // where
+    //     Self: Sized + 'static,
+    // {
+    //     self.layout().setter(padding.maybe_signal(), |&padding, layout| {
+    //         layout.set_padding(padding.into());
+    //     });
+    //     self
+    // }
+
+    fn border_width(self, border_width: u32) -> Self
     where
-        Self: Sized + 'static,
+        Self: Sized,
     {
-        self.layout().setter(
-            border_width.maybe_signal(),
-            |&border_width, layout| {
-                layout.set_border_width(border_width);
-            },
-        );
+        self.layout().update_untracked(|layout| {
+            layout.set_border_width(border_width);
+        });
         self
     }
 
-    fn padding<P: Into<Padding> + Copy + 'static>(
-        self,
-        padding: impl MaybeSignal<P> + 'static,
-    ) -> Self
+    fn padding(self, padding: impl Into<Padding>) -> Self
     where
-        Self: Sized + 'static,
+        Self: Sized,
     {
-        self.layout().setter(padding.maybe_signal(), |&padding, layout| {
+        self.layout().update_untracked(|layout| {
             layout.set_padding(padding.into());
         });
         self

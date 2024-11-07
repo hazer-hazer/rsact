@@ -1,10 +1,11 @@
-use embedded_graphics::primitives::{
-    PrimitiveStyle, Rectangle, Styled,
-};
+use embedded_graphics::primitives::{PrimitiveStyle, Rectangle, Styled};
 
 use crate::{
     render::{
-        primitives::{arc::Arc, line::Line, rounded_rect::RoundedRect},
+        primitives::{
+            arc::Arc, circle::Circle, ellipse::Ellipse, line::Line,
+            polygon::Polygon, rounded_rect::RoundedRect, sector::Sector,
+        },
         Renderable,
     },
     widget::prelude::*,
@@ -12,11 +13,14 @@ use crate::{
 
 // TODO: Replace with box dyn primitive or something else?
 pub enum DrawCommand<C: Color> {
-    Line(Styled<Line, PrimitiveStyle<C>>),
-    Rect(Styled<Rectangle, PrimitiveStyle<C>>),
-    RoundRect(Styled<RoundedRect, PrimitiveStyle<C>>),
     Arc(Styled<Arc, PrimitiveStyle<C>>),
-    Block(Block<C>),
+    Circle(Styled<Circle, PrimitiveStyle<C>>),
+    Ellipse(Styled<Ellipse, PrimitiveStyle<C>>),
+    Line(Styled<Line, PrimitiveStyle<C>>),
+    Polygon(Styled<Polygon, PrimitiveStyle<C>>),
+    Rect(Styled<Rectangle, PrimitiveStyle<C>>),
+    RoundedRect(Styled<RoundedRect, PrimitiveStyle<C>>),
+    Sector(Styled<Sector, PrimitiveStyle<C>>),
 }
 
 #[derive(Clone, Copy)]
@@ -26,7 +30,7 @@ pub struct DrawQueue<C: Color + 'static> {
 
 impl<C: Color> DrawQueue<C> {
     pub fn new() -> Self {
-        Self { queue: use_signal(Vec::new()) }
+        Self { queue: create_signal(Vec::new()) }
     }
 
     pub fn draw(self, command: DrawCommand<C>) -> Self {
@@ -35,28 +39,52 @@ impl<C: Color> DrawQueue<C> {
         self
     }
 
-    // TODO
-    // pub fn line(self, line: Line<C>) -> Self {
-    //     self.draw(DrawCommand::Line(line));
-    //     self
-    // }
+    pub fn arc(self, arc: Styled<Arc, PrimitiveStyle<C>>) -> Self {
+        self.draw(DrawCommand::Arc(arc));
+        self
+    }
 
-    // pub fn rect(self, rect: Rect<C>) -> Self {
-    //     self.draw(DrawCommand::Rect(rect));
-    //     self
-    // }
+    pub fn circle(self, circle: Styled<Circle, PrimitiveStyle<C>>) -> Self {
+        self.draw(DrawCommand::Circle(circle));
+        self
+    }
 
-    // pub fn arc(self, arc: Arc<C>) -> Self {
-    //     self.draw(DrawCommand::Arc(arc));
-    //     self
-    // }
+    pub fn ellipse(self, ellipse: Styled<Ellipse, PrimitiveStyle<C>>) -> Self {
+        self.draw(DrawCommand::Ellipse(ellipse));
+        self
+    }
 
-    pub fn block(self, block: Block<C>) -> Self {
-        self.draw(DrawCommand::Block(block));
+    pub fn line(self, line: Styled<Line, PrimitiveStyle<C>>) -> Self {
+        self.draw(DrawCommand::Line(line));
+        self
+    }
+
+    pub fn polygon(self, polygon: Styled<Polygon, PrimitiveStyle<C>>) -> Self {
+        self.draw(DrawCommand::Polygon(polygon));
+        self
+    }
+
+    pub fn rect(self, rect: Styled<Rectangle, PrimitiveStyle<C>>) -> Self {
+        self.draw(DrawCommand::Rect(rect));
+        self
+    }
+
+    pub fn rounded_rect(
+        self,
+        round_rect: Styled<RoundedRect, PrimitiveStyle<C>>,
+    ) -> Self {
+        self.draw(DrawCommand::RoundedRect(round_rect));
+        self
+    }
+
+    pub fn sector(self, sector: Styled<Sector, PrimitiveStyle<C>>) -> Self {
+        self.draw(DrawCommand::Sector(sector));
         self
     }
 
     fn pop(self) -> Option<DrawCommand<C>> {
+        // TODO: Should notify on something popped?
+        // No, because drawing is synchronous
         self.queue.update_untracked(|queue| queue.pop())
     }
 }
@@ -81,7 +109,7 @@ impl<W: WidgetCtx> Canvas<W> {
 
 impl<W: WidgetCtx> Widget<W> for Canvas<W> {
     fn meta(&self) -> MetaTree {
-        MetaTree::childless(Meta::none())
+        MetaTree::childless(Meta::none)
     }
 
     fn on_mount(&mut self, ctx: super::MountCtx<W>) {
@@ -99,13 +127,20 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         while let Some(command) = self.queue.pop() {
             match command {
-                DrawCommand::Line(line) => line.render(ctx.renderer)?,
-                DrawCommand::Rect(rect) => rect.render(ctx.renderer)?,
-                DrawCommand::RoundRect(styled) => {
-                    styled.render(ctx.renderer)?
-                },
                 DrawCommand::Arc(arc) => arc.render(ctx.renderer)?,
-                DrawCommand::Block(block) => block.render(ctx.renderer)?,
+                DrawCommand::Circle(circle) => circle.render(ctx.renderer)?,
+                DrawCommand::Ellipse(ellipse) => {
+                    ellipse.render(ctx.renderer)?
+                },
+                DrawCommand::Line(line) => line.render(ctx.renderer)?,
+                DrawCommand::Polygon(polygon) => {
+                    polygon.render(ctx.renderer)?
+                },
+                DrawCommand::Rect(rect) => rect.render(ctx.renderer)?,
+                DrawCommand::RoundedRect(rounded_rect) => {
+                    rounded_rect.render(ctx.renderer)?
+                },
+                DrawCommand::Sector(sector) => sector.render(ctx.renderer)?,
             }
         }
 

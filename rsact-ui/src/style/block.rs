@@ -1,8 +1,5 @@
 use super::{ColorStyle, WidgetStyle};
-use crate::{
-    layout::size::{Size, SizeExt},
-    render::color::Color,
-};
+use crate::{layout::size::Size, render::color::Color};
 use embedded_graphics::primitives::CornerRadii;
 
 #[derive(Clone, Copy, Debug, PartialEq)]

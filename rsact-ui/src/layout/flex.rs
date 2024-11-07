@@ -46,7 +46,7 @@ pub fn model_flex(
     parent_limits: Limits,
     flex_layout: FlexLayout,
     size: Size<Length>,
-    viewport: Memo<Size>,
+    // viewport: Memo<Size>,
 ) -> LayoutModel {
     let FlexLayout {
         wrap,
@@ -149,14 +149,17 @@ pub fn model_flex(
                         axis.canon(line.free_main, container_free_cross),
                     ),
                     size,
-                    viewport,
+                    // viewport,
                 );
 
+                // TODO: Not working properly
                 // Min content size of child must have been less or
                 // equal to resulting size.
-                debug_assert!(child_layout.size().main(axis) <= line.free_main);
+                debug_assert!(
+                    child_layout.outer_size().main(axis) <= line.free_main
+                );
 
-                let child_layout_size = child_layout.size();
+                let child_layout_size = child_layout.outer_size();
 
                 children_layouts[i] = child_layout;
 
@@ -322,13 +325,13 @@ pub fn model_flex(
                     *child,
                     Limits::new(child_min_size, child_max_size),
                     size,
-                    viewport,
+                    // viewport,
                 );
             }
 
-            children_layouts[i].move_mut(next_pos);
+            children_layouts[i].translate_mut(next_pos);
 
-            let child_size = children_layouts[i].size();
+            let child_size = children_layouts[i].outer_size();
 
             let child_length = child_size.main(axis);
             model_line.used_main += child_length;
@@ -368,6 +371,7 @@ pub fn model_flex(
     let layout_size =
         limits.resolve_size(size, axis.canon(longest_line, used_cross));
 
+    // TODO: Review alignments
     if !matches!(
         (horizontal_align, vertical_align),
         (Align::Start, Align::Start)
@@ -375,8 +379,12 @@ pub fn model_flex(
         for (child_layout, item) in children_layouts.iter_mut().zip(items) {
             let line = model_lines[item.line];
 
-            let free_space =
-                layout_size - axis.canon::<Size>(line.used_main, line.cross);
+            let free_space = axis
+                .canon::<Size>(layout_size.main(axis), line.cross)
+                - axis.canon::<Size>(
+                    line.used_main,
+                    child_layout.outer_size().cross(axis),
+                );
             child_layout.align_mut(
                 horizontal_align,
                 vertical_align,
@@ -385,6 +393,7 @@ pub fn model_flex(
         }
     }
 
+    // TODO: Expand must be done in `full_padding` method?
     LayoutModel::new(
         layout_size.expand(full_padding),
         children_layouts,

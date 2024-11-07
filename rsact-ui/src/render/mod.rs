@@ -8,7 +8,8 @@ use color::Color;
 use embedded_graphics::{
     prelude::DrawTarget,
     primitives::{
-        PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, RoundedRectangle, StyledDrawable,
+        PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, RoundedRectangle,
+        StyledDrawable,
     },
     Drawable, Pixel,
 };
@@ -93,7 +94,7 @@ impl<C: Color> Block<C> {
         let style = PrimitiveStyleBuilder::new()
             .stroke_width(self.border.width)
             .stroke_alignment(
-                embedded_graphics::primitives::StrokeAlignment::Outside,
+                embedded_graphics::primitives::StrokeAlignment::Inside,
             );
 
         let style = if let Some(border_color) = self.border.color {

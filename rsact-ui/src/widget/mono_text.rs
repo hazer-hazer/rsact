@@ -120,11 +120,15 @@ pub struct MonoText<W: WidgetCtx> {
 }
 
 impl<W: WidgetCtx + 'static> MonoText<W> {
+    pub fn new_static<T: ToString + PartialEq + 'static>(content: T) -> Self {
+        Self::new(create_memo(move |_| content.to_string()))
+    }
+
     pub fn new<T: ToString + PartialEq + 'static>(
-        content: impl IntoMemo<T> + 'static,
+        content: impl AsMemo<T> + 'static,
     ) -> Self {
-        let font = use_signal(FONT_6X10);
-        let content = content.into_memo().mapped(|content| content.to_string());
+        let font = create_signal(FONT_6X10);
+        let content = content.as_memo().mapped(|content| content.to_string());
 
         let layout = Layout::shrink(LayoutKind::Content(ContentLayout {
             content_size: content.mapped(move |content| {
@@ -136,7 +140,7 @@ impl<W: WidgetCtx + 'static> MonoText<W> {
         Self {
             content,
             layout,
-            props: use_signal(MonoFontProps {
+            props: create_signal(MonoFontProps {
                 size: FontSize::Unset,
                 style: FontStyle::Normal,
             }),
@@ -153,19 +157,33 @@ impl<W: WidgetCtx + 'static> MonoText<W> {
         self
     }
 
-    pub fn font_size<T: Into<FontSize> + Copy + 'static>(
-        self,
-        font_size: impl MaybeSignal<T> + 'static,
-    ) -> Self {
-        self.props.setter(font_size.maybe_signal(), |&font_size, props| {
-            props.size = font_size.into()
+    // pub fn font_size<T: Into<FontSize> + Copy + 'static>(
+    //     self,
+    //     font_size: impl MaybeSignal<T> + 'static,
+    // ) -> Self {
+    //     self.props.setter(font_size.maybe_signal(), |&font_size, props| {
+    //         props.size = font_size.into()
+    //     });
+    //     self
+    // }
+
+    // pub fn font_style(self, font_style: impl MaybeSignal<FontStyle>) -> Self {
+    //     self.props.setter(font_style.maybe_signal(), |&font_style, props| {
+    //         props.style = font_style
+    //     });
+    //     self
+    // }
+
+    pub fn font_size(self, font_size: impl Into<FontSize>) -> Self {
+        self.props.update_untracked(|props| {
+            props.size = font_size.into();
         });
         self
     }
 
-    pub fn font_style(self, font_style: impl MaybeSignal<FontStyle>) -> Self {
-        self.props.setter(font_style.maybe_signal(), |&font_style, props| {
-            props.style = font_style
+    pub fn font_style(self, font_style: FontStyle) -> Self {
+        self.props.update_untracked(|props| {
+            props.style = font_style;
         });
         self
     }
@@ -176,20 +194,25 @@ where
     W::Styler: Styler<MonoTextStyle<W::Color>, Class = ()>,
 {
     fn meta(&self) -> crate::widget::MetaTree {
-        MetaTree::childless(Meta::none())
+        MetaTree::childless(Meta::none)
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
         ctx.accept_styles(self.style, ());
 
         let viewport = ctx.viewport;
-        let props = self.props;
+        let props = self.props.get();
 
-        self.font.set_from(mapped!(move |viewport, props| pick_font(
-            props.size,
-            props.style,
-            *viewport
-        )));
+        // self.font.set_from(mapped!(move |viewport, props| pick_font(
+        //     props.size,
+        //     props.style,
+        //     *viewport
+        // )));
+
+        // TODO: Not reactive, font must be a computed
+        self.font.update_untracked(|font| {
+            *font = pick_font(props.size, props.style, viewport.get())
+        });
     }
 
     fn layout(&self) -> Signal<crate::layout::Layout> {
@@ -197,18 +220,16 @@ where
     }
 
     fn build_layout_tree(&self) -> MemoTree<crate::layout::Layout> {
-        MemoTree::childless(self.layout.into_memo())
+        MemoTree::childless(self.layout.as_memo())
     }
 
     fn draw(
         &self,
         ctx: &mut crate::widget::DrawCtx<'_, W>,
     ) -> crate::widget::DrawResult {
-        let style = self.style;
+        let style = self.style.get().with_tree(ctx.tree_style);
 
         self.content.with(|content| {
-            let style = style.get().with_tree(ctx.tree_style);
-
             TextBox::with_textbox_style(
                 content,
                 ctx.layout.inner,
@@ -232,12 +253,12 @@ where
     }
 }
 
-impl<'a, W: WidgetCtx + 'static> IntoSignal<El<W>> for &'a str
+impl<'a, W: WidgetCtx + 'static> Into<El<W>> for &'a str
 where
     W::Styler: Styler<MonoTextStyle<W::Color>, Class = ()>,
 {
-    fn into_signal(self) -> Signal<El<W>> {
-        MonoText::new(self.to_string()).el().into_signal()
+    fn into(self) -> El<W> {
+        MonoText::new_static(self.to_string()).el()
     }
 }
 

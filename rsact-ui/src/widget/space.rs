@@ -19,32 +19,48 @@ pub struct Space<W: WidgetCtx, Dir: Direction> {
 }
 
 impl<W: WidgetCtx> Space<W, RowDir> {
-    pub fn row<L: Into<Length> + Clone + PartialEq + 'static>(
-        length: impl IntoMemo<L>,
-    ) -> Self {
+    // pub fn row<L: Into<Length> + Clone + PartialEq + 'static>(
+    //     length: impl AsMemo<L>,
+    // ) -> Self {
+    //     Self::new(length)
+    // }
+
+    pub fn row(length: impl Into<Length>) -> Self {
         Self::new(length)
     }
 }
 
 impl<W: WidgetCtx> Space<W, ColDir> {
-    pub fn col<L: Into<Length> + Clone + PartialEq + 'static>(
-        length: impl IntoMemo<L>,
-    ) -> Self {
+    // pub fn col<L: Into<Length> + Clone + PartialEq + 'static>(
+    //     length: impl AsMemo<L>,
+    // ) -> Self {
+    //     Self::new(length)
+    // }
+
+    pub fn col(length: impl Into<Length>) -> Self {
         Self::new(length)
     }
 }
 
 impl<W: WidgetCtx, Dir: Direction> Space<W, Dir> {
-    pub fn new<L: Into<Length> + Clone + PartialEq + 'static>(
-        length: impl IntoMemo<L>,
-    ) -> Self {
-        let length = length.into_memo();
-        let layout = Layout::shrink(LayoutKind::Edge).into_signal();
+    // pub fn new<L: Into<Length> + Clone + PartialEq + 'static>(
+    //     length: impl AsMemo<L>,
+    // ) -> Self {
+    //     let length = length.as_memo();
+    //     let layout = Layout::shrink(LayoutKind::Edge).into_signal();
 
-        layout.setter(length, move |length, layout| {
-            layout.size =
-                Dir::AXIS.canon(length.clone().into(), Length::fill());
-        });
+    //     layout.setter(length, move |length, layout| {
+    //         layout.size =
+    //             Dir::AXIS.canon(length.clone().into(), Length::fill());
+    //     });
+
+    //     Self { layout, ctx: PhantomData, dir: PhantomData }
+    // }
+
+    pub fn new(length: impl Into<Length>) -> Self {
+        let layout = Layout::shrink(LayoutKind::Edge)
+            .size(Dir::AXIS.canon(length.into(), Length::fill()))
+            .into_signal();
 
         Self { layout, ctx: PhantomData, dir: PhantomData }
     }
@@ -52,7 +68,7 @@ impl<W: WidgetCtx, Dir: Direction> Space<W, Dir> {
 
 impl<W: WidgetCtx, Dir: Direction> Widget<W> for Space<W, Dir> {
     fn meta(&self) -> MetaTree {
-        MetaTree::childless(Meta::none())
+        MetaTree::childless(Meta::none)
     }
 
     fn layout(&self) -> Signal<Layout> {
@@ -62,7 +78,7 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Space<W, Dir> {
     fn on_mount(&mut self, _ctx: crate::widget::MountCtx<W>) {}
 
     fn build_layout_tree(&self) -> MemoTree<Layout> {
-        MemoTree::childless(self.layout.into_memo())
+        MemoTree::childless(self.layout.as_memo())
     }
 
     fn draw(&self, _ctx: &mut DrawCtx<'_, W>) -> DrawResult {

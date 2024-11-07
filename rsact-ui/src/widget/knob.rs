@@ -74,7 +74,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
             id: ElId::unique(),
             layout: Layout {
                 kind: LayoutKind::Edge,
-                size: Size::new_equal(Length::Fixed(20)),
+                size: Size::new_equal(Length::Fixed(25)),
             }
             .into_signal(),
             value,
@@ -83,9 +83,16 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
         }
     }
 
-    pub fn size(self, size: impl IntoMemo<u32>) -> Self {
-        self.layout.setter(size.into_memo(), |size, layout| {
-            layout.size = Size::new_equal(Length::Fixed(*size));
+    // pub fn size(self, size: impl AsMemo<u32>) -> Self {
+    //     self.layout.setter(size.as_memo(), |size, layout| {
+    //         layout.size = Size::new_equal(Length::Fixed(*size));
+    //     });
+    //     self
+    // }
+
+    pub fn size(self, size: impl Into<u32>) -> Self {
+        self.layout.update_untracked(|layout| {
+            layout.size = Size::new_equal(Length::Fixed(size.into()));
         });
         self
     }
@@ -97,7 +104,8 @@ where
     W::Event: KnobEvent,
 {
     fn meta(&self) -> MetaTree {
-        MetaTree::childless(Meta::focusable(self.id))
+        let id = self.id;
+        MetaTree::childless(create_memo(move |_| Meta::focusable(id)))
     }
 
     fn on_mount(&mut self, ctx: super::MountCtx<W>) {
@@ -121,9 +129,6 @@ where
             (value_real * range_degrees.to_degrees()).min(360.0),
         );
 
-        // TODO: Round focus outline
-        ctx.draw_focus_outline(self.id)?;
-
         Sector::new(
             ctx.layout.inner.top_left,
             ctx.layout.inner.size.max_square().width,
@@ -131,7 +136,10 @@ where
             value_angle,
         )
         .into_styled(style.sector_style())
-        .render(ctx.renderer)
+        .render(ctx.renderer)?;
+
+        // TODO: Round focus outline
+        ctx.draw_focus_outline(self.id)
     }
 
     fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse<W> {

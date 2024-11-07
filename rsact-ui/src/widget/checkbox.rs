@@ -76,7 +76,8 @@ where
         + Styler<IconStyle<W::Color>, Class = ()>,
 {
     fn meta(&self) -> MetaTree {
-        MetaTree::childless(Meta::focusable(self.id))
+        let id = self.id;
+        MetaTree::childless(move || Meta::focusable(id))
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
@@ -89,7 +90,7 @@ where
     }
 
     fn build_layout_tree(&self) -> rsact_reactive::prelude::MemoTree<Layout> {
-        MemoTree::childless(self.layout.into_memo())
+        MemoTree::childless(self.layout)
     }
 
     fn draw(
@@ -100,7 +101,7 @@ where
 
         Block::from_layout_style(
             ctx.layout.outer,
-            self.layout.get().block_model(),
+            self.layout.with(|layout| layout.block_model()),
             style.container,
         )
         .render(ctx.renderer)?;

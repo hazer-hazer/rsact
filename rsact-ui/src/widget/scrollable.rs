@@ -100,34 +100,34 @@ pub struct Scrollable<W: WidgetCtx, Dir: Direction> {
     id: ElId,
     state: Signal<ScrollableState>,
     style: MemoChain<ScrollableStyle<W::Color>>,
-    content: Signal<El<W>>,
+    content: El<W>,
     layout: Signal<Layout>,
     mode: ScrollableMode,
     dir: PhantomData<Dir>,
 }
 
 impl<W: WidgetCtx> Scrollable<W, RowDir> {
-    pub fn horizontal(content: impl IntoSignal<El<W>>) -> Self {
+    pub fn horizontal(content: impl Widget<W> + 'static) -> Self {
         Self::new(content)
     }
 }
 
 impl<W: WidgetCtx> Scrollable<W, ColDir> {
-    pub fn vertical(content: impl IntoSignal<El<W>>) -> Self {
+    pub fn vertical(content: impl Widget<W> + 'static) -> Self {
         Self::new(content)
     }
 }
 
 impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
-    pub fn new(content: impl IntoSignal<El<W>>) -> Self {
-        let content = content.into_signal();
-        let state = use_signal(ScrollableState::none());
+    pub fn new(content: impl Widget<W> + 'static) -> Self {
+        let content = content.el();
+        let state = create_signal(ScrollableState::none());
+        let content_layout = content.layout();
 
         let layout = Layout {
             kind: LayoutKind::Scrollable(ScrollableLayout {
-                content_size: content.mapped(|content| {
-                    content.layout().with(|layout| layout.content_size())
-                }),
+                content_size: content_layout
+                    .mapped(|layout| layout.content_size()),
             }),
             size: Dir::AXIS.canon(
                 Length::InfiniteWindow(Length::Shrink.try_into().unwrap()),
@@ -136,8 +136,6 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
         }
         .into_signal();
 
-        let content_layout: Signal<Layout> =
-            content.with(|content| content.layout());
         let content_layout_length =
             content_layout.with(|layout| layout.size.main(Dir::AXIS));
 
@@ -185,35 +183,62 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
     }
 }
 
-impl<W, Dir> SizedWidget<W> for Scrollable<W, Dir>
+impl<W> SizedWidget<W> for Scrollable<W, RowDir>
 where
     W::Event: ScrollEvent,
     W: WidgetCtx,
-    Dir: Direction,
     W::Styler: Styler<ScrollableStyle<W::Color>, Class = ()>,
 {
-    fn width<L: Into<Length> + Copy + 'static>(
-        self,
-        width: impl MaybeSignal<L> + 'static,
-    ) -> Self
+    // fn width<L: Into<Length> + Copy + 'static>(
+    //     self,
+    //     width: impl MaybeSignal<L> + 'static,
+    // ) -> Self
+    // where
+    //     Self: Sized + 'static,
+    // {
+    //     self.layout().setter(width.maybe_signal(), |&width, layout| {
+    //         layout.size.width =
+    //             Length::InfiniteWindow(width.into().try_into().unwrap());
+    //     });
+    //     self
+    // }
+
+    fn width(self, width: impl Into<Length>) -> Self
     where
-        Self: Sized + 'static,
+        Self: Sized,
     {
-        self.layout().setter(width.maybe_signal(), |&width, layout| {
+        self.layout().update_untracked(|layout| {
             layout.size.width =
                 Length::InfiniteWindow(width.into().try_into().unwrap());
         });
         self
     }
+}
 
-    fn height<L: Into<Length> + Copy + 'static>(
-        self,
-        height: impl MaybeSignal<L> + 'static,
-    ) -> Self
+impl<W> SizedWidget<W> for Scrollable<W, ColDir>
+where
+    W::Event: ScrollEvent,
+    W: WidgetCtx,
+    W::Styler: Styler<ScrollableStyle<W::Color>, Class = ()>,
+{
+    // fn height<L: Into<Length> + Copy + 'static>(
+    //     self,
+    //     height: impl MaybeSignal<L> + 'static,
+    // ) -> Self
+    // where
+    //     Self: Sized + 'static,
+    // {
+    //     self.layout().setter(height.maybe_signal(), |&height, layout| {
+    //         layout.size.height =
+    //             Length::InfiniteWindow(height.into().try_into().unwrap());
+    //     });
+    //     self
+    // }
+    fn height(self, height: impl Into<Length>) -> Self
     where
-        Self: Sized + 'static,
+        Self: Sized,
     {
-        self.layout().setter(height.maybe_signal(), |&height, layout| {
+        self.layout().update_untracked(|layout| {
             layout.size.height =
                 Length::InfiniteWindow(height.into().try_into().unwrap());
         });
@@ -229,15 +254,17 @@ where
     W::Styler: Styler<ScrollableStyle<W::Color>, Class = ()>,
 {
     fn meta(&self) -> crate::widget::MetaTree {
+        let content_tree = self.content.meta();
         MetaTree {
-            data: Meta::none().into_memo(),
-            children: self.content.mapped(|content| vec![content.meta()]),
+            data: Meta::none.as_memo(),
+            children: create_memo(move |_| vec![content_tree]),
         }
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
         ctx.accept_styles(self.style, self.state);
-        ctx.pass_to_child(self.content);
+        // ctx.pass_to_child(self.content);
+        self.content.on_mount(ctx);
     }
 
     fn layout(&self) -> Signal<Layout> {
@@ -245,11 +272,10 @@ where
     }
 
     fn build_layout_tree(&self) -> MemoTree<Layout> {
-        let content = self.content;
+        let content_tree = self.content.build_layout_tree();
         MemoTree {
-            data: self.layout.into_memo(),
-            children: content
-                .mapped(|content| vec![content.build_layout_tree()]),
+            data: self.layout.as_memo(),
+            children: create_memo(move |_| vec![content_tree]),
         }
     }
 
@@ -257,14 +283,11 @@ where
         &self,
         ctx: &mut crate::widget::DrawCtx<'_, W>,
     ) -> crate::widget::DrawResult {
-        let layout = self.layout.get();
         let style = self.style.get();
-
-        ctx.draw_focus_outline(self.id)?;
 
         Block::from_layout_style(
             ctx.layout.outer,
-            layout.block_model(),
+            self.layout.with(|layout| layout.block_model()),
             style.container,
         )
         .render(ctx.renderer)?;
@@ -335,20 +358,20 @@ where
             .render(ctx.renderer)?;
         }
 
-        self.content.with(|content| {
-            // Does not matter, Scrollable layout does not have padding, so
-            // outer == inner
-            // // TODO: Should be clipping outer rect???!??!?
-            ctx.renderer.clipped(ctx.layout.inner, |renderer| {
-                content.draw(&mut DrawCtx {
-                    state: ctx.state,
-                    renderer,
-                    layout: &child_layout
-                        .translate(Dir::AXIS.canon(-(offset as i32), 0)),
-                    tree_style: ctx.tree_style,
-                })
+        // Does not matter, Scrollable layout does not have padding, so
+        // outer == inner
+        // // TODO: Should be clipping outer rect???!??!?
+        ctx.renderer.clipped(ctx.layout.inner, |renderer| {
+            self.content.draw(&mut DrawCtx {
+                state: ctx.state,
+                renderer,
+                layout: &child_layout
+                    .translate(Dir::AXIS.canon(-(offset as i32), 0)),
+                tree_style: ctx.tree_style,
             })
-        })
+        })?;
+
+        ctx.draw_focus_outline(self.id)
     }
 
     fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse<W> {
@@ -406,9 +429,7 @@ where
                 // scrollable content
                 let had_focused = ctx.pass.focused().is_some();
 
-                let content_response = self
-                    .content
-                    .control_flow(|content| ctx.pass_to_child(content));
+                let content_response = ctx.pass_to_child(&mut self.content);
 
                 if let (false, Some(focused)) =
                     (had_focused, ctx.pass.focused())

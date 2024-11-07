@@ -35,24 +35,24 @@ impl<C: Color> ButtonStyle<C> {
 pub struct Button<W: WidgetCtx> {
     id: ElId,
     layout: Signal<Layout>,
-    content: Signal<El<W>>,
+    content: El<W>,
     state: Signal<ButtonState>,
     style: MemoChain<ButtonStyle<W::Color>>,
-    on_click: Option<Box<dyn Fn() -> Option<Message<W>>>>,
+    on_click: Option<Box<dyn Fn()>>,
 }
 
 impl<W: WidgetCtx + 'static> Button<W> {
-    pub fn new(content: impl IntoSignal<El<W>>) -> Self {
-        let content = content.into_signal();
-        let state = use_signal(ButtonState::none());
+    pub fn new(content: impl Into<El<W>>) -> Self {
+        let content = content.into();
+        let state = create_signal(ButtonState::none());
 
         let layout = Layout::shrink(LayoutKind::Container(ContainerLayout {
-            block_model: BlockModel::zero().border_width(1).padding(5),
+            block_model: BlockModel::zero().border_width(1),
             horizontal_align: Align::Center,
             vertical_align: Align::Center,
-            content_size: content.mapped(|content| {
-                content.layout().with(|layout| layout.content_size())
-            }),
+            content_size: content
+                .layout()
+                .mapped(|layout| layout.content_size()),
         }))
         .into_signal();
 
@@ -68,17 +68,15 @@ impl<W: WidgetCtx + 'static> Button<W> {
 
     pub fn on_click<F: 'static>(mut self, on_click: F) -> Self
     where
-        F: Fn() -> Option<Message<W>>,
+        F: Fn(),
     {
         self.on_click = Some(Box::new(on_click));
         self
     }
 
-    pub fn use_state(
-        self,
-        state: impl WriteSignal<ButtonState> + 'static,
-    ) -> Self {
-        state.set_from(self.state);
+    // It's okay to replace state in builder, as it isn't used before startup
+    pub fn use_state(mut self, state: Signal<ButtonState>) -> Self {
+        self.state = state;
         self
     }
 
@@ -113,13 +111,14 @@ where
     W::Styler: Styler<ButtonStyle<W::Color>, Class = ()>,
 {
     fn meta(&self) -> MetaTree {
-        MetaTree::childless(Meta::focusable(self.id))
+        let id = self.id;
+        MetaTree::childless(move || Meta::focusable(id))
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
         ctx.accept_styles(self.style, self.state);
 
-        ctx.pass_to_child(self.content);
+        self.content.on_mount(ctx);
     }
 
     fn layout(&self) -> Signal<Layout> {
@@ -127,27 +126,27 @@ where
     }
 
     fn build_layout_tree(&self) -> MemoTree<Layout> {
+        let content_tree = self.content.build_layout_tree();
+
         MemoTree {
-            data: self.layout.into_memo(),
-            children: self
-                .content
-                .mapped(|content| vec![content.build_layout_tree()]),
+            data: self.layout.as_memo(),
+            children: create_memo(move |_| vec![content_tree]),
         }
     }
 
     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
-        ctx.draw_focus_outline(self.id)?;
-
         let style = self.style.get();
 
         Block::from_layout_style(
             ctx.layout.outer,
-            self.layout.get().block_model(),
+            self.layout.with(|layout| layout.block_model()),
             style.container,
         )
         .render(ctx.renderer)?;
 
-        self.content.with(|content| ctx.draw_child(content))
+        ctx.draw_child(&self.content)?;
+
+        ctx.draw_focus_outline(self.id)
     }
 
     fn on_event(
@@ -162,10 +161,7 @@ where
 
                 if let Some(on_click) = self.on_click.as_ref() {
                     if !current_state.pressed && pressed {
-                        let message = on_click();
-                        if let Some(message) = message {
-                            return ctx.bubble(BubbledData::Message(message));
-                        }
+                        on_click();
                     }
                 }
 

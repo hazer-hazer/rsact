@@ -11,14 +11,15 @@ use crate::{
     render::{color::Color, Renderer},
     style::TreeStyle,
     widget::{
-        Behavior, DrawCtx, EventCtx, MetaTree, MountCtx, PageState,
-        Widget as _, WidgetCtx,
+        Behavior, DrawCtx, EventCtx, MetaTree, MountCtx, PageState, Widget,
+        WidgetCtx,
     },
 };
 use alloc::vec::Vec;
 use dev::{DevHoveredEl, DevTools};
 use embedded_graphics::prelude::{DrawTarget, Point};
-use rsact_reactive::prelude::*;
+use num::traits::WrappingAdd as _;
+use rsact_reactive::{prelude::*, runtime::new_deny_new_scope};
 
 pub struct PageStyle<C: Color> {
     // TODO: Use ColorStyle
@@ -50,41 +51,43 @@ struct PageTree {
 }
 
 pub struct Page<W: WidgetCtx> {
+    // TODO: root is not used as a Signal but as boxed value, better add StoredValue to rsact_reactive for static storage
     root: Signal<El<W>>,
-    // ids: Memo<Vec<ElId>>,
     tree: PageTree,
     layout: Memo<LayoutModel>,
     state: Signal<PageState<W>>,
-    // TODO: Should be Memo?
     style: Signal<PageStyle<W::Color>>,
     renderer: Signal<W::Renderer>,
     viewport: Memo<Size>,
     dev_tools: Signal<DevTools>,
-    needs_redraw: Signal<bool>,
-    interacting: Signal<bool>,
+    force_redraw: Signal<bool>,
+    drawing: Memo<bool>,
+    draw_calls: Signal<usize>,
 }
 
 impl<W: WidgetCtx> Page<W> {
     pub(crate) fn new(
-        root: impl IntoSignal<El<W>>,
+        root: impl Into<El<W>>,
         viewport: Signal<Size>,
         styler: Signal<W::Styler>,
         dev_tools: Signal<DevTools>,
         renderer: Signal<W::Renderer>,
     ) -> Self {
-        let root = root.into_signal();
+        let mut root = root.into();
         let state = PageState::new().into_signal();
-        let viewport = viewport.into_memo();
+        let viewport = viewport.as_memo();
+
+        // Raw root initialization //
 
         // TODO: `on_mount` dependency on viewport can be removed for text,
         //  icon, etc. by adding special LayoutKind dependent on viewport and
         //  pass viewport to model_layout. In such a way, layout becomes much
         //  more straightforward and single-pass process.
-        root.update_untracked(|root| {
-            root.on_mount(MountCtx { viewport, styler: styler.into_memo() });
-        });
+        let meta = root.meta();
+        root.on_mount(MountCtx { viewport, styler: styler.as_memo() });
 
-        let layout_tree = root.with(|root| root.build_layout_tree());
+        // TODO: Should be `mapped`? Now, root is kind of partially-reactive
+        let layout_tree = root.build_layout_tree();
         let layout = viewport.mapped(move |&viewport_size| {
             // println!("Relayout");
             // TODO: Possible optimization is to use previous memo result, pass
@@ -94,53 +97,31 @@ impl<W: WidgetCtx> Page<W> {
                 layout_tree,
                 Limits::only_max(viewport_size),
                 viewport_size.into(),
-                viewport,
+                // viewport,
             );
 
-            // println!("{:#?}", layout.tree_root());
+            // std::println!("Relayout {:#?}", layout.tree_root());
 
             layout
         });
 
-        let meta = root.with(|root| root.meta());
-        let focusable = use_memo(move |_| {
-            meta.flat_collect().iter().fold(0, |count, el| {
-                el.with(|el| {
-                    count + (el.behavior & Behavior::FOCUSABLE).bits() as usize
-                })
-            })
-        });
+        let style = PageStyle::base().into_signal();
 
-        Self {
-            root,
-            layout,
-            state,
-            style: PageStyle::base().into_signal(),
-            tree: PageTree { meta, focusable, focused: None },
-            // TODO: Signal viewport in Renderer
-            renderer,
-            viewport,
-            dev_tools,
-            needs_redraw: false.into_signal(),
-            interacting: false.into_signal(),
-        }
-        .drawing()
-    }
+        let draw_calls = create_signal(0);
+        let force_redraw = create_signal(false);
 
-    fn drawing(self) -> Self {
-        let renderer = self.renderer;
-        let state = self.state;
-        let root = self.root;
+        // Now root is boxed //
+        let root = root.into_signal();
 
-        use_effect(move |_| {
-            if self.interacting.get() {
-                return;
+        let drawing = create_memo(move |_| {
+            if force_redraw.get() {
+                force_redraw.set_untracked(false);
             }
 
-            with!(|state, root| {
-                renderer.update(|renderer| {
+            with!(|state| {
+                renderer.update_untracked(|renderer| {
                     // FIXME: Performance?
-                    self.style
+                    style
                         .with(|style| {
                             if let Some(background_color) =
                                 style.background_color
@@ -153,36 +134,63 @@ impl<W: WidgetCtx> Page<W> {
                         .unwrap();
 
                     // TODO: How to handle results?
-                    let _result = self
-                        .layout
+                    let _result = layout
                         .with(|layout| {
-                            root.draw(&mut DrawCtx {
-                                state,
-                                renderer,
-                                layout: &layout.tree_root(),
-                                tree_style: TreeStyle::base(),
+                            let _deny_new = new_deny_new_scope();
+                            root.update_untracked(|root| {
+                                root.draw(&mut DrawCtx {
+                                    state,
+                                    renderer,
+                                    layout: &layout.tree_root(),
+                                    tree_style: TreeStyle::base(),
+                                })
                             })
                         })
                         .unwrap();
 
-                    if self.dev_tools.with(|dt| dt.enabled) {
-                        if let Some(hovered) =
-                            self.dev_tools.with(|dt| dt.hovered)
-                        {
-                            hovered
-                                .draw(renderer, self.viewport.get())
-                                .unwrap();
+                    if dev_tools.with(|dt| dt.enabled) {
+                        if let Some(hovered) = dev_tools.with(|dt| dt.hovered) {
+                            hovered.draw(renderer, viewport.get()).unwrap();
                         }
                     }
                 })
             });
 
-            self.needs_redraw.set(true);
+            draw_calls
+                .update(|draw_calls| *draw_calls = draw_calls.wrapping_add(&1));
+
+            true
         });
 
-        self
+        let focusable = create_memo(move |_| {
+            meta.flat_collect().iter().fold(0, |count, el| {
+                el.with(|el| {
+                    count + (el.behavior & Behavior::FOCUSABLE).bits() as usize
+                })
+            })
+        });
+
+        Self {
+            root,
+            layout,
+            state,
+            style,
+            tree: PageTree { meta, focusable, focused: None },
+            // TODO: Signal viewport in Renderer
+            renderer,
+            viewport,
+            dev_tools,
+            force_redraw,
+            drawing,
+            draw_calls,
+        }
     }
 
+    pub(crate) fn force_redraw(&mut self) {
+        self.force_redraw.set(true);
+    }
+
+    // TODO
     // pub fn style(
     //     mut self,
     //     style: impl IntoSignal<PageStyle<C::Color>>,
@@ -206,11 +214,17 @@ impl<W: WidgetCtx> Page<W> {
         })
     }
 
+    pub fn take_draw_calls(&self) -> usize {
+        let draw_calls = self.draw_calls.get();
+        self.draw_calls.set(0);
+        draw_calls
+    }
+
     pub fn handle_events(
         &mut self,
         events: impl Iterator<Item = W::Event>,
     ) -> Vec<UnhandledEvent<W>> {
-        events
+        let unhandled = events
             .filter_map(|event| {
                 if self.dev_tools.get().enabled {
                     if let Some(point) = event.as_dev_el_hover() {
@@ -232,8 +246,6 @@ impl<W: WidgetCtx> Page<W> {
                 let mut pass = EventPass::new(new_focus);
 
                 let response = with!(|layout| {
-                    self.interacting.set(true);
-
                     let response = self.root.update_untracked(|root| {
                         root.on_event(&mut EventCtx {
                             event: &event,
@@ -242,9 +254,7 @@ impl<W: WidgetCtx> Page<W> {
                             pass: &mut pass,
                         })
                     });
-                    self.interacting.set(false);
-
-                    self.root.notify();
+                    // TODO: Return notify
 
                     response
                 });
@@ -277,15 +287,17 @@ impl<W: WidgetCtx> Page<W> {
                     },
                 }
             })
-            .collect()
+            .collect();
+
+        unhandled
     }
 
     pub fn draw(
         &mut self,
         target: &mut impl DrawTarget<Color = <W::Renderer as Renderer>::Color>,
     ) -> bool {
-        if self.needs_redraw.get() {
-            self.needs_redraw.set(false);
+        if self.drawing.get() {
+            // self.needs_render.set(false);
             self.renderer.with(|renderer| renderer.finish_frame(target));
             true
         } else {

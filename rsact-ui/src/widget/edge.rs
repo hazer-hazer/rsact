@@ -32,8 +32,9 @@ impl<W: WidgetCtx + 'static> SizedWidget<W> for Edge<W> {}
 
 impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
     fn meta(&self) -> crate::widget::MetaTree {
-        MetaTree::childless(Meta::none())
+        MetaTree::childless(Meta::none)
     }
+
     fn layout(&self) -> Signal<Layout> {
         self.layout
     }
@@ -41,7 +42,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
     fn on_mount(&mut self, _ctx: crate::widget::MountCtx<W>) {}
 
     fn build_layout_tree(&self) -> MemoTree<Layout> {
-        MemoTree::childless(self.layout.into_memo())
+        MemoTree::childless(self.layout.as_memo())
     }
 
     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
@@ -49,7 +50,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
 
         Block::from_layout_style(
             ctx.layout.outer,
-            self.layout.get().block_model(),
+            self.layout.with(|layout| layout.block_model()),
             style,
         )
         .render(ctx.renderer)

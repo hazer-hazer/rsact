@@ -6,7 +6,10 @@
     "simulator",
     "single-thread"
   ],
-  "rust-analyzer.cargo.features": [],
+  "rust-analyzer.cargo.features": [
+    "simulator",
+    "single-thread"
+  ],
   "cSpell.words": [
     "antialiasing",
     "Bresenham",
@@ -14,8 +17,11 @@
     "flexbox",
     "fract",
     "fullscreen",
+    "lerpi",
+    "OLED",
     "powi",
     "Renderable",
+    "rsact",
     "textbox",
     "trunc",
     "Xiaolin"

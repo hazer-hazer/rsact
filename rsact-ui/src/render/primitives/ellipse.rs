@@ -91,7 +91,7 @@ impl<C: Color> StyledAlphaDrawable<PrimitiveStyle<C>> for Ellipse {
         let half_stroke_size = Size::new_equal(style.stroke_width / 2);
         // let half_ceil_stroke_size =
         //     Size::new_equal(style.stroke_width.div_ceil(2));
-        let (r_stroke, r_fill) = match style.stroke_alignment {
+        let (r_stroke, _r_fill) = match style.stroke_alignment {
             embedded_graphics::primitives::StrokeAlignment::Inside => {
                 (r - stroke_size, r - half_stroke_size)
             },

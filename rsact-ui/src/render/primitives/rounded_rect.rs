@@ -5,9 +5,9 @@ use crate::{
         size::{ByUnitV2, PointExt, UnitV2},
         Axis,
     },
-    prelude::{BorderRadius, Color, Size},
+    prelude::{BorderRadius, Color},
     render::alpha::StyledAlphaDrawable,
-    utils::{min_max_range, min_max_range_incl},
+    utils::min_max_range_incl,
 };
 use embedded_graphics::{
     geometry::AnchorPoint,

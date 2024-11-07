@@ -146,7 +146,9 @@ where
     W::Styler: Styler<SliderStyle<W::Color>, Class = ()>,
 {
     fn meta(&self) -> MetaTree {
-        MetaTree::childless(Meta::focusable(self.id))
+        let id = self.id;
+
+        MetaTree::childless(create_memo(move |_| Meta::focusable(id)))
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
@@ -158,13 +160,11 @@ where
     }
 
     fn build_layout_tree(&self) -> MemoTree<Layout> {
-        MemoTree::childless(self.layout.into_memo())
+        MemoTree::childless(self.layout.as_memo())
     }
 
     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         let style = self.style.get();
-
-        ctx.draw_focus_outline(self.id)?;
 
         let track_len =
             ctx.layout.inner.size.main(Dir::AXIS) - style.thumb_size - 1;
@@ -191,7 +191,7 @@ where
             ))
             .render(ctx.renderer)?;
 
-        Ok(())
+        ctx.draw_focus_outline(self.id)
     }
 
     fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse<W> {

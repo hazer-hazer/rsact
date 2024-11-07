@@ -80,7 +80,7 @@ where
     W::Styler: Styler<BarStyle<W::Color>, Class = ()>,
 {
     fn meta(&self) -> super::MetaTree {
-        MetaTree::childless(Meta::none())
+        MetaTree::childless(Meta::none)
     }
 
     fn on_mount(&mut self, ctx: super::MountCtx<W>) {

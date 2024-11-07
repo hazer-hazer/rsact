@@ -6,7 +6,6 @@ use embedded_graphics::{
     primitives::{PrimitiveStyle, Rectangle, StyledDrawable},
     Pixel,
 };
-use num::{integer::Roots, pow::Pow};
 
 // TODO: Canonize Line when constructing? Swap start and end in to always keep start.x < end.x?
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -137,8 +136,8 @@ impl<C: Color> StyledAlphaDrawable<PrimitiveStyle<C>> for Line {
 
         let steep = (end.y - start.y).abs() > (end.x - start.x).abs();
 
-        start = start.swap_axis_if(steep);
-        end = end.swap_axis_if(steep);
+        start = start.swap_axes_if(steep);
+        end = end.swap_axes_if(steep);
 
         if start.x > end.x {
             core::mem::swap(&mut start, &mut end);
@@ -161,11 +160,11 @@ impl<C: Color> StyledAlphaDrawable<PrimitiveStyle<C>> for Line {
         let rfpart = 1.0 - fpart;
 
         let point = Point::new(x_pixel1 as i32, y_pixel1 as i32);
-        draw_pixel(point.swap_axis_if(steep), rfpart * x_gap)?;
+        draw_pixel(point.swap_axes_if(steep), rfpart * x_gap)?;
         for w in 1..draw_width {
-            draw_pixel(point.add_y(w).swap_axis_if(steep), 1.0)?;
+            draw_pixel(point.add_y(w).swap_axes_if(steep), 1.0)?;
         }
-        draw_pixel(point.add_y(draw_width).swap_axis_if(steep), fpart * x_gap)?;
+        draw_pixel(point.add_y(draw_width).swap_axes_if(steep), fpart * x_gap)?;
 
         let mut inter_y = y_end + gradient;
 
@@ -178,11 +177,11 @@ impl<C: Color> StyledAlphaDrawable<PrimitiveStyle<C>> for Line {
         let rfpart = 1.0 - fpart;
 
         let point = Point::new(x_pixel2 as i32, y_pixel2 as i32);
-        draw_pixel(point.swap_axis_if(steep), rfpart * x_gap)?;
+        draw_pixel(point.swap_axes_if(steep), rfpart * x_gap)?;
         for w in 1..draw_width {
-            draw_pixel(point.add_y(w).swap_axis_if(steep), 1.0)?;
+            draw_pixel(point.add_y(w).swap_axes_if(steep), 1.0)?;
         }
-        draw_pixel(point.add_y(draw_width).swap_axis_if(steep), fpart * x_gap)?;
+        draw_pixel(point.add_y(draw_width).swap_axes_if(steep), fpart * x_gap)?;
 
         for x in x_pixel1.round() as i32 + 1..x_pixel2.round() as i32 {
             let fpart = inter_y.fract();
@@ -190,11 +189,11 @@ impl<C: Color> StyledAlphaDrawable<PrimitiveStyle<C>> for Line {
             let y = inter_y.floor() as i32;
 
             let point = Point::new(x, y);
-            draw_pixel(point.swap_axis_if(steep), rfpart)?;
+            draw_pixel(point.swap_axes_if(steep), rfpart)?;
             for w in 1..draw_width {
-                draw_pixel(point.add_y(w).swap_axis_if(steep), 1.0)?;
+                draw_pixel(point.add_y(w).swap_axes_if(steep), 1.0)?;
             }
-            draw_pixel(point.add_y(draw_width).swap_axis_if(steep), fpart)?;
+            draw_pixel(point.add_y(draw_width).swap_axes_if(steep), fpart)?;
             inter_y += gradient;
         }
 

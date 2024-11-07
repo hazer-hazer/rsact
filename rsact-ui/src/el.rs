@@ -57,9 +57,13 @@ where
         self
     }
 
+    // TODO: on_mount should not subscribe to ctx, but return a callback to call when MountCtx changes
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
+        // TODO: Wrong, mount can be called but should not call widget on_mount
+        // debug_assert!(!self.mounted, "Widgets must not be remounted");
         if !self.mounted {
-            self.widget.on_mount(ctx)
+            self.widget.on_mount(ctx);
+            self.mounted = true;
         }
     }
 

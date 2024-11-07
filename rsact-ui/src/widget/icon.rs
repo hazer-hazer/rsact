@@ -28,7 +28,7 @@ pub struct Icon<W: WidgetCtx, I: IconSet> {
 
 impl<W: WidgetCtx, I: IconSet + 'static> Icon<W, I> {
     pub fn new(icon: impl IntoSignal<I> + 'static) -> Self {
-        let real_size = use_signal(10);
+        let real_size = create_signal(10);
         let layout = Layout::shrink(LayoutKind::Content(ContentLayout::new(
             real_size.mapped(|size| Limits::exact(Size::new_equal(*size))),
         )))
@@ -36,20 +36,25 @@ impl<W: WidgetCtx, I: IconSet + 'static> Icon<W, I> {
 
         Self {
             icon: icon.into_signal(),
-            size: use_signal(FontSize::Unset),
+            size: create_signal(FontSize::Unset),
             real_size,
             layout,
             style: IconStyle::base().into_memo_chain(),
         }
     }
 
-    pub fn size<S: Into<FontSize> + PartialEq + Copy + 'static>(
-        self,
-        size: impl IntoMemo<S>,
-    ) -> Self {
-        self.size.set_from(size.into_memo().mapped(|&size| size.into()));
+    pub fn size(self, size: impl Into<FontSize>) -> Self {
+        self.size.set(size.into());
         self
     }
+
+    // pub fn size<S: Into<FontSize> + PartialEq + Copy + 'static>(
+    //     self,
+    //     size: impl AsMemo<S>,
+    // ) -> Self {
+    //     self.size.set_from(size.as_memo().mapped(|&size| size.into()));
+    //     self
+    // }
 }
 
 impl<W: WidgetCtx, I: IconSet + 'static> Widget<W> for Icon<W, I>
@@ -57,7 +62,7 @@ where
     W::Styler: Styler<IconStyle<W::Color>, Class = ()>,
 {
     fn meta(&self) -> MetaTree {
-        MetaTree::childless(Meta::none())
+        MetaTree::childless(Meta::none)
     }
 
     fn on_mount(&mut self, ctx: MountCtx<W>) {
@@ -66,9 +71,13 @@ where
         let viewport = ctx.viewport;
         let size = self.size;
 
-        self.real_size.set_from(mapped!(move |viewport, size| {
-            size.resolve(*viewport)
-        }))
+        // self.real_size.set_from(mapped!(move |viewport, size| {
+        //     size.resolve(*viewport)
+        // }))
+
+        // TODO: Computed setter
+        // This is not reactive!
+        self.real_size.set(size.get().resolve(viewport.get()));
     }
 
     fn layout(&self) -> Signal<Layout> {
@@ -76,7 +85,7 @@ where
     }
 
     fn build_layout_tree(&self) -> rsact_reactive::prelude::MemoTree<Layout> {
-        MemoTree::childless(self.layout.into_memo())
+        MemoTree::childless(self.layout.as_memo())
     }
 
     fn draw(

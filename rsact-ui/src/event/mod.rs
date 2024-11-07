@@ -52,13 +52,34 @@ pub enum UnhandledEvent<W: WidgetCtx> {
     Bubbled(BubbledData<W>),
 }
 
-#[derive(Clone, Debug)]
+impl<W: WidgetCtx> Debug for UnhandledEvent<W> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Event(arg0) => f.debug_tuple("Event").field(arg0).finish(),
+            Self::Bubbled(arg0) => {
+                f.debug_tuple("Bubbled").field(arg0).finish()
+            },
+        }
+    }
+}
+
+#[derive(Clone)]
 pub enum BubbledData<W: WidgetCtx> {
-    // /// Focused element bubbles its absolute position so parent can react
-    // to /// that event, for example, by scrolling to it
-    // Focused(ElId, Point),
-    Message(Message<W>),
+    // // /// Focused element bubbles its absolute position so parent can react
+    // // to /// that event, for example, by scrolling to it
+    // // Focused(ElId, Point),
+    // Message(Message<W>),
     Custom(<W::Event as Event>::BubbledData),
+}
+
+impl<W: WidgetCtx> Debug for BubbledData<W> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Custom(custom) => {
+                f.debug_tuple("Custom").field(custom).finish()
+            },
+        }
+    }
 }
 
 #[derive(Debug)]
