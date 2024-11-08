@@ -1,8 +1,4 @@
-use crate::{
-    callback::AnyCallback,
-    effect::EffectOrder,
-    runtime::Runtime,
-};
+use crate::{callback::AnyCallback, effect::EffectOrder, runtime::Runtime};
 use alloc::{collections::btree_map::BTreeMap, format, rc::Rc, vec::Vec};
 use core::{
     any::{type_name, Any},
@@ -191,16 +187,18 @@ impl core::fmt::Display for ValueDebugInfo {
 pub enum ValueKind {
     Signal,
     Effect {
-        f: Rc<dyn AnyCallback>,
+        f: Rc<RefCell<dyn AnyCallback>>,
     },
     Memo {
-        f: Rc<dyn AnyCallback>,
+        f: Rc<RefCell<dyn AnyCallback>>,
     },
     MemoChain {
-        initial: Rc<dyn AnyCallback>,
+        initial: Rc<RefCell<dyn AnyCallback>>,
         // TODO: Optimize, don't use BtreeMap but fixed structure with each
         // EffectOrder
-        fs: Rc<RefCell<BTreeMap<EffectOrder, Vec<Rc<dyn AnyCallback>>>>>,
+        fs: Rc<
+            RefCell<BTreeMap<EffectOrder, Vec<Rc<RefCell<dyn AnyCallback>>>>>,
+        >,
     },
 }
 
@@ -257,13 +255,12 @@ impl Storage {
     }
 
     pub(crate) fn get(&self, id: ValueId) -> Option<StoredValue> {
-        // self.values.borrow().get(id).unwrap().clone()
         self.values.borrow().get(id).cloned()
     }
 
     #[cfg(debug_assertions)]
     pub(crate) fn debug_info(&self, id: ValueId) -> Option<ValueDebugInfo> {
-        self.values.borrow().get(id).cloned().map(|value| value.debug)
+        self.values.borrow().get(id).map(|value| value.debug)
     }
 
     pub(crate) fn mark(

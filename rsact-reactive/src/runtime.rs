@@ -240,12 +240,12 @@ impl Runtime {
     ) -> ValueId
     where
         T: 'static,
-        F: Fn(Option<T>) -> T + 'static,
+        F: FnMut(Option<T>) -> T + 'static,
     {
         self.add_value(StoredValue {
             value: Rc::new(RefCell::new(None::<T>)),
             kind: ValueKind::Effect {
-                f: Rc::new(EffectCallback { f, ty: PhantomData }),
+                f: Rc::new(RefCell::new(EffectCallback { f, ty: PhantomData })),
             },
             // Note: Check this, might need to be Dirty
             state: ValueState::Dirty,
@@ -269,12 +269,12 @@ impl Runtime {
     ) -> ValueId
     where
         T: PartialEq + 'static,
-        F: Fn(Option<&T>) -> T + 'static,
+        F: FnMut(Option<&T>) -> T + 'static,
     {
         self.add_value(StoredValue {
             value: Rc::new(RefCell::new(None::<T>)),
             kind: ValueKind::Memo {
-                f: Rc::new(MemoCallback { f, ty: PhantomData }),
+                f: Rc::new(RefCell::new(MemoCallback { f, ty: PhantomData })),
             },
             state: ValueState::Dirty,
             #[cfg(debug_assertions)]
@@ -301,7 +301,10 @@ impl Runtime {
         self.add_value(StoredValue {
             value: Rc::new(RefCell::new(None::<T>)),
             kind: ValueKind::MemoChain {
-                initial: Rc::new(MemoCallback { f, ty: PhantomData }),
+                initial: Rc::new(RefCell::new(MemoCallback {
+                    f,
+                    ty: PhantomData,
+                })),
                 fs: Rc::new(RefCell::new(BTreeMap::new())),
             },
             state: ValueState::Dirty,
@@ -433,10 +436,11 @@ impl Runtime {
                         rt.cleanup(id);
 
                         fs.borrow().values().fold(
-                            initial.run(value.clone()),
+                            (initial.borrow_mut()).run(value.clone()),
                             |changed, cbs| {
                                 cbs.iter().fold(changed, |changed, cb| {
-                                    cb.run(value.clone()) || changed
+                                    cb.borrow_mut().run(value.clone())
+                                        || changed
                                 })
                             },
                         )
@@ -447,7 +451,7 @@ impl Runtime {
                     self.with_observer(id, move |rt| {
                         rt.cleanup(id);
 
-                        f.run(value)
+                        f.borrow_mut().run(value)
                     })
                 },
                 ValueKind::Signal { .. } => true,
@@ -608,7 +612,7 @@ impl Runtime {
                 fs.borrow_mut()
                     .entry(order)
                     .or_default()
-                    .push(Rc::new(MemoChainCallback::new(map)));
+                    .push(Rc::new(RefCell::new(MemoChainCallback::new(map))));
             },
             _ => panic!("Cannot add memo chain to {}", kind),
         }

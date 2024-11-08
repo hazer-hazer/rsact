@@ -8,8 +8,8 @@ use core::{
     marker::PhantomData,
     ops::{
         Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor,
-        BitXorAssign, ControlFlow, Div, DivAssign, Mul, MulAssign, Neg,
-        Not, Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub, SubAssign,
+        BitXorAssign, ControlFlow, Div, DivAssign, Mul, MulAssign, Neg, Not,
+        Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub, SubAssign,
     },
     panic::Location,
 };
@@ -74,11 +74,11 @@ pub trait ReadSignal<T> {
 
 pub trait WriteSignal<T> {
     fn notify(&self);
-    fn update_untracked<U>(&self, f: impl FnOnce(&mut T) -> U) -> U;
+    fn update_untracked<U>(&mut self, f: impl FnOnce(&mut T) -> U) -> U;
 
     #[track_caller]
     fn control_flow<U: UpdateNotification>(
-        &self,
+        &mut self,
         f: impl FnOnce(&mut T) -> U,
     ) -> U {
         let result = self.update_untracked(f);
@@ -89,7 +89,7 @@ pub trait WriteSignal<T> {
     }
 
     #[track_caller]
-    fn update<U>(&self, f: impl FnOnce(&mut T) -> U) -> U {
+    fn update<U>(&mut self, f: impl FnOnce(&mut T) -> U) -> U {
         let result = self.update_untracked(f);
         self.notify();
 
@@ -97,12 +97,12 @@ pub trait WriteSignal<T> {
     }
 
     #[track_caller]
-    fn set(&self, new: T) {
+    fn set(&mut self, new: T) {
         self.update(|value| *value = new)
     }
 
     #[track_caller]
-    fn set_untracked(&self, new: T) {
+    fn set_untracked(&mut self, new: T) {
         self.update_untracked(|value| *value = new)
     }
 }
@@ -159,56 +159,6 @@ impl<T: 'static, M: marker::Any> Signal<T, M> {
     }
 }
 
-/**
- * SignalSetter must be as follows
- * enum SignalSetter<T, P> {
- *     Default,
- *     Map(Box<FnMut(&T, P)>),
- *     Target(Signal<T>),
- * }
- *
- * - Default always sets to default
- * - Map sets type by passed parameter
- * - Target just sets signal with new value
- */
-
-// Note: This SignalSetter is shit
-
-// pub trait SignalSetter<T: 'static, D> {
-//     fn setter<U: 'static>(
-//         self,
-//         other: impl ReadSignal<U> + 'static,
-//         f: impl Fn(&U, &mut T) + 'static,
-//     );
-//     fn set_from(self, other: impl ReadSignal<T> + 'static)
-//     where
-//         T: Clone,
-//         Self: Sized + 'static,
-//     {
-//         self.setter(other, |new, this| *this = new.clone());
-//     }
-// }
-
-// // TODO: It looks very bad with `use_effect`, need a SignalSetter value kind.
-// /// Setting reactive value by other reactive value
-// impl<S, T> SignalSetter<T, S> for S
-// where
-//     S: WriteSignal<T> + 'static,
-//     T: 'static,
-// {
-//     fn setter<U: 'static>(
-//         self,
-//         other: impl ReadSignal<U> + 'static,
-//         f: impl Fn(&U, &mut T) + 'static,
-//     ) {
-//         use_effect(move |_| {
-//             other.with(|other| {
-//                 self.update(|this| f(other, this));
-//             });
-//         });
-//     }
-// }
-
 /// SignalValue is used as HKT abstraction over reactive (or not) types such as Signal<T> (Value = T), Memo<T>, MaybeReactive<T>, etc.
 pub trait SignalValue: 'static {
     type Value;
@@ -219,9 +169,13 @@ impl<T: 'static> SignalValue for Signal<T> {
 }
 
 pub trait SignalSetter<T: 'static, I: SignalValue> {
-    fn setter(&self, source: I, set_map: impl Fn(&mut T, &I::Value) + 'static);
+    fn setter(
+        &mut self,
+        source: I,
+        set_map: impl Fn(&mut T, &I::Value) + 'static,
+    );
 
-    fn set_from(&self, source: I)
+    fn set_from(&mut self, source: I)
     where
         T: Clone,
         I: SignalValue<Value = T>,
@@ -236,12 +190,13 @@ pub trait SignalSetter<T: 'static, I: SignalValue> {
  */
 impl<T: 'static, U: 'static> SignalSetter<T, Signal<U>> for Signal<T> {
     fn setter(
-        &self,
+        &mut self,
         source: Signal<U>,
         set_map: impl Fn(&mut T, &<Signal<U> as SignalValue>::Value) + 'static,
     ) {
         let this = *self;
         use_effect(move |_| {
+            let mut this = this;
             source.with(|source| this.update(|this| set_map(this, source)))
         });
     }
@@ -251,12 +206,13 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, Memo<U>>
     for Signal<T>
 {
     fn setter(
-        &self,
+        &mut self,
         source: Memo<U>,
         set_map: impl Fn(&mut T, &<Memo<U> as SignalValue>::Value) + 'static,
     ) {
         let this = *self;
         use_effect(move |_| {
+            let mut this = this;
             source.with(|source| this.update(|this| set_map(this, source)))
         });
     }
@@ -266,12 +222,13 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MemoChain<U>>
     for Signal<T>
 {
     fn setter(
-        &self,
+        &mut self,
         source: MemoChain<U>,
         set_map: impl Fn(&mut T, &<Memo<U> as SignalValue>::Value) + 'static,
     ) {
         let this = *self;
         use_effect(move |_| {
+            let mut this = this;
             source.with(|source| this.update(|this| set_map(this, source)))
         });
     }
@@ -281,7 +238,7 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MaybeReactive<U>>
     for Signal<T>
 {
     fn setter(
-        &self,
+        &mut self,
         source: MaybeReactive<U>,
         set_map: impl Fn(&mut T, &<MaybeReactive<U> as SignalValue>::Value)
             + 'static,
@@ -385,7 +342,7 @@ impl<T: 'static, M: marker::CanWrite> WriteSignal<T> for Signal<T, M> {
     }
 
     #[track_caller]
-    fn update_untracked<U>(&self, f: impl FnOnce(&mut T) -> U) -> U {
+    fn update_untracked<U>(&mut self, f: impl FnOnce(&mut T) -> U) -> U {
         let caller = Location::caller();
         with_current_runtime(|rt| self.id.update_untracked(rt, f, Some(caller)))
     }
@@ -608,7 +565,7 @@ impl<T: 'static> SignalTree<T> {
  */
 #[cfg(test)]
 mod tests {
-    use super::{ReadSignal, WriteSignal};
+    use super::{ReadSignal, SignalSetter, WriteSignal};
     use crate::{
         effect::use_effect,
         prelude::{create_memo, create_signal},
@@ -640,8 +597,8 @@ mod tests {
 
     #[test]
     fn one_level_memo() {
-        let a = create_signal(5);
-        let b_calls = create_signal(0);
+        let mut a = create_signal(5);
+        let mut b_calls = create_signal(0);
         let b = create_memo(move |_| {
             b_calls.update_untracked(|calls| *calls += 1);
 
@@ -666,9 +623,9 @@ mod tests {
     */
     #[test]
     fn two_signals() {
-        let a = create_signal(7);
-        let b = create_signal(1);
-        let memo_calls = create_signal(0);
+        let mut a = create_signal(7);
+        let mut b = create_signal(1);
+        let mut memo_calls = create_signal(0);
 
         let c = create_memo(move |_| {
             memo_calls.update_untracked(|calls| *calls += 1);
@@ -703,17 +660,17 @@ mod tests {
     */
     #[test]
     fn dependent_memos() {
-        let a = create_signal(7);
+        let mut a = create_signal(7);
         let b = create_signal(1);
 
-        let c_memo_calls = create_signal(0);
+        let mut c_memo_calls = create_signal(0);
         let c = create_memo(move |_| {
             c_memo_calls.update_untracked(|calls| *calls += 1);
 
             a.get() * b.get()
         });
 
-        let d_memo_calls = create_signal(0);
+        let mut d_memo_calls = create_signal(0);
         let d = create_memo(move |_| {
             d_memo_calls.update_untracked(|calls| *calls += 1);
             c.get() + 1
@@ -739,8 +696,8 @@ mod tests {
     */
     #[test]
     fn equality_check() {
-        let memo_calls = create_signal(0);
-        let a = create_signal(7);
+        let mut memo_calls = create_signal(0);
+        let mut a = create_signal(7);
         let c = create_memo(move |_| {
             memo_calls.update_untracked(|calls| *calls += 1);
 
@@ -763,12 +720,12 @@ mod tests {
     */
     #[test]
     fn dynamic_memo_dep() {
-        let a = create_signal(Some(1));
-        let b = create_signal(Some(2));
+        let mut a = create_signal(Some(1));
+        let mut b = create_signal(Some(2));
 
-        let m_a_calls = create_signal(0);
-        let m_b_calls = create_signal(0);
-        let m_ab_calls = create_signal(0);
+        let mut m_a_calls = create_signal(0);
+        let mut m_b_calls = create_signal(0);
+        let mut m_ab_calls = create_signal(0);
 
         let m_a = create_memo(move |_| {
             m_a_calls.update_untracked(|calls| *calls += 1);
@@ -817,10 +774,10 @@ mod tests {
     */
     #[test]
     fn bool_equality_check() {
-        let a = create_signal(0);
+        let mut a = create_signal(0);
         let b = create_memo(move |_| a.get() > 0);
 
-        let c_calls = create_signal(0);
+        let mut c_calls = create_signal(0);
         let c = create_memo(move |_| {
             c_calls.update_untracked(|calls| *calls += 1);
             if b.get() {
@@ -863,12 +820,12 @@ mod tests {
     */
     #[test]
     fn diamond() {
-        let s = create_signal(1);
+        let mut s = create_signal(1);
         let a = create_memo(move |_| s.get());
         let b = create_memo(move |_| a.get() * 2);
         let c = create_memo(move |_| a.get() * 3);
 
-        let calls = create_signal(0);
+        let mut calls = create_signal(0);
         let d = create_memo(move |_| {
             calls.update_untracked(|calls| *calls += 1);
             b.get() + c.get()
@@ -893,7 +850,7 @@ mod tests {
     */
     #[test]
     fn set_inside_memo() {
-        let s = create_signal(1);
+        let mut s = create_signal(1);
         let a = create_memo(move |_| s.set(2));
         let l = create_memo(move |_| s.get() + 100);
 
@@ -909,9 +866,9 @@ mod tests {
     */
     #[test]
     fn dynamic() {
-        let a = create_signal(true);
-        let b = create_signal(2);
-        let calls = create_signal(0);
+        let mut a = create_signal(true);
+        let mut b = create_signal(2);
+        let mut calls = create_signal(0);
 
         let c = create_memo(move |_| {
             calls.update_untracked(|calls| *calls += 1);
@@ -945,9 +902,9 @@ mod tests {
     */
     #[test]
     fn no_unnecessary_recompute() {
-        let s = create_signal(2);
+        let mut s = create_signal(2);
         let a = create_memo(move |_| s.get() + 1);
-        let b_calls = create_signal(0);
+        let mut b_calls = create_signal(0);
         let b = create_memo(move |_| {
             b_calls.update_untracked(|calls| *calls += 1);
             s.get() + 10
@@ -975,9 +932,9 @@ mod tests {
     */
     #[test]
     fn vanishing_dependency() {
-        let s = create_signal(1);
-        let done = create_signal(false);
-        let calls = create_signal(0);
+        let mut s = create_signal(1);
+        let mut done = create_signal(false);
+        let mut calls = create_signal(0);
 
         let c = create_memo(move |_| {
             calls.update_untracked(|calls| *calls += 1);
@@ -1014,9 +971,9 @@ mod tests {
     #[test]
     fn dynamic_graph_does_not_crash() {
         let z = create_signal(3);
-        let x = create_signal(0);
+        let mut x = create_signal(0);
 
-        let y = create_signal(0);
+        let mut y = create_signal(0);
         let i = create_memo(move |_| {
             let a = y.get();
             z.get();
@@ -1046,9 +1003,9 @@ mod tests {
     // Effects //
     #[test]
     fn effect_run_order() {
-        let s = create_signal(1);
+        let mut s = create_signal(1);
 
-        let runs = create_signal(0);
+        let mut runs = create_signal(0);
         use_effect(move |_| {
             runs.update_untracked(|runs| *runs += 1);
 
@@ -1092,4 +1049,23 @@ mod tests {
     //         user.value.update(|_| {});
     //     });
     // }
+
+    #[test]
+    fn signal_setter() {
+        let mut s1 = create_signal(1);
+        let mut s2 = create_signal(2);
+
+        assert_eq!(s1.get(), 1);
+        assert_eq!(s2.get(), 2);
+
+        s1.set_from(s2);
+
+        assert_eq!(s1.get(), 2);
+        assert_eq!(s2.get(), 2);
+
+        s2.set(3);
+
+        assert_eq!(s1.get(), 3);
+        assert_eq!(s2.get(), 3);
+    }
 }

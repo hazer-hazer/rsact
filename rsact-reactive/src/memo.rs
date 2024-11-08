@@ -16,14 +16,14 @@ use core::{
 
 #[track_caller]
 pub fn create_memo<T: PartialEq + 'static>(
-    f: impl Fn(Option<&T>) -> T + 'static,
+    f: impl FnMut(Option<&T>) -> T + 'static,
 ) -> Memo<T> {
     Memo::new(f)
 }
 
 pub struct MemoCallback<T, F>
 where
-    F: Fn(Option<&T>) -> T,
+    F: FnMut(Option<&T>) -> T,
 {
     pub(crate) f: F,
     pub(crate) ty: PhantomData<T>,
@@ -31,11 +31,11 @@ where
 
 impl<T, F> AnyCallback for MemoCallback<T, F>
 where
-    F: Fn(Option<&T>) -> T,
+    F: FnMut(Option<&T>) -> T,
     T: PartialEq + 'static,
 {
     #[track_caller]
-    fn run(&self, value: Rc<RefCell<dyn core::any::Any>>) -> bool {
+    fn run(&mut self, value: Rc<RefCell<dyn core::any::Any>>) -> bool {
         let (new_value, changed) = {
             let value = value.borrow();
             let value = value.downcast_ref::<Option<T>>().unwrap().as_ref();
@@ -98,7 +98,7 @@ impl<T: PartialEq> Copy for Memo<T> {}
 
 impl<T: PartialEq + 'static> Memo<T> {
     #[track_caller]
-    pub fn new(f: impl Fn(Option<&T>) -> T + 'static) -> Self {
+    pub fn new(f: impl FnMut(Option<&T>) -> T + 'static) -> Self {
         let caller = Location::caller();
         Self {
             id: with_current_runtime(|rt| rt.create_memo(f, caller)),
@@ -268,7 +268,7 @@ mod tests {
 
     #[test]
     fn single_run() {
-        let signal = create_signal(1);
+        let mut signal = create_signal(1);
 
         let runs = create_memo(move |runs| {
             signal.get();
@@ -285,7 +285,7 @@ mod tests {
 
     #[test]
     fn exact_runs_count() {
-        let signal = create_signal(1);
+        let mut signal = create_signal(1);
 
         let runs = create_memo(move |runs| {
             signal.get();

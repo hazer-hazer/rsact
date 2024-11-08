@@ -5,7 +5,7 @@ use rsact_reactive::{
 
 fn single_effect_single_signal() {
     with_new_runtime(|_| {
-        let signal = create_signal(1);
+        let mut signal = create_signal(1);
         use_effect(move |_| {
             signal.get();
         });
@@ -15,7 +15,7 @@ fn single_effect_single_signal() {
 
 fn thousand_effects_single_signal() {
     with_new_runtime(|_| {
-        let signal = create_signal(1);
+        let mut signal = create_signal(1);
         for _ in 0..1000 {
             use_effect(move |_| {
                 signal.get();

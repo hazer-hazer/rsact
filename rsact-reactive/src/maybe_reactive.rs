@@ -1,7 +1,10 @@
 use crate::{
     memo::Memo,
     prelude::MemoChain,
-    signal::{ReadSignal, Signal, SignalMapper, SignalValue, WriteSignal},
+    signal::{
+        ReadSignal, Signal, SignalMapper, SignalSetter, SignalValue,
+        WriteSignal,
+    },
     with,
 };
 use alloc::rc::Rc;
@@ -54,6 +57,16 @@ impl<T: PartialEq + 'static> SignalMapper<T> for StaticSignal<T> {
         map(&self.value).into_static_signal()
     }
 }
+
+// impl<T: PartialEq + 'static> SignalSetter<T, Self> for StaticSignal<T> {
+//     fn setter(
+//         &mut self,
+//         source: Self,
+//         set_map: impl Fn(&mut T, &<Self as SignalValue>::Value) + 'static,
+//     ) {
+//         set_map(&mut self.value, &source.value)
+//     }
+// }
 
 impl<T> Deref for StaticSignal<T> {
     type Target = T;
@@ -374,13 +387,47 @@ impl<T: 'static> WriteSignal<T> for MaybeSignal<T> {
         }
     }
 
-    fn update_untracked<U>(&self, f: impl FnOnce(&mut T) -> U) -> U {
+    fn update_untracked<U>(&mut self, f: impl FnOnce(&mut T) -> U) -> U {
         match self {
             MaybeSignal::Static(raw) => f(&mut raw.borrow_mut()),
             MaybeSignal::Signal(signal) => signal.update_untracked(f),
         }
     }
 }
+
+// impl<T: PartialEq + 'static> SignalSetter<T, MaybeReactive<T>>
+//     for MaybeSignal<T>
+// {
+//     fn setter(
+//         &mut self,
+//         source: MaybeReactive<T>,
+//         set_map: impl Fn(&mut T, &<MaybeReactive<T> as SignalValue>::Value)
+//             + 'static,
+//     ) {
+//         match source {
+//             MaybeReactive::Static(static_signal) => {
+//                 self.update(|this| set_map(this, &static_signal))
+//             },
+//             MaybeReactive::Signal(signal) => self.setter(signal, set_map),
+//             MaybeReactive::Memo(memo) => todo!(),
+//             MaybeReactive::MemoChain(memo_chain) => todo!(),
+//             MaybeReactive::Derived(rc) => todo!(),
+//         }
+//     }
+// }
+
+// impl<T: PartialEq + 'static> SignalSetter<T, Memo<T>> for MaybeSignal<T> {
+//     fn setter(
+//         &mut self,
+//         source: Memo<T>,
+//         set_map: impl Fn(&mut T, &<Memo<T> as SignalValue>::Value) + 'static,
+//     ) {
+//         match self {
+//             MaybeSignal::Static(ref_cell) => ,
+//             MaybeSignal::Signal(signal) => todo!(),
+//         }
+//     }
+// }
 
 impl<T: 'static> From<T> for MaybeSignal<T> {
     fn from(value: T) -> Self {

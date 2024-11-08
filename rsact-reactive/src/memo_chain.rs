@@ -16,9 +16,15 @@ use core::{
     panic::Location,
 };
 
+pub fn use_memo_chain<T: PartialEq + 'static>(
+    f: impl Fn(Option<&T>) -> T + 'static,
+) -> MemoChain<T> {
+    MemoChain::new(f)
+}
+
 pub struct MemoChainCallback<T, F>
 where
-    F: Fn(&T) -> T,
+    F: FnMut(&T) -> T,
 {
     pub(crate) f: F,
     pub(crate) ty: PhantomData<T>,
@@ -26,7 +32,7 @@ where
 
 impl<T, F> MemoChainCallback<T, F>
 where
-    F: Fn(&T) -> T,
+    F: FnMut(&T) -> T,
 {
     pub fn new(f: F) -> Self {
         Self { f, ty: PhantomData }
@@ -37,10 +43,10 @@ where
 // pass to the next MemoChainCallback
 impl<T, F> AnyCallback for MemoChainCallback<T, F>
 where
-    F: Fn(&T) -> T,
+    F: FnMut(&T) -> T,
     T: PartialEq + 'static,
 {
-    fn run(&self, value: Rc<RefCell<dyn Any>>) -> bool {
+    fn run(&mut self, value: Rc<RefCell<dyn Any>>) -> bool {
         let (new_value, changed) = {
             let value = value.borrow();
             let value = value
@@ -154,12 +160,6 @@ impl<T: PartialEq> Clone for MemoChain<T> {
 }
 
 impl<T: PartialEq> Copy for MemoChain<T> {}
-
-pub fn use_memo_chain<T: PartialEq + 'static>(
-    f: impl Fn(Option<&T>) -> T + 'static,
-) -> MemoChain<T> {
-    MemoChain::new(f)
-}
 
 pub trait IntoMemoChain<T: PartialEq> {
     fn into_memo_chain(self) -> MemoChain<T>;

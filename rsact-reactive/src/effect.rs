@@ -77,7 +77,7 @@ impl<T> Effect<T> {
     fn new<F>(f: F) -> Self
     where
         T: 'static,
-        F: Fn(Option<T>) -> T + 'static,
+        F: FnMut(Option<T>) -> T + 'static,
     {
         let caller = Location::caller();
         let effect = with_current_runtime(|rt| rt.create_effect(f, caller));
@@ -92,7 +92,7 @@ impl<T> Effect<T> {
 
 pub struct EffectCallback<T, F>
 where
-    F: Fn(Option<T>) -> T,
+    F: FnMut(Option<T>) -> T,
 {
     pub f: F,
     pub ty: PhantomData<T>,
@@ -100,9 +100,9 @@ where
 
 impl<T: 'static, F> AnyCallback for EffectCallback<T, F>
 where
-    F: Fn(Option<T>) -> T,
+    F: FnMut(Option<T>) -> T,
 {
-    fn run(&self, value: Rc<RefCell<dyn Any>>) -> bool {
+    fn run(&mut self, value: Rc<RefCell<dyn Any>>) -> bool {
         let pass_value = {
             // Create RefMut dropped in this scope and take it to avoid mutual
             // exclusion problem
@@ -124,7 +124,7 @@ where
 pub fn use_effect<T, F>(f: F) -> Effect<T>
 where
     T: 'static,
-    F: Fn(Option<T>) -> T + 'static,
+    F: FnMut(Option<T>) -> T + 'static,
 {
     let effect = Effect::new(f);
 
@@ -140,8 +140,8 @@ mod tests {
 
     #[test]
     fn effects_work() {
-        let calls = create_signal(0);
-        let a = create_signal(0);
+        let mut calls = create_signal(0);
+        let mut a = create_signal(0);
 
         use_effect(move |_| {
             calls.update_untracked(|calls| *calls += 1);
@@ -159,8 +159,8 @@ mod tests {
 
     #[test]
     fn no_unnecessary_rerun() {
-        let calls = create_signal(0);
-        let a = create_signal(0);
+        let mut calls = create_signal(0);
+        let mut a = create_signal(0);
         let a_is_even = create_memo(move |_| a.get() % 2 == 0);
 
         // Run effect only for even `a` values
