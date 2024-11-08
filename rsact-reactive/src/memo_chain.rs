@@ -1,9 +1,20 @@
 use crate::{
-    callback::AnyCallback, effect::EffectOrder, runtime::with_current_runtime,
-    signal::ReadSignal, storage::ValueId,
+    callback::AnyCallback,
+    effect::EffectOrder,
+    memo::Memo,
+    prelude::create_memo,
+    runtime::with_current_runtime,
+    signal::{ReadSignal, SignalMapper, SignalValue},
+    storage::ValueId,
 };
 use alloc::rc::Rc;
-use core::{any::Any, cell::RefCell, marker::PhantomData, panic::Location};
+use core::{
+    any::Any,
+    cell::RefCell,
+    fmt::{Debug, Pointer},
+    marker::PhantomData,
+    panic::Location,
+};
 
 pub struct MemoChainCallback<T, F>
 where
@@ -56,6 +67,28 @@ where
 pub struct MemoChain<T: PartialEq> {
     id: ValueId,
     ty: PhantomData<T>,
+}
+
+impl<T: PartialEq + 'static> SignalValue for MemoChain<T> {
+    type Value = T;
+}
+
+impl<T: PartialEq + 'static> SignalMapper<T> for MemoChain<T> {
+    type Output<U: PartialEq + 'static> = Memo<U>;
+
+    fn mapped<U: PartialEq + 'static>(
+        &self,
+        map: impl Fn(&T) -> U + 'static,
+    ) -> Self::Output<U> {
+        let this = *self;
+        create_memo(move |_| this.with(&map))
+    }
+}
+
+impl<T: Debug + PartialEq + 'static> Debug for MemoChain<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.with(|value| value.fmt(f))
+    }
 }
 
 impl<T: PartialEq + 'static> MemoChain<T> {

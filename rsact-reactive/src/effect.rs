@@ -136,10 +136,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::use_effect;
-    use crate::{
-        prelude::{create_memo, create_signal},
-        signal::{ReadSignal, WriteSignal},
-    };
+    use crate::prelude::*;
 
     #[test]
     fn effects_work() {

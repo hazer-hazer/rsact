@@ -5,35 +5,33 @@
  * By getting computed, signal data is retrieved and possibly mapped.
  */
 
-use alloc::boxed::Box;
 
-use crate::{memo::Memo, signal::Signal};
 
 // TODO: Static setter/getter?
 
-pub enum SignalGetter<G: PartialEq> {
-    Signal(Signal<G>),
-    Memo(Memo<G>),
-    Derived(Box<dyn Fn()>),
-}
+// pub enum SignalGetter<G: PartialEq> {
+//     Signal(Signal<G>),
+//     Memo(Memo<G>),
+//     Derived(Box<dyn Fn()>),
+// }
 
-pub enum SignalSetter<S> {
-    Signal(Signal<S>),
-    // TODO: Use StoredValue
-    Map(Box<dyn Fn(S)>),
-}
+// pub enum SignalSetter<S> {
+//     Signal(Signal<S>),
+//     // TODO: Use StoredValue
+//     Map(Box<dyn Fn(S)>),
+// }
 
-impl<S: 'static> SignalSetter<S> {
-    pub fn signal(signal: Signal<S>) -> Self {
-        Self::Signal(signal)
-    }
+// impl<S: 'static> SignalSetter<S> {
+//     pub fn signal(signal: Signal<S>) -> Self {
+//         Self::Signal(signal)
+//     }
 
-    pub fn map(f: impl Fn(S) + 'static) -> Self {
-        Self::Map(Box::new(f))
-    }
-}
+//     pub fn map(f: impl Fn(S) + 'static) -> Self {
+//         Self::Map(Box::new(f))
+//     }
+// }
 
-pub struct Computed<G: PartialEq, S> {
-    getter: SignalGetter<G>,
-    setter: SignalSetter<S>,
-}
+// pub struct Computed<G: PartialEq, S> {
+//     getter: SignalGetter<G>,
+//     setter: SignalSetter<S>,
+// }

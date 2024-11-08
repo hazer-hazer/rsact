@@ -1,8 +1,7 @@
 use crate::{
     callback::AnyCallback,
-    prelude::create_memo,
     runtime::with_current_runtime,
-    signal::{marker, MaybeSignal, ReadSignal, Signal},
+    signal::{marker, ReadSignal, Signal, SignalMapper, SignalValue},
     storage::ValueId,
     with,
 };
@@ -14,6 +13,13 @@ use core::{
     ops::Deref,
     panic::Location,
 };
+
+#[track_caller]
+pub fn create_memo<T: PartialEq + 'static>(
+    f: impl Fn(Option<&T>) -> T + 'static,
+) -> Memo<T> {
+    Memo::new(f)
+}
 
 pub struct MemoCallback<T, F>
 where
@@ -52,6 +58,22 @@ where
 pub struct Memo<T: PartialEq> {
     id: ValueId,
     ty: PhantomData<T>,
+}
+
+impl<T: PartialEq + 'static> SignalValue for Memo<T> {
+    type Value = T;
+}
+
+impl<T: PartialEq + 'static> SignalMapper<T> for Memo<T> {
+    type Output<U: PartialEq + 'static> = Memo<U>;
+
+    fn mapped<U: PartialEq + 'static>(
+        &self,
+        map: impl Fn(&T) -> U + 'static,
+    ) -> Self::Output<U> {
+        let this = *self;
+        create_memo(move |_| this.with(&map))
+    }
 }
 
 impl<T: PartialEq + Display + 'static> Display for Memo<T> {
@@ -114,14 +136,6 @@ impl<T: PartialEq + 'static> ReadSignal<T> for Memo<T> {
                 caller,
             )
         })
-    }
-}
-
-impl<T: PartialEq + 'static> MaybeSignal<T> for Memo<T> {
-    type S = Memo<T>;
-
-    fn maybe_signal(self) -> Self::S {
-        self
     }
 }
 
@@ -250,11 +264,7 @@ impl<K: PartialEq, V> PartialEq for Keyed<K, V> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        memo::AsMemo,
-        prelude::{create_memo, create_signal},
-        signal::{ReadSignal, WriteSignal},
-    };
+    use crate::prelude::*;
 
     #[test]
     fn single_run() {

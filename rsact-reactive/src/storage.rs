@@ -1,15 +1,13 @@
 use crate::{
     callback::AnyCallback,
-    effect::{EffectCallback, EffectOrder},
-    memo::MemoCallback,
+    effect::EffectOrder,
     runtime::Runtime,
 };
 use alloc::{collections::btree_map::BTreeMap, format, rc::Rc, vec::Vec};
 use core::{
-    any::{type_name, Any, TypeId},
+    any::{type_name, Any},
     cell::RefCell,
     fmt::{Debug, Display},
-    marker::PhantomData,
     panic::Location,
 };
 use slotmap::SlotMap;
