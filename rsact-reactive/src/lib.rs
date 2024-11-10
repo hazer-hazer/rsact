@@ -4,37 +4,48 @@
 #[cfg(feature = "std")]
 extern crate std;
 
+extern crate rsact_macros;
+
 extern crate alloc;
 
 mod callback;
 pub mod computed;
 pub mod eco;
 pub mod effect;
-pub mod macros;
-pub mod maybe_reactive;
+pub mod maybe;
 pub mod memo;
 pub mod memo_chain;
+pub mod read;
 pub mod runtime;
 pub mod scope;
 pub mod signal;
 mod storage;
 mod thread_local;
 pub mod trigger;
+pub mod write;
 
 pub mod prelude {
     pub use super::{
-        effect::{use_effect, Effect},
-        macros::*,
-        maybe_reactive::{
-            IntoStaticSignal, MaybeReactive, MaybeSignal, StaticSignal,
+        effect::{create_effect, Effect},
+        maybe::{
+            Inert, IntoInert, MaybeReactive, MaybeSignal, SignalMapReactive,
         },
-        memo::{create_memo, AsMemo, Memo, MemoTree},
+        memo::{create_memo, IntoMemo, Memo, MemoTree},
         memo_chain::{use_memo_chain, IntoMemoChain, MemoChain},
+        read::{mapped, with, ReadSignal, SignalMapper},
+        rsact_macros::IntoMaybeReactive,
         runtime::{create_runtime, with_current_runtime, with_new_runtime},
-        signal::{
-            create_signal, IntoSignal, ReadSignal, RwSignal, Signal,
-            SignalMapper, SignalTree, WriteSignal,
-        },
-        trigger::{use_trigger, Trigger},
+        signal::{create_signal, IntoSignal, RwSignal, Signal},
+        trigger::{create_trigger, Trigger},
+        write::{SignalSetter, UpdateNotification, WriteSignal},
     };
+}
+
+/// SignalValue is used as HKT abstraction over reactive (or not) types such as Signal<T> (Value = T), Memo<T>, MaybeReactive<T>, etc.
+pub trait ReactiveValue: 'static {
+    type Value;
+
+    fn is_alive(&self) -> bool;
+    fn dispose(self);
+    // TODO: try_dispose?
 }

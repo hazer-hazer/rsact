@@ -9,6 +9,8 @@ slotmap = { version = "1.0.7", default-features = false }
 once_cell = { version = "1.19.0", default-features = false, features = [
     "critical-section",
 ] }
+replace_with = { version = "0.1.7", default-features = false }
+rsact-macros = { path = "../rsact-macros" }
 
 [dev-dependencies]
 criterion = "0.5.1"

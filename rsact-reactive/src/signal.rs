@@ -1,110 +1,18 @@
 use crate::{
-    effect::use_effect, prelude::*, runtime::with_current_runtime,
+    effect::create_effect,
+    prelude::*,
+    read::impl_read_signal_traits,
+    runtime::with_current_runtime,
     storage::ValueId,
+    write::{SignalSetter, WriteSignal},
+    ReactiveValue,
 };
-use alloc::{rc::Rc, vec::Vec};
-use core::{
-    fmt::{Debug, Display},
-    marker::PhantomData,
-    ops::{
-        Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor,
-        BitXorAssign, ControlFlow, Div, DivAssign, Mul, MulAssign, Neg, Not,
-        Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub, SubAssign,
-    },
-    panic::Location,
-};
+use alloc::rc::Rc;
+use core::{marker::PhantomData, panic::Location};
 
 #[track_caller]
 pub fn create_signal<T: 'static>(value: T) -> Signal<T> {
     Signal::new(value)
-}
-
-/**
- * TODO: SmartSignal -- the structure that is just a stack-allocated data
- * until its first write, then it allocates new signal in runtime.
- */
-
-pub trait UpdateNotification {
-    fn is_updated(&self) -> bool;
-}
-
-// Maybe better only add this to ControlFlow without `UpdateNotification` trait
-impl<B, C> UpdateNotification for ControlFlow<B, C> {
-    fn is_updated(&self) -> bool {
-        matches!(self, ControlFlow::Break(_))
-    }
-}
-
-// TODO: Add `replace` method for rw which will take current value leaving Default if default implemented
-
-pub trait ReadSignal<T> {
-    fn track(&self);
-    fn with_untracked<U>(&self, f: impl FnOnce(&T) -> U) -> U;
-
-    #[track_caller]
-    fn with<U>(&self, f: impl FnOnce(&T) -> U) -> U {
-        self.track();
-        self.with_untracked(f)
-    }
-
-    #[track_caller]
-    fn get(&self) -> T
-    where
-        T: Copy,
-    {
-        self.with(|value| *value)
-    }
-
-    #[track_caller]
-    fn get_untracked(&self) -> T
-    where
-        T: Copy,
-    {
-        self.with_untracked(|value| *value)
-    }
-
-    #[track_caller]
-    fn get_cloned(&self) -> T
-    where
-        T: Clone,
-    {
-        self.with(T::clone)
-    }
-}
-
-pub trait WriteSignal<T> {
-    fn notify(&self);
-    fn update_untracked<U>(&mut self, f: impl FnOnce(&mut T) -> U) -> U;
-
-    #[track_caller]
-    fn control_flow<U: UpdateNotification>(
-        &mut self,
-        f: impl FnOnce(&mut T) -> U,
-    ) -> U {
-        let result = self.update_untracked(f);
-        if result.is_updated() {
-            self.notify();
-        }
-        result
-    }
-
-    #[track_caller]
-    fn update<U>(&mut self, f: impl FnOnce(&mut T) -> U) -> U {
-        let result = self.update_untracked(f);
-        self.notify();
-
-        result
-    }
-
-    #[track_caller]
-    fn set(&mut self, new: T) {
-        self.update(|value| *value = new)
-    }
-
-    #[track_caller]
-    fn set_untracked(&mut self, new: T) {
-        self.update_untracked(|value| *value = new)
-    }
 }
 
 pub trait RwSignal<T>: ReadSignal<T> + WriteSignal<T> {}
@@ -136,6 +44,28 @@ pub struct Signal<T, M: marker::Any = marker::Rw> {
     rw: PhantomData<M>,
 }
 
+impl<T: 'static, M: marker::Any> Clone for Signal<T, M> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T: 'static, M: marker::Any> Copy for Signal<T, M> {}
+
+impl<T: 'static> ReactiveValue for Signal<T> {
+    type Value = T;
+
+    fn is_alive(&self) -> bool {
+        with_current_runtime(|rt| rt.is_alive(self.id))
+    }
+
+    fn dispose(self) {
+        with_current_runtime(|rt| rt.dispose(self.id))
+    }
+}
+
+impl_read_signal_traits!(Signal<T, marker::ReadOnly>, Signal<T, marker::Rw>);
+
 impl<T: 'static, M: marker::Any> Signal<T, M> {
     #[track_caller]
     pub fn new(value: T) -> Self {
@@ -156,155 +86,6 @@ impl<T: 'static, M: marker::Any> Signal<T, M> {
 
     pub fn dispose(self) {
         with_current_runtime(|rt| rt.dispose(self.id))
-    }
-}
-
-/// SignalValue is used as HKT abstraction over reactive (or not) types such as Signal<T> (Value = T), Memo<T>, MaybeReactive<T>, etc.
-pub trait SignalValue: 'static {
-    type Value;
-}
-
-impl<T: 'static> SignalValue for Signal<T> {
-    type Value = T;
-}
-
-pub trait SignalSetter<T: 'static, I: SignalValue> {
-    fn setter(
-        &mut self,
-        source: I,
-        set_map: impl Fn(&mut T, &I::Value) + 'static,
-    );
-
-    fn set_from(&mut self, source: I)
-    where
-        T: Clone,
-        I: SignalValue<Value = T>,
-        Self: Sized + 'static,
-    {
-        self.setter(source, |this, new| *this = new.clone());
-    }
-}
-
-/**
- * Set Signal<T> from Signal<U> mapped by `set_map`.
- */
-impl<T: 'static, U: 'static> SignalSetter<T, Signal<U>> for Signal<T> {
-    fn setter(
-        &mut self,
-        source: Signal<U>,
-        set_map: impl Fn(&mut T, &<Signal<U> as SignalValue>::Value) + 'static,
-    ) {
-        let this = *self;
-        use_effect(move |_| {
-            let mut this = this;
-            source.with(|source| this.update(|this| set_map(this, source)))
-        });
-    }
-}
-
-impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, Memo<U>>
-    for Signal<T>
-{
-    fn setter(
-        &mut self,
-        source: Memo<U>,
-        set_map: impl Fn(&mut T, &<Memo<U> as SignalValue>::Value) + 'static,
-    ) {
-        let this = *self;
-        use_effect(move |_| {
-            let mut this = this;
-            source.with(|source| this.update(|this| set_map(this, source)))
-        });
-    }
-}
-
-impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MemoChain<U>>
-    for Signal<T>
-{
-    fn setter(
-        &mut self,
-        source: MemoChain<U>,
-        set_map: impl Fn(&mut T, &<Memo<U> as SignalValue>::Value) + 'static,
-    ) {
-        let this = *self;
-        use_effect(move |_| {
-            let mut this = this;
-            source.with(|source| this.update(|this| set_map(this, source)))
-        });
-    }
-}
-
-impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MaybeReactive<U>>
-    for Signal<T>
-{
-    fn setter(
-        &mut self,
-        source: MaybeReactive<U>,
-        set_map: impl Fn(&mut T, &<MaybeReactive<U> as SignalValue>::Value)
-            + 'static,
-    ) {
-        match source {
-            MaybeReactive::Static(raw) => {
-                self.update(|this| set_map(this, &raw))
-            },
-            MaybeReactive::Signal(signal) => self.setter(signal, set_map),
-            MaybeReactive::Memo(memo) => self.setter(memo, set_map),
-            MaybeReactive::MemoChain(memo_chain) => {
-                self.setter(memo_chain, set_map)
-            },
-            MaybeReactive::Derived(derived) => {
-                // TODO: use_effect or not to use effect? How do we know if derived function is using reactive values or not
-                let derived = Rc::clone(&derived);
-                self.update(|this| set_map(this, &derived()));
-            },
-        }
-    }
-}
-
-pub trait SignalMapper<T: 'static> {
-    type Output<U: PartialEq + 'static>;
-
-    fn mapped<U: PartialEq + 'static>(
-        &self,
-        map: impl Fn(&T) -> U + 'static,
-    ) -> Self::Output<U>;
-
-    #[track_caller]
-    fn mapped_clone<U: PartialEq + 'static>(
-        &self,
-        map: impl Fn(T) -> U + 'static,
-    ) -> Self::Output<U>
-    where
-        Self: Sized + 'static,
-        T: Clone,
-    {
-        self.mapped(move |this| map(this.clone()))
-    }
-}
-
-// TODO: Implement only for the Signal struct, not all ReadSignal's.
-impl<T: 'static, M: marker::CanRead> SignalMapper<T> for Signal<T, M> {
-    type Output<U: PartialEq + 'static> = Memo<U>;
-
-    #[track_caller]
-    fn mapped<U: PartialEq + 'static>(
-        &self,
-        map: impl Fn(&T) -> U + 'static,
-    ) -> Memo<U> {
-        let this = *self;
-        create_memo(move |_| this.with(&map))
-    }
-}
-
-impl<T: 'static, M: marker::CanRead> Signal<T, M> {
-    pub fn read_only(self) -> Signal<T, marker::ReadOnly> {
-        Signal { id: self.id, ty: PhantomData, rw: PhantomData }
-    }
-}
-
-impl<T: 'static, M: marker::CanWrite> Signal<T, M> {
-    pub fn write_only(self) -> Signal<T, marker::WriteOnly> {
-        Signal { id: self.id, ty: PhantomData, rw: PhantomData }
     }
 }
 
@@ -348,184 +129,118 @@ impl<T: 'static, M: marker::CanWrite> WriteSignal<T> for Signal<T, M> {
     }
 }
 
-impl<T: 'static, M: marker::Any> Clone for Signal<T, M> {
-    fn clone(&self) -> Self {
-        *self
+/**
+ * Set Signal<T> from Signal<U> mapped by `set_map`.
+ */
+impl<T: 'static, U: 'static> SignalSetter<T, Signal<U>> for Signal<T> {
+    fn setter(
+        &mut self,
+        source: Signal<U>,
+        set_map: impl Fn(&mut T, &<Signal<U> as ReactiveValue>::Value) + 'static,
+    ) {
+        let this = *self;
+        create_effect(move |_| {
+            let mut this = this;
+            source.with(|source| this.update(|this| set_map(this, source)))
+        });
     }
 }
 
-impl<T: 'static, M: marker::Any> Copy for Signal<T, M> {}
-
-// Impl's //
-macro_rules! impl_arith_with_assign {
-    ($($trait: ident: $method: ident, $assign_trait: ident: $assign_method: ident);* $(;)?) => {
-        $(
-            impl<T, M> $trait for Signal<T, M>
-            where
-                T: $trait<Output = T> + PartialEq + Clone + 'static,
-                M: marker::CanRead + 'static,
-            {
-                type Output = Memo<T>;
-
-                #[track_caller]
-                fn $method(self, rhs: Self) -> Self::Output {
-                    create_memo(move |_| self.get_cloned().$method(rhs.get_cloned()))
-                }
-            }
-
-            impl<T, M> $assign_trait for Signal<T, M>
-            where
-                T: $trait<Output = T> + Clone + 'static,
-                M: marker::CanRead + marker::CanWrite + 'static,
-            {
-                #[track_caller]
-                fn $assign_method(&mut self, rhs: Self) {
-                    self.set(self.get_cloned().$method(rhs.get_cloned()))
-                }
-            }
-
-            impl<T, M> $trait<T> for Signal<T, M>
-            where
-                T: $trait<Output = T> + Clone + 'static,
-                M: marker::CanRead + 'static,
-            {
-                type Output = T;
-
-                #[track_caller]
-                fn $method(self, rhs: T) -> Self::Output {
-                    self.get_cloned().$method(rhs)
-                }
-            }
-
-            impl<T, M> $assign_trait<T> for Signal<T, M>
-            where
-                T: $trait<Output = T> + Clone + 'static,
-                M: marker::CanRead + marker::CanWrite + 'static,
-            {
-                #[track_caller]
-                fn $assign_method(&mut self, rhs: T) {
-                    self.set(self.get_cloned().$method(rhs))
-                }
-            }
-        )*
-    };
-}
-
-impl_arith_with_assign! {
-    Add: add, AddAssign: add_assign;
-    Sub: sub, SubAssign: sub_assign;
-    Mul: mul, MulAssign: mul_assign;
-    Div: div, DivAssign: div_assign;
-    Rem: rem, RemAssign: rem_assign;
-    BitAnd: bitand, BitAndAssign: bitand_assign;
-    BitOr: bitor, BitOrAssign: bitor_assign;
-    BitXor: bitxor, BitXorAssign: bitxor_assign;
-    Shl: shl, ShlAssign: shl_assign;
-    Shr: shr, ShrAssign: shr_assign;
-}
-
-impl<T, M> Neg for Signal<T, M>
-where
-    T: Neg<Output = T> + PartialEq + Clone + 'static,
-    M: marker::CanRead + 'static,
+impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, Memo<U>>
+    for Signal<T>
 {
-    type Output = Memo<T>;
+    fn setter(
+        &mut self,
+        source: Memo<U>,
+        set_map: impl Fn(&mut T, &<Memo<U> as ReactiveValue>::Value) + 'static,
+    ) {
+        let this = *self;
+        create_effect(move |_| {
+            let mut this = this;
+            source.with(|source| this.update(|this| set_map(this, source)))
+        });
+    }
+}
+
+impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MemoChain<U>>
+    for Signal<T>
+{
+    fn setter(
+        &mut self,
+        source: MemoChain<U>,
+        set_map: impl Fn(&mut T, &<Memo<U> as ReactiveValue>::Value) + 'static,
+    ) {
+        let this = *self;
+        create_effect(move |_| {
+            let mut this = this;
+            source.with(|source| this.update(|this| set_map(this, source)))
+        });
+    }
+}
+
+impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, Inert<U>>
+    for Signal<T>
+{
+    fn setter(
+        &mut self,
+        source: Inert<U>,
+        set_map: impl Fn(&mut T, &<Inert<U> as ReactiveValue>::Value) + 'static,
+    ) {
+        self.update(|this| set_map(this, &source))
+    }
+}
+
+impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MaybeReactive<U>>
+    for Signal<T>
+{
+    fn setter(
+        &mut self,
+        source: MaybeReactive<U>,
+        set_map: impl Fn(&mut T, &<MaybeReactive<U> as ReactiveValue>::Value)
+            + 'static,
+    ) {
+        match source {
+            MaybeReactive::Inert(raw) => self.setter(raw, set_map),
+            MaybeReactive::Signal(signal) => self.setter(signal, set_map),
+            MaybeReactive::Memo(memo) => self.setter(memo, set_map),
+            MaybeReactive::MemoChain(memo_chain) => {
+                self.setter(memo_chain, set_map)
+            },
+            MaybeReactive::Derived(derived) => {
+                // TODO: use_effect or not to use effect? How do we know if derived function is using reactive values or not
+                let derived = Rc::clone(&derived);
+                self.update(|this| set_map(this, &derived()));
+            },
+        }
+    }
+}
+
+impl<T: 'static, M: marker::CanRead> SignalMapper<T> for Signal<T, M> {
+    type Output<U: PartialEq + 'static> = Memo<U>;
 
     #[track_caller]
-    fn neg(self) -> Self::Output {
-        create_memo(move |_| self.get_cloned().neg())
+    fn mapped<U: PartialEq + 'static>(
+        &self,
+        map: impl Fn(&T) -> U + 'static,
+    ) -> Memo<U> {
+        let this = *self;
+        create_memo(move |_| this.with(&map))
     }
 }
 
-impl<T, M> Not for Signal<T, M>
-where
-    T: Not<Output = T> + PartialEq + Clone + 'static,
-    M: marker::CanRead + 'static,
-{
-    type Output = Memo<T>;
-
-    #[track_caller]
-    fn not(self) -> Self::Output {
-        create_memo(move |_| self.get_cloned().not())
+impl<T: 'static, M: marker::CanRead> Signal<T, M> {
+    pub fn read_only(self) -> Signal<T, marker::ReadOnly> {
+        Signal { id: self.id, ty: PhantomData, rw: PhantomData }
     }
 }
 
-// TODO: Remove PartialEq and PartialOrd to avoid conflicting with `AsMemo` and to require this methods not to implicitly get reactive value. User should always know if reactive value is unwrapped.
-impl<T, M> PartialEq for Signal<T, M>
-where
-    T: PartialEq + Clone + 'static,
-    M: marker::CanRead + 'static,
-{
-    #[track_caller]
-    fn eq(&self, other: &Self) -> bool {
-        self.get_cloned() == other.get_cloned()
+impl<T: 'static, M: marker::CanWrite> Signal<T, M> {
+    pub fn write_only(self) -> Signal<T, marker::WriteOnly> {
+        Signal { id: self.id, ty: PhantomData, rw: PhantomData }
     }
 }
 
-impl<T, M> PartialOrd for Signal<T, M>
-where
-    T: PartialEq + PartialOrd + Clone + 'static,
-    M: marker::CanRead + 'static,
-{
-    #[track_caller]
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        self.with(|this| other.with(|other| this.partial_cmp(other)))
-    }
-}
-
-impl<T, M> Debug for Signal<T, M>
-where
-    T: Debug + 'static,
-    M: marker::CanRead + 'static,
-{
-    #[track_caller]
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        self.with(|this| this.fmt(f))
-    }
-}
-
-impl<T, M> Display for Signal<T, M>
-where
-    T: Display + 'static,
-    M: marker::CanRead + 'static,
-{
-    #[track_caller]
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        self.with(|this| this.fmt(f))
-    }
-}
-
-// impl<T: 'static, M: marker::CanRead, I: 'static> Signal<T, M>
-// where
-//     T: Deref<Target = [I]>,
-// {
-//     pub fn iter(&self) -> impl Iterator<Item = &I> {
-//         self.with(|this| this.iter())
-//     }
-// }
-
-// pub trait MaybeSignal<T> {
-//     type S: ReadSignal<T> + 'static;
-
-//     fn maybe_signal(self) -> Self::S;
-// }
-
-// impl<T: 'static> MaybeSignal<T> for Signal<T> {
-//     type S = Signal<T>;
-
-//     fn maybe_signal(self) -> Self::S {
-//         self
-//     }
-// }
-
-// impl<T: 'static> MaybeSignal<T> for T {
-//     type S = StaticSignal<T>;
-
-//     fn maybe_signal(self) -> Self::S {
-//         create_static(self)
-//     }
-// }
-
+/// Helper trait which converts anything except [`Signal`] into signal, and leaves [`Signal`] as it is.
 pub trait IntoSignal<T: 'static> {
     fn into_signal(self) -> Signal<T>;
 }
@@ -544,20 +259,21 @@ impl<T: 'static> IntoSignal<T> for T {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct SignalTree<T: 'static> {
-    pub data: Signal<T>,
-    pub children: Signal<Vec<SignalTree<T>>>,
-}
+// TODO: Remove, unused, does not makes sense unlike MemoTree
+// #[derive(Clone, Copy)]
+// pub struct SignalTree<T: 'static> {
+//     pub data: Signal<T>,
+//     pub children: Signal<Vec<SignalTree<T>>>,
+// }
 
-impl<T: 'static> SignalTree<T> {
-    pub fn childless(data: Signal<T>) -> Self {
-        Self { data, children: create_signal(Vec::new()) }
-    }
-}
+// impl<T: 'static> SignalTree<T> {
+//     pub fn childless(data: Signal<T>) -> Self {
+//         Self { data, children: create_signal(Vec::new()) }
+//     }
+// }
 
 /**
- * Most tests are lost from Reactively framework :)
+ * Most tests are stolen from Reactively framework :)
  *
  * Important notes:
  * - To count effect/memo calls, use [`WriteSignal::update_untracked`] and [`ReadSignal::get_untracked`]
@@ -567,7 +283,7 @@ impl<T: 'static> SignalTree<T> {
 mod tests {
     use super::{ReadSignal, SignalSetter, WriteSignal};
     use crate::{
-        effect::use_effect,
+        effect::create_effect,
         prelude::{create_memo, create_signal},
     };
 
@@ -1006,7 +722,7 @@ mod tests {
         let mut s = create_signal(1);
 
         let mut runs = create_signal(0);
-        use_effect(move |_| {
+        create_effect(move |_| {
             runs.update_untracked(|runs| *runs += 1);
 
             s.get();

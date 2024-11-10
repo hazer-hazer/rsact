@@ -3,18 +3,13 @@ use crate::{
     effect::EffectOrder,
     memo::Memo,
     prelude::create_memo,
+    read::{impl_read_signal_traits, ReadSignal, SignalMapper},
     runtime::with_current_runtime,
-    signal::{ReadSignal, SignalMapper, SignalValue},
     storage::ValueId,
+    ReactiveValue,
 };
 use alloc::rc::Rc;
-use core::{
-    any::Any,
-    cell::RefCell,
-    fmt::{Debug, Pointer},
-    marker::PhantomData,
-    panic::Location,
-};
+use core::{any::Any, cell::RefCell, marker::PhantomData, panic::Location};
 
 pub fn use_memo_chain<T: PartialEq + 'static>(
     f: impl Fn(Option<&T>) -> T + 'static,
@@ -75,27 +70,7 @@ pub struct MemoChain<T: PartialEq> {
     ty: PhantomData<T>,
 }
 
-impl<T: PartialEq + 'static> SignalValue for MemoChain<T> {
-    type Value = T;
-}
-
-impl<T: PartialEq + 'static> SignalMapper<T> for MemoChain<T> {
-    type Output<U: PartialEq + 'static> = Memo<U>;
-
-    fn mapped<U: PartialEq + 'static>(
-        &self,
-        map: impl Fn(&T) -> U + 'static,
-    ) -> Self::Output<U> {
-        let this = *self;
-        create_memo(move |_| this.with(&map))
-    }
-}
-
-impl<T: Debug + PartialEq + 'static> Debug for MemoChain<T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        self.with(|value| value.fmt(f))
-    }
-}
+impl_read_signal_traits!(MemoChain<T>: PartialEq);
 
 impl<T: PartialEq + 'static> MemoChain<T> {
     #[track_caller]
@@ -130,6 +105,30 @@ impl<T: PartialEq + 'static> MemoChain<T> {
 
     pub fn last(self, map: impl Fn(&T) -> T + 'static) -> Self {
         self.chain(EffectOrder::Last, map)
+    }
+}
+
+impl<T: PartialEq + 'static> ReactiveValue for MemoChain<T> {
+    type Value = T;
+
+    fn is_alive(&self) -> bool {
+        with_current_runtime(|rt| rt.is_alive(self.id))
+    }
+
+    fn dispose(self) {
+        with_current_runtime(|rt| rt.dispose(self.id))
+    }
+}
+
+impl<T: PartialEq + 'static> SignalMapper<T> for MemoChain<T> {
+    type Output<U: PartialEq + 'static> = Memo<U>;
+
+    fn mapped<U: PartialEq + 'static>(
+        &self,
+        map: impl Fn(&T) -> U + 'static,
+    ) -> Self::Output<U> {
+        let this = *self;
+        create_memo(move |_| this.with(&map))
     }
 }
 
@@ -179,8 +178,7 @@ impl<T: PartialEq + Clone + 'static> IntoMemoChain<T> for T {
 
 #[cfg(test)]
 mod tests {
-    use super::use_memo_chain;
-    use crate::signal::ReadSignal;
+    use crate::prelude::*;
 
     #[test]
     fn math_precedence() {

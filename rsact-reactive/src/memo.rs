@@ -1,18 +1,13 @@
 use crate::{
     callback::AnyCallback,
+    read::{impl_read_signal_traits, ReadSignal, SignalMapper},
     runtime::with_current_runtime,
-    signal::{marker, ReadSignal, Signal, SignalMapper, SignalValue},
+    signal::{marker, Signal},
     storage::ValueId,
-    with,
+    ReactiveValue,
 };
 use alloc::{rc::Rc, vec::Vec};
-use core::{
-    cell::RefCell,
-    fmt::{Debug, Display},
-    marker::PhantomData,
-    ops::Deref,
-    panic::Location,
-};
+use core::{cell::RefCell, marker::PhantomData, ops::Deref, panic::Location};
 
 #[track_caller]
 pub fn create_memo<T: PartialEq + 'static>(
@@ -60,31 +55,16 @@ pub struct Memo<T: PartialEq> {
     ty: PhantomData<T>,
 }
 
-impl<T: PartialEq + 'static> SignalValue for Memo<T> {
-    type Value = T;
-}
+impl_read_signal_traits!(Memo<T>: PartialEq);
 
-impl<T: PartialEq + 'static> SignalMapper<T> for Memo<T> {
-    type Output<U: PartialEq + 'static> = Memo<U>;
-
-    fn mapped<U: PartialEq + 'static>(
-        &self,
-        map: impl Fn(&T) -> U + 'static,
-    ) -> Self::Output<U> {
-        let this = *self;
-        create_memo(move |_| this.with(&map))
-    }
-}
-
-impl<T: PartialEq + Display + 'static> Display for Memo<T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        self.with(|this| write!(f, "{this}"))
-    }
-}
-
-impl<T: PartialEq + Debug + 'static> Debug for Memo<T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        self.with(|value| f.debug_tuple("Memo").field(value).finish())
+impl<T: PartialEq + 'static> Memo<T> {
+    #[track_caller]
+    pub fn new(f: impl FnMut(Option<&T>) -> T + 'static) -> Self {
+        let caller = Location::caller();
+        Self {
+            id: with_current_runtime(|rt| rt.create_memo(f, caller)),
+            ty: PhantomData,
+        }
     }
 }
 
@@ -96,26 +76,15 @@ impl<T: PartialEq> Clone for Memo<T> {
 
 impl<T: PartialEq> Copy for Memo<T> {}
 
-impl<T: PartialEq + 'static> Memo<T> {
-    #[track_caller]
-    pub fn new(f: impl FnMut(Option<&T>) -> T + 'static) -> Self {
-        let caller = Location::caller();
-        Self {
-            id: with_current_runtime(|rt| rt.create_memo(f, caller)),
-            ty: PhantomData,
-        }
-    }
+impl<T: PartialEq + 'static> ReactiveValue for Memo<T> {
+    type Value = T;
 
-    pub fn is_alive(self) -> bool {
+    fn is_alive(&self) -> bool {
         with_current_runtime(|rt| rt.is_alive(self.id))
     }
-}
 
-impl<T: PartialEq + 'static> PartialEq for Memo<T> {
-    fn eq(&self, other: &Self) -> bool {
-        // self.id == other.id
-        let this = self;
-        with!(|this, other| this == other)
+    fn dispose(self) {
+        with_current_runtime(|rt| rt.dispose(self.id))
     }
 }
 
@@ -139,21 +108,23 @@ impl<T: PartialEq + 'static> ReadSignal<T> for Memo<T> {
     }
 }
 
-pub trait AsStaticMemo<T: PartialEq> {
-    fn as_static_memo(self) -> Memo<T>;
-}
+impl<T: PartialEq + 'static> SignalMapper<T> for Memo<T> {
+    type Output<U: PartialEq + 'static> = Memo<U>;
 
-impl<T: PartialEq + Clone + 'static> AsStaticMemo<T> for T {
-    fn as_static_memo(self) -> Memo<T> {
-        create_memo(move |_| self.clone())
+    fn mapped<U: PartialEq + 'static>(
+        &self,
+        map: impl Fn(&T) -> U + 'static,
+    ) -> Self::Output<U> {
+        let this = *self;
+        create_memo(move |_| this.with(&map))
     }
 }
 
-pub trait AsMemo<T: PartialEq> {
+pub trait IntoMemo<T: PartialEq> {
     fn as_memo(self) -> Memo<T>;
 }
 
-impl<T: PartialEq + Clone + 'static, M: marker::CanRead + 'static> AsMemo<T>
+impl<T: PartialEq + Clone + 'static, M: marker::CanRead + 'static> IntoMemo<T>
     for Signal<T, M>
 {
     fn as_memo(self) -> Memo<T> {
@@ -161,7 +132,7 @@ impl<T: PartialEq + Clone + 'static, M: marker::CanRead + 'static> AsMemo<T>
     }
 }
 
-impl<T: PartialEq + Clone + 'static, F> AsMemo<T> for F
+impl<T: PartialEq + Clone + 'static, F> IntoMemo<T> for F
 where
     F: Fn() -> T + 'static,
 {
@@ -170,19 +141,14 @@ where
     }
 }
 
-// impl<T: !IsMemo + PartialEq + Clone + 'static> AsMemo<T> for T {
-//     fn as_memo(self) -> Memo<T> {
-//         use_memo(move |_| self.clone())
-//     }
-// }
-
-impl<T: PartialEq + Clone + 'static> AsMemo<T> for Memo<T> {
-    // Should never be called directly being redundant
+impl<T: PartialEq + Clone + 'static> IntoMemo<T> for Memo<T> {
+    /// Should never be called directly being redundant
     fn as_memo(self) -> Memo<T> {
         self
     }
 }
 
+#[derive(PartialEq)]
 pub struct MemoTree<T: PartialEq + 'static> {
     pub data: Memo<T>,
     pub children: Memo<Vec<MemoTree<T>>>,
@@ -197,28 +163,16 @@ impl<T: PartialEq + Default + 'static> Default for MemoTree<T> {
     }
 }
 
-impl<T: PartialEq + 'static> Copy for MemoTree<T> {}
-
-impl<T: PartialEq + 'static> PartialEq for MemoTree<T> {
-    fn eq(&self, other: &Self) -> bool {
-        let data = self.data;
-        let other_data = other.data;
-        let children = self.children;
-        let other_children = other.children;
-        with!(|data, other_data, children, other_children| {
-            data == other_data && children == other_children
-        })
-    }
-}
-
 impl<T: PartialEq + 'static> Clone for MemoTree<T> {
     fn clone(&self) -> Self {
         Self { data: self.data.clone(), children: self.children.clone() }
     }
 }
 
+impl<T: PartialEq + 'static> Copy for MemoTree<T> {}
+
 impl<T: PartialEq + 'static> MemoTree<T> {
-    pub fn childless(data: impl AsMemo<T>) -> Self {
+    pub fn childless(data: impl IntoMemo<T>) -> Self {
         Self { data: data.as_memo(), children: create_memo(|_| alloc::vec![]) }
     }
 
@@ -239,10 +193,7 @@ impl<T: PartialEq + 'static> MemoTree<T> {
     }
 }
 
-// pub struct MemoTreeIter<'a> {
-//     stack: Vec<&'a Memo2>
-// }
-
+/// [`Keyed`] is a helper for memos which you can use to avoid computationally expensive comparisons in some cases. It is a pair of data and its key, where, unlike in raw memo, key is used for memoization comparisons.
 pub struct Keyed<K: PartialEq, V> {
     key: K,
     value: V,

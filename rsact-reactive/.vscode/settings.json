@@ -10,4 +10,5 @@
   "rustTestExplorer.rootCargoManifestFilePath": "${workspaceFolder}/Cargo.toml",
   "rust-analyzer.runnables.extraTestBinaryArgs": ["--test-threads=1"],
   "rustTestExplorer.logpanel": true,
+  "cSpell.words": ["rsact", "Uninit"]
 }

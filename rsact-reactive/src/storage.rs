@@ -15,29 +15,17 @@ slotmap::new_key_type! {
 
 #[derive(Clone, Copy)]
 pub enum NotifyError {
+    #[allow(unused)]
+    // TODO: ?
     Cycle(ValueDebugInfo),
 }
 pub type NotifyResult = Result<(), NotifyError>;
 
 impl ValueId {
-    // pub(crate) fn get_untracked(&self, rt: &Runtime) -> Rc<RefCell<dyn Any>> {
-    //     // let values = &runtime.storage.values.borrow();
-    //     // let value = values.get(*self).unwrap().value();
-    //     rt.storage.get(*self).unwrap().value
-    // }
-
     // TODO: Add `subscribe_with_current_rt` for simplicity
     pub(crate) fn subscribe(&self, rt: &Runtime) {
         rt.subscribe(*self);
     }
-
-    // pub(crate) fn dispose(&self, rt: &Runtime) {
-    //     rt.storage
-    //         .values
-    //         .borrow_mut()
-    //         .remove(*self)
-    //         .expect("Tried to dispose disposed value");
-    // }
 
     #[track_caller]
     #[inline(always)]
@@ -235,10 +223,6 @@ pub struct StoredValue {
 }
 
 impl StoredValue {
-    // pub(crate) fn value(&self) -> Rc<RefCell<dyn Any>> {
-    //     self.value.clone()
-    // }
-
     fn mark(&mut self, state: ValueState) {
         self.state = state;
     }

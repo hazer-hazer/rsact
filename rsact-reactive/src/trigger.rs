@@ -1,13 +1,19 @@
 use crate::{
-    prelude::create_signal,
-    signal::{ReadSignal, Signal, WriteSignal},
+    prelude::create_signal, read::ReadSignal as _, signal::Signal,
+    write::WriteSignal as _,
 };
+
+#[track_caller]
+pub fn create_trigger() -> Trigger {
+    Trigger::new()
+}
 
 pub struct Trigger {
     inner: Signal<()>,
 }
 
 impl Trigger {
+    #[track_caller]
     pub fn new() -> Self {
         Self { inner: create_signal(()) }
     }
@@ -25,8 +31,4 @@ impl Trigger {
     pub fn notify(&self) {
         self.inner.notify();
     }
-}
-
-pub fn use_trigger() -> Trigger {
-    Trigger::new()
 }

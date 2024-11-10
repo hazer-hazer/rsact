@@ -4,6 +4,18 @@ use crate::{
 use alloc::rc::Rc;
 use core::{any::Any, cell::RefCell, marker::PhantomData, panic::Location};
 
+pub fn create_effect<T, F>(f: F) -> Effect<T>
+where
+    T: 'static,
+    F: FnMut(Option<T>) -> T + 'static,
+{
+    let effect = Effect::new(f);
+
+    with_current_runtime(|rt| rt.maybe_update(effect.id));
+
+    effect
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EffectOrder {
     First,
@@ -17,55 +29,6 @@ impl EffectOrder {
         [Self::First, Self::Normal, Self::Last].iter().copied()
     }
 }
-
-// #[derive(Clone)]
-// pub struct OrderedCallback {
-//     order: EffectOrder,
-//     callback: Rc<dyn AnyCallback>,
-// }
-
-// impl AnyCallback for OrderedCallback {
-//     fn run(&self, value: Rc<RefCell<dyn Any>>) -> bool {
-//         self.callback.run(value)
-//     }
-// }
-
-// impl OrderedCallback {
-//     pub fn new(
-//         order: EffectOrder,
-//         callback: impl AnyCallback + 'static,
-//     ) -> Self {
-//         Self { order, callback: Rc::new(callback) }
-//     }
-
-//     pub fn with_default_order(callback: impl AnyCallback + 'static) -> Self {
-//         Self { order: EffectOrder::default(), callback: Rc::new(callback) }
-//     }
-
-//     pub fn order(&self) -> EffectOrder {
-//         self.order
-//     }
-// }
-
-// impl Eq for OrderedCallback {}
-
-// impl Ord for OrderedCallback {
-//     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-//         self.order.cmp(&other.order)
-//     }
-// }
-
-// impl PartialOrd for OrderedCallback {
-//     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-//         self.order.partial_cmp(&other.order)
-//     }
-// }
-
-// impl PartialEq for OrderedCallback {
-//     fn eq(&self, other: &Self) -> bool {
-//         self.order == other.order
-//     }
-// }
 
 pub struct Effect<T> {
     id: ValueId,
@@ -121,21 +84,9 @@ where
     }
 }
 
-pub fn use_effect<T, F>(f: F) -> Effect<T>
-where
-    T: 'static,
-    F: FnMut(Option<T>) -> T + 'static,
-{
-    let effect = Effect::new(f);
-
-    with_current_runtime(|rt| rt.maybe_update(effect.id));
-
-    effect
-}
-
 #[cfg(test)]
 mod tests {
-    use super::use_effect;
+    use super::create_effect;
     use crate::prelude::*;
 
     #[test]
@@ -143,7 +94,7 @@ mod tests {
         let mut calls = create_signal(0);
         let mut a = create_signal(0);
 
-        use_effect(move |_| {
+        create_effect(move |_| {
             calls.update_untracked(|calls| *calls += 1);
             a.get();
         });
@@ -164,7 +115,7 @@ mod tests {
         let a_is_even = create_memo(move |_| a.get() % 2 == 0);
 
         // Run effect only for even `a` values
-        use_effect(move |_| {
+        create_effect(move |_| {
             calls.update_untracked(|calls| *calls += 1);
             a_is_even.get();
         });
