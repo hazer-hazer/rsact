@@ -38,7 +38,7 @@ impl<C: Color> PageStyle<C> {
     }
 }
 
-/// Tree of info about widget tree. Elements are mostly
+/// Tree of info about widget tree.
 struct PageTree {
     /// Page elements meta tree
     meta: MetaTree,
@@ -52,6 +52,7 @@ struct PageTree {
 
 pub struct Page<W: WidgetCtx> {
     // TODO: root is not used as a Signal but as boxed value, better add StoredValue to rsact_reactive for static storage
+    // TODO: Same is about other not-really-reactive states in Page
     root: Signal<El<W>>,
     tree: PageTree,
     layout: Memo<LayoutModel>,
@@ -68,14 +69,13 @@ pub struct Page<W: WidgetCtx> {
 impl<W: WidgetCtx> Page<W> {
     pub(crate) fn new(
         root: impl Into<El<W>>,
-        viewport: Signal<Size>,
+        viewport: Memo<Size>,
         styler: Signal<W::Styler>,
         dev_tools: Signal<DevTools>,
-        renderer: Signal<W::Renderer>,
+        mut renderer: Signal<W::Renderer>,
     ) -> Self {
         let mut root = root.into();
-        let state = PageState::new().into_signal();
-        let viewport = viewport.as_memo();
+        let state = PageState::new().signal();
 
         // Raw root initialization //
 
@@ -84,11 +84,19 @@ impl<W: WidgetCtx> Page<W> {
         //  pass viewport to model_layout. In such a way, layout becomes much
         //  more straightforward and single-pass process.
         let meta = root.meta();
-        root.on_mount(MountCtx { viewport, styler: styler.as_memo() });
+        root.on_mount(MountCtx { viewport, styler: styler.memo() });
+
+        let focusable = create_memo(move |_| {
+            meta.flat_collect().iter().fold(0, |count, el| {
+                el.with(|el| {
+                    count + (el.behavior & Behavior::FOCUSABLE).bits() as usize
+                })
+            })
+        });
 
         // TODO: Should be `mapped`? Now, root is kind of partially-reactive
         let layout_tree = root.build_layout_tree();
-        let layout = viewport.mapped(move |&viewport_size| {
+        let layout = viewport.map(move |&viewport_size| {
             // println!("Relayout");
             // TODO: Possible optimization is to use previous memo result, pass
             // it to model_layout as tree and don't relayout parents if layouts
@@ -105,13 +113,13 @@ impl<W: WidgetCtx> Page<W> {
             layout
         });
 
-        let style = PageStyle::base().into_signal();
+        let style = PageStyle::base().signal();
 
-        let draw_calls = create_signal(0);
-        let force_redraw = create_signal(false);
+        let mut draw_calls = create_signal(0);
+        let mut force_redraw = create_signal(false);
 
         // Now root is boxed //
-        let root = root.into_signal();
+        let mut root = root.signal();
 
         let drawing = create_memo(move |_| {
             if force_redraw.get() {
@@ -148,11 +156,13 @@ impl<W: WidgetCtx> Page<W> {
                         })
                         .unwrap();
 
-                    if dev_tools.with(|dt| dt.enabled) {
-                        if let Some(hovered) = dev_tools.with(|dt| dt.hovered) {
-                            hovered.draw(renderer, viewport.get()).unwrap();
+                    with!(|dev_tools| {
+                        if dev_tools.enabled {
+                            if let Some(hovered) = &dev_tools.hovered {
+                                hovered.draw(renderer, viewport.get()).unwrap();
+                            }
                         }
-                    }
+                    });
                 })
             });
 
@@ -160,14 +170,6 @@ impl<W: WidgetCtx> Page<W> {
                 .update(|draw_calls| *draw_calls = draw_calls.wrapping_add(&1));
 
             true
-        });
-
-        let focusable = create_memo(move |_| {
-            meta.flat_collect().iter().fold(0, |count, el| {
-                el.with(|el| {
-                    count + (el.behavior & Behavior::FOCUSABLE).bits() as usize
-                })
-            })
         });
 
         Self {
@@ -214,7 +216,7 @@ impl<W: WidgetCtx> Page<W> {
         })
     }
 
-    pub fn take_draw_calls(&self) -> usize {
+    pub fn take_draw_calls(&mut self) -> usize {
         let draw_calls = self.draw_calls.get();
         self.draw_calls.set(0);
         draw_calls
@@ -226,10 +228,11 @@ impl<W: WidgetCtx> Page<W> {
     ) -> Vec<UnhandledEvent<W>> {
         let unhandled = events
             .filter_map(|event| {
-                if self.dev_tools.get().enabled {
+                if self.dev_tools.with(|dt| dt.enabled) {
                     if let Some(point) = event.as_dev_el_hover() {
+                        let hovered_el = self.find_hovered_el(point);
                         self.dev_tools.update(|dev_tools| {
-                            dev_tools.hovered = self.find_hovered_el(point)
+                            dev_tools.hovered = hovered_el;
                         });
                         return None;
                     }
@@ -237,6 +240,7 @@ impl<W: WidgetCtx> Page<W> {
 
                 let layout = self.layout;
 
+                // TODO: Make `FocusEvent` optionally implemented for Event
                 let new_focus = event.as_focus_move().map(|offset| {
                     ((self.tree.focused.unwrap_or(0) as i64 + offset as i64)
                         as usize)
@@ -254,7 +258,7 @@ impl<W: WidgetCtx> Page<W> {
                             pass: &mut pass,
                         })
                     });
-                    // TODO: Return notify
+                    // TODO: notify root on event capture?
 
                     response
                 });
@@ -274,7 +278,6 @@ impl<W: WidgetCtx> Page<W> {
 
                                 None
                             } else {
-                                // TODO: Should only bubbled events be returned?
                                 Some(UnhandledEvent::Event(event))
                             }
                         },
@@ -297,7 +300,6 @@ impl<W: WidgetCtx> Page<W> {
         target: &mut impl DrawTarget<Color = <W::Renderer as Renderer>::Color>,
     ) -> bool {
         if self.drawing.get() {
-            // self.needs_render.set(false);
             self.renderer.with(|renderer| renderer.finish_frame(target));
             true
         } else {

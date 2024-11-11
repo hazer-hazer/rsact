@@ -1,9 +1,6 @@
 // #![feature(thread_local)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
-#[cfg(feature = "std")]
-extern crate std;
-
 extern crate rsact_macros;
 
 extern crate alloc;
@@ -31,8 +28,8 @@ pub mod prelude {
             Inert, IntoInert, MaybeReactive, MaybeSignal, SignalMapReactive,
         },
         memo::{create_memo, IntoMemo, Memo, MemoTree},
-        memo_chain::{use_memo_chain, IntoMemoChain, MemoChain},
-        read::{mapped, with, ReadSignal, SignalMapper},
+        memo_chain::{create_memo_chain, IntoMemoChain, MemoChain},
+        read::{map, with, ReadSignal, SignalMap},
         rsact_macros::IntoMaybeReactive,
         runtime::{create_runtime, with_current_runtime, with_new_runtime},
         signal::{create_signal, IntoSignal, RwSignal, Signal},

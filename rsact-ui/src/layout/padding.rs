@@ -1,11 +1,11 @@
+use super::{axis::Axis, size::Size};
 use core::ops::{Add, Sub};
 use embedded_graphics::{geometry::Point, primitives::Rectangle};
-
-use super::{axis::Axis, size::Size};
+use rsact_reactive::prelude::IntoMaybeReactive;
 
 // TODO: Outline -- outer bounds border that does not take any space
 
-#[derive(Clone, Copy, Default, Debug, PartialEq)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, IntoMaybeReactive)]
 pub struct Padding {
     pub left: u32,
     pub right: u32,

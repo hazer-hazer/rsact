@@ -33,17 +33,17 @@ pub trait ReadSignal<T> {
     }
 }
 
-pub trait SignalMapper<T: 'static> {
+pub trait SignalMap<T: 'static> {
     type Output<U: PartialEq + 'static>;
 
-    fn mapped<U: PartialEq + 'static>(
+    fn map<U: PartialEq + 'static>(
         &self,
         map: impl Fn(&T) -> U + 'static,
     ) -> Self::Output<U>;
 
     // TODO: Is this needed?
     #[track_caller]
-    fn mapped_clone<U: PartialEq + 'static>(
+    fn map_cloned<U: PartialEq + 'static>(
         &self,
         map: impl Fn(T) -> U + 'static,
     ) -> Self::Output<U>
@@ -51,7 +51,7 @@ pub trait SignalMapper<T: 'static> {
         Self: Sized + 'static,
         T: Clone,
     {
-        self.mapped(move |this| map(this.clone()))
+        self.map(move |this| map(this.clone()))
     }
 }
 
@@ -78,7 +78,7 @@ pub use with;
 
 // Note: with! macro call inside is intentional to avoid creation of many memos
 #[macro_export]
-macro_rules! mapped {
+macro_rules! map {
     (|$param: ident $(,)?| $body: expr) => {
         $param.mapped(|$param| $body)
     };
@@ -96,7 +96,7 @@ macro_rules! mapped {
     };
 }
 
-pub use mapped;
+pub use map;
 
 /// All ReadSignal structs implement common operations and core traits
 /// Macro is used because we cannot implement core traits for all types "S: ReadSignal"

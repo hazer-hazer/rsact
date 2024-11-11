@@ -41,34 +41,34 @@ impl<C: Color> BarStyle<C> {
 }
 
 pub struct Bar<W: WidgetCtx, V: RangeValue, Dir: Direction> {
-    value: Signal<V>,
+    value: MaybeReactive<V>,
     layout: Signal<Layout>,
     style: MemoChain<BarStyle<W::Color>>,
     dir: PhantomData<Dir>,
 }
 
 impl<W: WidgetCtx, V: RangeValue + 'static> Bar<W, V, ColDir> {
-    pub fn vertical(value: Signal<V>) -> Self {
+    pub fn vertical(value: impl Into<MaybeReactive<V>>) -> Self {
         Self::new(value)
     }
 }
 
 impl<W: WidgetCtx, V: RangeValue + 'static> Bar<W, V, RowDir> {
-    pub fn horizontal(value: Signal<V>) -> Self {
+    pub fn horizontal(value: impl Into<MaybeReactive<V>>) -> Self {
         Self::new(value)
     }
 }
 
 impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction> Bar<W, V, Dir> {
-    pub fn new(value: Signal<V>) -> Self {
+    pub fn new(value: impl Into<MaybeReactive<V>>) -> Self {
         Self {
-            value,
+            value: value.into(),
             layout: Layout {
                 kind: LayoutKind::Edge,
                 size: Dir::AXIS.canon(Length::fill(), Length::Fixed(10)),
             }
-            .into_signal(),
-            style: BarStyle::base().into_memo_chain(),
+            .signal(),
+            style: BarStyle::base().memo_chain(),
             dir: PhantomData,
         }
     }

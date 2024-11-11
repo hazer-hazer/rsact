@@ -1,6 +1,6 @@
 use core::{fmt::Display, ops::Deref, u8};
 
-pub trait RangeValue: PartialEq + Copy {
+pub trait RangeValue: PartialEq + Copy + 'static {
     // fn min() -> Self;
     // fn max() -> Self;
     // fn values() -> u64;

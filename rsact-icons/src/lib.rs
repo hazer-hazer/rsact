@@ -1,6 +1,7 @@
 use embedded_graphics::{
     pixelcolor::raw::{BigEndian, ByteOrder},
     prelude::{PixelColor, PixelIteratorExt, Point},
+    primitives::Rectangle,
     Drawable, Pixel,
 };
 use std::marker::PhantomData;
@@ -12,6 +13,7 @@ pub use rendered::*;
 // thousands of constants with the same name for different icon sizes modules?
 
 #[derive(Clone, Copy)]
+// TODO: Really use ByteOrder to get bit offset in `bit` method
 pub struct IconRaw<BO: ByteOrder> {
     data: &'static [u8],
     size: u32,
@@ -25,7 +27,7 @@ impl<BO: ByteOrder> IconRaw<BO> {
 
     fn bit(&self, x: u32, y: u32) -> bool {
         let index = x + y * self.size;
-        (self.data[index as usize / 8] & (1 << index % 8)) != 0
+        (self.data[index as usize / 8] & (0b1000_0000 >> index % 8)) != 0
     }
 }
 
@@ -79,24 +81,31 @@ impl<C: PixelColor, BO: ByteOrder> Drawable for Icon<C, BO> {
     where
         D: embedded_graphics::prelude::DrawTarget<Color = Self::Color>,
     {
-        for y in 0..self.raw.size {
-            for x in 0..self.raw.size {
-                if let Some(color) = self.color(self.raw.bit(x, y)) {
-                    Pixel(
-                        Point::new(x as i32, y as i32) + self.position,
-                        color,
-                    )
-                    .draw(target)?;
-                }
-            }
-        }
+        // for y in 0..self.raw.size {
+        //     for x in 0..self.raw.size {
+        //         if let Some(color) = self.color(self.raw.bit(x, y)) {
+        //             Pixel(
+        //                 Point::new(x as i32, y as i32) + self.position,
+        //                 color,
+        //             )
+        //             .draw(target)?;
+        //         }
+        //     }
+        // }
 
-        Ok(())
+        self.iter().try_for_each(|pixel| {
+            if let Some(pixel) = pixel {
+                pixel.draw(target)?;
+            }
+            Ok(())
+        })
     }
 }
 
-pub trait IconSet<BO: embedded_graphics::pixelcolor::raw::ByteOrder = BigEndian>
+pub trait IconSet<BO: embedded_graphics::pixelcolor::raw::ByteOrder = BigEndian>:
+    Sized + 'static
 {
+    const KINDS: &[Self];
     const SIZES: &[u32];
 
     fn size(&self, size: u32) -> crate::IconRaw<BO>;

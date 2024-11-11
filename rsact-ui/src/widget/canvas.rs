@@ -33,7 +33,7 @@ impl<C: Color> DrawQueue<C> {
         Self { queue: create_signal(Vec::new()) }
     }
 
-    pub fn draw(self, command: DrawCommand<C>) -> Self {
+    pub fn draw(mut self, command: DrawCommand<C>) -> Self {
         // TODO: update_untracked?
         self.queue.update(|queue| queue.push(command));
         self
@@ -82,7 +82,7 @@ impl<C: Color> DrawQueue<C> {
         self
     }
 
-    fn pop(self) -> Option<DrawCommand<C>> {
+    fn pop(mut self) -> Option<DrawCommand<C>> {
         // TODO: Should notify on something popped?
         // No, because drawing is synchronous
         self.queue.update_untracked(|queue| queue.pop())
@@ -102,7 +102,7 @@ impl<W: WidgetCtx> Canvas<W> {
                 kind: LayoutKind::Edge,
                 size: Size::new_equal(Length::fill()),
             }
-            .into_signal(),
+            .signal(),
         }
     }
 }

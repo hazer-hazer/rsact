@@ -9,35 +9,34 @@ use layout::flex::flex_content_size;
 // pub type Col<C> = Flex<C, ColDir>;
 
 pub trait IntoChildren<W: WidgetCtx> {
-    fn into_children(self) -> Signal<Vec<El<W>>>;
+    fn into_children(self) -> MaybeSignal<Vec<El<W>>>;
 }
 
 impl<W: WidgetCtx + 'static, const SIZE: usize> IntoChildren<W>
     for [El<W>; SIZE]
 {
     #[track_caller]
-    fn into_children(self) -> Signal<Vec<El<W>>> {
-        create_signal(self.into_iter().collect())
+    fn into_children(self) -> MaybeSignal<Vec<El<W>>> {
+        create_signal(self.into_iter().collect()).into()
     }
 }
 
 impl<W: WidgetCtx + 'static> IntoChildren<W> for Vec<El<W>> {
     #[track_caller]
-    fn into_children(self) -> Signal<Vec<El<W>>> {
-        create_signal(self)
+    fn into_children(self) -> MaybeSignal<Vec<El<W>>> {
+        create_signal(self).into()
     }
 }
 
 impl<W: WidgetCtx + 'static> IntoChildren<W> for Signal<Vec<El<W>>> {
-    fn into_children(self) -> Signal<Vec<El<W>>> {
-        self
+    fn into_children(self) -> MaybeSignal<Vec<El<W>>> {
+        self.into()
     }
 }
 
 pub struct Flex<W: WidgetCtx, Dir: Direction> {
     // TODO: Signal vector?
-    // TODO: Use MaybeSignal
-    children: Signal<Vec<El<W>>>,
+    children: MaybeSignal<Vec<El<W>>>,
     layout: Signal<Layout>,
     dir: PhantomData<Dir>,
 }
@@ -62,7 +61,7 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Flex<W, Dir> {
         let children = children.into_children();
 
         let content_size = children
-            .mapped(|children| flex_content_size(Dir::AXIS, children.iter()));
+            .map(|children| flex_content_size(Dir::AXIS, children.iter()));
 
         Self {
             children,
@@ -70,33 +69,36 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Flex<W, Dir> {
                 Dir::AXIS,
                 content_size,
             )))
-            .into_signal(),
+            .signal(),
             dir: PhantomData,
         }
     }
 
-    pub fn wrap(self, wrap: bool) -> Self {
+    pub fn wrap(mut self, wrap: bool) -> Self {
         self.layout.update_untracked(|layout| {
             layout.expect_flex_mut().wrap = wrap;
         });
         self
     }
 
-    pub fn gap(self, gap: impl Into<Size>) -> Self {
+    pub fn gap(mut self, gap: impl Into<Size>) -> Self {
         self.layout.update_untracked(|layout| {
             layout.expect_flex_mut().gap = gap.into();
         });
         self
     }
 
-    pub fn vertical_align(self, vertical_align: impl Into<Align>) -> Self {
+    pub fn vertical_align(mut self, vertical_align: impl Into<Align>) -> Self {
         self.layout.update_untracked(|layout| {
             layout.expect_flex_mut().vertical_align = vertical_align.into();
         });
         self
     }
 
-    pub fn horizontal_align(self, horizontal_align: impl Into<Align>) -> Self {
+    pub fn horizontal_align(
+        mut self,
+        horizontal_align: impl Into<Align>,
+    ) -> Self {
         self.layout.update_untracked(|layout| {
             layout.expect_flex_mut().horizontal_align = horizontal_align.into();
         });
@@ -164,10 +166,10 @@ impl<W: WidgetCtx + 'static, Dir: Direction> BlockModelWidget<W>
 impl<W: WidgetCtx + 'static, Dir: Direction> Widget<W> for Flex<W, Dir> {
     fn meta(&self) -> MetaTree {
         MetaTree {
-            data: create_memo(|_| Meta::none()),
-            children: self
-                .children
-                .mapped(|children| children.iter().map(Widget::meta).collect()),
+            data: Meta::none.memo(),
+            children: self.children.map_reactive(|children| {
+                children.iter().map(Widget::meta).collect()
+            }),
         }
     }
 
@@ -185,8 +187,8 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Widget<W> for Flex<W, Dir> {
 
     fn build_layout_tree(&self) -> MemoTree<Layout> {
         MemoTree {
-            data: self.layout.as_memo(),
-            children: self.children.mapped(|children| {
+            data: self.layout.memo(),
+            children: self.children.map_reactive(|children| {
                 children.iter().map(Widget::build_layout_tree).collect()
             }),
         }

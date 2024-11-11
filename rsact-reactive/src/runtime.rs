@@ -222,7 +222,7 @@ impl Runtime {
             state: ValueState::Clean,
             #[cfg(debug_assertions)]
             debug: ValueDebugInfo {
-                creator: Some(_caller),
+                created_at: Some(_caller),
                 dirten: None,
                 borrowed: None,
                 borrowed_mut: None,
@@ -251,7 +251,7 @@ impl Runtime {
             state: ValueState::Dirty,
             #[cfg(debug_assertions)]
             debug: ValueDebugInfo {
-                creator: Some(_caller),
+                created_at: Some(_caller),
                 dirten: None,
                 borrowed: None,
                 borrowed_mut: None,
@@ -279,7 +279,7 @@ impl Runtime {
             state: ValueState::Dirty,
             #[cfg(debug_assertions)]
             debug: ValueDebugInfo {
-                creator: Some(_caller),
+                created_at: Some(_caller),
                 dirten: None,
                 borrowed: None,
                 borrowed_mut: None,
@@ -310,7 +310,7 @@ impl Runtime {
             state: ValueState::Dirty,
             #[cfg(debug_assertions)]
             debug: ValueDebugInfo {
-                creator: Some(_caller),
+                created_at: Some(_caller),
                 dirten: None,
                 borrowed: None,
                 borrowed_mut: None,
@@ -512,7 +512,7 @@ impl Runtime {
     pub(crate) fn debug_info(&self, id: ValueId) -> ValueDebugInfo {
         let debug_info = self.storage.debug_info(id).unwrap();
 
-        if let Some(ValueDebugInfo { creator: Some(observer), .. }) = self
+        if let Some(ValueDebugInfo { created_at: Some(observer), .. }) = self
             .observer
             .get()
             .map(|observer| self.storage.debug_info(observer))
@@ -619,6 +619,7 @@ impl Runtime {
     }
 }
 
+#[cfg(debug_assertions)]
 pub fn current_runtime_profile() -> Profile {
     with_current_runtime(|rt| {
         let (signals, effects, memos, memo_chains) =
@@ -638,9 +639,43 @@ pub fn current_runtime_profile() -> Profile {
             );
 
         let subscribers_bindings =
-            rt.subscribers.borrow_mut().values().map(|subs| subs.len()).sum();
+            rt.subscribers.borrow().values().map(|subs| subs.len()).sum();
         let sources_bindings =
-            rt.sources.borrow_mut().values().map(|sources| sources.len()).sum();
+            rt.sources.borrow().values().map(|sources| sources.len()).sum();
+
+        let top_by_subs = rt
+            .subscribers
+            .borrow()
+            .iter()
+            .map(|(id, subs)| (id, subs.len()))
+            .max_by_key(|(_, subs)| *subs)
+            .and_then(|(top_by_subs, subs)| {
+                rt.storage
+                    .values
+                    .borrow()
+                    .get(top_by_subs)
+                    .unwrap()
+                    .debug
+                    .created_at
+                    .map(|created_at| (*created_at, subs))
+            });
+
+        let top_by_sources = rt
+            .sources
+            .borrow()
+            .iter()
+            .map(|(id, sources)| (id, sources.len()))
+            .max_by_key(|(_, sources)| *sources)
+            .and_then(|(top_by_sources, sources)| {
+                rt.storage
+                    .values
+                    .borrow()
+                    .get(top_by_sources)
+                    .unwrap()
+                    .debug
+                    .created_at
+                    .map(|created_at| (*created_at, sources))
+            });
 
         Profile {
             signals,
@@ -652,6 +687,8 @@ pub fn current_runtime_profile() -> Profile {
             sources: rt.sources.borrow().len(),
             sources_bindings,
             pending_effects: rt.pending_effects.borrow().len(),
+            top_by_subs,
+            top_by_sources,
         }
     })
 }
@@ -667,24 +704,42 @@ pub struct Profile {
     sources: usize,
     sources_bindings: usize,
     pending_effects: usize,
+    top_by_subs: Option<(Location<'static>, usize)>,
+    top_by_sources: Option<(Location<'static>, usize)>,
 }
 
 impl Display for Profile {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(
+        writeln!(
             f,
-            "{} values:\n  {} signals\n  {} effects\n  {} memos\n  {} memo chains\n{} subscribers ({} bindings), {} sources ({} bindings), {} pending effects",
-            self.signals + self.effects + self.memos + self.memo_chains,
-            self.signals,
-            self.effects,
-            self.memos,
-            self.memo_chains,
+            "{} values:",
+            self.signals + self.effects + self.memos + self.memo_chains
+        )?;
+        writeln!(f, "  {} signals", self.signals)?;
+        writeln!(f, "  {} effects", self.effects)?;
+        writeln!(f, "  {} memos", self.memos)?;
+        writeln!(f, "  {} memo chains", self.memo_chains)?;
+        writeln!(
+            f,
+            "{} subscribers ({} bindings), {} sources ({} bindings), {} pending effects",
             self.subscribers,
             self.subscribers_bindings,
             self.sources,
             self.sources_bindings,
             self.pending_effects
-        )
+        )?;
+
+        writeln!(f, "top values:")?;
+
+        if let Some((top_by_subs, count)) = self.top_by_subs {
+            writeln!(f, "  by subscribers: {top_by_subs} ({count})")?;
+        }
+
+        if let Some((top_by_sources, count)) = self.top_by_sources {
+            writeln!(f, "  by sources: {top_by_sources} ({count})")?;
+        }
+
+        Ok(())
     }
 }
 

@@ -16,9 +16,9 @@ use rsact_ui::{
         Align,
     },
     prelude::{
-        create_memo, create_signal, use_effect, AsMemo, Button, Container,
-        Length, Message, MonoText, ReadSignal, Scrollable, SignalMapper,
-        WriteSignal,
+        create_effect, create_memo, create_signal, Button, Container,
+        IntoInert, IntoMemo, Length, Message, MonoText, ReadSignal, Scrollable,
+        SignalMap, WriteSignal,
     },
     render::draw_target::{AntiAliasing, LayeringRendererOptions},
     style::{accent::AccentStyler, NullStyler},
@@ -88,6 +88,16 @@ static GLOBAL: Cap<System> = Cap::new(System, usize::MAX);
  * This example simulates imaginable 3D printer UI on monochrome 128x64 OLED display.
  */
 
+/**
+* Resume.
+* Init:
+    Reactive runtime profile: 419 values:
+        226 signals
+        3 effects
+        126 memos
+        64 memo chains
+*/
+
 fn main() {
     let output_settings = OutputSettingsBuilder::new()
         .max_fps(10000)
@@ -109,7 +119,7 @@ fn main() {
 
     let back_button = || {
         Button::new("Back")
-            .padding(2)
+            .padding(2u32)
             .on_click(move || {
                 queue.publish(Message::GoTo(main_page_id));
             })
@@ -117,25 +127,25 @@ fn main() {
     };
 
     // This is not a good way to implement animations/logic, this's just to simulate printing process
-    let printing_file = create_signal(String::new());
-    let printing_progress_anim_ts = create_signal(Instant::now());
-    let is_printing = create_signal(false);
-    let printing_progress = create_signal(RangeU8::new_full_range(0));
+    let mut printing_file = create_signal(String::new());
+    let mut printing_progress_anim_ts = create_signal(Instant::now());
+    let mut is_printing = create_signal(false);
+    let mut printing_progress = create_signal(RangeU8::new_full_range(0));
     let print_page_id = "print";
     let print_page = Flex::col([
         Bar::horizontal(printing_progress).el(),
         MonoText::new(
-            printing_file.mapped(|filename| format!("Printing {filename}...")),
+            printing_file.map(|filename| format!("Printing {filename}...")),
         )
         .el(),
     ])
     .fill()
     .gap(10)
-    .padding(10)
+    .padding(10u32)
     .horizontal_align(Align::Center)
     .el();
 
-    use_effect(move |_| {
+    create_effect(move |_| {
         if is_printing.get() {
             if printing_progress.get().is_max() {
                 is_printing.set(false);
@@ -150,7 +160,7 @@ fn main() {
         }
     });
 
-    let print_file = move |filename: &str| {
+    let mut print_file = move |filename: &str| {
         printing_file.set(filename.to_string());
         printing_progress.set(0.into());
         printing_progress_anim_ts.set(Instant::now());
@@ -185,8 +195,8 @@ fn main() {
 
     const MAX_POSITION: Point = Point::new(250, 200);
     let max_z = 200;
-    let position = create_signal(Point::new(2, 87));
-    let z_pos = create_signal(35i32);
+    let mut position = create_signal(Point::new(2, 87));
+    let mut z_pos = create_signal(35i32);
     let position_page_id = "position";
     let move_distance = 1;
     let position_button = |text: &str, dir: UnitV2| {
@@ -197,15 +207,15 @@ fn main() {
                         .clamp_axes(Point::zero(), MAX_POSITION);
                 })
             })
-            .padding(3)
+            .padding(3u32)
             .el()
     };
 
     // Duration in milliseconds
     let parking_home_anim_dur = 10000;
-    let parking_home = create_signal(false);
-    let home_anim_ts = create_signal(Instant::now());
-    use_effect(move |_| {
+    let mut parking_home = create_signal(false);
+    let mut home_anim_ts = create_signal(Instant::now());
+    create_effect(move |_| {
         if parking_home.get() {
             if z_pos.get() == 0 && position.get() == Point::zero() {
                 parking_home.set(false);
@@ -230,9 +240,9 @@ fn main() {
     let position_page = Flex::row([
         Flex::col([
             back_button(),
-            MonoText::new(z_pos.mapped(|z_pos| format!("{z_pos}Z"))).el(),
+            MonoText::new(z_pos.map(|z_pos| format!("{z_pos}Z"))).el(),
             Button::new("Home")
-                .padding(2)
+                .padding(2u32)
                 .on_click(move || {
                     home_anim_ts.set(Instant::now());
                     parking_home.set(true);
@@ -248,14 +258,14 @@ fn main() {
                 .on_click(move || {
                     z_pos.update(|z_pos| *z_pos = (*z_pos + 1).min(max_z));
                 })
-                .padding(2)
+                .padding(2u32)
                 .el(),
             position_button("X-", UnitV2::LEFT),
             Button::new("Z-")
                 .on_click(move || {
                     z_pos.update(|z_pos| *z_pos = (*z_pos - 1).max(0));
                 })
-                .padding(2)
+                .padding(2u32)
                 .el(),
         ])
         .center()
@@ -264,7 +274,7 @@ fn main() {
         .el(),
         Flex::col([
             position_button("Y-", UnitV2::UP),
-            MonoText::new(position.as_memo()).el(),
+            MonoText::new(position.memo()).el(),
             position_button("Y+", UnitV2::DOWN),
         ])
         .gap(5)
@@ -277,14 +287,14 @@ fn main() {
     .el();
 
     let temp_page_id = "temp";
-    let bed_temp = create_signal(RangeU8::<0, 110>::new_clamped(60));
+    let mut bed_temp = create_signal(RangeU8::<0, 110>::new_clamped(60));
     // I know that nozzle temperature can be bigger than 255, but that's just a simulation
-    let nozzle_temp = create_signal(RangeU8::<0, 250>::new_clamped(220));
+    let mut nozzle_temp = create_signal(RangeU8::<0, 250>::new_clamped(220));
 
-    let cool_anim_ts = create_signal(Instant::now());
+    let mut cool_anim_ts = create_signal(Instant::now());
     let cool_anim_dur = 10000;
-    let cooling = create_signal(false);
-    use_effect(move |_| {
+    let mut cooling = create_signal(false);
+    create_effect(move |_| {
         if cooling.get() {
             if bed_temp.get() <= 25 && nozzle_temp.get() <= 25 {
                 cooling.set(false);
@@ -320,7 +330,7 @@ fn main() {
                     cool_anim_ts.set(Instant::now());
                     cooling.set(true);
                 })
-                .padding(3)
+                .padding(3u32)
                 .el(),
         ])
         .center()
@@ -328,7 +338,7 @@ fn main() {
         .fill()
         .el(),
         Flex::col([
-            MonoText::new(bed_temp.mapped(|temp| format!("{temp}C"))).el(),
+            MonoText::new(bed_temp.map(|temp| format!("{temp}C"))).el(),
             Knob::new(bed_temp).el(),
             MonoText::new_static("Bed").el(),
         ])
@@ -337,7 +347,7 @@ fn main() {
         .fill()
         .el(),
         Flex::col([
-            MonoText::new(nozzle_temp.mapped(|temp| format!("{temp}C"))).el(),
+            MonoText::new(nozzle_temp.map(|temp| format!("{temp}C"))).el(),
             Knob::new(nozzle_temp).el(),
             MonoText::new_static("Nozzle").el(),
         ])
@@ -381,7 +391,7 @@ fn main() {
     let mut ui = UI::new(
         main_page_id,
         main,
-        display.bounding_box().size,
+        display.bounding_box().size.inert(),
         NullStyler
         // AccentStyler::new(Rgb888::RED),
     )

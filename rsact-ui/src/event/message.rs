@@ -1,8 +1,5 @@
 use alloc::vec::Vec;
-use rsact_reactive::{
-    prelude::create_signal,
-    signal::{Signal, WriteSignal},
-};
+use rsact_reactive::prelude::*;
 
 use crate::widget::WidgetCtx;
 
@@ -34,12 +31,12 @@ impl<W: WidgetCtx> MessageQueue<W> {
 
     // TODO: Per-message-kind helpers
 
-    pub fn publish(self, msg: Message<W>) -> Self {
+    pub fn publish(mut self, msg: Message<W>) -> Self {
         self.messages.update(|messages| messages.push(msg));
         self
     }
 
-    pub(crate) fn pop(self) -> Option<Message<W>> {
+    pub(crate) fn pop(mut self) -> Option<Message<W>> {
         self.messages.update_untracked(|messages| messages.pop())
     }
 }

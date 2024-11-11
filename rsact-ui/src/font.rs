@@ -44,7 +44,7 @@ impl FontSize {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum FontStyle {
     Normal,
     Italic,

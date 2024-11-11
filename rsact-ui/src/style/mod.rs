@@ -16,11 +16,17 @@ pub mod theme;
  */
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ColorStyle<C: Color> {
+    /// Color is unset
     Unset,
+    /// Color is set to transparent. High priority
     Transparent,
+    /// Color set with low priority
     LowPriority(C),
+    /// Color set with high priority
     HighPriority(C),
+    /// Color is unset and will fallback to default foreground
     DefaultForeground,
+    /// Color is unset and will fallback to default background
     DefaultBackground,
 }
 
@@ -36,54 +42,9 @@ impl<C: Color> ColorStyle<C> {
         }
     }
 
-    // pub fn can_be_overwritten(&self) -> bool {
-    //     match self {
-    //         ColorStyle::Unset |
-    //         ColorStyle::LowPriority(_) |
-    //         ColorStyle::DefaultForeground |
-    //         ColorStyle::DefaultBackground => false,
-    //         ColorStyle::Transparent |
-    //         ColorStyle::HighPriority(_) => true
-    //     }
-    // }
-
-    // pub fn is_lower_than(&self, other: Self) -> bool {
-    //     match (self, other) {
-    //         (_, Self::Unset) => false,
-    //     }
-    // }
-
     pub fn expect(self) -> C {
         self.get().expect("Color must be set at this point")
     }
-
-    // pub fn merge_low_priority(&self, other: Self) -> Self {
-    //     match (self, other) {
-    //         (
-    //             _,
-    //             Self::Unset | Self::DefaultBackground |
-    // Self::DefaultForeground,         ) => *self,
-    //         (
-    //             Self::DefaultBackground
-    //             | Self::DefaultForeground
-    //             | Self::Unset
-    //             | Self::LowPriority(_),
-    //             other,
-    //         ) => other,
-    //         (ColorStyle::Transparent | ColorStyle::HighPriority(_), _) =>
-    // *self,     }
-    // }
-
-    // pub fn merge_high_priority(&self, other: Self) -> Self {
-    //     match other {
-    //         ColorStyle::Unset => todo!(),
-    //         ColorStyle::Transparent => todo!(),
-    //         ColorStyle::LowPriority(_) => todo!(),
-    //         ColorStyle::HighPriority(_) => todo!(),
-    //         ColorStyle::DefaultForeground => todo!(),
-    //         ColorStyle::DefaultBackground => todo!(),
-    //     }
-    // }
 
     pub fn set_low_priority(&mut self, new: Option<C>) {
         if let Some(new) = new {

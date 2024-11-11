@@ -76,10 +76,10 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
                 kind: LayoutKind::Edge,
                 size: Size::new_equal(Length::Fixed(25)),
             }
-            .into_signal(),
+            .signal(),
             value,
-            state: KnobState::none().into_signal(),
-            style: KnobStyle::base().into_memo_chain(),
+            state: KnobState::none().signal(),
+            style: KnobStyle::base().memo_chain(),
         }
     }
 
@@ -90,7 +90,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
     //     self
     // }
 
-    pub fn size(self, size: impl Into<u32>) -> Self {
+    pub fn size(mut self, size: impl Into<u32>) -> Self {
         self.layout.update_untracked(|layout| {
             layout.size = Size::new_equal(Length::Fixed(size.into()));
         });

@@ -1,4 +1,4 @@
-use maybe_reactive::impl_maybe_reactive;
+use maybe_reactive::impl_into_maybe_reactive;
 use proc_macro::TokenStream;
 use syn::{parse_macro_input, DeriveInput};
 
@@ -9,11 +9,11 @@ extern crate quote;
 
 mod maybe_reactive;
 
-#[proc_macro_derive(MaybeReactive)]
-pub fn maybe_reactive(input: TokenStream) -> TokenStream {
+#[proc_macro_derive(IntoMaybeReactive)]
+pub fn into_maybe_reactive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
-    impl_maybe_reactive(&input)
+    impl_into_maybe_reactive(&input)
         .unwrap_or_else(|err| err.to_compile_error())
         .into()
 }

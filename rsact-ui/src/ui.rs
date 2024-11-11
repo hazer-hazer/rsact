@@ -21,7 +21,7 @@ use rsact_reactive::prelude::*;
 pub struct UI<W: WidgetCtx> {
     page_history: Vec<W::PageId>,
     pages: BTreeMap<W::PageId, Page<W>>,
-    viewport: Signal<Size>,
+    viewport: Memo<Size>,
     on_exit: Option<Box<dyn Fn()>>,
     styler: Signal<W::Styler>,
     dev_tools: Signal<DevTools>,
@@ -46,9 +46,9 @@ where
     // TODO: S is not checked for being styler with specific color
     S: PartialEq + Copy + 'static,
 {
-    pub fn single_page(
+    pub fn single_page<V: PartialEq + Into<Size> + Copy + 'static>(
         root: impl Into<El<Wtf<R, E, S, SinglePage>>>,
-        viewport: impl Into<Size> + Copy,
+        viewport: impl IntoMemo<V>,
         styler: S,
     ) -> Self {
         Self::new(SinglePage, root, viewport, styler)
@@ -62,13 +62,13 @@ where
     S: PartialEq + Copy + 'static,
     I: PageId + 'static,
 {
-    pub fn new(
+    pub fn new<V: PartialEq + Into<Size> + Copy + 'static>(
         page_id: I,
         start_page_root: impl Into<El<Wtf<R, E, S, I>>>,
-        viewport: impl Into<Size> + Copy,
+        viewport: impl IntoMemo<V>,
         styler: S,
     ) -> Self {
-        let viewport = create_signal(viewport.into());
+        let viewport = viewport.memo().map(|&viewport| viewport.into());
         let styler = create_signal(styler);
         let dev_tools =
             create_signal(DevTools { enabled: false, hovered: None });
@@ -80,7 +80,7 @@ where
             on_exit: None,
             styler,
             dev_tools,
-            renderer: R::new(viewport.get()).into_signal(),
+            renderer: R::new(viewport.get()).signal(),
             message_queue: None,
         }
         .with_page(page_id, start_page_root)
@@ -95,7 +95,7 @@ impl<W: WidgetCtx> UI<W> {
     }
 
     pub fn with_renderer_options(
-        self,
+        mut self,
         options: <W::Renderer as Renderer>::Options,
     ) -> Self {
         self.renderer.update(|renderer| renderer.set_options(options));

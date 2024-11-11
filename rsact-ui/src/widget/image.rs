@@ -9,7 +9,7 @@ use embedded_graphics::{
     prelude::*,
 };
 use rsact_reactive::{
-    memo::{AsMemo, MemoTree},
+    memo::{IntoMemo, MemoTree},
     signal::{IntoSignal, Signal},
 };
 
@@ -24,10 +24,7 @@ impl<'a, W: WidgetCtx, BO: ByteOrder> Image<'a, W, BO> {
     pub fn new(data: ImageRaw<'a, W::Color, BO>) -> Self {
         let size = data.size().into();
 
-        Self {
-            data,
-            layout: Layout { kind: LayoutKind::Edge, size }.into_signal(),
-        }
+        Self { data, layout: Layout { kind: LayoutKind::Edge, size }.signal() }
     }
 }
 
@@ -49,7 +46,7 @@ where
     }
 
     fn build_layout_tree(&self) -> MemoTree<Layout> {
-        MemoTree::childless(self.layout.as_memo())
+        MemoTree::childless(self.layout.memo())
     }
 
     fn draw(

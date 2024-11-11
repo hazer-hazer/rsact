@@ -60,7 +60,7 @@ impl<W: WidgetCtx, Dir: Direction> Space<W, Dir> {
     pub fn new(length: impl Into<Length>) -> Self {
         let layout = Layout::shrink(LayoutKind::Edge)
             .size(Dir::AXIS.canon(length.into(), Length::fill()))
-            .into_signal();
+            .signal();
 
         Self { layout, ctx: PhantomData, dir: PhantomData }
     }
@@ -78,7 +78,7 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Space<W, Dir> {
     fn on_mount(&mut self, _ctx: crate::widget::MountCtx<W>) {}
 
     fn build_layout_tree(&self) -> MemoTree<Layout> {
-        MemoTree::childless(self.layout.as_memo())
+        MemoTree::childless(self.layout.memo())
     }
 
     fn draw(&self, _ctx: &mut DrawCtx<'_, W>) -> DrawResult {

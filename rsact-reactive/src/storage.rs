@@ -128,7 +128,7 @@ impl ValueId {
 
 #[derive(Clone, Copy, Default)]
 pub struct ValueDebugInfo {
-    pub creator: Option<&'static Location<'static>>,
+    pub created_at: Option<&'static Location<'static>>,
     pub dirten: Option<&'static Location<'static>>,
     pub borrowed_mut: Option<&'static Location<'static>>,
     pub borrowed: Option<&'static Location<'static>>,
@@ -152,7 +152,7 @@ impl core::fmt::Display for ValueDebugInfo {
         if let Some(ty) = self.ty {
             write!(f, "of type {}\n", ty)?;
         }
-        if let Some(creator) = self.creator {
+        if let Some(creator) = self.created_at {
             write!(f, "created at {}\n", creator)?;
         }
         if let Some(dirten) = self.dirten {

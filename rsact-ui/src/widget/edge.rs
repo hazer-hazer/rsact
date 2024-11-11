@@ -14,8 +14,8 @@ impl<W: WidgetCtx + 'static> Edge<W> {
         Self {
             layout: Layout::shrink(LayoutKind::Edge)
                 .size(Size::fill())
-                .into_signal(),
-            style: BlockStyle::base().into_memo_chain(),
+                .signal(),
+            style: BlockStyle::base().memo_chain(),
         }
     }
 
@@ -42,7 +42,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
     fn on_mount(&mut self, _ctx: crate::widget::MountCtx<W>) {}
 
     fn build_layout_tree(&self) -> MemoTree<Layout> {
-        MemoTree::childless(self.layout.as_memo())
+        MemoTree::childless(self.layout.memo())
     }
 
     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {

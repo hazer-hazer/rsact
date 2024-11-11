@@ -2,7 +2,6 @@ use crate::{
     render::Renderable,
     widget::{prelude::*, BlockModelWidget, Meta, MetaTree, SizedWidget},
 };
-use rsact_reactive::memo_chain::IntoMemoChain;
 
 pub struct Container<W: WidgetCtx> {
     pub layout: Signal<Layout>,
@@ -17,12 +16,12 @@ impl<W: WidgetCtx + 'static> Container<W> {
         Self {
             layout: Layout::shrink(LayoutKind::Container(
                 ContainerLayout::base(
-                    content.layout().mapped(|layout| layout.content_size()),
+                    content.layout().map(|layout| layout.content_size()),
                 ),
             ))
-            .into_signal(),
+            .signal(),
             content,
-            style: BlockStyle::base().into_memo_chain(),
+            style: BlockStyle::base().memo_chain(),
         }
     }
 
@@ -34,7 +33,8 @@ impl<W: WidgetCtx + 'static> Container<W> {
         self
     }
 
-    pub fn vertical_align(self, vertical_align: impl Into<Align>) -> Self {
+    // TODO: Use MaybeReactive
+    pub fn vertical_align(mut self, vertical_align: impl Into<Align>) -> Self {
         self.layout.update_untracked(|layout| {
             layout.expect_container_mut().vertical_align =
                 vertical_align.into();
@@ -42,7 +42,10 @@ impl<W: WidgetCtx + 'static> Container<W> {
         self
     }
 
-    pub fn horizontal_align(self, horizontal_align: impl Into<Align>) -> Self {
+    pub fn horizontal_align(
+        mut self,
+        horizontal_align: impl Into<Align>,
+    ) -> Self {
         self.layout.update_untracked(|layout| {
             layout.expect_container_mut().horizontal_align =
                 horizontal_align.into();
@@ -90,7 +93,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
         let content_tree = self.content.meta();
 
         MetaTree {
-            data: create_memo(move |_| Meta::none()),
+            data: Meta::none.memo(),
             children: create_memo(move |_| vec![content_tree]),
         }
     }
@@ -108,7 +111,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
     fn build_layout_tree(&self) -> MemoTree<Layout> {
         let content_tree = self.content.build_layout_tree();
         MemoTree {
-            data: self.layout.as_memo(),
+            data: self.layout.memo(),
             children: create_memo(move |_| vec![content_tree]),
         }
     }

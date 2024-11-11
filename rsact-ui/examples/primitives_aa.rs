@@ -10,7 +10,7 @@ use embedded_graphics_simulator::{
 use rsact_ui::{
     event::simulator::simulator_single_encoder,
     layout::size::Size,
-    prelude::BorderRadius,
+    prelude::{BorderRadius, IntoInert},
     render::{
         alpha::StyledAlphaDrawable as _,
         draw_target::{AntiAliasing, LayeringRendererOptions},
@@ -40,7 +40,7 @@ fn main() {
 
     let mut ui = UI::single_page(
         page.el(),
-        display.bounding_box().size,
+        display.bounding_box().size.inert(),
         AccentStyler::new(Rgb888::RED),
     )
     .with_renderer_options(

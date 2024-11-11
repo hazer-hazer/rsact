@@ -1,6 +1,6 @@
 use crate::{
     callback::AnyCallback,
-    read::{impl_read_signal_traits, ReadSignal, SignalMapper},
+    read::{impl_read_signal_traits, ReadSignal, SignalMap},
     runtime::with_current_runtime,
     signal::{marker, Signal},
     storage::ValueId,
@@ -66,6 +66,13 @@ impl<T: PartialEq + 'static> Memo<T> {
             ty: PhantomData,
         }
     }
+
+    // TODO: As a simplification and replacement of MemoChain
+    // pub fn after_map(&mut self, f: impl FnMut(&T) -> T + 'static) -> Self {
+    //     // Replace old callback with new one. Now, passed callback is called first. [`replace_callback`] removes all subs and sources
+    //     // let old_callback = runtime.replace_callback(self.id, f);
+    //     // create_memo(move |_| )
+    // }
 }
 
 impl<T: PartialEq> Clone for Memo<T> {
@@ -89,6 +96,7 @@ impl<T: PartialEq + 'static> ReactiveValue for Memo<T> {
 }
 
 impl<T: PartialEq + 'static> ReadSignal<T> for Memo<T> {
+    #[track_caller]
     fn track(&self) {
         with_current_runtime(|rt| self.id.subscribe(rt))
     }
@@ -108,10 +116,11 @@ impl<T: PartialEq + 'static> ReadSignal<T> for Memo<T> {
     }
 }
 
-impl<T: PartialEq + 'static> SignalMapper<T> for Memo<T> {
+impl<T: PartialEq + 'static> SignalMap<T> for Memo<T> {
     type Output<U: PartialEq + 'static> = Memo<U>;
 
-    fn mapped<U: PartialEq + 'static>(
+    #[track_caller]
+    fn map<U: PartialEq + 'static>(
         &self,
         map: impl Fn(&T) -> U + 'static,
     ) -> Self::Output<U> {
@@ -121,13 +130,14 @@ impl<T: PartialEq + 'static> SignalMapper<T> for Memo<T> {
 }
 
 pub trait IntoMemo<T: PartialEq> {
-    fn as_memo(self) -> Memo<T>;
+    fn memo(self) -> Memo<T>;
 }
 
 impl<T: PartialEq + Clone + 'static, M: marker::CanRead + 'static> IntoMemo<T>
     for Signal<T, M>
 {
-    fn as_memo(self) -> Memo<T> {
+    #[track_caller]
+    fn memo(self) -> Memo<T> {
         create_memo(move |_| self.get_cloned())
     }
 }
@@ -136,14 +146,15 @@ impl<T: PartialEq + Clone + 'static, F> IntoMemo<T> for F
 where
     F: Fn() -> T + 'static,
 {
-    fn as_memo(self) -> Memo<T> {
+    #[track_caller]
+    fn memo(self) -> Memo<T> {
         create_memo(move |_| (self)())
     }
 }
 
 impl<T: PartialEq + Clone + 'static> IntoMemo<T> for Memo<T> {
     /// Should never be called directly being redundant
-    fn as_memo(self) -> Memo<T> {
+    fn memo(self) -> Memo<T> {
         self
     }
 }
@@ -155,6 +166,7 @@ pub struct MemoTree<T: PartialEq + 'static> {
 }
 
 impl<T: PartialEq + Default + 'static> Default for MemoTree<T> {
+    #[track_caller]
     fn default() -> Self {
         Self {
             data: create_memo(|_| T::default()),
@@ -172,8 +184,9 @@ impl<T: PartialEq + 'static> Clone for MemoTree<T> {
 impl<T: PartialEq + 'static> Copy for MemoTree<T> {}
 
 impl<T: PartialEq + 'static> MemoTree<T> {
+    #[track_caller]
     pub fn childless(data: impl IntoMemo<T>) -> Self {
-        Self { data: data.as_memo(), children: create_memo(|_| alloc::vec![]) }
+        Self { data: data.memo(), children: create_memo(|_| alloc::vec![]) }
     }
 
     // pub fn fold<A>(&self, acc: A, mut f: impl FnMut(A, &T) -> A) -> A {
@@ -184,6 +197,7 @@ impl<T: PartialEq + 'static> MemoTree<T> {
     //     })
     // }
 
+    #[track_caller]
     pub fn flat_collect(&self) -> Vec<Memo<T>> {
         self.children.with(|children| {
             core::iter::once(self.data)

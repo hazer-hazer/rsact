@@ -19,7 +19,7 @@ impl<C: Color> IconStyle<C> {
 }
 
 pub struct Icon<W: WidgetCtx, I: IconSet> {
-    pub icon: Signal<I>,
+    pub kind: MaybeSignal<I>,
     size: Signal<FontSize>,
     real_size: Signal<u32>,
     layout: Signal<Layout>,
@@ -27,23 +27,23 @@ pub struct Icon<W: WidgetCtx, I: IconSet> {
 }
 
 impl<W: WidgetCtx, I: IconSet + 'static> Icon<W, I> {
-    pub fn new(icon: impl IntoSignal<I> + 'static) -> Self {
+    pub fn new(icon: impl Into<MaybeSignal<I>>) -> Self {
         let real_size = create_signal(10);
         let layout = Layout::shrink(LayoutKind::Content(ContentLayout::new(
-            real_size.mapped(|size| Limits::exact(Size::new_equal(*size))),
+            real_size.map(|size| Limits::exact(Size::new_equal(*size))),
         )))
-        .into_signal();
+        .signal();
 
         Self {
-            icon: icon.into_signal(),
+            kind: icon.into(),
             size: create_signal(FontSize::Unset),
             real_size,
             layout,
-            style: IconStyle::base().into_memo_chain(),
+            style: IconStyle::base().memo_chain(),
         }
     }
 
-    pub fn size(self, size: impl Into<FontSize>) -> Self {
+    pub fn size(mut self, size: impl Into<FontSize>) -> Self {
         self.size.set(size.into());
         self
     }
@@ -85,7 +85,7 @@ where
     }
 
     fn build_layout_tree(&self) -> rsact_reactive::prelude::MemoTree<Layout> {
-        MemoTree::childless(self.layout.as_memo())
+        MemoTree::childless(self.layout.memo())
     }
 
     fn draw(
@@ -94,7 +94,7 @@ where
     ) -> crate::widget::DrawResult {
         let style = self.style.get();
 
-        let icon = self.icon;
+        let icon = &self.kind;
         let real_size = self.real_size;
         let icon_raw = with!(|icon, real_size| icon.size(*real_size));
 

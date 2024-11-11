@@ -55,10 +55,12 @@ impl<T: 'static, M: marker::Any> Copy for Signal<T, M> {}
 impl<T: 'static> ReactiveValue for Signal<T> {
     type Value = T;
 
+    #[track_caller]
     fn is_alive(&self) -> bool {
         with_current_runtime(|rt| rt.is_alive(self.id))
     }
 
+    #[track_caller]
     fn dispose(self) {
         with_current_runtime(|rt| rt.dispose(self.id))
     }
@@ -80,10 +82,12 @@ impl<T: 'static, M: marker::Any> Signal<T, M> {
         }
     }
 
+    #[track_caller]
     pub fn is_alive(self) -> bool {
         with_current_runtime(|rt| rt.is_alive(self.id))
     }
 
+    #[track_caller]
     pub fn dispose(self) {
         with_current_runtime(|rt| rt.dispose(self.id))
     }
@@ -133,6 +137,7 @@ impl<T: 'static, M: marker::CanWrite> WriteSignal<T> for Signal<T, M> {
  * Set Signal<T> from Signal<U> mapped by `set_map`.
  */
 impl<T: 'static, U: 'static> SignalSetter<T, Signal<U>> for Signal<T> {
+    #[track_caller]
     fn setter(
         &mut self,
         source: Signal<U>,
@@ -149,6 +154,7 @@ impl<T: 'static, U: 'static> SignalSetter<T, Signal<U>> for Signal<T> {
 impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, Memo<U>>
     for Signal<T>
 {
+    #[track_caller]
     fn setter(
         &mut self,
         source: Memo<U>,
@@ -165,6 +171,7 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, Memo<U>>
 impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MemoChain<U>>
     for Signal<T>
 {
+    #[track_caller]
     fn setter(
         &mut self,
         source: MemoChain<U>,
@@ -181,6 +188,7 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MemoChain<U>>
 impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, Inert<U>>
     for Signal<T>
 {
+    #[track_caller]
     fn setter(
         &mut self,
         source: Inert<U>,
@@ -193,6 +201,7 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, Inert<U>>
 impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MaybeReactive<U>>
     for Signal<T>
 {
+    #[track_caller]
     fn setter(
         &mut self,
         source: MaybeReactive<U>,
@@ -215,11 +224,11 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MaybeReactive<U>>
     }
 }
 
-impl<T: 'static, M: marker::CanRead> SignalMapper<T> for Signal<T, M> {
+impl<T: 'static, M: marker::CanRead> SignalMap<T> for Signal<T, M> {
     type Output<U: PartialEq + 'static> = Memo<U>;
 
     #[track_caller]
-    fn mapped<U: PartialEq + 'static>(
+    fn map<U: PartialEq + 'static>(
         &self,
         map: impl Fn(&T) -> U + 'static,
     ) -> Memo<U> {
@@ -242,19 +251,19 @@ impl<T: 'static, M: marker::CanWrite> Signal<T, M> {
 
 /// Helper trait which converts anything except [`Signal`] into signal, and leaves [`Signal`] as it is.
 pub trait IntoSignal<T: 'static> {
-    fn into_signal(self) -> Signal<T>;
+    fn signal(self) -> Signal<T>;
 }
 
 impl<T: 'static> IntoSignal<T> for Signal<T> {
     #[track_caller]
-    fn into_signal(self) -> Signal<T> {
+    fn signal(self) -> Signal<T> {
         self
     }
 }
 
 impl<T: 'static> IntoSignal<T> for T {
     #[track_caller]
-    fn into_signal(self) -> Signal<T> {
+    fn signal(self) -> Signal<T> {
         create_signal(self)
     }
 }

@@ -38,7 +38,7 @@ pub struct Button<W: WidgetCtx> {
     content: El<W>,
     state: Signal<ButtonState>,
     style: MemoChain<ButtonStyle<W::Color>>,
-    on_click: Option<Box<dyn Fn()>>,
+    on_click: Option<Box<dyn FnMut()>>,
 }
 
 impl<W: WidgetCtx + 'static> Button<W> {
@@ -52,23 +52,24 @@ impl<W: WidgetCtx + 'static> Button<W> {
             vertical_align: Align::Center,
             content_size: content
                 .layout()
-                .mapped(|layout| layout.content_size()),
+                .map(|layout| layout.content_size())
+                .into(),
         }))
-        .into_signal();
+        .signal();
 
         Self {
             id: ElId::unique(),
             layout,
             content,
             state,
-            style: use_memo_chain(|_| ButtonStyle::base()),
+            style: create_memo_chain(|_| ButtonStyle::base()),
             on_click: None,
         }
     }
 
     pub fn on_click<F: 'static>(mut self, on_click: F) -> Self
     where
-        F: Fn(),
+        F: FnMut(),
     {
         self.on_click = Some(Box::new(on_click));
         self
@@ -129,7 +130,7 @@ where
         let content_tree = self.content.build_layout_tree();
 
         MemoTree {
-            data: self.layout.as_memo(),
+            data: self.layout.memo(),
             children: create_memo(move |_| vec![content_tree]),
         }
     }
@@ -159,7 +160,7 @@ where
             if current_state.pressed != pressed {
                 self.state.update(|state| state.pressed = pressed);
 
-                if let Some(on_click) = self.on_click.as_ref() {
+                if let Some(on_click) = self.on_click.as_mut() {
                     if !current_state.pressed && pressed {
                         on_click();
                     }

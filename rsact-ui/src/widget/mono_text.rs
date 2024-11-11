@@ -15,7 +15,7 @@ use embedded_text::{
     TextBox,
 };
 use layout::ContentLayout;
-use rsact_reactive::memo_chain::IntoMemoChain;
+use rsact_reactive::{maybe::MaybeReactive, memo_chain::IntoMemoChain};
 
 pub const MIN_MONO_WIDTH: u32 = 4;
 pub const MAX_MONO_WIDTH: u32 = 10;
@@ -112,40 +112,44 @@ impl<C: Color> MonoTextStyle<C> {
 }
 
 pub struct MonoText<W: WidgetCtx> {
-    content: Memo<String>,
+    content: MaybeReactive<String>,
     layout: Signal<Layout>,
-    props: Signal<MonoFontProps>,
+    props: MaybeSignal<MonoFontProps>,
     font: Signal<MonoFont<'static>>,
     style: MemoChain<MonoTextStyle<W::Color>>,
 }
 
 impl<W: WidgetCtx + 'static> MonoText<W> {
     pub fn new_static<T: ToString + PartialEq + 'static>(content: T) -> Self {
-        Self::new(create_memo(move |_| content.to_string()))
+        Self::new_inner(content.to_string().inert().into())
     }
 
-    pub fn new<T: ToString + PartialEq + 'static>(
-        content: impl AsMemo<T> + 'static,
+    pub fn new<T: ToString + Clone + PartialEq + 'static>(
+        content: impl Into<MaybeReactive<T>>,
     ) -> Self {
+        Self::new_inner(content.into().map(|content| content.to_string()))
+    }
+
+    fn new_inner(content: MaybeReactive<String>) -> Self {
         let font = create_signal(FONT_6X10);
-        let content = content.as_memo().mapped(|content| content.to_string());
 
         let layout = Layout::shrink(LayoutKind::Content(ContentLayout {
-            content_size: content.mapped(move |content| {
+            content_size: content.map(move |content| {
                 measure_text_content_size(content, &font.get())
             }),
         }))
-        .into_signal();
+        .signal();
 
         Self {
             content,
             layout,
-            props: create_signal(MonoFontProps {
+            props: MonoFontProps {
                 size: FontSize::Unset,
                 style: FontStyle::Normal,
-            }),
+            }
+            .into(),
             font,
-            style: MonoTextStyle::base().into_memo_chain(),
+            style: MonoTextStyle::base().memo_chain(),
         }
     }
 
@@ -174,15 +178,21 @@ impl<W: WidgetCtx + 'static> MonoText<W> {
     //     self
     // }
 
-    pub fn font_size(self, font_size: impl Into<FontSize>) -> Self {
-        self.props.update_untracked(|props| {
+    pub fn font_size<T: Into<FontSize> + Copy + PartialEq + 'static>(
+        mut self,
+        font_size: impl Into<MaybeReactive<T>>,
+    ) -> Self {
+        self.props.setter(font_size.into(), |props, &font_size| {
             props.size = font_size.into();
         });
         self
     }
 
-    pub fn font_style(self, font_style: FontStyle) -> Self {
-        self.props.update_untracked(|props| {
+    pub fn font_style(
+        mut self,
+        font_style: impl Into<MaybeReactive<FontStyle>>,
+    ) -> Self {
+        self.props.setter(font_style.into(), |props, &font_style| {
             props.style = font_style;
         });
         self
@@ -220,7 +230,7 @@ where
     }
 
     fn build_layout_tree(&self) -> MemoTree<crate::layout::Layout> {
-        MemoTree::childless(self.layout.as_memo())
+        MemoTree::childless(self.layout.memo())
     }
 
     fn draw(

@@ -127,14 +127,15 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
         let layout = Layout {
             kind: LayoutKind::Scrollable(ScrollableLayout {
                 content_size: content_layout
-                    .mapped(|layout| layout.content_size()),
+                    .map(|layout| layout.content_size())
+                    .into(),
             }),
             size: Dir::AXIS.canon(
                 Length::InfiniteWindow(Length::Shrink.try_into().unwrap()),
                 Length::fill(),
             ),
         }
-        .into_signal();
+        .signal();
 
         let content_layout_length =
             content_layout.with(|layout| layout.size.main(Dir::AXIS));
@@ -150,7 +151,7 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
             id: ElId::unique(),
             content,
             state,
-            style: use_memo_chain(|_| ScrollableStyle::base()),
+            style: create_memo_chain(|_| ScrollableStyle::base()),
             layout,
             mode: ScrollableMode::Interactive,
             dir: PhantomData,
@@ -189,25 +190,14 @@ where
     W: WidgetCtx,
     W::Styler: Styler<ScrollableStyle<W::Color>, Class = ()>,
 {
-    // fn width<L: Into<Length> + Copy + 'static>(
-    //     self,
-    //     width: impl MaybeSignal<L> + 'static,
-    // ) -> Self
-    // where
-    //     Self: Sized + 'static,
-    // {
-    //     self.layout().setter(width.maybe_signal(), |&width, layout| {
-    //         layout.size.width =
-    //             Length::InfiniteWindow(width.into().try_into().unwrap());
-    //     });
-    //     self
-    // }
-
-    fn width(self, width: impl Into<Length>) -> Self
+    fn width<L: Into<Length> + PartialEq + Copy + 'static>(
+        self,
+        width: impl Into<MaybeReactive<L>>,
+    ) -> Self
     where
-        Self: Sized,
+        Self: Sized + 'static,
     {
-        self.layout().update_untracked(|layout| {
+        self.layout().setter(width.into(), |layout, &width| {
             layout.size.width =
                 Length::InfiniteWindow(width.into().try_into().unwrap());
         });
@@ -221,24 +211,14 @@ where
     W: WidgetCtx,
     W::Styler: Styler<ScrollableStyle<W::Color>, Class = ()>,
 {
-    // fn height<L: Into<Length> + Copy + 'static>(
-    //     self,
-    //     height: impl MaybeSignal<L> + 'static,
-    // ) -> Self
-    // where
-    //     Self: Sized + 'static,
-    // {
-    //     self.layout().setter(height.maybe_signal(), |&height, layout| {
-    //         layout.size.height =
-    //             Length::InfiniteWindow(height.into().try_into().unwrap());
-    //     });
-    //     self
-    // }
-    fn height(self, height: impl Into<Length>) -> Self
+    fn height<L: Into<Length> + PartialEq + Copy + 'static>(
+        self,
+        height: impl Into<MaybeReactive<L>> + 'static,
+    ) -> Self
     where
-        Self: Sized,
+        Self: Sized + 'static,
     {
-        self.layout().update_untracked(|layout| {
+        self.layout().setter(height.into(), |layout, &height| {
             layout.size.height =
                 Length::InfiniteWindow(height.into().try_into().unwrap());
         });
@@ -256,7 +236,7 @@ where
     fn meta(&self) -> crate::widget::MetaTree {
         let content_tree = self.content.meta();
         MetaTree {
-            data: Meta::none.as_memo(),
+            data: Meta::none.memo(),
             children: create_memo(move |_| vec![content_tree]),
         }
     }
@@ -274,7 +254,7 @@ where
     fn build_layout_tree(&self) -> MemoTree<Layout> {
         let content_tree = self.content.build_layout_tree();
         MemoTree {
-            data: self.layout.as_memo(),
+            data: self.layout.memo(),
             children: create_memo(move |_| vec![content_tree]),
         }
     }

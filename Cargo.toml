@@ -16,7 +16,7 @@ members = [
     "rsact-encoder",
     "rsact-icons",
     "rsact-widgets"
-]
+, "rsact-macros"]
 authors = ["hazer-hazer"]
 repository = "https://github.com/hazer-hazer/rsact"
 license = "MIT"

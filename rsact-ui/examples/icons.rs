@@ -7,7 +7,7 @@ use embedded_graphics_simulator::{
 use rsact_icons::{common::CommonIcon, system::SystemIcon, IconSet};
 use rsact_ui::{
     event::NullEvent,
-    prelude::{create_memo, Flex, Icon, MonoText, Size},
+    prelude::{create_memo, Flex, Icon, IntoInert, MonoText, Size},
     style::NullStyler,
     ui::UI,
     widget::{SizedWidget, Widget},
@@ -56,7 +56,7 @@ fn main() {
         .center()
         .fill()
         .el(),
-        display.bounding_box().size,
+        display.bounding_box().size.inert(),
         NullStyler,
     );
 

@@ -44,18 +44,18 @@ pub fn flex_content_size<'a, W: WidgetCtx, E: Widget<W> + 'a>(
 pub fn model_flex(
     tree: MemoTree<Layout>,
     parent_limits: Limits,
-    flex_layout: FlexLayout,
+    flex_layout: &FlexLayout,
     size: Size<Length>,
     // viewport: Memo<Size>,
 ) -> LayoutModel {
-    let FlexLayout {
+    let &FlexLayout {
         wrap,
         block_model,
         axis,
         gap,
         horizontal_align,
         vertical_align,
-        content_size: _,
+        ..
     } = flex_layout;
 
     let full_padding =
@@ -405,7 +405,7 @@ pub fn model_flex(
                 // Point::zero()),|line| {
                 //     Rectangle::new(line.)
                 // }),
-                real: flex_layout,
+                real: flex_layout.clone(),
             }),
         ),
     )

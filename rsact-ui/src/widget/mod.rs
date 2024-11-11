@@ -61,6 +61,22 @@ impl Meta {
 // TODO: Custom MemoTree with SmallVec<T, 1>
 pub type MetaTree = MemoTree<Meta>;
 
+// #[derive(PartialEq)]
+// pub struct MetaTree {
+//     data: MaybeReactive<Meta>,
+//     children: MaybeReactive<Vec<MetaTree>>,
+// }
+
+// impl MetaTree {
+//     pub fn flat_collect(&self) -> Vec<MaybeReactive<Meta>> {
+//         self.children.with(|children| {
+//             core::iter::once(self.data)
+//                 .chain(children.iter().map(MetaTree::flat_collect).flatten())
+//                 .collect()
+//         })
+//     }
+// }
+
 // TODO: Not an actual context, rename to something like `WidgetTypeFamily`
 pub trait WidgetCtx: Sized + 'static {
     type Renderer: Renderer<Color = Self::Color>;
@@ -282,25 +298,23 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
     }
 }
 
-// pub struct IdTree {
-//     pub id: ElId,
-//     pub children: Signal<Vec<IdTree>>,
-// }
-
 pub struct MountCtx<W: WidgetCtx> {
     pub viewport: Memo<Size>,
     pub styler: Memo<W::Styler>,
 }
 
 impl<W: WidgetCtx> MountCtx<W> {
-    pub fn accept_styles<I: Clone, S: WidgetStyle<Inputs = I> + 'static>(
+    pub fn accept_styles<
+        I: Clone + 'static,
+        S: WidgetStyle<Inputs = I> + 'static,
+    >(
         &self,
         style: MemoChain<S>,
-        inputs: impl MaybeSignal<I> + 'static,
+        inputs: impl Into<MaybeSignal<I>>,
     ) where
         W::Styler: Styler<S, Class = ()>,
     {
-        let inputs = inputs.maybe_signal();
+        let inputs = inputs.into();
         let styler = self.styler;
         style.then(move |base| {
             styler.get().style(())(base.clone(), inputs.get_cloned())
@@ -363,6 +377,8 @@ where
         El::new(self)
     }
 
+    // TODO: Use MaybeReactive tree
+    // TODO: Can rewrite so that meta is called once?
     fn meta(&self) -> MetaTree;
 
     // These functions MUST be called only ones per widget //
@@ -388,37 +404,6 @@ pub trait SizedWidget<W: WidgetCtx>: Widget<W> {
         self.width(Length::fill()).height(Length::fill())
     }
 
-    fn shrink(self) -> Self
-    where
-        Self: Sized + 'static,
-    {
-        self.width(Length::Shrink).height(Length::Shrink)
-    }
-
-    // TODO: Use computed/Lenses
-    // fn width<L: Into<Length> + Copy + 'static>(
-    //     self,
-    //     width: impl MaybeSignal<L> + 'static,
-    // ) -> Self
-    // where
-    //     Self: Sized + 'static,
-    // {
-    //     self.layout().setter(width.maybe_signal(), |&width, layout| {
-    //         layout.size.width = width.into();
-    //     });
-    //     self
-    // }
-
-    fn width(self, width: impl Into<Length>) -> Self
-    where
-        Self: Sized,
-    {
-        self.layout().update_untracked(|layout| {
-            layout.size.width = width.into();
-        });
-        self
-    }
-
     fn fill_width(self) -> Self
     where
         Self: Sized + 'static,
@@ -426,24 +411,34 @@ pub trait SizedWidget<W: WidgetCtx>: Widget<W> {
         self.width(Length::fill())
     }
 
-    // fn height<L: Into<Length> + Copy + 'static>(
-    //     self,
-    //     height: impl MaybeSignal<L> + 'static,
-    // ) -> Self
-    // where
-    //     Self: Sized + 'static,
-    // {
-    //     self.layout().setter(height.maybe_signal(), |&height, layout| {
-    //         layout.size.height = height.into();
-    //     });
-    //     self
-    // }
-
-    fn height(self, height: impl Into<Length>) -> Self
+    fn shrink(self) -> Self
     where
-        Self: Sized,
+        Self: Sized + 'static,
     {
-        self.layout().update_untracked(|layout| {
+        self.width(Length::Shrink).height(Length::Shrink)
+    }
+
+    fn width<L: Into<Length> + PartialEq + Copy + 'static>(
+        self,
+        width: impl Into<MaybeReactive<L>>,
+    ) -> Self
+    where
+        Self: Sized + 'static,
+    {
+        self.layout().setter(width.into(), |layout, &width| {
+            layout.size.width = width.into();
+        });
+        self
+    }
+
+    fn height<L: Into<Length> + PartialEq + Copy + 'static>(
+        self,
+        height: impl Into<MaybeReactive<L>> + 'static,
+    ) -> Self
+    where
+        Self: Sized + 'static,
+    {
+        self.layout().setter(height.into(), |layout, &height| {
             layout.size.height = height.into();
         });
         self
@@ -458,47 +453,27 @@ pub trait SizedWidget<W: WidgetCtx>: Widget<W> {
 }
 
 pub trait BlockModelWidget<W: WidgetCtx>: Widget<W> {
-    // fn border_width(self, border_width: impl MaybeSignal<u32> + 'static) -> Self
-    // where
-    //     Self: Sized + 'static,
-    // {
-    //     self.layout().setter(
-    //         border_width.maybe_signal(),
-    //         |&border_width, layout| {
-    //             layout.set_border_width(border_width);
-    //         },
-    //     );
-    //     self
-    // }
-
-    // fn padding<P: Into<Padding> + Copy + 'static>(
-    //     self,
-    //     padding: impl MaybeSignal<P> + 'static,
-    // ) -> Self
-    // where
-    //     Self: Sized + 'static,
-    // {
-    //     self.layout().setter(padding.maybe_signal(), |&padding, layout| {
-    //         layout.set_padding(padding.into());
-    //     });
-    //     self
-    // }
-
-    fn border_width(self, border_width: u32) -> Self
+    fn border_width(
+        self,
+        border_width: impl Into<MaybeReactive<u32>> + 'static,
+    ) -> Self
     where
-        Self: Sized,
+        Self: Sized + 'static,
     {
-        self.layout().update_untracked(|layout| {
+        self.layout().setter(border_width.into(), |layout, &border_width| {
             layout.set_border_width(border_width);
         });
         self
     }
 
-    fn padding(self, padding: impl Into<Padding>) -> Self
+    fn padding<P: Into<Padding> + PartialEq + Copy + 'static>(
+        self,
+        padding: impl Into<MaybeReactive<P>> + 'static,
+    ) -> Self
     where
-        Self: Sized,
+        Self: Sized + 'static,
     {
-        self.layout().update_untracked(|layout| {
+        self.layout().setter(padding.into(), |layout, &padding| {
             layout.set_padding(padding.into());
         });
         self

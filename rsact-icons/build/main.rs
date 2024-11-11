@@ -339,6 +339,7 @@ fn gen_set<S: IconSet>() {
     let set_name = S::ident();
     let icon_names =
         S::icons().iter().map(|icon| format_ident!("{}", icon.name));
+    let icon_names1 = icon_names.clone();
     let aliases = S::icons().iter().map(|icon| {
         let alias_info = format!(" Alias to [`{set_name}::{}`]", icon.name);
         let aliases = icon.aliases_variants();
@@ -366,11 +367,15 @@ fn gen_set<S: IconSet>() {
         #[doc = #info]
         #[derive(Clone, Copy, Debug, PartialEq)]
         pub enum #set_name {
-            #(#icon_names,)*
+            #(#icon_names1,)*
             #(#aliases)*
         }
 
         impl crate::IconSet<#bo> for #set_name {
+            const KINDS: &[Self] = &[
+                #(Self::#icon_names,)*
+            ];
+
             const SIZES: &[u32] = &[
                 #(#sizes1),*
             ];

@@ -1,7 +1,7 @@
 use crate::{
-    memo::{create_memo, Memo},
+    memo::{create_memo, IntoMemo, Memo},
     prelude::MemoChain,
-    read::{impl_read_signal_traits, ReadSignal, SignalMapper},
+    read::{impl_read_signal_traits, ReadSignal, SignalMap},
     signal::{create_signal, IntoSignal, Signal},
     write::{SignalSetter, WriteSignal},
     ReactiveValue,
@@ -22,6 +22,18 @@ pub struct Inert<T: 'static> {
 
 impl_read_signal_traits!(Inert<T>);
 
+impl<T> Inert<T> {
+    pub fn new(value: T) -> Self {
+        Self { value }
+    }
+}
+
+impl<T> From<T> for Inert<T> {
+    fn from(value: T) -> Self {
+        Self::new(value)
+    }
+}
+
 impl<T: 'static> ReactiveValue for Inert<T> {
     type Value = T;
 
@@ -36,15 +48,15 @@ impl<T: 'static> ReactiveValue for Inert<T> {
     }
 }
 
-impl<T> Inert<T> {
-    pub fn new(value: T) -> Self {
-        Self { value }
+impl<T: PartialEq + Clone> IntoMemo<T> for Inert<T> {
+    fn memo(self) -> Memo<T> {
+        create_memo(move |_| self.value.clone())
     }
 }
 
-impl<T> From<T> for Inert<T> {
-    fn from(value: T) -> Self {
-        Self::new(value)
+impl<T> IntoSignal<T> for Inert<T> {
+    fn signal(self) -> Signal<T> {
+        create_signal(self.value)
     }
 }
 
@@ -59,14 +71,14 @@ impl<T> ReadSignal<T> for Inert<T> {
     }
 }
 
-impl<T: PartialEq + 'static> SignalMapper<T> for Inert<T> {
+impl<T: PartialEq + 'static> SignalMap<T> for Inert<T> {
     type Output<U: PartialEq + 'static> = Inert<U>;
 
-    fn mapped<U: PartialEq + 'static>(
+    fn map<U: PartialEq + 'static>(
         &self,
         map: impl Fn(&T) -> U + 'static,
     ) -> Self::Output<U> {
-        map(&self.value).into_inert()
+        map(&self.value).inert()
     }
 }
 
@@ -95,11 +107,11 @@ impl<T> DerefMut for Inert<T> {
 }
 
 pub trait IntoInert<T> {
-    fn into_inert(self) -> Inert<T>;
+    fn inert(self) -> Inert<T>;
 }
 
 impl<T> IntoInert<T> for T {
-    fn into_inert(self) -> Inert<T> {
+    fn inert(self) -> Inert<T> {
         Inert::from(self)
     }
 }
@@ -118,7 +130,7 @@ impl_read_signal_traits!(MaybeReactive<T>: PartialEq);
 
 impl<T: PartialEq + 'static> MaybeReactive<T> {
     pub fn new_static(value: T) -> Self {
-        Self::Inert(value.into_inert())
+        Self::Inert(value.inert())
     }
 
     pub fn new_derived(f: impl Fn() -> T + 'static) -> Self {
@@ -129,6 +141,7 @@ impl<T: PartialEq + 'static> MaybeReactive<T> {
 impl<T: PartialEq + 'static> ReactiveValue for MaybeReactive<T> {
     type Value = T;
 
+    #[track_caller]
     fn is_alive(&self) -> bool {
         match self {
             MaybeReactive::Inert(static_signal) => static_signal.is_alive(),
@@ -139,6 +152,7 @@ impl<T: PartialEq + 'static> ReactiveValue for MaybeReactive<T> {
         }
     }
 
+    #[track_caller]
     fn dispose(self) {
         match self {
             MaybeReactive::Inert(static_signal) => static_signal.dispose(),
@@ -151,6 +165,7 @@ impl<T: PartialEq + 'static> ReactiveValue for MaybeReactive<T> {
 }
 
 impl<T: PartialEq + 'static> ReadSignal<T> for MaybeReactive<T> {
+    #[track_caller]
     fn track(&self) {
         match self {
             MaybeReactive::Inert(_) => {},
@@ -161,6 +176,7 @@ impl<T: PartialEq + 'static> ReadSignal<T> for MaybeReactive<T> {
         }
     }
 
+    #[track_caller]
     fn with_untracked<U>(&self, f: impl FnOnce(&T) -> U) -> U {
         match self {
             MaybeReactive::Inert(inert) => f(inert),
@@ -175,10 +191,11 @@ impl<T: PartialEq + 'static> ReadSignal<T> for MaybeReactive<T> {
 }
 
 // TODO: This is inconsistent with MaybeSignal SignalMapper implementation for [`Inert`]. Here it requires `Clone` and allows reactivity, but in MaybeSignal mapper is not reactive.
-impl<T: PartialEq + Clone + 'static> SignalMapper<T> for MaybeReactive<T> {
+impl<T: PartialEq + Clone + 'static> SignalMap<T> for MaybeReactive<T> {
     type Output<U: PartialEq + 'static> = MaybeReactive<U>;
 
-    fn mapped<U: PartialEq + 'static>(
+    #[track_caller]
+    fn map<U: PartialEq + 'static>(
         &self,
         map: impl Fn(&T) -> U + 'static,
     ) -> Self::Output<U> {
@@ -189,11 +206,11 @@ impl<T: PartialEq + Clone + 'static> SignalMapper<T> for MaybeReactive<T> {
                 MaybeReactive::Derived(Rc::new(move || map(&inert)))
             },
             MaybeReactive::Signal(signal) => {
-                MaybeReactive::Memo(signal.mapped(map))
+                MaybeReactive::Memo(signal.map(map))
             },
-            MaybeReactive::Memo(memo) => MaybeReactive::Memo(memo.mapped(map)),
+            MaybeReactive::Memo(memo) => MaybeReactive::Memo(memo.map(map)),
             MaybeReactive::MemoChain(memo_chain) => {
-                MaybeReactive::Memo(memo_chain.mapped(map))
+                MaybeReactive::Memo(memo_chain.map(map))
             },
             MaybeReactive::Derived(derived) => {
                 let derived = Rc::clone(derived);
@@ -338,7 +355,8 @@ pub enum MaybeSignal<T: 'static> {
 impl_read_signal_traits!(MaybeSignal<T>);
 
 impl<T: 'static> IntoSignal<T> for MaybeSignal<T> {
-    fn into_signal(self) -> Signal<T> {
+    #[track_caller]
+    fn signal(self) -> Signal<T> {
         match self {
             MaybeSignal::Inert(inert) => create_signal(inert.unwrap()),
             MaybeSignal::Signal(signal) => signal,
@@ -351,6 +369,7 @@ impl<T: 'static> MaybeSignal<T> {
         Self::Inert(Some(value))
     }
 
+    #[track_caller]
     fn now_reactive(&mut self) -> Signal<T> {
         match self {
             MaybeSignal::Inert(inert) => {
@@ -364,6 +383,7 @@ impl<T: 'static> MaybeSignal<T> {
 }
 
 impl<T: 'static> ReadSignal<T> for MaybeSignal<T> {
+    #[track_caller]
     fn track(&self) {
         match self {
             MaybeSignal::Inert(_) => {},
@@ -371,6 +391,7 @@ impl<T: 'static> ReadSignal<T> for MaybeSignal<T> {
         }
     }
 
+    #[track_caller]
     fn with_untracked<U>(&self, f: impl FnOnce(&T) -> U) -> U {
         match self {
             MaybeSignal::Inert(inert) => f(inert.as_ref().unwrap()),
@@ -380,6 +401,7 @@ impl<T: 'static> ReadSignal<T> for MaybeSignal<T> {
 }
 
 impl<T: 'static> WriteSignal<T> for MaybeSignal<T> {
+    #[track_caller]
     fn notify(&self) {
         match self {
             MaybeSignal::Inert(_) => {},
@@ -387,6 +409,7 @@ impl<T: 'static> WriteSignal<T> for MaybeSignal<T> {
         }
     }
 
+    #[track_caller]
     fn update_untracked<U>(&mut self, f: impl FnOnce(&mut T) -> U) -> U {
         match self {
             MaybeSignal::Inert(inert) => f(inert.as_mut().unwrap()),
@@ -395,10 +418,11 @@ impl<T: 'static> WriteSignal<T> for MaybeSignal<T> {
     }
 }
 
-impl<T: 'static> SignalMapper<T> for MaybeSignal<T> {
+impl<T: 'static> SignalMap<T> for MaybeSignal<T> {
     type Output<U: PartialEq + 'static> = MaybeReactive<U>;
 
-    fn mapped<U: PartialEq + 'static>(
+    #[track_caller]
+    fn map<U: PartialEq + 'static>(
         &self,
         map: impl Fn(&T) -> U + 'static,
     ) -> Self::Output<U> {
@@ -406,9 +430,7 @@ impl<T: 'static> SignalMapper<T> for MaybeSignal<T> {
             MaybeSignal::Inert(inert) => {
                 MaybeReactive::new_static(map(inert.as_ref().unwrap()))
             },
-            MaybeSignal::Signal(signal) => {
-                MaybeReactive::Memo(signal.mapped(map))
-            },
+            MaybeSignal::Signal(signal) => MaybeReactive::Memo(signal.map(map)),
         }
     }
 }
@@ -417,6 +439,7 @@ impl<T: 'static> SignalMapper<T> for MaybeSignal<T> {
 impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MaybeReactive<U>>
     for MaybeSignal<T>
 {
+    #[track_caller]
     fn setter(
         &mut self,
         source: MaybeReactive<U>,
@@ -529,6 +552,7 @@ pub trait SignalMapReactive<T> {
 }
 
 impl<T: 'static> SignalMapReactive<T> for MaybeSignal<T> {
+    #[track_caller]
     fn map_reactive<U: PartialEq + Clone + 'static>(
         &self,
         map: impl Fn(&T) -> U + 'static,
@@ -538,7 +562,7 @@ impl<T: 'static> SignalMapReactive<T> for MaybeSignal<T> {
                 let mapped = map(&inert.as_ref().unwrap());
                 create_memo(move |_| mapped.clone())
             },
-            MaybeSignal::Signal(signal) => signal.mapped(map),
+            MaybeSignal::Signal(signal) => signal.map(map),
         }
     }
 }
@@ -553,11 +577,11 @@ mod tests {
     fn static_wrapper() {
         let _deny_new_reactive = new_deny_new_scope();
 
-        let s = 123.into_inert();
+        let s = 123.inert();
         s.get();
         s.get_cloned();
         s.get_untracked();
-        s.mapped(|s| *s);
+        s.map(|s| *s);
     }
 
     // Type-check tests
@@ -574,7 +598,7 @@ mod tests {
 
         // Inert<()>
         // Inert values need explicit conversion into Inert wrapper
-        accept_maybe_reactive(().into_inert());
+        accept_maybe_reactive(().inert());
         // Derived signal
         accept_maybe_reactive(|| {});
         // Memo<()>
@@ -582,7 +606,7 @@ mod tests {
         // Signal<()>
         accept_maybe_reactive(create_signal(()));
         // MemoChain<()>
-        accept_maybe_reactive(use_memo_chain(move |_| {}));
+        accept_maybe_reactive(create_memo_chain(move |_| {}));
     }
 
     #[test]
@@ -590,7 +614,7 @@ mod tests {
         let mut maybe = MaybeSignal::new_static(123);
 
         // Warning: Non-reactive map
-        let map = maybe.mapped(|value| *value);
+        let map = maybe.map(|value| *value);
 
         assert_eq!(map.get(), 123);
 

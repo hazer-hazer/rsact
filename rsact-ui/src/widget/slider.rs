@@ -115,14 +115,14 @@ impl<W: WidgetCtx, Dir: Direction> Slider<W, Dir> {
     pub fn new(value: impl IntoSignal<u8>) -> Self {
         Self {
             id: ElId::unique(),
-            state: SliderState::none().into_signal(),
-            value: value.into_signal(),
+            state: SliderState::none().signal(),
+            value: value.signal(),
             layout: Layout {
                 kind: LayoutKind::Edge,
                 size: Dir::AXIS.canon(Length::fill(), Length::Fixed(25)),
             }
-            .into_signal(),
-            style: SliderStyle::base().into_memo_chain(),
+            .signal(),
+            style: SliderStyle::base().memo_chain(),
             dir: PhantomData,
         }
     }
@@ -160,7 +160,7 @@ where
     }
 
     fn build_layout_tree(&self) -> MemoTree<Layout> {
-        MemoTree::childless(self.layout.as_memo())
+        MemoTree::childless(self.layout.memo())
     }
 
     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {

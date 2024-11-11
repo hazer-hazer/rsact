@@ -18,16 +18,16 @@ pub struct ThemeStyler<C: ThemeColor + 'static> {
 
 impl<C: ThemeColor + 'static> Default for ThemeStyler<C> {
     fn default() -> Self {
-        Self { palette: Theme::default().palette().into_signal() }
+        Self { palette: Theme::default().palette().signal() }
     }
 }
 
 impl<C: ThemeColor + 'static> ThemeStyler<C> {
     pub fn new(theme: Theme<C>) -> Self {
-        Self { palette: theme.palette().into_signal() }
+        Self { palette: theme.palette().signal() }
     }
 
-    pub fn set_theme(&self, theme: Theme<C>) {
+    pub fn set_theme(&mut self, theme: Theme<C>) {
         self.palette.set(theme.palette());
     }
 }

@@ -76,7 +76,7 @@ impl<W: WidgetCtx, K: PartialEq> SelectOption<W, K> {
         SelectOption {
             key,
             el: Container::new(MonoText::new_static(string).el())
-                .padding(5)
+                .padding(5u32)
                 .el(),
         }
     }
@@ -108,7 +108,7 @@ where
     W::Styler: Styler<MonoTextStyle<W::Color>, Class = ()>,
     K: PartialEq + Clone + Display + 'static,
 {
-    pub fn vertical(options: impl AsMemo<Vec<K>>) -> Self {
+    pub fn vertical(options: impl IntoMemo<Vec<K>>) -> Self {
         Self::new(options)
     }
 }
@@ -119,7 +119,7 @@ where
     W: WidgetCtx,
     K: PartialEq + Clone + Display + 'static,
 {
-    pub fn horizontal(options: impl AsMemo<Vec<K>>) -> Self {
+    pub fn horizontal(options: impl IntoMemo<Vec<K>>) -> Self {
         Self::new(options)
     }
 }
@@ -131,9 +131,9 @@ where
     W::Styler: Styler<MonoTextStyle<W::Color>, Class = ()>,
     Dir: Direction,
 {
-    pub fn new(options: impl AsMemo<Vec<K>>) -> Self {
+    pub fn new(options: impl IntoMemo<Vec<K>>) -> Self {
         let options: Memo<Vec<SelectOption<W, K>>> =
-            options.as_memo().mapped(|options| {
+            options.memo().map(|options| {
                 options
                     .into_iter()
                     .cloned()
@@ -146,7 +146,7 @@ where
             layout: Layout::shrink(LayoutKind::Flex(
                 FlexLayout::base(
                     Dir::AXIS,
-                    options.mapped(|options| {
+                    options.map(|options| {
                         flex_content_size(
                             Dir::AXIS,
                             options.iter().map(SelectOption::widget),
@@ -157,10 +157,10 @@ where
                 .align_main(Align::Center)
                 .align_cross(Align::Center),
             ))
-            .into_signal(),
-            state: SelectState::none().into_signal(),
-            style: SelectStyle::base().into_memo_chain(),
-            selected: None.into_signal(),
+            .signal(),
+            state: SelectState::none().signal(),
+            style: SelectStyle::base().memo_chain(),
+            selected: None.signal(),
             options,
             dir: PhantomData,
         }
@@ -236,8 +236,8 @@ where
 
     fn build_layout_tree(&self) -> rsact_reactive::prelude::MemoTree<Layout> {
         MemoTree {
-            data: self.layout.as_memo(),
-            children: self.options.mapped(|options| {
+            data: self.layout.memo(),
+            children: self.options.map(|options| {
                 options.iter().map(|opt| opt.el.build_layout_tree()).collect()
             }),
         }

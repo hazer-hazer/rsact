@@ -3,7 +3,7 @@ use crate::{
     effect::EffectOrder,
     memo::Memo,
     prelude::create_memo,
-    read::{impl_read_signal_traits, ReadSignal, SignalMapper},
+    read::{impl_read_signal_traits, ReadSignal, SignalMap},
     runtime::with_current_runtime,
     storage::ValueId,
     ReactiveValue,
@@ -11,7 +11,8 @@ use crate::{
 use alloc::rc::Rc;
 use core::{any::Any, cell::RefCell, marker::PhantomData, panic::Location};
 
-pub fn use_memo_chain<T: PartialEq + 'static>(
+#[track_caller]
+pub fn create_memo_chain<T: PartialEq + 'static>(
     f: impl Fn(Option<&T>) -> T + 'static,
 ) -> MemoChain<T> {
     MemoChain::new(f)
@@ -120,10 +121,11 @@ impl<T: PartialEq + 'static> ReactiveValue for MemoChain<T> {
     }
 }
 
-impl<T: PartialEq + 'static> SignalMapper<T> for MemoChain<T> {
+impl<T: PartialEq + 'static> SignalMap<T> for MemoChain<T> {
     type Output<U: PartialEq + 'static> = Memo<U>;
 
-    fn mapped<U: PartialEq + 'static>(
+    #[track_caller]
+    fn map<U: PartialEq + 'static>(
         &self,
         map: impl Fn(&T) -> U + 'static,
     ) -> Self::Output<U> {
@@ -133,6 +135,7 @@ impl<T: PartialEq + 'static> SignalMapper<T> for MemoChain<T> {
 }
 
 impl<T: PartialEq + 'static> ReadSignal<T> for MemoChain<T> {
+    #[track_caller]
     fn track(&self) {
         with_current_runtime(|rt| self.id.subscribe(rt))
     }
@@ -161,18 +164,19 @@ impl<T: PartialEq> Clone for MemoChain<T> {
 impl<T: PartialEq> Copy for MemoChain<T> {}
 
 pub trait IntoMemoChain<T: PartialEq> {
-    fn into_memo_chain(self) -> MemoChain<T>;
+    fn memo_chain(self) -> MemoChain<T>;
 }
 
 impl<T: PartialEq> IntoMemoChain<T> for MemoChain<T> {
-    fn into_memo_chain(self) -> MemoChain<T> {
+    fn memo_chain(self) -> MemoChain<T> {
         self
     }
 }
 
 impl<T: PartialEq + Clone + 'static> IntoMemoChain<T> for T {
-    fn into_memo_chain(self) -> MemoChain<T> {
-        use_memo_chain(move |_| self.clone())
+    #[track_caller]
+    fn memo_chain(self) -> MemoChain<T> {
+        create_memo_chain(move |_| self.clone())
     }
 }
 
@@ -184,7 +188,7 @@ mod tests {
     fn math_precedence() {
         {
             // Must be (2 + 3) * 2, not 2 * 2 + 3
-            let memo = use_memo_chain(|_| 2)
+            let memo = create_memo_chain(|_| 2)
                 .then(|value| value * 2)
                 .first(|value| value + 3);
 
@@ -193,7 +197,7 @@ mod tests {
 
         {
             // Same expression but with order as it is
-            let memo = use_memo_chain(|_| 2)
+            let memo = create_memo_chain(|_| 2)
                 .then(|value| value * 2)
                 .then(|value| value + 3);
 

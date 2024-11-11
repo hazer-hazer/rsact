@@ -12,6 +12,7 @@ use embedded_graphics::{
     geometry::{AnchorPoint, Point},
     primitives::{CornerRadii, Rectangle},
 };
+use rsact_reactive::prelude::*;
 
 pub trait SubTake<Rhs = Self> {
     fn sub_take(&mut self, sub: Rhs) -> Self;
@@ -191,7 +192,9 @@ impl Into<Length> for DeterministicLength {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, IntoMaybeReactive,
+)]
 #[cfg_attr(feature = "defmt", derive(::defmt::Format))]
 pub enum Length {
     // /// Fills all the remaining space

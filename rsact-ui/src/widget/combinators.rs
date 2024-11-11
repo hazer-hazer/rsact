@@ -172,7 +172,7 @@ impl<W: WidgetCtx> Widget<W> for Unit {
     }
 
     fn layout(&self) -> rsact_reactive::prelude::Signal<Layout> {
-        Layout::zero().into_signal()
+        Layout::zero().signal()
     }
 
     fn build_layout_tree(&self) -> MemoTree<Layout> {
@@ -213,7 +213,7 @@ impl<W: WidgetCtx> Widget<W> for Option<El<W>> {
     fn layout(&self) -> rsact_reactive::prelude::Signal<super::Layout> {
         self.as_ref()
             .map(|widget| widget.layout())
-            .unwrap_or(Layout::zero().into_signal())
+            .unwrap_or(Layout::zero().signal())
     }
 
     fn build_layout_tree(

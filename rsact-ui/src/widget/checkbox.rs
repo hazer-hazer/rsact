@@ -30,14 +30,15 @@ impl<C: Color> CheckboxStyle<C> {
 
 // TODO: Do we need `on_change` event with signal value?
 
-type IconType = SystemIcon;
+type IconKind = SystemIcon;
 
 pub struct Checkbox<W: WidgetCtx> {
     id: ElId,
     state: Signal<CheckboxState>,
     layout: Signal<Layout>,
-    icon: Icon<W, IconType>,
-    value: Signal<bool>,
+    // TODO: Reactive icon?
+    icon: Icon<W, IconKind>,
+    value: MaybeSignal<bool>,
     style: MemoChain<CheckboxStyle<W::Color>>,
 }
 
@@ -45,27 +46,26 @@ impl<W: WidgetCtx> Checkbox<W>
 where
     W::Styler: Styler<IconStyle<W::Color>, Class = ()>,
 {
-    pub fn new(value: impl IntoSignal<bool>) -> Self {
+    pub fn new(value: impl Into<MaybeSignal<bool>>) -> Self {
         let icon = Icon::new(SystemIcon::Check);
 
         Self {
             id: ElId::unique(),
-            state: CheckboxState::none().into_signal(),
+            state: CheckboxState::none().signal(),
             layout: Layout::shrink(LayoutKind::Container(
                 ContainerLayout::base(
-                    icon.layout()
-                        .mapped(|icon_layout| icon_layout.content_size()),
+                    icon.layout().map(|icon_layout| icon_layout.content_size()),
                 ),
             ))
-            .into_signal(),
+            .signal(),
             icon,
-            value: value.into_signal(),
-            style: CheckboxStyle::base().into_memo_chain(),
+            value: value.into(),
+            style: CheckboxStyle::base().memo_chain(),
         }
     }
 
-    pub fn check_icon(self, icon: IconType) -> Self {
-        self.icon.icon.set(icon);
+    pub fn check_icon(mut self, icon: IconKind) -> Self {
+        self.icon.kind.set(icon);
         self
     }
 }

@@ -43,14 +43,14 @@ impl Align {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ContentLayout {
-    pub content_size: Memo<Limits>,
+    pub content_size: MaybeReactive<Limits>,
 }
 
 impl ContentLayout {
-    pub fn new(content_size: impl AsMemo<Limits>) -> Self {
-        Self { content_size: content_size.as_memo() }
+    pub fn new(content_size: impl Into<MaybeReactive<Limits>>) -> Self {
+        Self { content_size: content_size.into() }
     }
 
     pub fn min_size(&self) -> Size {
@@ -58,21 +58,21 @@ impl ContentLayout {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ContainerLayout {
     pub block_model: BlockModel,
     pub horizontal_align: Align,
     pub vertical_align: Align,
-    pub content_size: Memo<Limits>,
+    pub content_size: MaybeReactive<Limits>,
 }
 
 impl ContainerLayout {
-    pub fn base(content_size: impl AsMemo<Limits>) -> Self {
+    pub fn base(content_size: impl Into<MaybeReactive<Limits>>) -> Self {
         Self {
             block_model: BlockModel::zero(),
             horizontal_align: Align::Start,
             vertical_align: Align::Start,
-            content_size: content_size.as_memo(),
+            content_size: content_size.into(),
         }
     }
 
@@ -81,7 +81,7 @@ impl ContainerLayout {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FlexLayout {
     pub wrap: bool,
     pub block_model: BlockModel,
@@ -90,12 +90,15 @@ pub struct FlexLayout {
     pub gap: Size,
     pub horizontal_align: Align,
     pub vertical_align: Align,
-    pub content_size: Memo<Limits>,
+    pub content_size: MaybeReactive<Limits>,
 }
 
 impl FlexLayout {
     /// Default but with specific axis
-    pub fn base(axis: Axis, content_size: impl AsMemo<Limits>) -> Self {
+    pub fn base(
+        axis: Axis,
+        content_size: impl Into<MaybeReactive<Limits>>,
+    ) -> Self {
         Self {
             wrap: false,
             block_model: BlockModel::zero(),
@@ -103,7 +106,7 @@ impl FlexLayout {
             gap: Size::zero(),
             horizontal_align: Align::Start,
             vertical_align: Align::Start,
-            content_size: content_size.as_memo(),
+            content_size: content_size.into(),
         }
     }
 
@@ -151,14 +154,14 @@ impl FlexLayout {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ScrollableLayout {
-    pub content_size: Memo<Limits>,
+    pub content_size: MaybeReactive<Limits>,
 }
 
 impl ScrollableLayout {
-    pub fn new(content_size: impl AsMemo<Limits>) -> Self {
-        Self { content_size: content_size.as_memo() }
+    pub fn new(content_size: impl Into<MaybeReactive<Limits>>) -> Self {
+        Self { content_size: content_size.into() }
     }
 
     pub fn min_size(&self) -> Size {
@@ -166,13 +169,13 @@ impl ScrollableLayout {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DevFlexLayout {
     // lines: Vec<Rectangle>,
     real: FlexLayout,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DevLayout {
     pub size: Size<Length>,
     pub kind: DevLayoutKind,
@@ -188,7 +191,7 @@ impl DevLayout {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum DevLayoutKind {
     Zero,
     Edge,
@@ -276,7 +279,7 @@ impl Display for DevLayoutKind {
 
 // Agenda: Full box model in dev tools
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DevHoveredLayout {
     pub layout: DevLayout,
     pub size: Size<Length>,
@@ -284,7 +287,7 @@ pub struct DevHoveredLayout {
     pub children_count: usize,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum LayoutKind {
     Zero,
     Edge,
@@ -328,7 +331,7 @@ impl Layout {
     // }
 
     pub fn content_size(&self) -> Limits {
-        match self.kind {
+        match &self.kind {
             LayoutKind::Zero => Limits::zero(),
             LayoutKind::Edge => Limits::unlimited(),
             LayoutKind::Content(ContentLayout { content_size })
@@ -341,7 +344,7 @@ impl Layout {
     }
 
     pub fn min_size(&self) -> Size {
-        match self.kind {
+        match &self.kind {
             LayoutKind::Zero => Size::zero(),
             LayoutKind::Edge => Size::zero(),
             LayoutKind::Content(content_layout) => content_layout.min_size(),
@@ -476,6 +479,7 @@ pub struct LayoutModel {
     // full_padding: Padding,
     // Note: `dev` goes before `children` which is intentional to make more
     // readable pretty-printed debug
+    // TODO: Make debug_assertions-only
     dev: DevLayout,
     children: Vec<LayoutModel>,
 }
@@ -590,7 +594,7 @@ pub fn model_layout(
     tree.data.with(|layout| {
         let size = layout.size.in_parent(parent_size);
 
-        match layout.kind {
+        match &layout.kind {
             LayoutKind::Zero => LayoutModel::zero(),
             LayoutKind::Edge => {
                 let limits = parent_limits.limit_by(size);
@@ -610,7 +614,7 @@ pub fn model_layout(
                     vec![],
                     DevLayout::new(
                         size,
-                        DevLayoutKind::Content(content_layout),
+                        DevLayoutKind::Content(content_layout.clone()),
                     ),
                 )
             },
@@ -645,8 +649,8 @@ pub fn model_layout(
                 let content_layout = content_layout
                 // .moved(full_padding.top_left())
                 .aligned(
-                    horizontal_align,
-                    vertical_align,
+                    *horizontal_align,
+                    *vertical_align,
                     real_size - content_size,
                 );
 
@@ -657,7 +661,7 @@ pub fn model_layout(
                     vec![content_layout],
                     DevLayout::new(
                         size,
-                        DevLayoutKind::Container(container_layout),
+                        DevLayoutKind::Container(container_layout.clone()),
                     ),
                 )
                 .full_padding(full_padding)
@@ -685,7 +689,7 @@ pub fn model_layout(
                     vec![content_layout],
                     DevLayout::new(
                         size,
-                        DevLayoutKind::Scrollable(scrollable_layout),
+                        DevLayoutKind::Scrollable(scrollable_layout.clone()),
                     ),
                 )
             },
