@@ -14,6 +14,7 @@ pub mod ui;
 pub mod utils;
 pub mod value;
 pub mod widget;
+pub mod anim;
 
 // #[macro_use]
 extern crate log;

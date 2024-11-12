@@ -1,4 +1,4 @@
-use crate::widget::WidgetCtx;
+use crate::{anim::Anim, widget::WidgetCtx};
 use alloc::vec::Vec;
 use rsact_reactive::prelude::*;
 
@@ -31,6 +31,16 @@ impl<W: WidgetCtx> MessageQueue<W> {
 
     pub(crate) fn tick(&mut self, now_millis: u32) {
         self.now_millis.set(now_millis);
+    }
+
+    pub fn goto(self, page_id: W::PageId) -> Self {
+        self.publish(Message::GoTo(page_id));
+        self
+    }
+
+    pub fn previous_page(self) -> Self {
+        self.publish(Message::PreviousPage);
+        self
     }
 
     pub fn publish(mut self, msg: Message<W>) -> Self {

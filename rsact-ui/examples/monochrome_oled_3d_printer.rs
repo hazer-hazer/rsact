@@ -179,7 +179,7 @@ fn main() {
         printing_progress.set(0.into());
         printing_progress_anim_ts.set(Instant::now());
 
-        queue.publish(Message::GoTo(print_page_id));
+        queue.goto(print_page_id);
 
         is_printing.set(true);
     };
