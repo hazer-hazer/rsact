@@ -6,11 +6,7 @@ use embedded_graphics_simulator::{
 };
 use rsact_icons::{common::CommonIcon, system::SystemIcon, IconSet};
 use rsact_ui::{
-    event::NullEvent,
-    prelude::{create_memo, Flex, Icon, IntoInert, MonoText, Size},
-    style::NullStyler,
-    ui::UI,
-    widget::{SizedWidget, Widget},
+    event::NullEvent, page::id::SinglePage, prelude::{create_memo, Flex, Icon, IntoInert, MonoText, Size}, style::NullStyler, ui::UI, widget::{SizedWidget, Widget}
 };
 
 fn main() {
@@ -38,14 +34,10 @@ fn main() {
         .map(|kind| Icon::new(kind).size(ICON_SIZE).el())
         .collect::<Vec<_>>();
 
-    let mut ui: UI<
-        rsact_ui::widget::Wtf<
-            _,
-            NullEvent,
-            NullStyler,
-            rsact_ui::page::id::SinglePage,
-        >,
-    > = UI::single_page(
+    let mut ui = UI::new(
+        display.bounding_box().size.inert(),
+        NullStyler,
+    ).no_events().with_page(SinglePage, 
         Flex::col([
             MonoText::new_static("System icons").el(),
             Flex::row(system_icons).wrap(true).gap(5).el(),
@@ -55,10 +47,7 @@ fn main() {
         ])
         .center()
         .fill()
-        .el(),
-        display.bounding_box().size.inert(),
-        NullStyler,
-    );
+        .el(),);
 
     ui.draw(&mut display);
 

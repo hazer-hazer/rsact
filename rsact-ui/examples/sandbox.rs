@@ -8,13 +8,14 @@ use embedded_graphics_simulator::{
 use rsact_ui::{
     event::simulator::simulator_single_encoder,
     layout::size::Size,
+    page::id::SinglePage,
     prelude::IntoInert,
     render::draw_target::{AntiAliasing, LayeringRendererOptions},
     style::accent::AccentStyler,
     ui::UI,
     widget::{flex::Flex, SizedWidget, Widget as _},
 };
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 fn main() {
     let output_settings =
@@ -29,17 +30,15 @@ fn main() {
 
     let page = Flex::row([]).fill();
 
-    let mut ui = UI::single_page(
-        page.el(),
+    let mut ui = UI::new(
         display.bounding_box().size.inert(),
         AccentStyler::new(Rgb888::RED),
     )
+    .with_page(SinglePage, page.el())
     .with_renderer_options(
         LayeringRendererOptions::new().anti_aliasing(AntiAliasing::Enabled),
     )
     .on_exit(|| std::process::exit(0));
-
-    ui.current_page().auto_focus();
 
     let mut fps = 0;
     let mut last_time = Instant::now();

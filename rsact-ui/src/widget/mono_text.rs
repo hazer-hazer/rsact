@@ -17,8 +17,8 @@ use embedded_text::{
 use layout::ContentLayout;
 use rsact_reactive::{maybe::MaybeReactive, memo_chain::IntoMemoChain};
 
-pub const MIN_MONO_WIDTH: u32 = 4;
-pub const MAX_MONO_WIDTH: u32 = 10;
+pub const MIN_MONO_HEIGHT: u32 = 6;
+pub const MAX_MONO_HEIGHT: u32 = 20;
 
 #[derive(Clone, Copy)]
 pub struct MonoFontProps {
@@ -33,32 +33,42 @@ fn pick_font(
 ) -> MonoFont<'static> {
     use embedded_graphics::mono_font::ascii::*;
 
-    let width = size.resolve(viewport).clamp(MIN_MONO_WIDTH, MAX_MONO_WIDTH);
+    let height = size.resolve(viewport).clamp(MIN_MONO_HEIGHT, MAX_MONO_HEIGHT);
 
-    match width {
-        0..=4 => FONT_4X6,
-        5 => FONT_5X8,
-        6 => match style {
-            FontStyle::Normal => FONT_6X13,
-            FontStyle::Italic => FONT_6X13_ITALIC,
-            FontStyle::Bold => FONT_6X13_ITALIC,
-        },
-        7 => match style {
-            FontStyle::Normal => FONT_7X13,
-            FontStyle::Italic => FONT_7X13_ITALIC,
-            FontStyle::Bold => FONT_7X13_BOLD,
-        },
-        8 => match style {
+    match height {
+        0..=6 => FONT_4X6,
+        7 => FONT_5X7,
+        8 => FONT_5X8,
+        9 => FONT_6X9,
+        10 => FONT_6X10,
+        11 | 12 => FONT_6X12,
+        // 13 => match style {
+        //     FontStyle::Normal => FONT_6X13,
+        //     FontStyle::Italic => FONT_6X13_ITALIC,
+        //     FontStyle::Bold => FONT_6X13_ITALIC,
+        // },
+        // 13 => match style {
+        //     FontStyle::Normal => FONT_7X13,
+        //     FontStyle::Italic => FONT_7X13_ITALIC,
+        //     FontStyle::Bold => FONT_7X13_BOLD,
+        // },
+        // Note: 8/13 is a better ratio, closer to 0.6
+        13 | 14 => match style {
             FontStyle::Normal => FONT_8X13,
             FontStyle::Italic => FONT_8X13_ITALIC,
             FontStyle::Bold => FONT_8X13_BOLD,
         },
-        9 => match style {
+        15 => match style {
             FontStyle::Normal => FONT_9X15,
             FontStyle::Italic => FONT_9X15,
             FontStyle::Bold => FONT_9X15_BOLD,
         },
-        10.. => FONT_10X20,
+        16 | 17 | 18 => match style {
+            FontStyle::Normal => FONT_9X18,
+            FontStyle::Italic => FONT_9X18, // Note: No italic
+            FontStyle::Bold => FONT_9X18_BOLD,
+        },
+        19.. => FONT_10X20,
     }
 }
 
@@ -269,6 +279,15 @@ where
 {
     fn into(self) -> El<W> {
         MonoText::new_static(self.to_string()).el()
+    }
+}
+
+impl<W: WidgetCtx + 'static> Into<El<W>> for String
+where
+    W::Styler: Styler<MonoTextStyle<W::Color>, Class = ()>,
+{
+    fn into(self) -> El<W> {
+        MonoText::new_static(self).el()
     }
 }
 

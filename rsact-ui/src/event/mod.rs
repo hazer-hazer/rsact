@@ -9,10 +9,8 @@ use crate::{
 use core::{fmt::Debug, ops::ControlFlow};
 use dev::{DevElHover, DevToolsToggle};
 use embedded_graphics::prelude::Point;
-use message::Message;
 
 pub mod dev;
-
 pub mod message;
 #[cfg(feature = "simulator")]
 pub mod simulator;

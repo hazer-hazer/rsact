@@ -1,14 +1,14 @@
 {
   "git.ignoreLimitWarning": true,
-  "rust-analyzer.cargo.noDefaultFeatures": true,
-  "rust-analyzer.check.noDefaultFeatures": true,
   "rust-analyzer.check.features": [
     "simulator",
-    "single-thread"
+    "single-thread",
+    "rsact-icons/common"
   ],
   "rust-analyzer.cargo.features": [
     "simulator",
-    "single-thread"
+    "single-thread",
+    "rsact-icons/common"
   ],
   "cSpell.words": [
     "antialiasing",

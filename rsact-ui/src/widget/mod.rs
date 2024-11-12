@@ -18,9 +18,9 @@ pub mod space;
 
 use crate::{
     event::{BubbledData, EventPass, FocusedWidget},
-    page::id::PageId,
+    page::id::{PageId, SinglePage},
     render::Renderable,
-    style::{Styler, TreeStyle, WidgetStyle},
+    style::{NullStyler, Styler, TreeStyle, WidgetStyle},
 };
 use bitflags::bitflags;
 use core::marker::PhantomData;
@@ -97,7 +97,7 @@ pub trait WidgetCtx: Sized + 'static {
 
 /// WidgetTypeFamily
 /// Type family of types used in Widgets
-pub struct Wtf<R, E, S, I>
+pub struct Wtf<R, E = NullEvent, S = NullStyler, I = SinglePage>
 where
     R: Renderer,
     E: Event,

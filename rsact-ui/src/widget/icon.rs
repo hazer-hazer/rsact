@@ -20,7 +20,7 @@ impl<C: Color> IconStyle<C> {
 
 pub struct Icon<W: WidgetCtx, I: IconSet> {
     pub kind: MaybeSignal<I>,
-    size: Signal<FontSize>,
+    size: MaybeSignal<FontSize>,
     real_size: Signal<u32>,
     layout: Signal<Layout>,
     style: MemoChain<IconStyle<W::Color>>,
@@ -36,15 +36,18 @@ impl<W: WidgetCtx, I: IconSet + 'static> Icon<W, I> {
 
         Self {
             kind: icon.into(),
-            size: create_signal(FontSize::Unset),
+            size: MaybeSignal::new_inert(FontSize::Unset),
             real_size,
             layout,
             style: IconStyle::base().memo_chain(),
         }
     }
 
-    pub fn size(mut self, size: impl Into<FontSize>) -> Self {
-        self.size.set(size.into());
+    pub fn size<S: Into<FontSize> + Clone + PartialEq + 'static>(
+        mut self,
+        size: impl Into<MaybeReactive<S>>,
+    ) -> Self {
+        self.size.set_from(size.into().map(|size| size.clone().into()));
         self
     }
 
@@ -69,7 +72,7 @@ where
         ctx.accept_styles(self.style, ());
 
         let viewport = ctx.viewport;
-        let size = self.size;
+        let size = &self.size;
 
         // self.real_size.set_from(mapped!(move |viewport, size| {
         //     size.resolve(*viewport)

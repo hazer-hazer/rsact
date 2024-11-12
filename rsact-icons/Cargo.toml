@@ -20,7 +20,7 @@ quote = "1.0.37"
 
 [features]
 # TODO: Default to common when IconKind implemented
-default = ["system", "all-sizes"]
+default = ["common", "all-sizes"]
 
 # Icon sizes
 5px = []

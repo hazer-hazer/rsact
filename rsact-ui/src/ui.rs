@@ -1,9 +1,11 @@
+use core::marker::PhantomData;
+
 use crate::{
     el::El,
     event::{
         dev::DevToolsToggle,
         message::{Message, MessageQueue},
-        BubbledData, Event, ExitEvent as _, UnhandledEvent,
+        BubbledData, Event, ExitEvent as _, NullEvent, UnhandledEvent,
     },
     layout::size::Size,
     page::{
@@ -18,7 +20,24 @@ use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use embedded_graphics::prelude::DrawTarget;
 use rsact_reactive::prelude::*;
 
-pub struct UI<W: WidgetCtx> {
+pub struct UiOptions {
+    auto_focus: bool,
+}
+
+impl Default for UiOptions {
+    fn default() -> Self {
+        Self { auto_focus: false }
+    }
+}
+
+pub trait HasPages {}
+pub struct NoPages;
+impl HasPages for NoPages {}
+pub struct WithPages;
+impl HasPages for WithPages {}
+
+pub struct UI<W: WidgetCtx, P: HasPages> {
+    // TODO: Use SmallVec for single page optimization
     page_history: Vec<W::PageId>,
     pages: BTreeMap<W::PageId, Page<W>>,
     viewport: Memo<Size>,
@@ -27,9 +46,12 @@ pub struct UI<W: WidgetCtx> {
     dev_tools: Signal<DevTools>,
     renderer: Signal<W::Renderer>,
     message_queue: Option<MessageQueue<W>>,
+    options: UiOptions,
+    has_pages: PhantomData<P>,
 }
 
-impl<C, W> UI<W>
+// LayeringRenderer is DrawTarget layering wrapper which is the only Renderer supported for now.
+impl<C, W> UI<W, WithPages>
 where
     C: Color,
     W: WidgetCtx<Renderer = LayeringRenderer<C>, Color = C>,
@@ -39,23 +61,23 @@ where
     }
 }
 
-impl<R, E, S> UI<Wtf<R, E, S, SinglePage>>
-where
-    R: Renderer + 'static,
-    E: Event + 'static,
-    // TODO: S is not checked for being styler with specific color
-    S: PartialEq + Copy + 'static,
-{
-    pub fn single_page<V: PartialEq + Into<Size> + Copy + 'static>(
-        root: impl Into<El<Wtf<R, E, S, SinglePage>>>,
-        viewport: impl IntoMemo<V>,
-        styler: S,
-    ) -> Self {
-        Self::new(SinglePage, root, viewport, styler)
-    }
-}
+// impl<R, E, S> UI<Wtf<R, E, S, SinglePage>>
+// where
+//     R: Renderer + 'static,
+//     E: Event + 'static,
+//     // TODO: S is not checked for being styler with specific color
+//     S: PartialEq + Copy + 'static,
+// {
+//     pub fn single_page<V: PartialEq + Into<Size> + Copy + 'static>(
+//         root: impl Into<El<Wtf<R, E, S, SinglePage>>>,
+//         viewport: impl IntoMemo<V>,
+//         styler: S,
+//     ) -> Self {
+//         Self::new(SinglePage, root, viewport, styler)
+//     }
+// }
 
-impl<R, E, S, I> UI<Wtf<R, E, S, I>>
+impl<R, E, S, I> UI<Wtf<R, E, S, I>, NoPages>
 where
     R: Renderer + 'static,
     E: Event + 'static,
@@ -63,9 +85,8 @@ where
     I: PageId + 'static,
 {
     pub fn new<V: PartialEq + Into<Size> + Copy + 'static>(
-        page_id: I,
-        start_page_root: impl Into<El<Wtf<R, E, S, I>>>,
         viewport: impl IntoMemo<V>,
+        // TODO: `with_styler` optional
         styler: S,
     ) -> Self {
         let viewport = viewport.memo().map(|&viewport| viewport.into());
@@ -74,26 +95,42 @@ where
             create_signal(DevTools { enabled: false, hovered: None });
 
         Self {
-            page_history: vec![page_id],
+            page_history: Vec::new(),
             viewport,
             pages: BTreeMap::new(),
             on_exit: None,
             styler,
             dev_tools,
+            // TODO: Reactive viewport in Renderer
             renderer: R::new(viewport.get()).signal(),
             message_queue: None,
+            options: Default::default(),
+            has_pages: PhantomData,
         }
-        .with_page(page_id, start_page_root)
+    }
+
+    pub fn auto_focus(mut self) -> Self {
+        self.options.auto_focus = true;
+        self
     }
 }
 
-impl<W: WidgetCtx> UI<W> {
+impl<W: WidgetCtx, P: HasPages> UI<W, P> {
+    /// Hinting method to avoid specifying generics but just set [`WidgetCtx::Event`] to [`NullEvent`]
+    pub fn no_events(self) -> Self
+    where
+        W: WidgetCtx<Event = NullEvent>,
+    {
+        self
+    }
+
     /// Add ExitEvent handler that eats exit event
     pub fn on_exit(mut self, on_exit: impl Fn() + 'static) -> Self {
         self.on_exit = Some(Box::new(on_exit));
         self
     }
 
+    /// Set rendering options
     pub fn with_renderer_options(
         mut self,
         options: <W::Renderer as Renderer>::Options,
@@ -102,15 +139,43 @@ impl<W: WidgetCtx> UI<W> {
         self
     }
 
-    pub fn current_page(&mut self) -> &mut Page<W> {
-        self.pages.get_mut(&self.page_history.last().unwrap()).unwrap()
+    pub fn with_queue(mut self, queue: MessageQueue<W>) -> Self {
+        self.message_queue = Some(queue);
+        self
     }
 
-    pub fn page(&mut self, id: W::PageId) -> &mut Page<W> {
-        self.pages.get_mut(&id).unwrap()
+    // TODO: Type guard for SinglePage to disallow adding new pages.
+    /// Adds page to the UI.
+    /// The first added page becomes intro page
+    pub fn with_page(
+        mut self,
+        id: W::PageId,
+        page_root: impl Into<El<W>>,
+    ) -> UI<W, WithPages> {
+        self.add_page(id, page_root);
+
+        let mut with_page = UI {
+            page_history: self.page_history,
+            pages: self.pages,
+            viewport: self.viewport,
+            on_exit: self.on_exit,
+            styler: self.styler,
+            dev_tools: self.dev_tools,
+            renderer: self.renderer,
+            message_queue: self.message_queue,
+            options: self.options,
+            has_pages: PhantomData,
+        };
+
+        // Go to page if it is the first one
+        if with_page.pages.len() == 1 {
+            with_page.goto(id);
+        }
+
+        with_page
     }
 
-    pub fn add_page(&mut self, id: W::PageId, page_root: impl Into<El<W>>) {
+    fn add_page(&mut self, id: W::PageId, page_root: impl Into<El<W>>) {
         assert!(self
             .pages
             .insert(
@@ -125,25 +190,30 @@ impl<W: WidgetCtx> UI<W> {
             )
             .is_none())
     }
+}
 
-    pub fn with_queue(mut self, queue: MessageQueue<W>) -> Self {
-        self.message_queue = Some(queue);
-        self
+impl<W: WidgetCtx> UI<W, WithPages> {
+    /// Get mutable reference to currently active [`Page`]. You likely don't need to get pages.
+    pub fn current_page(&mut self) -> &mut Page<W> {
+        self.pages.get_mut(&self.page_history.last().unwrap()).unwrap()
     }
 
-    pub fn with_page(
-        mut self,
-        id: W::PageId,
-        page_root: impl Into<El<W>>,
-    ) -> Self {
-        self.add_page(id, page_root);
-        self
-    }
+    // TODO: Unused
+    // pub fn page(&mut self, id: W::PageId) -> &mut Page<W> {
+    //     self.pages.get_mut(&id).unwrap()
+    // }
 
+    /// Run some logic on page change
     fn on_page_change(&mut self) {
         self.current_page().force_redraw();
+
+        if self.options.auto_focus {
+            self.current_page().auto_focus();
+        }
     }
 
+    // TODO: Should be public?
+    // TODO: Browser-like history with preserved next pages and overwrites
     pub fn previous_page(&mut self) -> bool {
         if self.page_history.len() > 1 {
             self.page_history.pop();
@@ -154,9 +224,16 @@ impl<W: WidgetCtx> UI<W> {
         }
     }
 
+    // TODO: Should be public? We have MessageQueue
     pub fn goto(&mut self, page_id: W::PageId) {
         self.page_history.push(page_id);
         self.on_page_change();
+    }
+
+    pub fn tick_time(&mut self, now_millis: u32) -> &mut Self {
+        self.message_queue.as_mut().map(|queue| queue.tick(now_millis));
+
+        self
     }
 
     pub fn tick(

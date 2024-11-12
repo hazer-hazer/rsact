@@ -1,16 +1,12 @@
 use crate::layout::size::Size;
 
 /// User-specified font size
-/// For now, FontSize is about the width of the mono font, but it might be
-/// extended in the future with specific height as there're different variants
-/// of same width.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FontSize {
     Unset,
     /// Fixed font-size in pixels.
     Fixed(u32),
-    /// Relative to viewport value where 1.0 is given by auto-setting Unset
-    /// variant
+    /// Relative to viewport value where 1.0 is given by default Unset variant
     Relative(f32),
 }
 
@@ -29,11 +25,14 @@ impl From<f32> for FontSize {
 impl FontSize {
     pub fn resolve(&self, viewport: Size) -> u32 {
         let base = match viewport.width.max(viewport.height) {
-            0..=63 => 4,
-            64..=127 => 5,
-            128..=191 => 6,
-            192..=255 => 7,
-            256.. => 8,
+            ..64 => 6,
+            ..96 => 8,
+            ..128 => 9,
+            ..192 => 10,
+            ..256 => 12,
+            ..296 => 13,
+            ..400 => 15,
+            400.. => 20,
         };
 
         match self {

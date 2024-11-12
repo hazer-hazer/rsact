@@ -14,7 +14,9 @@
           "--manifest-path",
           "${workspaceFolder}/Cargo.toml",
           "--features",
-          "std,simulator"
+          "std,simulator",
+          "--features",
+          "rsact-icons/common"
         ],
         // "filter": {
         //   "name": "${input:pickExample}",

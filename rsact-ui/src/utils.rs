@@ -1,6 +1,4 @@
-use core::ops::Shl;
-
-use num::{Integer, PrimInt};
+use num::PrimInt;
 
 pub fn cycle_index(index: i64, len: usize) -> usize {
     let index = index % len as i64;
@@ -24,7 +22,7 @@ pub fn min_max_range_incl<T: Ord + Copy>(
     min..=max
 }
 
-// TODO: Math
+// TODO: Math module
 
 pub fn lerpi<T: PrimInt>(from: T, to: T, factor: T, factor_max: T) -> T {
     // (A*(1024-F) + B * F) >> 10

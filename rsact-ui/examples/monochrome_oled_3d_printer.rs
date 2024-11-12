@@ -8,6 +8,7 @@ use embedded_graphics_simulator::{
 };
 use fake::{faker, locales::EN, Fake};
 use rand::{random, thread_rng, Rng};
+use rsact_icons::{common::CommonIcon, system::SystemIcon};
 use rsact_reactive::runtime::{current_runtime_profile, new_scope};
 use rsact_ui::{
     event::{message::MessageQueue, simulator::simulator_single_encoder},
@@ -16,7 +17,7 @@ use rsact_ui::{
         Align,
     },
     prelude::{
-        create_effect, create_memo, create_signal, Button, Container,
+        create_effect, create_memo, create_signal, Button, Container, Icon,
         IntoInert, IntoMemo, Length, Message, MonoText, ReadSignal, Scrollable,
         SignalMap, WriteSignal,
     },
@@ -35,7 +36,7 @@ use std::{
     fmt::Display,
     format, println,
     string::{String, ToString},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     vec::Vec,
 };
 
@@ -96,13 +97,19 @@ static GLOBAL: Cap<System> = Cap::new(System, usize::MAX);
         3 effects
         126 memos
         64 memo chains
+    ---
+    Reactive runtime profile: 383 values:
+        193 signals
+        3 effects
+        123 memos
+        64 memo chains
 */
 
 fn main() {
     let output_settings = OutputSettingsBuilder::new()
         .max_fps(10000)
-        // .scale(5)
-        .theme(embedded_graphics_simulator::BinaryColorTheme::OledWhite)
+        .scale(5)
+        // .theme(embedded_graphics_simulator::BinaryColorTheme::OledWhite)
         .build();
 
     let mut window = Window::new("SANDBOX", &output_settings);
@@ -118,12 +125,19 @@ fn main() {
     let main_page_id = "main";
 
     let back_button = || {
-        Button::new("Back")
-            .padding(2u32)
-            .on_click(move || {
-                queue.publish(Message::GoTo(main_page_id));
-            })
-            .el()
+        Button::new(
+            Flex::row([
+                Icon::new(SystemIcon::ArrowLeft).size(6u32).el(),
+                "Back".into(),
+            ])
+            .gap(2)
+            .center(),
+        )
+        .padding(2u32)
+        .on_click(move || {
+            queue.publish(Message::GoTo(main_page_id));
+        })
+        .el()
     };
 
     // This is not a good way to implement animations/logic, this's just to simulate printing process
@@ -249,7 +263,8 @@ fn main() {
                 })
                 .el(),
         ])
-        .fill()
+        .padding(1u32)
+        .fill_height()
         .center()
         .gap(3)
         .el(),
@@ -270,7 +285,7 @@ fn main() {
         ])
         .center()
         .gap(1)
-        .fill()
+        .fill_height()
         .el(),
         Flex::col([
             position_button("Y-", UnitV2::UP),
@@ -281,7 +296,10 @@ fn main() {
         .center()
         .fill()
         .el(),
-        Flex::col([position_button("X+", UnitV2::RIGHT)]).center().fill().el(),
+        Flex::col([position_button("X+", UnitV2::RIGHT)])
+            .center()
+            .fill_height()
+            .el(),
     ])
     .fill()
     .el();
@@ -361,24 +379,42 @@ fn main() {
 
     let main = Scrollable::vertical(
         Flex::col([
-            Button::new("Files")
-                .on_click(move || {
-                    queue.publish(Message::GoTo(files_page_id));
-                })
-                .fill_width()
-                .el(),
-            Button::new("Position")
-                .on_click(move || {
-                    queue.publish(Message::GoTo(position_page_id));
-                })
-                .fill_width()
-                .el(),
-            Button::new("Temperature")
-                .on_click(move || {
-                    queue.publish(Message::GoTo(temp_page_id));
-                })
-                .fill_width()
-                .el(),
+            Button::new(
+                Flex::row([
+                    Icon::new(CommonIcon::File).size(8u32).el(),
+                    "Files".into(),
+                ])
+                .gap(3),
+            )
+            .on_click(move || {
+                queue.publish(Message::GoTo(files_page_id));
+            })
+            .fill_width()
+            .el(),
+            Button::new(
+                Flex::row([
+                    Icon::new(CommonIcon::MapMarker).size(8u32).el(),
+                    "Position".into(),
+                ])
+                .gap(3),
+            )
+            .on_click(move || {
+                queue.publish(Message::GoTo(position_page_id));
+            })
+            .fill_width()
+            .el(),
+            Button::new(
+                Flex::row([
+                    Icon::new(CommonIcon::Thermometer).size(8u32).el(),
+                    "Temperature".into(),
+                ])
+                .gap(3),
+            )
+            .on_click(move || {
+                queue.publish(Message::GoTo(temp_page_id));
+            })
+            .fill_width()
+            .el(),
         ])
         .gap(1)
         .fill_width()
@@ -389,8 +425,6 @@ fn main() {
     .el();
 
     let mut ui = UI::new(
-        main_page_id,
-        main,
         display.bounding_box().size.inert(),
         NullStyler
         // AccentStyler::new(Rgb888::RED),
@@ -398,14 +432,14 @@ fn main() {
     // .with_renderer_options(
     //     LayeringRendererOptions::new().anti_aliasing(AntiAliasing::Enabled),
     // )
+    .auto_focus()
     .on_exit(|| std::process::exit(0))
+    .with_page(main_page_id, main)
     .with_page(print_page_id, print_page)
     .with_page(position_page_id, position_page)
     .with_page(temp_page_id, temp_page)
     .with_page(files_page_id, files_page)
     .with_queue(queue);
-
-    ui.current_page().auto_focus();
 
     // let mem_init = mem_init.end();
     println!("Initialization mem use: {}", GLOBAL.allocated() - mem_init);

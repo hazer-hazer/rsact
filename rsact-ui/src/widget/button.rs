@@ -47,7 +47,7 @@ impl<W: WidgetCtx + 'static> Button<W> {
         let state = create_signal(ButtonState::none());
 
         let layout = Layout::shrink(LayoutKind::Container(ContainerLayout {
-            block_model: BlockModel::zero().border_width(1),
+            block_model: BlockModel::zero().padding(2).border_width(1),
             horizontal_align: Align::Center,
             vertical_align: Align::Center,
             content_size: content

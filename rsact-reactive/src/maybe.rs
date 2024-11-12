@@ -365,7 +365,7 @@ impl<T: 'static> IntoSignal<T> for MaybeSignal<T> {
 }
 
 impl<T: 'static> MaybeSignal<T> {
-    pub fn new_static(value: T) -> Self {
+    pub fn new_inert(value: T) -> Self {
         Self::Inert(Some(value))
     }
 
@@ -534,7 +534,7 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MaybeReactive<U>>
 
 impl<T: 'static> From<T> for MaybeSignal<T> {
     fn from(value: T) -> Self {
-        Self::new_static(value)
+        Self::new_inert(value)
     }
 }
 
@@ -611,7 +611,7 @@ mod tests {
 
     #[test]
     fn maybe_signal_mapper() {
-        let mut maybe = MaybeSignal::new_static(123);
+        let mut maybe = MaybeSignal::new_inert(123);
 
         // Warning: Non-reactive map
         let map = maybe.map(|value| *value);
@@ -627,7 +627,7 @@ mod tests {
 
     #[test]
     fn maybe_signal_setter_from_reactive() {
-        let mut maybe = MaybeSignal::new_static(123);
+        let mut maybe = MaybeSignal::new_inert(123);
 
         assert_eq!(maybe.get(), 123);
 

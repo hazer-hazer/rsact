@@ -100,6 +100,8 @@ where
     }
 }
 
+// TODO: Refine Styler:
+// - Class is unused
 pub trait Styler<S: WidgetStyle> {
     type Class;
 

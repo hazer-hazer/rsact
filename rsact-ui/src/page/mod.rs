@@ -201,9 +201,17 @@ impl<W: WidgetCtx> Page<W> {
     //     self
     // }
 
-    pub fn auto_focus(&mut self) {
+    /// Focus first focusable element in page
+    pub fn focus_first(&mut self) {
         if self.tree.focusable.get() > 0 {
             self.handle_events([<W::Event as FocusEvent>::zero()].into_iter());
+        }
+    }
+
+    /// Focus first focusable element in page if no element focused
+    pub fn auto_focus(&mut self) {
+        if self.state.with(|state| state.focused.is_none()) {
+            self.focus_first();
         }
     }
 
