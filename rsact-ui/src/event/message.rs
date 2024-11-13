@@ -1,4 +1,7 @@
-use crate::{anim::Anim, widget::WidgetCtx};
+use crate::{
+    anim::{Anim, AnimHandle},
+    widget::WidgetCtx,
+};
 use alloc::vec::Vec;
 use rsact_reactive::prelude::*;
 
@@ -14,23 +17,36 @@ pub enum Message<W: WidgetCtx> {
 pub struct MessageQueue<W: WidgetCtx> {
     messages: Signal<Vec<Message<W>>>,
     now_millis: Signal<u32>,
+    /// Pre-stored Memo of `now_millis` to avoid creating Memo for each animation.
+    anim_now_millis: Memo<u32>,
 }
 
 impl<W: WidgetCtx> Copy for MessageQueue<W> {}
 
 impl<W: WidgetCtx> Clone for MessageQueue<W> {
     fn clone(&self) -> Self {
-        Self { messages: self.messages.clone(), now_millis: self.now_millis }
+        Self {
+            messages: self.messages.clone(),
+            now_millis: self.now_millis,
+            anim_now_millis: self.anim_now_millis,
+        }
     }
 }
 
 impl<W: WidgetCtx> MessageQueue<W> {
     pub fn new() -> Self {
-        Self { messages: create_signal(vec![]), now_millis: create_signal(0) }
+        let now_millis = create_signal(0);
+        Self {
+            messages: create_signal(vec![]),
+            now_millis,
+            anim_now_millis: now_millis.map(|&now_millis| now_millis),
+        }
     }
 
-    pub(crate) fn tick(&mut self, now_millis: u32) {
-        self.now_millis.set(now_millis);
+    /// Note: Animations don't run until [`UI::tick_time`] is called
+    #[must_use]
+    pub fn anim(self, anim: Anim) -> AnimHandle {
+        anim.handle(self.anim_now_millis)
     }
 
     pub fn goto(self, page_id: W::PageId) -> Self {
@@ -46,6 +62,10 @@ impl<W: WidgetCtx> MessageQueue<W> {
     pub fn publish(mut self, msg: Message<W>) -> Self {
         self.messages.update(|messages| messages.push(msg));
         self
+    }
+
+    pub(crate) fn tick(&mut self, now_millis: u32) {
+        self.now_millis.set(now_millis);
     }
 
     pub(crate) fn pop(mut self) -> Option<Message<W>> {

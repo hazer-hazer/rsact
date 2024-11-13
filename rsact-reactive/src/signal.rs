@@ -141,7 +141,8 @@ impl<T: 'static, U: 'static> SignalSetter<T, Signal<U>> for Signal<T> {
     fn setter(
         &mut self,
         source: Signal<U>,
-        set_map: impl Fn(&mut T, &<Signal<U> as ReactiveValue>::Value) + 'static,
+        mut set_map: impl FnMut(&mut T, &<Signal<U> as ReactiveValue>::Value)
+            + 'static,
     ) {
         let this = *self;
         create_effect(move |_| {
@@ -158,7 +159,8 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, Memo<U>>
     fn setter(
         &mut self,
         source: Memo<U>,
-        set_map: impl Fn(&mut T, &<Memo<U> as ReactiveValue>::Value) + 'static,
+        mut set_map: impl FnMut(&mut T, &<Memo<U> as ReactiveValue>::Value)
+            + 'static,
     ) {
         let this = *self;
         create_effect(move |_| {
@@ -175,7 +177,8 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MemoChain<U>>
     fn setter(
         &mut self,
         source: MemoChain<U>,
-        set_map: impl Fn(&mut T, &<Memo<U> as ReactiveValue>::Value) + 'static,
+        mut set_map: impl FnMut(&mut T, &<Memo<U> as ReactiveValue>::Value)
+            + 'static,
     ) {
         let this = *self;
         create_effect(move |_| {
@@ -192,7 +195,8 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, Inert<U>>
     fn setter(
         &mut self,
         source: Inert<U>,
-        set_map: impl Fn(&mut T, &<Inert<U> as ReactiveValue>::Value) + 'static,
+        mut set_map: impl FnMut(&mut T, &<Inert<U> as ReactiveValue>::Value)
+            + 'static,
     ) {
         self.update(|this| set_map(this, &source))
     }
@@ -205,7 +209,7 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MaybeReactive<U>>
     fn setter(
         &mut self,
         source: MaybeReactive<U>,
-        set_map: impl Fn(&mut T, &<MaybeReactive<U> as ReactiveValue>::Value)
+        mut set_map: impl FnMut(&mut T, &<MaybeReactive<U> as ReactiveValue>::Value)
             + 'static,
     ) {
         match source {
@@ -218,7 +222,7 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MaybeReactive<U>>
             MaybeReactive::Derived(derived) => {
                 // TODO: use_effect or not to use effect? How do we know if derived function is using reactive values or not
                 let derived = Rc::clone(&derived);
-                self.update(|this| set_map(this, &derived()));
+                self.update(|this| set_map(this, &derived.borrow_mut()()));
             },
         }
     }
@@ -230,10 +234,10 @@ impl<T: 'static, M: marker::CanRead> SignalMap<T> for Signal<T, M> {
     #[track_caller]
     fn map<U: PartialEq + 'static>(
         &self,
-        map: impl Fn(&T) -> U + 'static,
+        mut map: impl FnMut(&T) -> U + 'static,
     ) -> Memo<U> {
         let this = *self;
-        create_memo(move |_| this.with(&map))
+        create_memo(move |_| this.with(&mut map))
     }
 }
 

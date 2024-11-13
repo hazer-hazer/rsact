@@ -59,7 +59,7 @@ pub trait SignalSetter<T: 'static, I: ReactiveValue> {
     fn setter(
         &mut self,
         source: I,
-        set_map: impl Fn(&mut T, &I::Value) + 'static,
+        set_map: impl FnMut(&mut T, &I::Value) + 'static,
     );
 
     fn set_from(&mut self, source: I)

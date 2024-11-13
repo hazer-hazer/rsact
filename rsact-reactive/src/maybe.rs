@@ -8,6 +8,7 @@ use crate::{
 };
 use alloc::{rc::Rc, vec::Vec};
 use core::{
+    cell::RefCell,
     marker::PhantomData,
     ops::{Deref, DerefMut},
 };
@@ -76,7 +77,7 @@ impl<T: PartialEq + 'static> SignalMap<T> for Inert<T> {
 
     fn map<U: PartialEq + 'static>(
         &self,
-        map: impl Fn(&T) -> U + 'static,
+        mut map: impl FnMut(&T) -> U + 'static,
     ) -> Self::Output<U> {
         map(&self.value).inert()
     }
@@ -86,7 +87,7 @@ impl<T: PartialEq + 'static> SignalSetter<T, Self> for Inert<T> {
     fn setter(
         &mut self,
         source: Self,
-        set_map: impl Fn(&mut T, &<Self as ReactiveValue>::Value) + 'static,
+        mut set_map: impl FnMut(&mut T, &<Self as ReactiveValue>::Value) + 'static,
     ) {
         set_map(&mut self.value, &source.value)
     }
@@ -123,7 +124,7 @@ pub enum MaybeReactive<T: PartialEq + 'static> {
     Signal(Signal<T>),
     Memo(Memo<T>),
     MemoChain(MemoChain<T>),
-    Derived(Rc<dyn Fn() -> T>),
+    Derived(Rc<RefCell<dyn FnMut() -> T>>),
 }
 
 impl_read_signal_traits!(MaybeReactive<T>: PartialEq);
@@ -133,8 +134,8 @@ impl<T: PartialEq + 'static> MaybeReactive<T> {
         Self::Inert(value.inert())
     }
 
-    pub fn new_derived(f: impl Fn() -> T + 'static) -> Self {
-        Self::Derived(Rc::new(f))
+    pub fn new_derived(f: impl FnMut() -> T + 'static) -> Self {
+        Self::Derived(Rc::new(RefCell::new(f)))
     }
 }
 
@@ -185,7 +186,7 @@ impl<T: PartialEq + 'static> ReadSignal<T> for MaybeReactive<T> {
             MaybeReactive::MemoChain(memo_chain) => {
                 memo_chain.with_untracked(f)
             },
-            MaybeReactive::Derived(derived) => f(&derived()),
+            MaybeReactive::Derived(derived) => f(&derived.borrow_mut()()),
         }
     }
 }
@@ -197,13 +198,15 @@ impl<T: PartialEq + Clone + 'static> SignalMap<T> for MaybeReactive<T> {
     #[track_caller]
     fn map<U: PartialEq + 'static>(
         &self,
-        map: impl Fn(&T) -> U + 'static,
+        mut map: impl FnMut(&T) -> U + 'static,
     ) -> Self::Output<U> {
         match self {
             MaybeReactive::Inert(inert) => {
                 // FIXME: TODO
                 let inert = inert.clone();
-                MaybeReactive::Derived(Rc::new(move || map(&inert)))
+                MaybeReactive::Derived(Rc::new(RefCell::new(move || {
+                    map(&inert)
+                })))
             },
             MaybeReactive::Signal(signal) => {
                 MaybeReactive::Memo(signal.map(map))
@@ -214,7 +217,7 @@ impl<T: PartialEq + Clone + 'static> SignalMap<T> for MaybeReactive<T> {
             },
             MaybeReactive::Derived(derived) => {
                 let derived = Rc::clone(derived);
-                MaybeReactive::Derived(Rc::new(move || map(&derived())))
+                MaybeReactive::new_derived(move || map(&derived.borrow_mut()()))
             },
         }
     }
@@ -238,11 +241,11 @@ impl<T: PartialEq + 'static> From<MemoChain<T>> for MaybeReactive<T> {
     }
 }
 
-impl<T: PartialEq + 'static, F: Fn() -> T + 'static> From<F>
+impl<T: PartialEq + 'static, F: FnMut() -> T + 'static> From<F>
     for MaybeReactive<T>
 {
     fn from(value: F) -> Self {
-        Self::Derived(Rc::new(value))
+        Self::new_derived(value)
     }
 }
 
@@ -424,7 +427,7 @@ impl<T: 'static> SignalMap<T> for MaybeSignal<T> {
     #[track_caller]
     fn map<U: PartialEq + 'static>(
         &self,
-        map: impl Fn(&T) -> U + 'static,
+        mut map: impl FnMut(&T) -> U + 'static,
     ) -> Self::Output<U> {
         match self {
             MaybeSignal::Inert(inert) => {
@@ -443,7 +446,7 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MaybeReactive<U>>
     fn setter(
         &mut self,
         source: MaybeReactive<U>,
-        set_map: impl Fn(&mut T, &<MaybeReactive<U> as ReactiveValue>::Value)
+        mut set_map: impl FnMut(&mut T, &<MaybeReactive<U> as ReactiveValue>::Value)
             + 'static,
     ) {
         match source {
@@ -463,7 +466,7 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MaybeReactive<U>>
             MaybeReactive::Derived(derived) => {
                 // TODO: use_effect or not to use effect? See [`Signal: SignalSetter<T, MaybeReactive<U>>`] case for Derived
                 let derived = Rc::clone(&derived);
-                self.update(|this| set_map(this, &derived()))
+                self.update(|this| set_map(this, &derived.borrow_mut()()))
             },
         }
     }

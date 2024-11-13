@@ -122,10 +122,10 @@ impl<T: PartialEq + 'static> SignalMap<T> for Memo<T> {
     #[track_caller]
     fn map<U: PartialEq + 'static>(
         &self,
-        map: impl Fn(&T) -> U + 'static,
+        mut map: impl FnMut(&T) -> U + 'static,
     ) -> Self::Output<U> {
         let this = *self;
-        create_memo(move |_| this.with(&map))
+        create_memo(move |_| this.with(&mut map))
     }
 }
 

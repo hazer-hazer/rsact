@@ -38,14 +38,14 @@ pub trait SignalMap<T: 'static> {
 
     fn map<U: PartialEq + 'static>(
         &self,
-        map: impl Fn(&T) -> U + 'static,
+        map: impl FnMut(&T) -> U + 'static,
     ) -> Self::Output<U>;
 
     // TODO: Is this needed?
     #[track_caller]
     fn map_cloned<U: PartialEq + 'static>(
         &self,
-        map: impl Fn(T) -> U + 'static,
+        mut map: impl FnMut(T) -> U + 'static,
     ) -> Self::Output<U>
     where
         Self: Sized + 'static,
