@@ -22,6 +22,7 @@ derivative = { version = "2.2.0", default-features = false, features = [
     "use_core",
 ] }
 embedded-time = { version = "0.12.1" }
+smallvec = {version = "1.13.2"}
 
 [dev-dependencies]
 cap = "0.1.2"
@@ -37,6 +38,6 @@ std = ["log/std", "rsact-reactive/std"]
 single-thread = ["rsact-reactive/single-thread"]
 simulator = ["dep:embedded-graphics-simulator"]
 
-# [[example]]
-# name = "icons"
-
+[[example]]
+name = "animation"
+required-features = ["std"]

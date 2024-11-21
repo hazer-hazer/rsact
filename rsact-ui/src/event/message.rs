@@ -13,6 +13,7 @@ pub enum Message<W: WidgetCtx> {
     PreviousPage,
 }
 
+// TODO: Rename, this is not only about messages.
 /// MessageQueue is indented to reactively publish messages UI processes on `tick` synchronously
 pub struct MessageQueue<W: WidgetCtx> {
     messages: Signal<Vec<Message<W>>>,

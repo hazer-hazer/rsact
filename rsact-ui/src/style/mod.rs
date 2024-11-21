@@ -363,3 +363,4 @@ macro_rules! declare_widget_style {
 }
 
 pub use declare_widget_style;
+use rsact_reactive::memo::{create_memo, IntoMemo};

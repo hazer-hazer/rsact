@@ -70,7 +70,7 @@ impl<W: WidgetCtx> Page<W> {
     pub(crate) fn new(
         root: impl Into<El<W>>,
         viewport: Memo<Size>,
-        styler: Signal<W::Styler>,
+        styler: Memo<W::Styler>,
         dev_tools: Signal<DevTools>,
         mut renderer: Signal<W::Renderer>,
     ) -> Self {
@@ -84,7 +84,7 @@ impl<W: WidgetCtx> Page<W> {
         //  pass viewport to model_layout. In such a way, layout becomes much
         //  more straightforward and single-pass process.
         let meta = root.meta();
-        root.on_mount(MountCtx { viewport, styler: styler.memo() });
+        root.on_mount(MountCtx { viewport, styler });
 
         let focusable = create_memo(move |_| {
             meta.flat_collect().iter().fold(0, |count, el| {
@@ -129,6 +129,7 @@ impl<W: WidgetCtx> Page<W> {
             with!(|state| {
                 renderer.update_untracked(|renderer| {
                     // FIXME: Performance?
+                    // TODO: Not only performance, this is very wrong for Canvas widget, as this clear also clears all canvases which should be manually controlled and cleared. This needs to be solved (also check Canvas and animations after any change). I think that Widget Behavior can have some flag such as "auto_clear" which will clear its layout rect before redraw. But this complicates absolutely positioned elements a lot as we need to clear them too but then elements overlapped by it won't be cleared!
                     style
                         .with(|style| {
                             if let Some(background_color) =

@@ -245,6 +245,8 @@ pub trait Renderer {
     fn finish_frame(&self, target: &mut impl DrawTarget<Color = Self::Color>);
 
     fn clear(&mut self, color: Self::Color) -> DrawResult;
+    fn clear_rect(&mut self, rect: Rectangle, color: Self::Color)
+        -> DrawResult;
     fn clipped(
         &mut self,
         area: Rectangle,

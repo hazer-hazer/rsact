@@ -196,6 +196,15 @@ where
         Ok(())
     }
 
+    fn clear_rect(
+        &mut self,
+        rect: Rectangle,
+        color: Self::Color,
+    ) -> DrawResult {
+        self.fill_solid(&rect, color).ok().unwrap();
+        Ok(())
+    }
+
     fn clipped(
         &mut self,
         area: Rectangle,

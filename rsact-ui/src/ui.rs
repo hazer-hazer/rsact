@@ -14,11 +14,14 @@ use crate::{
         Page,
     },
     render::{color::Color, draw_target::LayeringRenderer, Renderer},
+    style::NullStyler,
     widget::{Widget, WidgetCtx, Wtf},
 };
 use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use embedded_graphics::prelude::DrawTarget;
+use log::debug;
 use rsact_reactive::prelude::*;
+use smallvec::SmallVec;
 
 pub struct UiOptions {
     auto_focus: bool,
@@ -37,12 +40,11 @@ pub struct WithPages;
 impl HasPages for WithPages {}
 
 pub struct UI<W: WidgetCtx, P: HasPages> {
-    // TODO: Use SmallVec for single page optimization
-    page_history: Vec<W::PageId>,
+    page_history: SmallVec<[W::PageId; 1]>,
     pages: BTreeMap<W::PageId, Page<W>>,
     viewport: Memo<Size>,
     on_exit: Option<Box<dyn Fn()>>,
-    styler: Signal<W::Styler>,
+    styler: Memo<W::Styler>,
     dev_tools: Signal<DevTools>,
     renderer: Signal<W::Renderer>,
     message_queue: Option<MessageQueue<W>>,
@@ -61,22 +63,6 @@ where
     }
 }
 
-// impl<R, E, S> UI<Wtf<R, E, S, SinglePage>>
-// where
-//     R: Renderer + 'static,
-//     E: Event + 'static,
-//     // TODO: S is not checked for being styler with specific color
-//     S: PartialEq + Copy + 'static,
-// {
-//     pub fn single_page<V: PartialEq + Into<Size> + Copy + 'static>(
-//         root: impl Into<El<Wtf<R, E, S, SinglePage>>>,
-//         viewport: impl IntoMemo<V>,
-//         styler: S,
-//     ) -> Self {
-//         Self::new(SinglePage, root, viewport, styler)
-//     }
-// }
-
 impl<R, E, S, I> UI<Wtf<R, E, S, I>, NoPages>
 where
     R: Renderer + 'static,
@@ -86,20 +72,19 @@ where
 {
     pub fn new<V: PartialEq + Into<Size> + Copy + 'static>(
         viewport: impl IntoMemo<V>,
-        // TODO: `with_styler` optional
+        // TODO: `with_styler` optional. Note: Not easily implementable
         styler: S,
     ) -> Self {
         let viewport = viewport.memo().map(|&viewport| viewport.into());
-        let styler = create_signal(styler);
         let dev_tools =
             create_signal(DevTools { enabled: false, hovered: None });
 
         Self {
-            page_history: Vec::new(),
+            page_history: Default::default(),
             viewport,
             pages: BTreeMap::new(),
             on_exit: None,
-            styler,
+            styler: create_memo(move |_| styler),
             dev_tools,
             // TODO: Reactive viewport in Renderer
             renderer: R::new(viewport.get()).signal(),
@@ -228,6 +213,32 @@ impl<W: WidgetCtx> UI<W, WithPages> {
     pub fn goto(&mut self, page_id: W::PageId) {
         self.page_history.push(page_id);
         self.on_page_change();
+    }
+
+    /// Helper that's utilizing [`std::time::SystemTime`] for time ticks
+    #[cfg(feature = "std")]
+    pub fn tick_time_std(&mut self) -> &mut Self {
+        // Use static start time to avoid time wrapping soon.
+        thread_local! {
+            static START_TIME: std::cell::LazyCell<u128> =
+                std::cell::LazyCell::new(|| {
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis()
+                });
+        }
+
+        let start_time = START_TIME.with(|start_time| **start_time);
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+
+        let now = (now - start_time) % u32::MAX as u128;
+
+        self.tick_time(now as u32)
     }
 
     pub fn tick_time(&mut self, now_millis: u32) -> &mut Self {

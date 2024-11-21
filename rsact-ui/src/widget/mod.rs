@@ -314,8 +314,8 @@ impl<W: WidgetCtx> MountCtx<W> {
     ) where
         W::Styler: Styler<S, Class = ()>,
     {
-        let inputs = inputs.into();
         let styler = self.styler;
+        let inputs = inputs.into();
         style.then(move |base| {
             styler.get().style(())(base.clone(), inputs.get_cloned())
         });

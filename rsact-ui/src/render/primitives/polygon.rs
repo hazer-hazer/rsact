@@ -16,6 +16,7 @@ use super::line::Line;
 //     stroke_color: Option<C>,
 // }
 
+#[derive(Clone, PartialEq, Debug)]
 pub struct Polygon {
     vertices: Vec<Point>,
 }

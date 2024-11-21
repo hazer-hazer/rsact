@@ -16,7 +16,7 @@ use embedded_graphics::{
     Pixel,
 };
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RoundedRect {
     pub rect: Rectangle,
     pub corners: BorderRadius,
