@@ -1,8 +1,6 @@
 <div align="center">
 <img width=300 src="./rsact.png"></img>
 
-# rsact
-
 Rust UI framework made for embedded systems usage in mind.
 
 </div>
