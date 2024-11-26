@@ -1,13 +1,15 @@
 <div align="center">
-    <img width=250 src="./rsact.png"></img>
+<img width=250 src="./rsact.png"></img>
 
-    # rsact
+# rsact
 
-    Rust UI framework made for embedded systems usage in mind.
+Rust UI framework made for embedded systems usage in mind.
 
 </div>
 
 > rsact is at a such early stage where everything is clumsy and messy, there's a lot of work to do, refactor, re-imagine and document. Though I hope the core idea works and will grow into "something".
+
+## Intro
 
 `rsact` is a GUI framework targeting embedded systems in Rust. The framework is based on fine-grained reactivity system, hence the name.
 
