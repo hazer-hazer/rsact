@@ -1,4 +1,4 @@
-use core::panic::Location;
+use core::{fmt::Display, panic::Location};
 
 use alloc::vec::Vec;
 
@@ -14,6 +14,20 @@ pub struct ScopeData {
     pub(crate) values: Vec<ValueId>,
     #[cfg(debug_assertions)]
     pub(crate) created_at: &'static Location<'static>,
+}
+
+#[cfg(debug_assertions)]
+impl Display for ScopeData {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "Scope at {}", self.created_at)
+    }
+}
+
+#[cfg(not(debug_assertions))]
+impl Display for ScopeData {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "")
+    }
 }
 
 impl ScopeData {

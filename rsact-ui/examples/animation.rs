@@ -1,6 +1,6 @@
 use embedded_graphics::{
     pixelcolor::Rgb888,
-    prelude::{Dimensions, Point, RgbColor},
+    prelude::{Angle, Dimensions, Point, RgbColor, WebColors},
     primitives::{Primitive, PrimitiveStyleBuilder},
 };
 use embedded_graphics_simulator::{
@@ -11,12 +11,15 @@ use rsact_ui::{
     event::{message::MessageQueue, simulator::simulator_single_encoder},
     page::id::SinglePage,
     prelude::{create_memo, IntoInert, ReadSignal, SignalMap, Size},
-    render::primitives::circle::Circle,
+    render::{
+        draw_target::LayeringRendererOptions,
+        primitives::{arc::Arc, circle::Circle},
+    },
     style::NullStyler,
     ui::UI,
     widget::{
         canvas::{Canvas, DrawCommand, DrawQueue},
-        SizedWidget, Widget,
+        SizedWidget, Widget, WidgetCtx,
     },
 };
 use std::{
@@ -42,9 +45,12 @@ fn main() {
     let mut ui = UI::new(display.bounding_box().size.inert(), NullStyler)
         .on_exit(|| process::exit(0))
         .with_page(SinglePage, page)
+        .with_renderer_options(LayeringRendererOptions::new().anti_aliasing(
+            rsact_ui::render::draw_target::AntiAliasing::Enabled,
+        ))
         .with_queue(queue);
 
-    let mut anim = queue.anim(
+    let mut circle_anim = queue.anim(
         Anim::new()
             .duration(1_000)
             .delay(2_000)
@@ -53,14 +59,10 @@ fn main() {
             .direction(rsact_ui::anim::AnimDir::Alternate),
     );
 
-    canvas_queue.draw(anim.value.map(move |anim_value| {
-        let point = Point::new((anim_value * 250.0) as i32, 15);
-
-        println!("Anim value: {anim_value}, point: {point}");
-
+    canvas_queue.draw(circle_anim.value.map(move |anim_value| {
         vec![
             // DrawCommand::Clear(Rgb888::WHITE),
-            Circle::new(point, 50)
+            Circle::new(Point::new((anim_value * 250.0) as i32, 15), 50)
                 .into_styled(
                     PrimitiveStyleBuilder::new()
                         .fill_color(Rgb888::BLACK)
@@ -72,7 +74,31 @@ fn main() {
         ]
     }));
 
-    anim.start();
+    let mut loader_anim = queue.anim(
+        Anim::new()
+            .infinite()
+            .easing(rsact_ui::anim::easing::Easing::Linear)
+            .direction(rsact_ui::anim::AnimDir::Alternate),
+    );
+
+    canvas_queue.draw(loader_anim.value.map(move |anim_value| {
+        vec![Arc::new(
+            Point::new(150, 100),
+            50,
+            Angle::from_degrees(360.0 * anim_value),
+            Angle::from_degrees(360.0 * anim_value),
+        )
+        .into_styled(
+            PrimitiveStyleBuilder::new()
+                .stroke_color(Rgb888::CSS_PURPLE)
+                .stroke_width(10)
+                .build(),
+        )
+        .into()]
+    }));
+
+    circle_anim.start();
+    loader_anim.start();
 
     loop {
         ui.tick_time_std()

@@ -16,20 +16,6 @@ where
     effect
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub enum EffectOrder {
-    First,
-    #[default]
-    Normal,
-    Last,
-}
-
-impl EffectOrder {
-    pub fn each() -> impl Iterator<Item = EffectOrder> {
-        [Self::First, Self::Normal, Self::Last].iter().copied()
-    }
-}
-
 pub struct Effect<T> {
     id: ValueId,
     ty: PhantomData<T>,
@@ -107,6 +93,27 @@ mod tests {
         a.set(2);
         assert_eq!(calls.get(), 3);
     }
+
+    #[test]
+    fn recursive_effect() {
+        let mut signal = create_signal(123);
+
+        create_effect(move |_| {
+            signal.get();
+            signal.update(|signal| *signal = 69);
+        });
+
+        signal.set(666);
+    }
+
+    // #[test]
+    // fn recursive_setter() {
+    //     let mut signal = create_signal(123);
+
+    //     signal.setter(signal, |value, new| {
+    //         *value = *new;
+    //     });
+    // }
 
     #[test]
     fn no_unnecessary_rerun() {

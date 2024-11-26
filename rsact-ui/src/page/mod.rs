@@ -267,6 +267,7 @@ impl<W: WidgetCtx> Page<W> {
                             pass: &mut pass,
                         })
                     });
+
                     // TODO: notify root on event capture?
 
                     response

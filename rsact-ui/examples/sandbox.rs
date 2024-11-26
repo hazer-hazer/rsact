@@ -6,14 +6,15 @@ use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
 use rsact_ui::{
+    el::El,
     event::simulator::simulator_single_encoder,
     layout::size::Size,
     page::id::SinglePage,
-    prelude::IntoInert,
+    prelude::{Button, IntoInert},
     render::draw_target::{AntiAliasing, LayeringRendererOptions},
     style::accent::AccentStyler,
     ui::UI,
-    widget::{flex::Flex, SizedWidget, Widget as _},
+    widget::{flex::Flex, SizedWidget, Widget, WidgetCtx},
 };
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 

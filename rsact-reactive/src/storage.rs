@@ -1,5 +1,7 @@
-use crate::{callback::AnyCallback, effect::EffectOrder, runtime::Runtime};
-use alloc::{collections::btree_map::BTreeMap, format, rc::Rc, vec::Vec};
+use crate::{callback::AnyCallback, runtime::Runtime};
+use alloc::{
+    boxed::Box, collections::btree_map::BTreeMap, format, rc::Rc, vec::Vec,
+};
 use core::{
     any::{type_name, Any},
     cell::RefCell,
@@ -181,12 +183,9 @@ pub enum ValueKind {
         f: Rc<RefCell<dyn AnyCallback>>,
     },
     MemoChain {
-        initial: Rc<RefCell<dyn AnyCallback>>,
-        // TODO: Optimize, don't use BtreeMap but fixed structure with each
-        // EffectOrder
-        fs: Rc<
-            RefCell<BTreeMap<EffectOrder, Vec<Rc<RefCell<dyn AnyCallback>>>>>,
-        >,
+        memo: Rc<RefCell<dyn AnyCallback>>,
+        first: Rc<RefCell<Option<Box<dyn AnyCallback>>>>,
+        last: Rc<RefCell<Option<Box<dyn AnyCallback>>>>,
     },
 }
 

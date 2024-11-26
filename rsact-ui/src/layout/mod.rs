@@ -1,4 +1,4 @@
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 pub use axis::{Axial as _, Axis};
 use block_model::BlockModel;
 use core::{
@@ -281,10 +281,37 @@ impl Display for DevLayoutKind {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct DevHoveredLayout {
+    #[cfg(debug_assertions)]
     pub layout: DevLayout,
-    pub size: Size<Length>,
     pub area: Rectangle,
     pub children_count: usize,
+}
+
+impl DevHoveredLayout {
+    pub fn padding(&self) -> Option<Padding> {
+        #[cfg(debug_assertions)]
+        return self.layout.kind.padding();
+        #[cfg(not(debug_assertions))]
+        return None;
+    }
+}
+
+impl Display for DevHoveredLayout {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        #[cfg(debug_assertions)]
+        write!(f, "{} ", self.layout.kind)?;
+
+        write!(f, "{}x{}", self.area.size.width, self.area.size.height)?;
+
+        #[cfg(debug_assertions)]
+        write!(f, "({})", self.layout.size)?;
+
+        if self.children_count > 0 {
+            write!(f, " [{}]", self.children_count)?;
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -421,24 +448,13 @@ impl<'a> Debug for LayoutModelNode<'a> {
         let mut f = f.debug_struct("LayoutModelNode");
         f.field("inner", &self.inner);
         f.field("outer", &self.outer);
+        #[cfg(debug_assertions)]
         f.field("dev", &self.model.dev);
         // TODO: How can I avoid collecting to vector without `field_with`?
         f.field("children", &self.children().collect::<Vec<_>>());
         f.finish()
     }
 }
-
-// impl<'a> Display for LayoutModelNode<'a> {
-//     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-//         f.debug_struct("LayoutModel").field_with("area", |f| {
-//             write!(f, "[{};{}]", self.area.top_left, self.area.size)?;
-//         });
-
-//         self.children().try_for_each(|child| {})?;
-
-//         f
-//     }
-// }
 
 impl<'a> LayoutModelNode<'a> {
     pub fn translate(&self, by: Point) -> Self {
@@ -460,8 +476,8 @@ impl<'a> LayoutModelNode<'a> {
                 Some(DevHoveredLayout {
                     area: self.outer,
                     children_count: self.model.children.len(),
+                    #[cfg(debug_assertions)]
                     layout: self.model.dev.clone(),
-                    size: self.model.dev.size,
                 })
             } else {
                 None
@@ -480,17 +496,22 @@ pub struct LayoutModel {
     // Note: `dev` goes before `children` which is intentional to make more
     // readable pretty-printed debug
     // TODO: Make debug_assertions-only
+    #[cfg(debug_assertions)]
     dev: DevLayout,
     children: Vec<LayoutModel>,
 }
 
 impl LayoutModel {
-    pub fn new(size: Size, children: Vec<LayoutModel>, dev: DevLayout) -> Self {
+    pub fn new(
+        size: Size,
+        children: Vec<LayoutModel>,
+        #[cfg(debug_assertions)] dev: DevLayout,
+    ) -> Self {
         Self {
             outer: Rectangle::new(Point::zero(), size.into()),
             inner: Rectangle::new(Point::zero(), size.into()),
-            // full_padding: Padding::zero(),
             children,
+            #[cfg(debug_assertions)]
             dev,
         }
     }
@@ -518,6 +539,7 @@ impl LayoutModel {
             inner: Rectangle::zero(),
             // full_padding: Padding::zero(),
             children: vec![],
+            #[cfg(debug_assertions)]
             dev: DevLayout::zero(),
         }
     }
@@ -602,6 +624,7 @@ pub fn model_layout(
                 LayoutModel::new(
                     limits.resolve_size(size, Size::zero()),
                     vec![],
+                    #[cfg(debug_assertions)]
                     DevLayout::new(size, DevLayoutKind::Edge),
                 )
             },
@@ -612,6 +635,7 @@ pub fn model_layout(
                 LayoutModel::new(
                     parent_limits.resolve_size(size, min_content),
                     vec![],
+                    #[cfg(debug_assertions)]
                     DevLayout::new(
                         size,
                         DevLayoutKind::Content(content_layout.clone()),
@@ -659,6 +683,7 @@ pub fn model_layout(
                     // full_padding
                     real_size.expand(full_padding),
                     vec![content_layout],
+                    #[cfg(debug_assertions)]
                     DevLayout::new(
                         size,
                         DevLayoutKind::Container(container_layout.clone()),
@@ -687,6 +712,7 @@ pub fn model_layout(
                 LayoutModel::new(
                     real_size,
                     vec![content_layout],
+                    #[cfg(debug_assertions)]
                     DevLayout::new(
                         size,
                         DevLayoutKind::Scrollable(scrollable_layout.clone()),

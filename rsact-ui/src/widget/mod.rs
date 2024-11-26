@@ -97,15 +97,30 @@ pub trait WidgetCtx: Sized + 'static {
 
 /// WidgetTypeFamily
 /// Type family of types used in Widgets
-pub struct Wtf<R, E = NullEvent, S = NullStyler, I = SinglePage>
+pub struct Wtf<R, E, S, I>
 where
     R: Renderer,
     E: Event,
 {
-    _renderer: R,
-    _event: E,
-    _styler: S,
-    _page_id: I,
+    _renderer: PhantomData<R>,
+    _event: PhantomData<E>,
+    _styler: PhantomData<S>,
+    _page_id: PhantomData<I>,
+}
+
+impl<R, E, S, I> Wtf<R, E, S, I>
+where
+    R: Renderer,
+    E: Event,
+{
+    pub fn new() -> Self {
+        Self {
+            _renderer: PhantomData,
+            _event: PhantomData,
+            _styler: PhantomData,
+            _page_id: PhantomData,
+        }
+    }
 }
 
 impl<R, E, S, I> WidgetCtx for Wtf<R, E, S, I>
@@ -316,9 +331,12 @@ impl<W: WidgetCtx> MountCtx<W> {
     {
         let styler = self.styler;
         let inputs = inputs.into();
-        style.then(move |base| {
-            styler.get().style(())(base.clone(), inputs.get_cloned())
-        });
+        style
+            .first(move |base| {
+                styler.get().style(())(base.clone(), inputs.get_cloned())
+            })
+            // TODO: Don't panic, better rewrite `first` but emit a warning 
+            .unwrap();
     }
 
     // TODO: Use watch?
@@ -490,7 +508,7 @@ pub mod prelude {
     pub use crate::{
         el::{El, ElId},
         event::{
-            message::Message, BubbledData, Capture, Event, EventResponse,
+            message::UiMessage, BubbledData, Capture, Event, EventResponse,
             ExitEvent, FocusEvent, NullEvent, Propagate,
         },
         font::{FontSize, FontStyle},

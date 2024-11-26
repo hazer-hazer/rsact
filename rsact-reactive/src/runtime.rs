@@ -1,13 +1,14 @@
 use crate::{
-    effect::{EffectCallback, EffectOrder},
+    effect::EffectCallback,
     memo::MemoCallback,
-    memo_chain::MemoChainCallback,
+    memo_chain::{MemoChainCallback, MemoChainErr},
     scope::{ScopeData, ScopeHandle, ScopeId},
     storage::{
         Storage, StoredValue, ValueDebugInfo, ValueId, ValueKind, ValueState,
     },
 };
 use alloc::{
+    boxed::Box,
     collections::{btree_map::BTreeMap, btree_set::BTreeSet},
     rc::Rc,
     vec::Vec,
@@ -180,23 +181,13 @@ impl Runtime {
             .map(|current| scopes.get_mut(current))
             .flatten();
 
-        if let Some(ScopeData {
-            deny_new: true,
-            #[cfg(debug_assertions)]
-            created_at,
-            ..
-        }) = scope
-        {
-            panic!("Creating new reactive values is disallowed in special `deny_new` scope. {}", if cfg!(debug_assertions) {
-                created_at
-            } else {
-                Location::caller()
-            })
-        }
-
         let id = self.storage.add_value(value);
 
         if let Some(scope) = scope {
+            if scope.deny_new {
+                panic!("Creating new reactive values is disallowed in special `deny_new` scope. {scope}");
+            }
+
             scope.values.push(id);
         }
 
@@ -301,11 +292,12 @@ impl Runtime {
         self.add_value(StoredValue {
             value: Rc::new(RefCell::new(None::<T>)),
             kind: ValueKind::MemoChain {
-                initial: Rc::new(RefCell::new(MemoCallback {
+                memo: Rc::new(RefCell::new(MemoCallback {
                     f,
                     ty: PhantomData,
                 })),
-                fs: Rc::new(RefCell::new(BTreeMap::new())),
+                first: Rc::new(RefCell::new(None)),
+                last: Rc::new(RefCell::new(None)),
             },
             state: ValueState::Dirty,
             #[cfg(debug_assertions)]
@@ -429,21 +421,26 @@ impl Runtime {
 
         if let Some(value) = value {
             let changed = match value.kind {
-                ValueKind::MemoChain { initial, fs } => {
+                ValueKind::MemoChain { memo, first, last } => {
                     let value = value.value;
 
                     self.with_observer(id, move |rt| {
                         rt.cleanup(id);
 
-                        fs.borrow().values().fold(
-                            (initial.borrow_mut()).run(value.clone()),
-                            |changed, cbs| {
-                                cbs.iter().fold(changed, |changed, cb| {
-                                    cb.borrow_mut().run(value.clone())
-                                        || changed
-                                })
-                            },
-                        )
+                        let memo_changed = memo.borrow_mut().run(value.clone());
+
+                        let first_changed = first
+                            .borrow_mut()
+                            .as_mut()
+                            .map(|first| first.run(value.clone()))
+                            .unwrap_or(false);
+                        let last_changed = last
+                            .borrow_mut()
+                            .as_mut()
+                            .map(|last| last.run(value.clone()))
+                            .unwrap_or(false);
+
+                        memo_changed || first_changed || last_changed
                     })
                 },
                 ValueKind::Memo { f } | ValueKind::Effect { f } => {
@@ -472,7 +469,6 @@ impl Runtime {
     #[track_caller]
     pub(crate) fn mark_clean(&self, id: ValueId) {
         self.storage.mark(id, ValueState::Clean, None);
-        // TODO: Cleanup subs?
     }
 
     #[track_caller]
@@ -481,8 +477,6 @@ impl Runtime {
         id: ValueId,
         caller: Option<&'static Location<'static>>,
     ) {
-        // self.mark_deep_dirty(id, caller);
-
         self.mark_node(id, ValueState::Dirty, caller);
 
         let mut deps = Vec::new();
@@ -529,16 +523,6 @@ impl Runtime {
         deps: &mut Vec<ValueId>,
         id: ValueId,
     ) {
-        /*
-
-        if let Some(children) = subscribers.get(node) {
-            for child in children.borrow().iter() {
-                descendants.insert(*child);
-                Runtime::gather_descendants(subscribers, *child, descendants);
-            }
-        }
-         */
-
         if let Some(subs) = subscribers.get(id) {
             for sub in subs {
                 deps.push(*sub);
@@ -600,26 +584,63 @@ impl Runtime {
         // }
     }
 
-    pub(crate) fn add_memo_chain<T: PartialEq + 'static>(
+    pub(crate) fn set_memo_chain<T: PartialEq + 'static>(
         &self,
         id: ValueId,
-        order: EffectOrder,
-        map: impl Fn(&T) -> T + 'static,
-    ) {
+        is_first: bool,
+        f: impl FnMut(&T) -> T + 'static,
+    ) -> Result<(), MemoChainErr> {
         let kind = self.storage.get(id).unwrap().kind;
         match kind {
-            ValueKind::MemoChain { initial: _, fs } => {
-                fs.borrow_mut()
-                    .entry(order)
-                    .or_default()
-                    .push(Rc::new(RefCell::new(MemoChainCallback::new(map))));
+            ValueKind::MemoChain { memo: _, first, last } => {
+                let mut func = if is_first {
+                    first.borrow_mut()
+                } else {
+                    last.borrow_mut()
+                };
+
+                let redefined = func.replace(Box::new(MemoChainCallback {
+                    f,
+                    ty: PhantomData,
+                }));
+
+                // TODO: Location?
+                if let Some(_) = redefined {
+                    Err(if is_first {
+                        MemoChainErr::FirstRedefined
+                    } else {
+                        MemoChainErr::LastRedefined
+                    })
+                } else {
+                    Ok(())
+                }
             },
-            _ => panic!("Cannot add memo chain to {}", kind),
+            _ => panic!(
+                "Cannot set memo {} chain for non-memo-chain value {kind}",
+                if is_first { "first" } else { "last" }
+            ),
         }
     }
+
+    // pub(crate) fn add_memo_chain<T: PartialEq + 'static>(
+    //     &self,
+    //     id: ValueId,
+    //     order: EffectOrder,
+    //     map: impl Fn(&T) -> T + 'static,
+    // ) {
+    //     let kind = self.storage.get(id).unwrap().kind;
+    //     match kind {
+    //         ValueKind::MemoChain { memo: _, fs } => {
+    //             fs.borrow_mut()
+    //                 .entry(order)
+    //                 .or_default()
+    //                 .push(Rc::new(RefCell::new(MemoChainCallback::new(map))));
+    //         },
+    //         _ => panic!("Cannot add memo chain to {}", kind),
+    //     }
+    // }
 }
 
-#[cfg(debug_assertions)]
 pub fn current_runtime_profile() -> Profile {
     with_current_runtime(|rt| {
         let (signals, effects, memos, memo_chains) =
@@ -643,6 +664,7 @@ pub fn current_runtime_profile() -> Profile {
         let sources_bindings =
             rt.sources.borrow().values().map(|sources| sources.len()).sum();
 
+        #[cfg(debug_assertions)]
         let top_by_subs = rt
             .subscribers
             .borrow()
@@ -660,6 +682,7 @@ pub fn current_runtime_profile() -> Profile {
                     .map(|created_at| (*created_at, subs))
             });
 
+        #[cfg(debug_assertions)]
         let top_by_sources = rt
             .sources
             .borrow()
@@ -687,7 +710,9 @@ pub fn current_runtime_profile() -> Profile {
             sources: rt.sources.borrow().len(),
             sources_bindings,
             pending_effects: rt.pending_effects.borrow().len(),
+            #[cfg(debug_assertions)]
             top_by_subs,
+            #[cfg(debug_assertions)]
             top_by_sources,
         }
     })
@@ -704,7 +729,9 @@ pub struct Profile {
     sources: usize,
     sources_bindings: usize,
     pending_effects: usize,
+    #[cfg(debug_assertions)]
     top_by_subs: Option<(Location<'static>, usize)>,
+    #[cfg(debug_assertions)]
     top_by_sources: Option<(Location<'static>, usize)>,
 }
 
@@ -731,10 +758,12 @@ impl Display for Profile {
 
         writeln!(f, "top values:")?;
 
+        #[cfg(debug_assertions)]
         if let Some((top_by_subs, count)) = self.top_by_subs {
             writeln!(f, "  by subscribers: {top_by_subs} ({count})")?;
         }
 
+        #[cfg(debug_assertions)]
         if let Some((top_by_sources, count)) = self.top_by_sources {
             writeln!(f, "  by sources: {top_by_sources} ({count})")?;
         }

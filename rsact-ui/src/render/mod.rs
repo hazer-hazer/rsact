@@ -235,7 +235,7 @@ pub type Alpha = f32;
 
 pub trait Renderer {
     type Color: Color;
-    type Options: PartialEq + Default;
+    type Options: PartialEq + Clone + Default;
 
     fn new(viewport: Size) -> Self;
     fn set_options(&mut self, options: Self::Options);

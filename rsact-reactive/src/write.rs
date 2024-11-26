@@ -55,6 +55,9 @@ pub trait WriteSignal<T> {
     }
 }
 
+/**
+ * Update Signal<T> value by computing result dependent to `source: I`.
+ */
 pub trait SignalSetter<T: 'static, I: ReactiveValue> {
     fn setter(
         &mut self,

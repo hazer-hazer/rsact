@@ -9,6 +9,7 @@ use crate::{
 use alloc::{rc::Rc, vec::Vec};
 use core::{cell::RefCell, marker::PhantomData, ops::Deref, panic::Location};
 
+// TODO: FnMut in memos is a bad idea!
 #[track_caller]
 pub fn create_memo<T: PartialEq + 'static>(
     f: impl FnMut(Option<&T>) -> T + 'static,
@@ -49,6 +50,13 @@ where
         changed
     }
 }
+
+/**
+ * TODO: Possible optimization is to make Memo an enum of a real memo and signal identity map.
+ * Sometimes, Memo is used as read-only signal lens, but it creates additional memo, which is just `signal.map(|value| value)`, i.e. `create_memo(|_| signal.get_cloned())`. Memo isn't required here, just store the signal as read-only value!
+ *
+ * Or better introduce `ReadSignal` (not a trait) which is an enum of readable signals, but this is very similar to `MaybeReactive`...
+ */
 
 pub struct Memo<T: PartialEq> {
     id: ValueId,

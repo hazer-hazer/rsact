@@ -160,12 +160,6 @@ impl AnimHandle {
     // pub fn pause(&mut self) {}
 }
 
-/*
- * TODO:
- *  - Delay (before/after)?
- *  -
- */
-
 // Note: Timestamps in Anim are all relative to start_time, except of source the start_time. So `last_tick = TIME - start_time`
 /// Animation parameters. Not the actual animation user can operate on.
 /// Mind that full animation duration is given by delay + duration.
@@ -267,11 +261,11 @@ impl Anim {
                 // Set delay only for first cycle. Can be extended with per-cycle delays
                 let delay = if cycle == 0 { delay } else { 0 };
 
-                extern crate std;
-                std::println!(
-                    "Anim tick stage: {:?}. Cycle: {cycle}",
-                    state.stage
-                );
+                // extern crate std;
+                // std::println!(
+                //     "Anim tick stage: {:?}. Cycle: {cycle}",
+                //     state.stage
+                // );
 
                 let value = if state.last_tick >= duration + delay {
                     if cycles.is_last(cycle) {

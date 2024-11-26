@@ -1,6 +1,5 @@
 use crate::{
     callback::AnyCallback,
-    effect::EffectOrder,
     memo::Memo,
     prelude::create_memo,
     read::{impl_read_signal_traits, ReadSignal, SignalMap},
@@ -10,6 +9,12 @@ use crate::{
 };
 use alloc::rc::Rc;
 use core::{any::Any, cell::RefCell, marker::PhantomData, panic::Location};
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MemoChainErr {
+    FirstRedefined,
+    LastRedefined,
+}
 
 #[track_caller]
 pub fn create_memo_chain<T: PartialEq + 'static>(
@@ -87,25 +92,22 @@ impl<T: PartialEq + 'static> MemoChain<T> {
         with_current_runtime(|rt| rt.is_alive(self.id))
     }
 
-    pub fn chain(
+    #[must_use = "Setting memo chain can fail"]
+    pub fn first(
         self,
-        order: EffectOrder,
-        map: impl Fn(&T) -> T + 'static,
-    ) -> Self {
-        with_current_runtime(|rt| rt.add_memo_chain(self.id, order, map));
-        self
+        f: impl Fn(&T) -> T + 'static,
+    ) -> Result<Self, MemoChainErr> {
+        with_current_runtime(|rt| rt.set_memo_chain(self.id, true, f))
+            .map(|_| self)
     }
 
-    pub fn then(self, map: impl Fn(&T) -> T + 'static) -> Self {
-        self.chain(EffectOrder::Normal, map)
-    }
-
-    pub fn first(self, map: impl Fn(&T) -> T + 'static) -> Self {
-        self.chain(EffectOrder::First, map)
-    }
-
-    pub fn last(self, map: impl Fn(&T) -> T + 'static) -> Self {
-        self.chain(EffectOrder::Last, map)
+    #[must_use = "Setting memo chain can fail"]
+    pub fn last(
+        self,
+        f: impl Fn(&T) -> T + 'static,
+    ) -> Result<Self, MemoChainErr> {
+        with_current_runtime(|rt| rt.set_memo_chain(self.id, false, f))
+            .map(|_| self)
     }
 }
 
@@ -189,8 +191,10 @@ mod tests {
         {
             // Must be (2 + 3) * 2, not 2 * 2 + 3
             let memo = create_memo_chain(|_| 2)
-                .then(|value| value * 2)
-                .first(|value| value + 3);
+                .last(|value| value * 2)
+                .unwrap()
+                .first(|value| value + 3)
+                .unwrap();
 
             assert_eq!(memo.get(), 10);
         }
@@ -198,10 +202,39 @@ mod tests {
         {
             // Same expression but with order as it is
             let memo = create_memo_chain(|_| 2)
-                .then(|value| value * 2)
-                .then(|value| value + 3);
+                .first(|value| value * 2)
+                .unwrap()
+                .last(|value| value + 3)
+                .unwrap();
 
             assert_eq!(memo.get(), 7);
         }
     }
+
+    // // Just some ideas to get rid of MemoChain which only usage is rsact_ui styles
+    // #[test]
+    // fn replace_memo_chain_with_memos() {
+    //     #[derive(Default, PartialEq)]
+    //     struct S {
+    //         foo: i32,
+    //         bar: i32,
+    //     }
+
+    //     let base = move |mut s: S| {
+    //         s.foo = 666;
+    //         s
+    //     };
+
+    //     struct Widget {
+    //         style: Memo<S>,
+    //     }
+
+    //     let widget = Widget {
+    //         // User-defined style initialized first, but must be chained after `base`
+    //         style: create_memo(move || {
+    //             s.bar = 123;
+    //             s
+    //         },
+    //     };
+    // }
 }

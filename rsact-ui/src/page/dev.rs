@@ -45,26 +45,13 @@ impl DevHoveredEl {
         let [text_color, inner_color, padding_color, ..] = C::accents();
 
         Self::model(area, padding_color).render(r)?;
-        if let Some(padding) = self.layout.layout.kind.padding() {
+        if let Some(padding) = self.layout.padding() {
             Self::model(area - padding, inner_color).render(r)?;
         }
 
-        let area_text = format!(
-            "{} {}x{}({}){}",
-            self.layout.layout.kind,
-            area.size.width,
-            area.size.height,
-            self.layout.size,
-            if self.layout.children_count > 0 {
-                format!(" [{}]", self.layout.children_count)
-            } else {
-                alloc::string::String::new()
-            },
-        );
-
         // Ignore error, TextBox sometimes fails
         TextBox::with_textbox_style(
-            &area_text,
+            &format!("{}", self.layout),
             Rectangle::new(Point::zero(), viewport.into()),
             MonoTextStyleBuilder::new()
                 .font(&FONT_8X13)

@@ -87,7 +87,7 @@ impl<W: WidgetCtx + 'static> Button<W> {
             + 'static,
     ) -> Self {
         let state = self.state;
-        self.style.last(move |base| styler(*base, state.get()));
+        self.style.last(move |base| styler(*base, state.get())).unwrap();
         self
     }
 }

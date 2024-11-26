@@ -2,6 +2,7 @@ use crate::render::color::Color;
 
 pub mod accent;
 pub mod block;
+pub mod cascad;
 pub mod primary_gray;
 pub mod theme;
 
@@ -94,7 +95,7 @@ where
 
     fn style(
         self,
-        _inputs: Self::Class,
+        _class: Self::Class,
     ) -> impl Fn(S, S::Inputs) -> S + 'static {
         move |style, _| style.clone()
     }
@@ -363,4 +364,3 @@ macro_rules! declare_widget_style {
 }
 
 pub use declare_widget_style;
-use rsact_reactive::memo::{create_memo, IntoMemo};

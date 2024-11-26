@@ -12,6 +12,7 @@ use embedded_graphics::{
     Pixel,
 };
 use embedded_graphics_core::Drawable as _;
+use rsact_reactive::prelude::IntoMaybeReactive;
 
 #[derive(Clone, Copy, Debug)]
 pub enum ViewportKind {
@@ -43,7 +44,7 @@ pub enum AntiAliasing {
     Enabled,
 }
 
-#[derive(Default, Clone, PartialEq)]
+#[derive(Default, Clone, PartialEq, IntoMaybeReactive)]
 pub struct LayeringRendererOptions {
     anti_aliasing: Option<AntiAliasing>,
 }
@@ -62,6 +63,7 @@ impl LayeringRendererOptions {
 // Note: Real alpha channel is not supported. Now, alpha channel is more like blending parameter for drawing on a single layer, so each layer is not transparent and alpha parameter only affects blending on current layer.
 // TODO: Real alpha-channel
 struct Layer<C: Color> {
+    // TODO: Custom Canvas, `embedded_canvas` doesn't effectively store pixels. This is because pixels are optional, but I think some kind of packing is possible, for example 2 bits per one pixel.
     canvas: CanvasAt<C>,
 }
 

@@ -1,5 +1,5 @@
 {
-  "git.ignoreLimitWarning": true,
+  "rust-analyzer.check.allTargets": true,
   "rust-analyzer.check.features": [
     "simulator",
     "single-thread",

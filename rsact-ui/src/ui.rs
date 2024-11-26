@@ -4,7 +4,7 @@ use crate::{
     el::El,
     event::{
         dev::DevToolsToggle,
-        message::{Message, MessageQueue},
+        message::{MessageQueue, UiMessage},
         BubbledData, Event, ExitEvent as _, NullEvent, UnhandledEvent,
     },
     layout::size::Size,
@@ -71,6 +71,7 @@ where
     I: PageId + 'static,
 {
     pub fn new<V: PartialEq + Into<Size> + Copy + 'static>(
+        // TODO: Rewrite to `IntoMaybeReactive` + MaybeReactive viewport
         viewport: impl IntoMemo<V>,
         // TODO: `with_styler` optional. Note: Not easily implementable
         styler: S,
@@ -118,12 +119,15 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
     /// Set rendering options
     pub fn with_renderer_options(
         mut self,
-        options: <W::Renderer as Renderer>::Options,
+        options: impl Into<MaybeReactive<<W::Renderer as Renderer>::Options>>,
     ) -> Self {
-        self.renderer.update(|renderer| renderer.set_options(options));
+        self.renderer.setter(options.into(), |renderer, options| {
+            renderer.set_options(options.clone().into())
+        });
         self
     }
 
+    /// Set [`MessageQueue`] for UI, that will be used for animations and UI messages
     pub fn with_queue(mut self, queue: MessageQueue<W>) -> Self {
         self.message_queue = Some(queue);
         self
@@ -281,8 +285,8 @@ impl<W: WidgetCtx> UI<W, WithPages> {
 
         while let Some(msg) = self.message_queue.map(|q| q.pop()).flatten() {
             match msg {
-                Message::GoTo(page_id) => self.goto(page_id),
-                Message::PreviousPage => {
+                UiMessage::GoTo(page_id) => self.goto(page_id),
+                UiMessage::PreviousPage => {
                     self.previous_page();
                 },
             }

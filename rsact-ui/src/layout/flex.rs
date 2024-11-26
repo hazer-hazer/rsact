@@ -397,6 +397,7 @@ pub fn model_flex(
     LayoutModel::new(
         layout_size.expand(full_padding),
         children_layouts,
+        #[cfg(debug_assertions)]
         DevLayout::new(
             size,
             crate::layout::DevLayoutKind::Flex(DevFlexLayout {

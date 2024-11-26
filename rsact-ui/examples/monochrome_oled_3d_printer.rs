@@ -1,109 +1,43 @@
 use cap::Cap;
 use embedded_graphics::{
-    pixelcolor::{BinaryColor, Rgb888},
-    prelude::{Dimensions, Point, RgbColor},
+    pixelcolor::BinaryColor,
+    prelude::{Dimensions, Point},
 };
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
-use fake::{faker, locales::EN, Fake};
-use rand::{random, thread_rng, Rng};
+use rand::{thread_rng, Rng};
 use rsact_icons::{common::CommonIcon, system::SystemIcon};
-use rsact_reactive::runtime::{current_runtime_profile, new_scope};
+use rsact_reactive::runtime::current_runtime_profile;
 use rsact_ui::{
+    el::El,
     event::{message::MessageQueue, simulator::simulator_single_encoder},
     layout::{
-        size::{PointExt, Size, UnitV1, UnitV2},
+        size::{PointExt, Size, UnitV2},
         Align,
     },
     prelude::{
-        create_effect, create_memo, create_signal, Button, Container, Icon,
-        IntoInert, IntoMemo, Length, Message, MonoText, ReadSignal, Scrollable,
-        SignalMap, WriteSignal,
+        create_effect, create_signal, Button, Icon, IntoInert, IntoMemo,
+        MonoText, ReadSignal, Scrollable, SignalMap, UiMessage, WriteSignal,
     },
-    render::draw_target::{AntiAliasing, LayeringRendererOptions},
-    style::{accent::AccentStyler, NullStyler},
+    style::NullStyler,
     ui::UI,
     utils::lerpi,
     value::RangeU8,
     widget::{
-        bar::Bar, flex::Flex, knob::Knob, BlockModelWidget, SizedWidget,
-        Widget as _,
+        bar::Bar, flex::Flex, knob::Knob, BlockModelWidget, SizedWidget, Widget,
     },
 };
 use std::{
     alloc::System,
-    fmt::Display,
     format, println,
     string::{String, ToString},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
     vec::Vec,
 };
 
 #[global_allocator]
 static GLOBAL: Cap<System> = Cap::new(System, usize::MAX);
-
-// struct MemoryMeter {
-//     // on_start: usize,
-//     total: usize,
-// }
-
-// impl Display for MemoryMeter {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         // let used = self.on_start.saturating_sub(self.total);
-//         match self.total {
-//             0..1024 => write!(f, "{}B", self.total),
-//             _ => write!(f, "{:0.3}KiB", (self.total as f32) / 1024.0),
-//         }
-//     }
-// }
-
-// impl MemoryMeter {
-//     fn new() -> Self {
-//         Self { total: 0 }
-//     }
-
-//     fn start(self) -> MemoryMeasure {
-//         MemoryMeasure::new(self)
-//     }
-// }
-
-// struct MemoryMeasure {
-//     on_start: usize,
-//     meter: MemoryMeter,
-// }
-
-// impl MemoryMeasure {
-//     fn new(meter: MemoryMeter) -> Self {
-//         Self { on_start: GLOBAL.allocated(), meter }
-//     }
-
-//     fn end(mut self) -> MemoryMeter {
-//         self.meter.total += GLOBAL.allocated();
-//         self.meter.total -= self.on_start;
-//         self.meter
-//     }
-// }
-
-/**
- * This example simulates imaginable 3D printer UI on monochrome 128x64 OLED display.
- */
-
-/**
-* Resume.
-* Init:
-    Reactive runtime profile: 419 values:
-        226 signals
-        3 effects
-        126 memos
-        64 memo chains
-    ---
-    Reactive runtime profile: 383 values:
-        193 signals
-        3 effects
-        123 memos
-        64 memo chains
-*/
 
 fn main() {
     let output_settings = OutputSettingsBuilder::new()
@@ -135,7 +69,7 @@ fn main() {
         )
         .padding(2u32)
         .on_click(move || {
-            queue.publish(Message::GoTo(main_page_id));
+            queue.publish(UiMessage::GoTo(main_page_id));
         })
         .el()
     };
@@ -163,7 +97,7 @@ fn main() {
         if is_printing.get() {
             if printing_progress.get().is_max() {
                 is_printing.set(false);
-                queue.publish(Message::PreviousPage);
+                queue.publish(UiMessage::PreviousPage);
             } else if printing_progress_anim_ts.get().elapsed().as_millis() > 10
             {
                 printing_progress.set(
@@ -387,7 +321,7 @@ fn main() {
                 .gap(3),
             )
             .on_click(move || {
-                queue.publish(Message::GoTo(files_page_id));
+                queue.publish(UiMessage::GoTo(files_page_id));
             })
             .fill_width()
             .el(),
@@ -399,7 +333,7 @@ fn main() {
                 .gap(3),
             )
             .on_click(move || {
-                queue.publish(Message::GoTo(position_page_id));
+                queue.publish(UiMessage::GoTo(position_page_id));
             })
             .fill_width()
             .el(),
@@ -411,7 +345,7 @@ fn main() {
                 .gap(3),
             )
             .on_click(move || {
-                queue.publish(Message::GoTo(temp_page_id));
+                queue.publish(UiMessage::GoTo(temp_page_id));
             })
             .fill_width()
             .el(),
@@ -441,12 +375,15 @@ fn main() {
     .with_page(files_page_id, files_page)
     .with_queue(queue);
 
-    // let mem_init = mem_init.end();
-    println!("Initialization mem use: {}", GLOBAL.allocated() - mem_init);
+    println!(
+        "Initialization mem use: {:0.3}KiB",
+        (GLOBAL.allocated() - mem_init) as f32 / 1024.0
+    );
 
     let mut fps = 0;
     let mut last_time = Instant::now();
     let mut mem_leaked = 0;
+    let mut total_mem_leaked = 0;
     loop {
         let now = Instant::now();
         if now - last_time >= Duration::from_secs(1) {
@@ -463,7 +400,13 @@ fn main() {
             // );
 
             // Leaked mem here mostly means for me that new data was allocated in reactive runtime, not actual "bad" leaks :)
-            println!("Mem leaked: {:0.3}KiB", mem_leaked as f32 / 1024.0);
+            total_mem_leaked += mem_leaked;
+
+            println!(
+                "Mem leaked: {:0.3}KiB (total of {:0.3}KiB)",
+                mem_leaked as f32 / 1024.0,
+                total_mem_leaked as f32 / 1024.0
+            );
             mem_leaked = 0;
 
             println!("Reactive runtime profile: {}", current_runtime_profile());

@@ -62,7 +62,6 @@ impl<P: StyledAlphaDrawable<S>, S> AlphaDrawable for Styled<P, S> {
     }
 }
 
-// TODO //
 impl<C: Color> AlphaDrawable for Styled<Rectangle, PrimitiveStyle<C>> {
     type Color = C;
 
