@@ -1,6 +1,3 @@
-pub mod dev;
-pub mod id;
-
 use crate::{
     el::El,
     event::{
@@ -20,6 +17,9 @@ use dev::{DevHoveredEl, DevTools};
 use embedded_graphics::prelude::{DrawTarget, Point};
 use num::traits::WrappingAdd as _;
 use rsact_reactive::{prelude::*, runtime::new_deny_new_scope};
+
+pub mod dev;
+pub mod id;
 
 pub struct PageStyle<C: Color> {
     // TODO: Use ColorStyle

@@ -6,7 +6,7 @@ use embedded_graphics_simulator::{
 };
 use rsact_icons::{common::CommonIcon, system::SystemIcon, IconSet};
 use rsact_ui::{
-    event::NullEvent, page::id::SinglePage, prelude::{create_memo, Flex, Icon, IntoInert, MonoText, Size}, style::NullStyler, ui::UI, widget::{SizedWidget, Widget}
+    page::id::SinglePage, prelude::{Flex, Icon, IntoInert, MonoText, Size}, style::NullStyler, ui::UI, widget::{SizedWidget, Widget}
 };
 
 fn main() {

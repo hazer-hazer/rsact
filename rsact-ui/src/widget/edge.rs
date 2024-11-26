@@ -23,7 +23,7 @@ impl<W: WidgetCtx + 'static> Edge<W> {
         self,
         styler: impl Fn(BlockStyle<W::Color>) -> BlockStyle<W::Color> + 'static,
     ) -> Self {
-        self.style.last(move |prev_style| styler(*prev_style));
+        self.style.last(move |prev_style| styler(*prev_style)).unwrap();
         self
     }
 }

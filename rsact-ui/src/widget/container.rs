@@ -29,7 +29,7 @@ impl<W: WidgetCtx + 'static> Container<W> {
         self,
         style: impl Fn(BlockStyle<W::Color>) -> BlockStyle<W::Color> + 'static,
     ) -> Self {
-        self.style.last(move |prev_style| style(*prev_style));
+        self.style.last(move |prev_style| style(*prev_style)).unwrap();
         self
     }
 

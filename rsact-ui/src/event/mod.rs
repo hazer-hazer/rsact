@@ -117,6 +117,7 @@ impl<W: WidgetCtx> Into<EventResponse<W>> for Propagate {
 
 pub type EventResponse<W> = ControlFlow<Capture<W>, Propagate>;
 
+// TODO: Rename to InputEdge or something
 #[derive(Clone, Copy)]
 pub enum ButtonEdge {
     None,

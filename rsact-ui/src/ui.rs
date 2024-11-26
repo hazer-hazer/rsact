@@ -1,25 +1,18 @@
-use core::marker::PhantomData;
-
 use crate::{
     el::El,
     event::{
         dev::DevToolsToggle,
-        message::{MessageQueue, UiMessage},
-        BubbledData, Event, ExitEvent as _, NullEvent, UnhandledEvent,
+        message::{UiMessage, UiQueue},
+        Event, ExitEvent as _, NullEvent, UnhandledEvent,
     },
     layout::size::Size,
-    page::{
-        dev::DevTools,
-        id::{PageId, SinglePage},
-        Page,
-    },
+    page::{dev::DevTools, id::PageId, Page},
     render::{color::Color, draw_target::LayeringRenderer, Renderer},
-    style::NullStyler,
-    widget::{Widget, WidgetCtx, Wtf},
+    widget::{WidgetCtx, Wtf},
 };
 use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
+use core::marker::PhantomData;
 use embedded_graphics::prelude::DrawTarget;
-use log::debug;
 use rsact_reactive::prelude::*;
 use smallvec::SmallVec;
 
@@ -47,7 +40,7 @@ pub struct UI<W: WidgetCtx, P: HasPages> {
     styler: Memo<W::Styler>,
     dev_tools: Signal<DevTools>,
     renderer: Signal<W::Renderer>,
-    message_queue: Option<MessageQueue<W>>,
+    message_queue: Option<UiQueue<W>>,
     options: UiOptions,
     has_pages: PhantomData<P>,
 }
@@ -128,7 +121,7 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
     }
 
     /// Set [`MessageQueue`] for UI, that will be used for animations and UI messages
-    pub fn with_queue(mut self, queue: MessageQueue<W>) -> Self {
+    pub fn with_queue(mut self, queue: UiQueue<W>) -> Self {
         self.message_queue = Some(queue);
         self
     }

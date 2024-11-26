@@ -1,4 +1,4 @@
-use alloc::{string::String, vec::Vec};
+use alloc::vec::Vec;
 pub use axis::{Axial as _, Axis};
 use block_model::BlockModel;
 use core::{

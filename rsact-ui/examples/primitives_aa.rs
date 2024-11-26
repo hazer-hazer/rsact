@@ -24,7 +24,7 @@ use rsact_ui::{
     ui::UI,
     widget::{flex::Flex, SizedWidget, Widget as _},
 };
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 fn main() {
     let output_settings =

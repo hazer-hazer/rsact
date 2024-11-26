@@ -15,16 +15,16 @@ pub enum UiMessage<W: WidgetCtx> {
 
 // TODO: Rename, this is not only about messages.
 /// MessageQueue is indented to reactively publish messages UI processes on `tick` synchronously
-pub struct MessageQueue<W: WidgetCtx> {
+pub struct UiQueue<W: WidgetCtx> {
     messages: Signal<Vec<UiMessage<W>>>,
     now_millis: Signal<u32>,
     /// Pre-stored Memo of `now_millis` to avoid creating Memo for each animation.
     anim_now_millis: Memo<u32>,
 }
 
-impl<W: WidgetCtx> Copy for MessageQueue<W> {}
+impl<W: WidgetCtx> Copy for UiQueue<W> {}
 
-impl<W: WidgetCtx> Clone for MessageQueue<W> {
+impl<W: WidgetCtx> Clone for UiQueue<W> {
     fn clone(&self) -> Self {
         Self {
             messages: self.messages.clone(),
@@ -34,7 +34,7 @@ impl<W: WidgetCtx> Clone for MessageQueue<W> {
     }
 }
 
-impl<W: WidgetCtx> MessageQueue<W> {
+impl<W: WidgetCtx> UiQueue<W> {
     pub fn new() -> Self {
         let now_millis = create_signal(0);
         Self {

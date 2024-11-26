@@ -10,8 +10,7 @@ use rand::{thread_rng, Rng};
 use rsact_icons::{common::CommonIcon, system::SystemIcon};
 use rsact_reactive::runtime::current_runtime_profile;
 use rsact_ui::{
-    el::El,
-    event::{message::MessageQueue, simulator::simulator_single_encoder},
+    event::{message::UiQueue, simulator::simulator_single_encoder},
     layout::{
         size::{PointExt, Size, UnitV2},
         Align,
@@ -55,7 +54,7 @@ fn main() {
 
     let mem_init = GLOBAL.allocated();
 
-    let queue = MessageQueue::new();
+    let queue = UiQueue::new();
     let main_page_id = "main";
 
     let back_button = || {

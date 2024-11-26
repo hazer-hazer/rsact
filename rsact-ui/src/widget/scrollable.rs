@@ -172,7 +172,9 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
             + 'static,
     ) -> Self {
         let state = self.state;
-        self.style.last(move |prev_style| styler(*prev_style, state.get()));
+        self.style
+            .last(move |prev_style| styler(*prev_style, state.get()))
+            .unwrap();
         self
     }
 

@@ -1,9 +1,8 @@
-use core::fmt::Display;
 
 use easing::Easing;
 use rsact_reactive::{
     memo::{create_memo, Memo},
-    read::{ReadSignal, SignalMap},
+    read::ReadSignal,
     signal::{create_signal, Signal},
     write::WriteSignal,
 };

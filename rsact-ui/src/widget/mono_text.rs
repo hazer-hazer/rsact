@@ -167,7 +167,7 @@ impl<W: WidgetCtx + 'static> MonoText<W> {
         self,
         style: impl Fn(MonoTextStyle<W::Color>) -> MonoTextStyle<W::Color> + 'static,
     ) -> Self {
-        self.style.last(move |prev_style| style(*prev_style));
+        self.style.last(move |prev_style| style(*prev_style)).unwrap();
         self
     }
 

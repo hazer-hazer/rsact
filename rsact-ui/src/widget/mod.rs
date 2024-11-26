@@ -18,9 +18,9 @@ pub mod space;
 
 use crate::{
     event::{BubbledData, EventPass, FocusedWidget},
-    page::id::{PageId, SinglePage},
+    page::id::PageId,
     render::Renderable,
-    style::{NullStyler, Styler, TreeStyle, WidgetStyle},
+    style::{Styler, TreeStyle, WidgetStyle},
 };
 use bitflags::bitflags;
 use core::marker::PhantomData;

@@ -1,7 +1,9 @@
 <div align="center">
+
     # rsact
 
     Rust UI framework made for embedded systems usage in mind.
+
 </div>
 
 > rsact is at a such early stage where everything is clumsy and messy, there's a lot of work to do, refactor, re-imagine and document. Though I hope the core idea works and will grow into "something".

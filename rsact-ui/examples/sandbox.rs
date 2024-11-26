@@ -6,17 +6,16 @@ use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
 use rsact_ui::{
-    el::El,
     event::simulator::simulator_single_encoder,
     layout::size::Size,
     page::id::SinglePage,
-    prelude::{Button, IntoInert},
+    prelude::IntoInert,
     render::draw_target::{AntiAliasing, LayeringRendererOptions},
     style::accent::AccentStyler,
     ui::UI,
-    widget::{flex::Flex, SizedWidget, Widget, WidgetCtx},
+    widget::{flex::Flex, SizedWidget, Widget},
 };
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 fn main() {
     let output_settings =

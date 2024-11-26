@@ -8,7 +8,7 @@ use embedded_graphics_simulator::{
 };
 use rsact_ui::{
     anim::Anim,
-    event::{message::MessageQueue, simulator::simulator_single_encoder},
+    event::{message::UiQueue, simulator::simulator_single_encoder},
     page::id::SinglePage,
     prelude::{create_memo, IntoInert, ReadSignal, SignalMap, Size},
     render::{
@@ -37,7 +37,7 @@ fn main() {
 
     window.update(&display);
 
-    let queue = MessageQueue::new();
+    let queue = UiQueue::new();
 
     let canvas_queue = DrawQueue::new();
     let page = Canvas::new(canvas_queue).fill().el();
