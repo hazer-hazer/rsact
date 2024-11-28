@@ -44,7 +44,7 @@ pub struct Checkbox<W: WidgetCtx> {
 
 impl<W: WidgetCtx> Checkbox<W>
 where
-    W::Styler: Styler<IconStyle<W::Color>, Class = ()>,
+    W::Styler: WidgetStylist<IconStyle<W::Color>>,
 {
     pub fn new(value: impl Into<MaybeSignal<bool>>) -> Self {
         let icon = Icon::new(SystemIcon::Check);
@@ -72,8 +72,8 @@ where
 
 impl<W: WidgetCtx> Widget<W> for Checkbox<W>
 where
-    W::Styler: Styler<CheckboxStyle<W::Color>, Class = ()>
-        + Styler<IconStyle<W::Color>, Class = ()>,
+    W::Styler: WidgetStylist<CheckboxStyle<W::Color>>
+        + WidgetStylist<IconStyle<W::Color>>,
 {
     fn meta(&self) -> MetaTree {
         let id = self.id;

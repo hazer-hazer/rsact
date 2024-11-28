@@ -1,7 +1,7 @@
 use crate::{
     declare_widget_style,
     render::{primitives::line::Line, Renderable},
-    style::{ColorStyle, Styler},
+    style::{ColorStyle, WidgetStylist},
     widget::{prelude::*, Meta, MetaTree, SizedWidget},
 };
 use core::marker::PhantomData;
@@ -190,7 +190,7 @@ impl<W> SizedWidget<W> for Scrollable<W, RowDir>
 where
     W::Event: ScrollEvent,
     W: WidgetCtx,
-    W::Styler: Styler<ScrollableStyle<W::Color>, Class = ()>,
+    W::Styler: WidgetStylist<ScrollableStyle<W::Color>>,
 {
     fn width<L: Into<Length> + PartialEq + Copy + 'static>(
         self,
@@ -211,7 +211,7 @@ impl<W> SizedWidget<W> for Scrollable<W, ColDir>
 where
     W::Event: ScrollEvent,
     W: WidgetCtx,
-    W::Styler: Styler<ScrollableStyle<W::Color>, Class = ()>,
+    W::Styler: WidgetStylist<ScrollableStyle<W::Color>>,
 {
     fn height<L: Into<Length> + PartialEq + Copy + 'static>(
         self,
@@ -233,7 +233,7 @@ where
     W::Event: ScrollEvent,
     W: WidgetCtx,
     Dir: Direction,
-    W::Styler: Styler<ScrollableStyle<W::Color>, Class = ()>,
+    W::Styler: WidgetStylist<ScrollableStyle<W::Color>>,
 {
     fn meta(&self) -> crate::widget::MetaTree {
         let content_tree = self.content.meta();

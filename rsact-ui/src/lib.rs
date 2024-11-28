@@ -3,6 +3,7 @@
 #[macro_use]
 extern crate alloc;
 
+pub mod anim;
 pub mod el;
 pub mod event;
 pub mod font;
@@ -14,7 +15,6 @@ pub mod ui;
 pub mod utils;
 pub mod value;
 pub mod widget;
-pub mod anim;
 
 // #[macro_use]
 extern crate log;
@@ -25,7 +25,7 @@ pub use embedded_text;
 
 pub mod prelude {
     pub use crate::{
-        style::{declare_widget_style, Styler},
+        style::{declare_widget_style, WidgetStylist},
         ui::UI,
         widget::{
             button::*, checkbox::*, container::*, edge::*, flex::*, icon::*,

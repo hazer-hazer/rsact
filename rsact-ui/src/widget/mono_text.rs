@@ -2,7 +2,7 @@ use crate::{
     declare_widget_style,
     font::{FontSize, FontStyle},
     render::Renderable,
-    style::{ColorStyle, Styler, TreeStyled},
+    style::{ColorStyle, TreeStyled, WidgetStylist},
     widget::{prelude::*, Meta, MetaTree},
 };
 use alloc::string::{String, ToString};
@@ -211,7 +211,7 @@ impl<W: WidgetCtx + 'static> MonoText<W> {
 
 impl<W: WidgetCtx + 'static> Widget<W> for MonoText<W>
 where
-    W::Styler: Styler<MonoTextStyle<W::Color>, Class = ()>,
+    W::Styler: WidgetStylist<MonoTextStyle<W::Color>>,
 {
     fn meta(&self) -> crate::widget::MetaTree {
         MetaTree::childless(Meta::none)
@@ -275,7 +275,7 @@ where
 
 impl<'a, W: WidgetCtx + 'static> Into<El<W>> for &'a str
 where
-    W::Styler: Styler<MonoTextStyle<W::Color>, Class = ()>,
+    W::Styler: WidgetStylist<MonoTextStyle<W::Color>>,
 {
     fn into(self) -> El<W> {
         MonoText::new_static(self.to_string()).el()
@@ -284,7 +284,7 @@ where
 
 impl<W: WidgetCtx + 'static> Into<El<W>> for String
 where
-    W::Styler: Styler<MonoTextStyle<W::Color>, Class = ()>,
+    W::Styler: WidgetStylist<MonoTextStyle<W::Color>>,
 {
     fn into(self) -> El<W> {
         MonoText::new_static(self).el()
@@ -293,7 +293,7 @@ where
 
 impl<W> From<MonoText<W>> for El<W>
 where
-    W::Styler: Styler<MonoTextStyle<W::Color>, Class = ()>,
+    W::Styler: WidgetStylist<MonoTextStyle<W::Color>>,
     W: WidgetCtx + 'static,
 {
     fn from(value: MonoText<W>) -> Self {

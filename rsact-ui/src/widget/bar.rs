@@ -77,7 +77,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction> Bar<W, V, Dir> {
 impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction> Widget<W>
     for Bar<W, V, Dir>
 where
-    W::Styler: Styler<BarStyle<W::Color>, Class = ()>,
+    W::Styler: WidgetStylist<BarStyle<W::Color>>,
 {
     fn meta(&self) -> super::MetaTree {
         MetaTree::childless(Meta::none)

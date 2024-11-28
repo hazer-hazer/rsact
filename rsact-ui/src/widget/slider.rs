@@ -4,7 +4,7 @@ use crate::{
         primitives::{line::Line, rounded_rect::RoundedRect},
         Renderable,
     },
-    style::{ColorStyle, Styler},
+    style::{ColorStyle, WidgetStylist},
     widget::{prelude::*, Meta, MetaTree},
 };
 use core::marker::PhantomData;
@@ -143,7 +143,7 @@ impl<W: WidgetCtx> Slider<W, RowDir> {
 impl<W: WidgetCtx, Dir: Direction> Widget<W> for Slider<W, Dir>
 where
     W::Event: SliderEvent,
-    W::Styler: Styler<SliderStyle<W::Color>, Class = ()>,
+    W::Styler: WidgetStylist<SliderStyle<W::Color>>,
 {
     fn meta(&self) -> MetaTree {
         let id = self.id;

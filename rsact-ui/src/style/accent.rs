@@ -1,4 +1,4 @@
-use super::Styler;
+use super::WidgetStylist;
 use crate::{
     render::color::Color,
     widget::{
@@ -24,16 +24,9 @@ impl<C: Color> AccentStyler<C> {
     }
 }
 
-impl<C: Color + 'static> Styler<BarStyle<C>> for AccentStyler<C> {
-    type Class = ();
-
-    fn default() -> Self::Class {
-        ()
-    }
-
+impl<C: Color + 'static> WidgetStylist<BarStyle<C>> for AccentStyler<C> {
     fn style(
         self,
-        _class: Self::Class,
     ) -> impl Fn(
         BarStyle<C>,
         <BarStyle<C> as super::WidgetStyle>::Inputs,
@@ -43,16 +36,9 @@ impl<C: Color + 'static> Styler<BarStyle<C>> for AccentStyler<C> {
     }
 }
 
-impl<C: Color + 'static> Styler<ButtonStyle<C>> for AccentStyler<C> {
-    type Class = ();
-
-    fn default() -> Self::Class {
-        ()
-    }
-
+impl<C: Color + 'static> WidgetStylist<ButtonStyle<C>> for AccentStyler<C> {
     fn style(
         self,
-        _class: Self::Class,
     ) -> impl Fn(
         ButtonStyle<C>,
         <ButtonStyle<C> as super::WidgetStyle>::Inputs,
@@ -67,16 +53,9 @@ impl<C: Color + 'static> Styler<ButtonStyle<C>> for AccentStyler<C> {
     }
 }
 
-impl<C: Color + 'static> Styler<CheckboxStyle<C>> for AccentStyler<C> {
-    type Class = ();
-
-    fn default() -> Self::Class {
-        ()
-    }
-
+impl<C: Color + 'static> WidgetStylist<CheckboxStyle<C>> for AccentStyler<C> {
     fn style(
         self,
-        _class: Self::Class,
     ) -> impl Fn(
         CheckboxStyle<C>,
         <CheckboxStyle<C> as super::WidgetStyle>::Inputs,
@@ -91,16 +70,9 @@ impl<C: Color + 'static> Styler<CheckboxStyle<C>> for AccentStyler<C> {
     }
 }
 
-impl<C: Color + 'static> Styler<KnobStyle<C>> for AccentStyler<C> {
-    type Class = ();
-
-    fn default() -> Self::Class {
-        ()
-    }
-
+impl<C: Color + 'static> WidgetStylist<KnobStyle<C>> for AccentStyler<C> {
     fn style(
         self,
-        _class: Self::Class,
     ) -> impl Fn(
         KnobStyle<C>,
         <KnobStyle<C> as super::WidgetStyle>::Inputs,
@@ -114,16 +86,9 @@ impl<C: Color + 'static> Styler<KnobStyle<C>> for AccentStyler<C> {
 }
 
 // TODO: Useless?
-impl<C: Color + 'static> Styler<MonoTextStyle<C>> for AccentStyler<C> {
-    type Class = ();
-
-    fn default() -> Self::Class {
-        ()
-    }
-
+impl<C: Color + 'static> WidgetStylist<MonoTextStyle<C>> for AccentStyler<C> {
     fn style(
         self,
-        _class: Self::Class,
     ) -> impl Fn(
         MonoTextStyle<C>,
         <MonoTextStyle<C> as super::WidgetStyle>::Inputs,
@@ -133,16 +98,9 @@ impl<C: Color + 'static> Styler<MonoTextStyle<C>> for AccentStyler<C> {
     }
 }
 
-impl<C: Color + 'static> Styler<ScrollableStyle<C>> for AccentStyler<C> {
-    type Class = ();
-
-    fn default() -> Self::Class {
-        ()
-    }
-
+impl<C: Color + 'static> WidgetStylist<ScrollableStyle<C>> for AccentStyler<C> {
     fn style(
         self,
-        _class: Self::Class,
     ) -> impl Fn(
         ScrollableStyle<C>,
         <ScrollableStyle<C> as super::WidgetStyle>::Inputs,
@@ -157,16 +115,9 @@ impl<C: Color + 'static> Styler<ScrollableStyle<C>> for AccentStyler<C> {
     }
 }
 
-impl<C: Color + 'static> Styler<SelectStyle<C>> for AccentStyler<C> {
-    type Class = ();
-
-    fn default() -> Self::Class {
-        ()
-    }
-
+impl<C: Color + 'static> WidgetStylist<SelectStyle<C>> for AccentStyler<C> {
     fn style(
         self,
-        _class: Self::Class,
     ) -> impl Fn(
         SelectStyle<C>,
         <SelectStyle<C> as super::WidgetStyle>::Inputs,
@@ -181,16 +132,9 @@ impl<C: Color + 'static> Styler<SelectStyle<C>> for AccentStyler<C> {
     }
 }
 
-impl<C: Color + 'static> Styler<SliderStyle<C>> for AccentStyler<C> {
-    type Class = ();
-
-    fn default() -> Self::Class {
-        ()
-    }
-
+impl<C: Color + 'static> WidgetStylist<SliderStyle<C>> for AccentStyler<C> {
     fn style(
         self,
-        _class: Self::Class,
     ) -> impl Fn(
         SliderStyle<C>,
         <SliderStyle<C> as super::WidgetStyle>::Inputs,

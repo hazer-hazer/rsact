@@ -100,7 +100,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
 
 impl<W: WidgetCtx, V: RangeValue + 'static> Widget<W> for Knob<W, V>
 where
-    W::Styler: Styler<KnobStyle<W::Color>, Class = ()>,
+    W::Styler: WidgetStylist<KnobStyle<W::Color>>,
     W::Event: KnobEvent,
 {
     fn meta(&self) -> MetaTree {

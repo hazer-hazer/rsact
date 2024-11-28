@@ -6,7 +6,7 @@ use crate::{
     declare_widget_style,
     layout::LayoutKind,
     render::Renderable,
-    style::{ColorStyle, Styler},
+    style::{ColorStyle, WidgetStylist},
     widget::{prelude::*, Meta, MetaTree},
 };
 use alloc::string::ToString;
@@ -69,7 +69,7 @@ pub struct SelectOption<W: WidgetCtx, K: PartialEq> {
 impl<W: WidgetCtx, K: PartialEq> SelectOption<W, K> {
     pub fn new(key: K) -> Self
     where
-        W::Styler: Styler<MonoTextStyle<W::Color>, Class = ()>,
+        W::Styler: WidgetStylist<MonoTextStyle<W::Color>>,
         K: Display,
     {
         let string = key.to_string();
@@ -105,7 +105,7 @@ pub struct Select<W: WidgetCtx, K: PartialEq, Dir: Direction> {
 impl<W, K> Select<W, K, ColDir>
 where
     W: WidgetCtx,
-    W::Styler: Styler<MonoTextStyle<W::Color>, Class = ()>,
+    W::Styler: WidgetStylist<MonoTextStyle<W::Color>>,
     K: PartialEq + Clone + Display + 'static,
 {
     pub fn vertical(options: impl IntoMemo<Vec<K>>) -> Self {
@@ -115,7 +115,7 @@ where
 
 impl<W, K> Select<W, K, RowDir>
 where
-    W::Styler: Styler<MonoTextStyle<W::Color>, Class = ()>,
+    W::Styler: WidgetStylist<MonoTextStyle<W::Color>>,
     W: WidgetCtx,
     K: PartialEq + Clone + Display + 'static,
 {
@@ -128,7 +128,7 @@ impl<W, K, Dir> Select<W, K, Dir>
 where
     K: PartialEq + Clone + Display + 'static,
     W: WidgetCtx,
-    W::Styler: Styler<MonoTextStyle<W::Color>, Class = ()>,
+    W::Styler: WidgetStylist<MonoTextStyle<W::Color>>,
     Dir: Direction,
 {
     pub fn new(options: impl IntoMemo<Vec<K>>) -> Self {
@@ -201,7 +201,7 @@ where
     W: WidgetCtx,
     K: PartialEq + Display + 'static,
     Dir: Direction,
-    W::Styler: Styler<SelectStyle<W::Color>, Class = ()>,
+    W::Styler: WidgetStylist<SelectStyle<W::Color>>,
 {
 }
 
@@ -211,7 +211,7 @@ where
     W: WidgetCtx,
     K: PartialEq + Clone + Display + 'static,
     Dir: Direction,
-    W::Styler: Styler<SelectStyle<W::Color>, Class = ()>,
+    W::Styler: WidgetStylist<SelectStyle<W::Color>>,
 {
 }
 
@@ -219,7 +219,7 @@ impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> Widget<W>
     for Select<W, K, Dir>
 where
     W::Event: SelectEvent,
-    W::Styler: Styler<SelectStyle<W::Color>, Class = ()>,
+    W::Styler: WidgetStylist<SelectStyle<W::Color>>,
 {
     fn meta(&self) -> MetaTree {
         let id = self.id;

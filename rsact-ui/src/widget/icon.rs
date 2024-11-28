@@ -62,7 +62,7 @@ impl<W: WidgetCtx, I: IconSet + 'static> Icon<W, I> {
 
 impl<W: WidgetCtx, I: IconSet + 'static> Widget<W> for Icon<W, I>
 where
-    W::Styler: Styler<IconStyle<W::Color>, Class = ()>,
+    W::Styler: WidgetStylist<IconStyle<W::Color>>,
 {
     fn meta(&self) -> MetaTree {
         MetaTree::childless(Meta::none)

@@ -20,7 +20,7 @@ use crate::{
     event::{BubbledData, EventPass, FocusedWidget},
     page::id::PageId,
     render::Renderable,
-    style::{Styler, TreeStyle, WidgetStyle},
+    style::{TreeStyle, WidgetStyle, WidgetStylist},
 };
 use bitflags::bitflags;
 use core::marker::PhantomData;
@@ -327,13 +327,13 @@ impl<W: WidgetCtx> MountCtx<W> {
         style: MemoChain<S>,
         inputs: impl Into<MaybeSignal<I>>,
     ) where
-        W::Styler: Styler<S, Class = ()>,
+        W::Styler: WidgetStylist<S>,
     {
         let styler = self.styler;
         let inputs = inputs.into();
         style
             .first(move |base| {
-                styler.get().style(())(base.clone(), inputs.get_cloned())
+                styler.get().style()(base.clone(), inputs.get_cloned())
             })
             // TODO: Don't panic, better rewrite `first` but emit a warning 
             .unwrap();
@@ -525,7 +525,7 @@ pub mod prelude {
             LayoutModelNode, Limits,
         },
         render::{color::Color, Block, Border, Renderer},
-        style::{block::*, declare_widget_style, ColorStyle, Styler},
+        style::{block::*, declare_widget_style, ColorStyle, WidgetStylist},
         widget::{
             BlockModelWidget, DrawCtx, DrawResult, EventCtx, LayoutCtx, Meta,
             MetaTree, MountCtx, SizedWidget, Widget, WidgetCtx,

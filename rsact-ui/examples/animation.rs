@@ -42,7 +42,7 @@ fn main() {
     let canvas_queue = DrawQueue::new();
     let page = Canvas::new(canvas_queue).fill().el();
 
-    let mut ui = UI::new(display.bounding_box().size.inert(), NullStyler)
+    let mut ui = UI::new(display.bounding_box().size, NullStyler)
         .on_exit(|| process::exit(0))
         .with_page(SinglePage, page)
         .with_renderer_options(LayeringRendererOptions::new().anti_aliasing(

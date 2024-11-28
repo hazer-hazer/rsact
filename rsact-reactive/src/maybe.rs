@@ -130,7 +130,7 @@ pub enum MaybeReactive<T: PartialEq + 'static> {
 impl_read_signal_traits!(MaybeReactive<T>: PartialEq);
 
 impl<T: PartialEq + 'static> MaybeReactive<T> {
-    pub fn new_static(value: T) -> Self {
+    pub fn new_inert(value: T) -> Self {
         Self::Inert(value.inert())
     }
 
@@ -170,8 +170,8 @@ impl<T: PartialEq + 'static> ReadSignal<T> for MaybeReactive<T> {
     fn track(&self) {
         match self {
             MaybeReactive::Inert(_) => {},
-            MaybeReactive::Signal(signal) => signal.track(),
-            MaybeReactive::Memo(memo) => memo.track(),
+                MaybeReactive::Signal(signal) => signal.track(),
+                MaybeReactive::Memo(memo) => memo.track(),
             MaybeReactive::MemoChain(memo_chain) => memo_chain.track(),
             MaybeReactive::Derived(_) => {},
         }
@@ -272,7 +272,7 @@ macro_rules! impl_inert_into_maybe_reactive {
         $(
             impl From<$ty> for MaybeReactive<$ty> {
                 fn from(value: $ty) -> Self {
-                    Self::new_static(value)
+                    Self::new_inert(value)
                 }
             }
         )*
@@ -306,7 +306,7 @@ macro_rules! impl_static_into_maybe_reactive_tuple {
     ($first: ident, $($alphas: ident,)*) => {
         impl<$first: PartialEq, $($alphas: PartialEq,)*> From<($first, $($alphas,)*)> for MaybeReactive<($first, $($alphas,)*)> {
             fn from(value: ($first, $($alphas,)*)) -> Self {
-                Self::new_static(value)
+                Self::new_inert(value)
             }
         }
 
@@ -318,7 +318,7 @@ impl_static_into_maybe_reactive_tuple!(A, B, C, D, E, F, G, H, I, J, K, L,);
 
 impl<T: PartialEq> From<Option<T>> for MaybeReactive<Option<T>> {
     fn from(value: Option<T>) -> Self {
-        Self::new_static(value)
+        Self::new_inert(value)
     }
 }
 
@@ -326,25 +326,25 @@ impl<T: PartialEq, E: PartialEq> From<Result<T, E>>
     for MaybeReactive<Result<T, E>>
 {
     fn from(value: Result<T, E>) -> Self {
-        Self::new_static(value)
+        Self::new_inert(value)
     }
 }
 
 impl<T> From<PhantomData<T>> for MaybeReactive<PhantomData<T>> {
     fn from(value: PhantomData<T>) -> Self {
-        Self::new_static(value)
+        Self::new_inert(value)
     }
 }
 
 impl<T: PartialEq> From<Vec<T>> for MaybeReactive<Vec<T>> {
     fn from(value: Vec<T>) -> Self {
-        Self::new_static(value)
+        Self::new_inert(value)
     }
 }
 
 impl<T: PartialEq> From<&'static [T]> for MaybeReactive<&'static [T]> {
     fn from(value: &'static [T]) -> Self {
-        Self::new_static(value)
+        Self::new_inert(value)
     }
 }
 
@@ -431,7 +431,7 @@ impl<T: 'static> SignalMap<T> for MaybeSignal<T> {
     ) -> Self::Output<U> {
         match self {
             MaybeSignal::Inert(inert) => {
-                MaybeReactive::new_static(map(inert.as_ref().unwrap()))
+                MaybeReactive::new_inert(map(inert.as_ref().unwrap()))
             },
             MaybeSignal::Signal(signal) => MaybeReactive::Memo(signal.map(map)),
         }

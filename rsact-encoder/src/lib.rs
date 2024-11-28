@@ -1,6 +1,6 @@
 use rsact_ui::{
     prelude::{ButtonEvent, ButtonStyle, MonoTextStyle},
-    style::Styler,
+    style::WidgetStylist,
     widget::WidgetCtx,
 };
 
@@ -11,18 +11,18 @@ pub mod widget;
 pub trait EncoderWidgetCtx: WidgetCtx
 where
     // We use buttons
-    Self::Styler: Styler<ButtonStyle<Self::Color>, Class = ()>,
+    Self::Styler: WidgetStylist<ButtonStyle<Self::Color>, Class = ()>,
     Self::Event: ButtonEvent,
     // We use text
-    Self::Styler: Styler<MonoTextStyle<Self::Color>, Class = ()>,
+    Self::Styler: WidgetStylist<MonoTextStyle<Self::Color>, Class = ()>,
 {
 }
 
 impl<W, S, E> EncoderWidgetCtx for W
 where
     W: WidgetCtx<Styler = S, Event = E>,
-    S: Styler<ButtonStyle<Self::Color>, Class = ()>,
+    S: WidgetStylist<ButtonStyle<Self::Color>, Class = ()>,
     E: ButtonEvent,
-    S: Styler<MonoTextStyle<Self::Color>, Class = ()>,
+    S: WidgetStylist<MonoTextStyle<Self::Color>, Class = ()>,
 {
 }

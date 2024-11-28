@@ -18,7 +18,7 @@ pub(crate) fn impl_into_maybe_reactive(
     let result = quote! {
         impl #impl_gen From<#name #type_gen> for  rsact_reactive::maybe::MaybeReactive<#name #type_gen> #where_clause {
             fn from(value: #name #type_gen) -> Self {
-                Self::new_static(value)
+                Self::new_inert(value)
             }
         }
     }.into();

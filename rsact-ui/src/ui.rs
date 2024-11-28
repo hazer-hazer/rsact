@@ -63,6 +63,7 @@ where
     S: PartialEq + Copy + 'static,
     I: PageId + 'static,
 {
+    // TODO: Maybe just use embedded_graphics Size to avoid conversion and marking value as inert
     pub fn new<V: PartialEq + Into<Size> + Copy + 'static>(
         // TODO: Rewrite to `IntoMaybeReactive` + MaybeReactive viewport
         viewport: impl IntoMemo<V>,

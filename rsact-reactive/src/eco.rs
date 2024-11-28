@@ -1,4 +1,4 @@
-// TODO: Convert into Signal on-demand
+// TODO: Converts into Signal on-demand
 pub enum EcoSignal {
 
 }

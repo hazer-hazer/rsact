@@ -82,31 +82,17 @@ pub trait WidgetStyle: PartialEq + Clone {
 #[derive(Default, PartialEq, Clone, Copy)]
 pub struct NullStyler;
 
-impl<S: WidgetStyle> Styler<S> for NullStyler
+impl<S: WidgetStyle> WidgetStylist<S> for NullStyler
 where
     S: Clone,
 {
-    type Class = ();
-
-    fn default() -> Self::Class {
-        ()
-    }
-
-    fn style(
-        self,
-        _class: Self::Class,
-    ) -> impl Fn(S, S::Inputs) -> S + 'static {
+    fn style(self) -> impl Fn(S, S::Inputs) -> S + 'static {
         move |style, _| style.clone()
     }
 }
 
-// TODO: Refine Styler:
-// - Class is unused
-pub trait Styler<S: WidgetStyle> {
-    type Class;
-
-    fn default() -> Self::Class;
-    fn style(self, class: Self::Class) -> impl Fn(S, S::Inputs) -> S + 'static;
+pub trait WidgetStylist<S: WidgetStyle> {
+    fn style(self) -> impl Fn(S, S::Inputs) -> S + 'static;
 }
 
 // impl<S: WidgetStyle, F> Styler<S> for F

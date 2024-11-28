@@ -95,21 +95,21 @@ impl<W: WidgetCtx + 'static> Button<W> {
 impl<W: WidgetCtx + 'static> SizedWidget<W> for Button<W>
 where
     W::Event: ButtonEvent,
-    W::Styler: Styler<ButtonStyle<W::Color>, Class = ()>,
+    W::Styler: WidgetStylist<ButtonStyle<W::Color>>,
 {
 }
 
 impl<W: WidgetCtx + 'static> BlockModelWidget<W> for Button<W>
 where
     W::Event: ButtonEvent,
-    W::Styler: Styler<ButtonStyle<W::Color>, Class = ()>,
+    W::Styler: WidgetStylist<ButtonStyle<W::Color>>,
 {
 }
 
 impl<W: WidgetCtx + 'static> Widget<W> for Button<W>
 where
     W::Event: ButtonEvent,
-    W::Styler: Styler<ButtonStyle<W::Color>, Class = ()>,
+    W::Styler: WidgetStylist<ButtonStyle<W::Color>>,
 {
     fn meta(&self) -> MetaTree {
         let id = self.id;
