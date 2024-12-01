@@ -1,4 +1,5 @@
 use alloc::vec::Vec;
+use axis::Direction;
 pub use axis::{Axial as _, Axis};
 use block_model::BlockModel;
 use core::{
@@ -14,6 +15,8 @@ pub use limits::Limits;
 use padding::Padding;
 use rsact_reactive::prelude::*;
 use size::{Length, Size};
+
+use crate::widget::{Widget, WidgetCtx};
 
 pub mod axis;
 pub mod block_model;
@@ -337,6 +340,33 @@ impl Layout {
 
     pub fn shrink(kind: LayoutKind) -> Self {
         Self { kind, size: Size::shrink() }
+    }
+
+    /// Construct base scrollable layout where main axis will be shrinking and cross axis will fill. Also checks if content layout is with growing length on main axis which is disallowed.
+    pub fn scrollable<Dir: Direction>(
+        content_layout: MaybeReactive<Layout>,
+    ) -> Self {
+        let content_layout_length =
+            content_layout.with(|layout| layout.size.main(Dir::AXIS));
+
+        if content_layout_length.is_grow() {
+            panic!(
+                "Don't use growing Length (Div/fill) for content {} inside Scrollable!",
+                Dir::AXIS.length_name()
+            );
+        }
+
+        Self {
+            kind: LayoutKind::Scrollable(ScrollableLayout {
+                content_size: content_layout
+                    .map(|content| content.content_size())
+                    .into(),
+            }),
+            size: Dir::AXIS.canon(
+                Length::InfiniteWindow(Length::Shrink.try_into().unwrap()),
+                Length::fill(),
+            ),
+        }
     }
 
     // pub fn min_size(&self) -> Size {

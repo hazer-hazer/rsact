@@ -122,30 +122,9 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
     pub fn new(content: impl Widget<W> + 'static) -> Self {
         let content = content.el();
         let state = create_signal(ScrollableState::none());
-        let content_layout = content.layout();
 
-        let layout = Layout {
-            kind: LayoutKind::Scrollable(ScrollableLayout {
-                content_size: content_layout
-                    .map(|layout| layout.content_size())
-                    .into(),
-            }),
-            size: Dir::AXIS.canon(
-                Length::InfiniteWindow(Length::Shrink.try_into().unwrap()),
-                Length::fill(),
-            ),
-        }
-        .signal();
-
-        let content_layout_length =
-            content_layout.with(|layout| layout.size.main(Dir::AXIS));
-
-        if content_layout_length.is_grow() {
-            panic!(
-                "Don't use growing Length (Div/fill) for content {} inside Scrollable!",
-                Dir::AXIS.length_name()
-            );
-        }
+        let layout =
+            Layout::scrollable::<Dir>(content.layout().into()).signal();
 
         Self {
             id: ElId::unique(),
@@ -186,10 +165,9 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
     }
 }
 
-impl<W> SizedWidget<W> for Scrollable<W, RowDir>
+impl<W: WidgetCtx> SizedWidget<W> for Scrollable<W, RowDir>
 where
     W::Event: ScrollEvent,
-    W: WidgetCtx,
     W::Styler: WidgetStylist<ScrollableStyle<W::Color>>,
 {
     fn width<L: Into<Length> + PartialEq + Copy + 'static>(
@@ -409,14 +387,15 @@ where
                 // If nothing was focused before passing event to children then
                 // change of focus means moving focus to a widget inside
                 // scrollable content
-                let had_focused = ctx.pass.focused().is_some();
 
                 let content_response = ctx.pass_to_child(&mut self.content);
 
-                if let (false, Some(focused)) =
-                    (had_focused, ctx.pass.focused())
+                // TODO: Better need distinct `IsInteraction` event for such cases or define which events are considered an "interaction". For example, clicking on a button or focusing it is an interaction, but scrolling may be not, idk?
+                // Now, I am checking if any child captured the event for tracking.
+                if let EventResponse::Break(Capture::Captured(capture)) =
+                    &content_response
                 {
-                    let new_offset = focused
+                    let new_offset = capture
                         .absolute_position
                         .main(Dir::AXIS)
                         .saturating_sub(

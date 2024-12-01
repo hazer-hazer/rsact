@@ -94,7 +94,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
 
         MetaTree {
             data: Meta::none.memo(),
-            children: create_memo(move |_| vec![content_tree]),
+            children: vec![content_tree].inert().memo(),
         }
     }
 

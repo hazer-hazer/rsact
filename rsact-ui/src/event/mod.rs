@@ -21,33 +21,9 @@ pub struct FocusedWidget {
     pub absolute_position: Point,
 }
 
-pub struct EventPass {
-    // /// Count of focusable elements in the tree
-    // pub focusable: usize,
-    /// Absolute element index to focus
-    pub focus_search: Option<usize>,
-
-    focused: Option<FocusedWidget>,
-}
-
-impl EventPass {
-    pub fn new(focus_target: Option<usize>) -> Self {
-        Self { focus_search: focus_target, focused: None }
-    }
-
-    pub fn set_focused(&mut self, focused: FocusedWidget) {
-        self.focused = Some(focused);
-        self.focus_search = None;
-    }
-
-    pub fn focused(&self) -> Option<FocusedWidget> {
-        self.focused
-    }
-}
-
 pub enum UnhandledEvent<W: WidgetCtx> {
     Event(W::Event),
-    Bubbled(BubbledData<W>),
+    Bubbled(<W::Event as Event>::BubbledData),
 }
 
 impl<W: WidgetCtx> Debug for UnhandledEvent<W> {
@@ -67,12 +43,14 @@ pub enum BubbledData<W: WidgetCtx> {
     // // to /// that event, for example, by scrolling to it
     // // Focused(ElId, Point),
     // Message(Message<W>),
+    FocusNext,
     Custom(<W::Event as Event>::BubbledData),
 }
 
 impl<W: WidgetCtx> Debug for BubbledData<W> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Self::FocusNext => f.write_str("FocusNext"),
             Self::Custom(custom) => {
                 f.debug_tuple("Custom").field(custom).finish()
             },
@@ -80,10 +58,17 @@ impl<W: WidgetCtx> Debug for BubbledData<W> {
     }
 }
 
+/// Info about element that captured event. Useful in such elements where child event handling affects parent behavior.
+#[derive(Debug)]
+pub struct CaptureData {
+    /// Absolute position of the layout model of element captured the event
+    pub absolute_position: Point,
+}
+
 #[derive(Debug)]
 pub enum Capture<W: WidgetCtx> {
     /// Event is captured by element and should not be handled by its parents
-    Captured,
+    Captured(CaptureData),
     /// BubbleUp captured by parent
     Bubble(BubbledData<W>),
 }

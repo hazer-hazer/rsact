@@ -54,6 +54,7 @@ impl LayeringRendererOptions {
         Self { anti_aliasing: None }
     }
 
+    // TODO: Simple `with_anti_aliasing` method shortcut
     pub fn anti_aliasing(mut self, aa: AntiAliasing) -> Self {
         self.anti_aliasing = Some(aa);
         self

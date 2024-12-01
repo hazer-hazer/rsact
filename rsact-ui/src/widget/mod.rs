@@ -17,7 +17,7 @@ pub mod slider;
 pub mod space;
 
 use crate::{
-    event::{BubbledData, EventPass, FocusedWidget},
+    event::{BubbledData, CaptureData, FocusedWidget},
     page::id::PageId,
     render::Renderable,
     style::{TreeStyle, WidgetStyle, WidgetStylist},
@@ -138,7 +138,8 @@ where
 }
 
 pub struct PageState<W: WidgetCtx> {
-    pub focused: Option<ElId>,
+    /// Element id + its absolute tree index among all focusable elements (see [`PageTree`])
+    pub focused: Option<(ElId, usize)>,
 
     ctx: PhantomData<W>,
 }
@@ -146,6 +147,10 @@ pub struct PageState<W: WidgetCtx> {
 impl<W: WidgetCtx> PageState<W> {
     pub fn new() -> Self {
         Self { focused: None, ctx: PhantomData }
+    }
+
+    pub fn is_focused(&self, id: ElId) -> bool {
+        self.focused.map(|focused| focused.0 == id).unwrap_or(false)
     }
 }
 
@@ -180,7 +185,7 @@ impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
 
     #[must_use]
     pub fn draw_focus_outline(&mut self, id: ElId) -> DrawResult {
-        if self.state.focused == Some(id) {
+        if self.state.is_focused(id) {
             Block {
                 border: Border::zero()
                     // TODO: Theme focus color
@@ -221,8 +226,7 @@ pub struct EventCtx<'a, W: WidgetCtx> {
     pub event: &'a W::Event,
     pub page_state: Signal<PageState<W>>,
     pub layout: &'a LayoutModelNode<'a>,
-    pub pass: &'a mut EventPass,
-    // TODO: Instant now
+    // TODO: Instant now, already can get it from queue!
 }
 
 impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
@@ -238,7 +242,7 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
                 event: self.event,
                 page_state: self.page_state,
                 layout: &child_layout,
-                pass: &mut self.pass,
+                // pass: &mut self.pass,
             })?;
         }
         self.ignore()
@@ -252,7 +256,7 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
     }
 
     pub fn is_focused(&self, id: ElId) -> bool {
-        self.page_state.with(|state| state.focused == Some(id))
+        self.page_state.with(|page_state| page_state.is_focused(id))
     }
 
     #[must_use]
@@ -261,24 +265,7 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
         id: ElId,
         press: impl FnOnce(&mut Self, bool) -> EventResponse<W>,
     ) -> EventResponse<W> {
-        if let Some(_) = self.event.as_focus_move() {
-            if self.pass.focus_search == Some(0) {
-                // return Capture::Bubble(BubbledData::Focused(
-                //     id,
-                //     self.layout.area.top_left,
-                // ))
-                // .into();
-                self.pass.set_focused(FocusedWidget {
-                    id,
-                    absolute_position: self.layout.outer.top_left,
-                });
-            } else {
-                self.pass
-                    .focus_search
-                    .as_mut()
-                    .map(|focus_target| *focus_target -= 1);
-            }
-        } else if self.is_focused(id) {
+        if self.is_focused(id) {
             let focus_click = if self.event.as_focus_press() {
                 Some(true)
             } else if self.event.as_focus_release() {
@@ -299,7 +286,9 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
 
     #[inline]
     pub fn capture(&self) -> EventResponse<W> {
-        EventResponse::Break(Capture::Captured)
+        EventResponse::Break(Capture::Captured(CaptureData {
+            absolute_position: self.layout.outer.top_left,
+        }))
     }
 
     #[inline]
@@ -415,6 +404,13 @@ where
 /// Widget has layout without size or box model, it can be intentional to
 /// disallow user to set size or box model properties.
 pub trait SizedWidget<W: WidgetCtx>: Widget<W> {
+    fn size(self, size: Size<Length>) -> Self
+    where
+        Self: Sized + 'static,
+    {
+        self.width(size.width).height(size.height)
+    }
+
     fn fill(self) -> Self
     where
         Self: Sized + 'static,

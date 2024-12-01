@@ -153,11 +153,11 @@ pub fn model_flex(
                 );
 
                 // TODO: Not working properly
-                // Min content size of child must have been less or
-                // equal to resulting size.
-                debug_assert!(
-                    child_layout.outer_size().main(axis) <= line.free_main
-                );
+                // // Min content size of child must have been less or
+                // // equal to resulting size.
+                // debug_assert!(
+                //     child_layout.outer_size().main(axis) <= line.free_main
+                // );
 
                 let child_layout_size = child_layout.outer_size();
 

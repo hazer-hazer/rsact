@@ -131,6 +131,7 @@ where
     W::Styler: WidgetStylist<MonoTextStyle<W::Color>>,
     Dir: Direction,
 {
+    // TODO: MaybeReactive
     pub fn new(options: impl IntoMemo<Vec<K>>) -> Self {
         let options: Memo<Vec<SelectOption<W, K>>> =
             options.memo().map(|options| {
@@ -342,11 +343,7 @@ where
         ctx.handle_focusable(self.id, |ctx, pressed| {
             // TODO: Generalize
             if current_state.pressed != pressed {
-                let toggle_active = if !current_state.pressed && pressed {
-                    true
-                } else {
-                    false
-                };
+                let toggle_active = !current_state.pressed && pressed;
 
                 self.state.update(|state| {
                     state.pressed = pressed;

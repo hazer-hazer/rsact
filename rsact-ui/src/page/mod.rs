@@ -1,8 +1,8 @@
 use crate::{
-    el::El,
+    el::{El, ElId},
     event::{
-        dev::DevElHover as _, Capture, EventPass, EventResponse, FocusEvent,
-        Propagate, UnhandledEvent,
+        dev::DevElHover as _, Capture, EventResponse, FocusEvent, Propagate,
+        UnhandledEvent,
     },
     layout::{model_layout, size::Size, LayoutModel, Limits},
     render::{color::Color, Renderer},
@@ -40,21 +40,17 @@ impl<C: Color> PageStyle<C> {
 
 /// Tree of info about widget tree.
 struct PageTree {
-    /// Page elements meta tree
-    meta: MetaTree,
-
+    // /// Page elements meta tree
+    // meta: MetaTree,
     /// Count of focusable elements
-    focusable: Memo<usize>,
-
-    /// Absolute tree index of focused element
-    focused: Option<usize>,
+    focusable: Memo<Vec<ElId>>,
 }
 
 pub struct Page<W: WidgetCtx> {
     // TODO: root is not used as a Signal but as boxed value, better add StoredValue to rsact_reactive for static storage
     // TODO: Same is about other not-really-reactive states in Page
     root: Signal<El<W>>,
-    tree: PageTree,
+    meta: PageTree,
     layout: Memo<LayoutModel>,
     state: Signal<PageState<W>>,
     style: Signal<PageStyle<W::Color>>,
@@ -74,24 +70,34 @@ impl<W: WidgetCtx> Page<W> {
         dev_tools: Signal<DevTools>,
         mut renderer: Signal<W::Renderer>,
     ) -> Self {
-        let mut root = root.into();
+        let mut root: El<W> = root.into();
         let state = PageState::new().signal();
 
         // Raw root initialization //
+        root.on_mount(MountCtx { viewport, styler });
 
         // TODO: `on_mount` dependency on viewport can be removed for text,
         //  icon, etc. by adding special LayoutKind dependent on viewport and
         //  pass viewport to model_layout. In such a way, layout becomes much
         //  more straightforward and single-pass process.
         let meta = root.meta();
-        root.on_mount(MountCtx { viewport, styler });
 
         let focusable = create_memo(move |_| {
-            meta.flat_collect().iter().fold(0, |count, el| {
-                el.with(|el| {
-                    count + (el.behavior & Behavior::FOCUSABLE).bits() as usize
+            meta.flat_collect()
+                .iter()
+                .filter_map(|el| {
+                    el.with(|el_meta| {
+                        if let Some(id) = el_meta.id {
+                            if !(el_meta.behavior & Behavior::FOCUSABLE)
+                                .is_empty()
+                            {
+                                return Some(id);
+                            }
+                        }
+                        None
+                    })
                 })
-            })
+                .collect()
         });
 
         // TODO: Should be `mapped`? Now, root is kind of partially-reactive
@@ -178,7 +184,7 @@ impl<W: WidgetCtx> Page<W> {
             layout,
             state,
             style,
-            tree: PageTree { meta, focusable, focused: None },
+            meta: PageTree { focusable },
             // TODO: Signal viewport in Renderer
             renderer,
             viewport,
@@ -193,6 +199,12 @@ impl<W: WidgetCtx> Page<W> {
         self.force_redraw.set(true);
     }
 
+    pub fn take_draw_calls(&mut self) -> usize {
+        let draw_calls = self.draw_calls.get();
+        self.draw_calls.set(0);
+        draw_calls
+    }
+
     // TODO
     // pub fn style(
     //     mut self,
@@ -202,9 +214,11 @@ impl<W: WidgetCtx> Page<W> {
     //     self
     // }
 
+    // Focus //
+
     /// Focus first focusable element in page
     pub fn focus_first(&mut self) {
-        if self.tree.focusable.get() > 0 {
+        if self.meta.focusable.with(|focusable| focusable.len() > 0) {
             self.handle_events([<W::Event as FocusEvent>::zero()].into_iter());
         }
     }
@@ -216,6 +230,31 @@ impl<W: WidgetCtx> Page<W> {
         }
     }
 
+    fn focus_n(&mut self, offset: i32) {
+        let focusable_count = self.meta.focusable.with(Vec::len);
+
+        let current_offset = self
+            .state
+            .with(|state| state.focused.map(|focused| focused.1).unwrap_or(0));
+
+        let new_focus_offset = (current_offset as i64 + offset as i64)
+            .clamp(0, focusable_count as i64)
+            as usize;
+
+        let new_focus_id = self
+            .meta
+            .focusable
+            .with(|focusable| focusable.get(new_focus_offset).copied());
+
+        // Set new focus only in case there's a corresponding element by index. Otherwise it means buggy meta collection
+        if let Some(new_focus_id) = new_focus_id {
+            self.state.update(|state| {
+                state.focused = Some((new_focus_id, new_focus_offset))
+            });
+        }
+    }
+
+    // Dev tools //
     fn find_hovered_el(&self, point: Point) -> Option<DevHoveredEl> {
         self.layout.with(|layout| {
             layout
@@ -225,18 +264,13 @@ impl<W: WidgetCtx> Page<W> {
         })
     }
 
-    pub fn take_draw_calls(&mut self) -> usize {
-        let draw_calls = self.draw_calls.get();
-        self.draw_calls.set(0);
-        draw_calls
-    }
-
     pub fn handle_events(
         &mut self,
         events: impl Iterator<Item = W::Event>,
     ) -> Vec<UnhandledEvent<W>> {
         let unhandled = events
             .filter_map(|event| {
+                // Global, page-level event handling //
                 if self.dev_tools.with(|dt| dt.enabled) {
                     if let Some(point) = event.as_dev_el_hover() {
                         let hovered_el = self.find_hovered_el(point);
@@ -247,28 +281,24 @@ impl<W: WidgetCtx> Page<W> {
                     }
                 }
 
-                let layout = self.layout;
+                if let Some(offset) = event.as_focus_move() {
+                    // TODO: Check if element was actually focused. So in case of focus offset overflow, some widgets could behave, for example animating over-scroll.
+                    self.focus_n(offset);
+                    return None;
+                }
 
-                // TODO: Make `FocusEvent` optionally implemented for Event
-                let new_focus = event.as_focus_move().map(|offset| {
-                    ((self.tree.focused.unwrap_or(0) as i64 + offset as i64)
-                        as usize)
-                        .clamp(0, self.tree.focusable.get())
-                });
-
-                let mut pass = EventPass::new(new_focus);
-
-                let response = with!(|layout| {
+                // Element event handling //
+                let response = self.layout.with(|layout| {
                     let response = self.root.update_untracked(|root| {
                         root.on_event(&mut EventCtx {
                             event: &event,
                             page_state: self.state,
                             layout: &layout.tree_root(),
-                            pass: &mut pass,
                         })
                     });
 
                     // TODO: notify root on event capture?
+                    //  - No, root is not used reactively, it is a signal only to be usable in reactive contexts. Need `StoredValue`
 
                     response
                 });
@@ -276,26 +306,20 @@ impl<W: WidgetCtx> Page<W> {
                 match response {
                     EventResponse::Continue(propagate) => match propagate {
                         Propagate::Ignored => {
-                            if let Some(focused) = pass.focused() {
-                                debug_assert_eq!(pass.focus_search, None);
-
-                                self.tree.focused = Some(new_focus.expect(
-                                    "new_focus must be set in this case",
-                                ));
-                                self.state.update(|state| {
-                                    state.focused = Some(focused.id)
-                                });
-
-                                None
-                            } else {
-                                Some(UnhandledEvent::Event(event))
-                            }
+                            Some(UnhandledEvent::Event(event))
                         },
                     },
                     EventResponse::Break(capture) => match capture {
-                        Capture::Captured => None,
-                        Capture::Bubble(data) => {
-                            Some(UnhandledEvent::Bubbled(data))
+                        // TODO: Captured data may be useful for debugging, for example we can point where on screen user clicked or something
+                        Capture::Captured(_capture) => None,
+                        Capture::Bubble(data) => match data {
+                            crate::event::BubbledData::FocusNext => {
+                                todo!()
+                            },
+                            crate::event::BubbledData::Custom(custom) => {
+                                // Users receive only their custom bubbled data
+                                Some(UnhandledEvent::Bubbled(custom))
+                            },
                         },
                     },
                 }

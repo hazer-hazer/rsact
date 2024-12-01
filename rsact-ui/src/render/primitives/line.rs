@@ -128,6 +128,10 @@ impl<C: Color> StyledAlphaDrawable<PrimitiveStyle<C>> for Line {
     where
         D: crate::render::alpha::AlphaDrawTarget<Color = Self::Color>,
     {
+        if style.stroke_color.is_none() || style.stroke_width == 0 {
+            return Ok(());
+        }
+
         let mut start = self.start;
         let mut end = self.end;
         let mut draw_pixel = |point, blend| {

@@ -282,6 +282,15 @@ where
     }
 }
 
+impl<W: WidgetCtx + 'static> Into<El<W>> for char
+where
+    W::Styler: WidgetStylist<MonoTextStyle<W::Color>>,
+{
+    fn into(self) -> El<W> {
+        MonoText::new_static(self.to_string()).el()
+    }
+}
+
 impl<W: WidgetCtx + 'static> Into<El<W>> for String
 where
     W::Styler: WidgetStylist<MonoTextStyle<W::Color>>,
