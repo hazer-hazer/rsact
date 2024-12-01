@@ -1,0 +1,27 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "type": "lldb",
+        "request": "launch",
+        "name": "Debug Example",
+        "cwd": "${workspaceFolder}",
+        "cargo": {
+          "args": [
+            "build",
+            "--example",
+            "${input:pickExample}",
+            "--manifest-path",
+            "${workspaceFolder}/Cargo.toml",
+            "--features",
+            "std,simulator",
+          ],
+          // "filter": {
+          //   "name": "${input:pickExample}",
+          //   "kind": "example"
+          // }
+        }
+      },
+    ],
+  }
+  

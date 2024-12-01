@@ -1,0 +1,12 @@
+{
+  "rust-analyzer.check.allTargets": true,
+  "rust-analyzer.check.features": [
+    // "std"
+    "single-thread",
+    "simulator"
+  ],
+  "cSpell.words": [
+    "rsact",
+    "Unfocusing"
+  ]
+}

@@ -1,7 +1,18 @@
 [package]
 name = "rsact-encoder"
-edition.workspace = true
 version.workspace = true
+edition.workspace = true
 
 [dependencies]
 rsact-ui = { workspace = true }
+
+[dev-dependencies]
+embedded-graphics-simulator = { version = "0.7.0" }
+
+[features]
+default = []
+
+std = ["rsact-ui/std"]
+single-thread = ["rsact-ui/single-thread"]
+simulator = ["rsact-ui/simulator"]
+
