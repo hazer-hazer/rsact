@@ -24,6 +24,7 @@ use crate::{
 };
 use bitflags::bitflags;
 use core::marker::PhantomData;
+use embedded_graphics::prelude::Point;
 use prelude::*;
 
 pub type DrawResult = Result<(), ()>;
@@ -137,16 +138,25 @@ where
     type Event = E;
 }
 
+#[derive(Debug)]
+pub struct FocusedEl {
+    pub id: ElId,
+    pub index: usize,
+    pub absolute_position: Point,
+}
+
 pub struct PageState<W: WidgetCtx> {
     /// Element id + its absolute tree index among all focusable elements (see [`PageTree`])
-    pub focused: Option<(ElId, usize)>,
+    pub focused: Option<FocusedEl>,
+    /// The next element to focus in case if focus event won't be intercepted by element. See [`EventCtx::handle_focusable`] for logic on this.
+    pub next_focus: Option<ElId>,
 
     ctx: PhantomData<W>,
 }
 
 impl<W: WidgetCtx> PageState<W> {
     pub fn new() -> Self {
-        Self { focused: None, ctx: PhantomData }
+        Self { focused: None, next_focus: None, ctx: PhantomData }
     }
 
     pub fn is_focused(&self, id: ElId) -> bool {
@@ -222,6 +232,7 @@ impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
     }
 }
 
+// TODO: Move to event mod?
 pub struct EventCtx<'a, W: WidgetCtx> {
     pub event: &'a W::Event,
     pub page_state: Signal<PageState<W>>,
@@ -266,9 +277,9 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
         press: impl FnOnce(&mut Self, bool) -> EventResponse<W>,
     ) -> EventResponse<W> {
         if self.is_focused(id) {
-            let focus_click = if self.event.as_focus_press() {
+            let focus_click = if self.event.is_focus_press() {
                 Some(true)
-            } else if self.event.as_focus_release() {
+            } else if self.event.is_focus_release() {
                 Some(false)
             } else {
                 None

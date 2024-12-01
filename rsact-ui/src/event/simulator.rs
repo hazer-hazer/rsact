@@ -24,11 +24,11 @@ pub enum SimulatorEvent {
 
 impl ButtonEvent for SimulatorEvent {
     fn as_button_press(&self) -> bool {
-        self.as_focus_press()
+        self.is_focus_press()
     }
 
     fn as_button_release(&self) -> bool {
-        self.as_focus_release()
+        self.is_focus_release()
     }
 }
 
@@ -44,14 +44,14 @@ impl FocusEvent for SimulatorEvent {
         }
     }
 
-    fn as_focus_press(&self) -> bool {
+    fn is_focus_press(&self) -> bool {
         match self {
             SimulatorEvent::FocusedPress => true,
             _ => false,
         }
     }
 
-    fn as_focus_release(&self) -> bool {
+    fn is_focus_release(&self) -> bool {
         match self {
             SimulatorEvent::FocusedRelease => true,
             _ => false,

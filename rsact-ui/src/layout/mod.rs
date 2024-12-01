@@ -16,8 +16,6 @@ use padding::Padding;
 use rsact_reactive::prelude::*;
 use size::{Length, Size};
 
-use crate::widget::{Widget, WidgetCtx};
-
 pub mod axis;
 pub mod block_model;
 pub mod flex;

@@ -37,25 +37,14 @@ impl<W: WidgetCtx> Debug for UnhandledEvent<W> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum BubbledData<W: WidgetCtx> {
     // // /// Focused element bubbles its absolute position so parent can react
     // // to /// that event, for example, by scrolling to it
     // // Focused(ElId, Point),
     // Message(Message<W>),
-    FocusNext,
+    FocusOffset(i32),
     Custom(<W::Event as Event>::BubbledData),
-}
-
-impl<W: WidgetCtx> Debug for BubbledData<W> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::FocusNext => f.write_str("FocusNext"),
-            Self::Custom(custom) => {
-                f.debug_tuple("Custom").field(custom).finish()
-            },
-        }
-    }
 }
 
 /// Info about element that captured event. Useful in such elements where child event handling affects parent behavior.
@@ -123,8 +112,8 @@ impl ButtonEdge {
 pub trait FocusEvent {
     fn zero() -> Self;
     fn as_focus_move(&self) -> Option<i32>;
-    fn as_focus_press(&self) -> bool;
-    fn as_focus_release(&self) -> bool;
+    fn is_focus_press(&self) -> bool;
+    fn is_focus_release(&self) -> bool;
 }
 
 pub trait ExitEvent {
@@ -169,11 +158,11 @@ impl FocusEvent for NullEvent {
         None
     }
 
-    fn as_focus_press(&self) -> bool {
+    fn is_focus_press(&self) -> bool {
         false
     }
 
-    fn as_focus_release(&self) -> bool {
+    fn is_focus_release(&self) -> bool {
         false
     }
 }
