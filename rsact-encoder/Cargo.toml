@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 rsact-ui = { workspace = true }
+rsact-icons = {workspace = true, features = ["all-sizes", "system"]}
 
 [dev-dependencies]
 embedded-graphics-simulator = { version = "0.7.0" }
