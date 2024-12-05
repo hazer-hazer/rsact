@@ -14,10 +14,6 @@ use embedded_graphics::{
 };
 use rsact_reactive::memo_chain::IntoMemoChain;
 
-pub trait SliderEvent {
-    fn as_slider_move(&self, axis: Axis) -> Option<i32>;
-}
-
 // TODO: Sizes depended on viewport
 declare_widget_style! {
     SliderStyle (SliderState) {
@@ -142,7 +138,6 @@ impl<W: WidgetCtx> Slider<W, RowDir> {
 
 impl<W: WidgetCtx, Dir: Direction> Widget<W> for Slider<W, Dir>
 where
-    W::Event: SliderEvent,
     W::Styler: WidgetStylist<SliderStyle<W::Color>>,
 {
     fn meta(&self) -> MetaTree {
@@ -198,11 +193,12 @@ where
         ctx.draw_focus_outline(self.id)
     }
 
-    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse<W> {
+    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {
         let current_state = self.state.get();
 
         if current_state.active && ctx.is_focused(self.id) {
-            if let Some(offset) = ctx.event.as_slider_move(Dir::AXIS) {
+            // TODO: Right slider event interpretation
+            if let Some(offset) = ctx.event.interpret_as_rotation() {
                 let current = self.value.get();
                 let new =
                     (current as i32 + offset).clamp(0, u8::MAX as i32) as u8;

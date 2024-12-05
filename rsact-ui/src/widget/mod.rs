@@ -17,14 +17,13 @@ pub mod slider;
 pub mod space;
 
 use crate::{
-    event::{BubbledData, CaptureData, FocusedWidget},
+    event::CaptureData,
     page::id::PageId,
     render::Renderable,
     style::{TreeStyle, WidgetStyle, WidgetStylist},
 };
 use bitflags::bitflags;
-use core::marker::PhantomData;
-use embedded_graphics::prelude::Point;
+use core::{fmt::Debug, marker::PhantomData};
 use prelude::*;
 use rsact_reactive::maybe::IntoMaybeReactive;
 
@@ -85,7 +84,7 @@ pub trait WidgetCtx: Sized + Clone + 'static {
     type Styler: PartialEq + Copy;
     type Color: Color;
     type PageId: PageId;
-    type Event: Event;
+    type CustomEvent: Debug;
 
     // Methods delegated from renderer //
     fn default_background() -> Self::Color {
@@ -99,28 +98,26 @@ pub trait WidgetCtx: Sized + Clone + 'static {
 
 /// WidgetTypeFamily
 /// Type family of types used in Widgets
-pub struct Wtf<R, E, S, I>
+pub struct Wtf<R, S, I, E = ()>
 where
     R: Renderer,
-    E: Event,
 {
     _renderer: PhantomData<R>,
-    _event: PhantomData<E>,
     _styler: PhantomData<S>,
     _page_id: PhantomData<I>,
+    _event: PhantomData<E>,
 }
 
-impl<R, E, S, I> Clone for Wtf<R, E, S, I>
+impl<R, S, I, E> Clone for Wtf<R, S, I, E>
 where
     R: Renderer,
-    E: Event,
 {
     fn clone(&self) -> Self {
         Self {
             _renderer: self._renderer.clone(),
-            _event: self._event.clone(),
             _styler: self._styler.clone(),
             _page_id: self._page_id.clone(),
+            _event: self._event.clone(),
         }
     }
 }
@@ -128,7 +125,6 @@ where
 impl<R, E, S, I> Wtf<R, E, S, I>
 where
     R: Renderer,
-    E: Event,
 {
     pub fn new() -> Self {
         Self {
@@ -140,18 +136,18 @@ where
     }
 }
 
-impl<R, E, S, I> WidgetCtx for Wtf<R, E, S, I>
+impl<R, S, I, E> WidgetCtx for Wtf<R, S, I, E>
 where
     R: Renderer + 'static,
-    E: Event + 'static,
     S: PartialEq + Copy + 'static,
     I: PageId + 'static,
+    E: Debug + 'static,
 {
     type Renderer = R;
     type Color = R::Color;
     type Styler = S;
     type PageId = I;
-    type Event = E;
+    type CustomEvent = E;
 }
 
 pub struct PageState<W: WidgetCtx> {
@@ -206,7 +202,7 @@ impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
             Block {
                 border: Border::zero()
                     // TODO: Theme focus color
-                    .color(Some(<W::Color as Color>::accents()[0]))
+                    .color(Some(<W::Color as Color>::accents()[1]))
                     .width(1),
                 rect: self.layout.outer,
                 background: None,
@@ -241,7 +237,7 @@ impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
 
 // TODO: Move to event mod?
 pub struct EventCtx<'a, W: WidgetCtx> {
-    pub event: &'a W::Event,
+    pub event: &'a Event<W::CustomEvent>,
     pub page_state: Signal<PageState<W>>,
     pub layout: &'a LayoutModelNode<'a>,
     // TODO: Instant now, already can get it from queue!
@@ -252,7 +248,7 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
     pub fn pass_to_children(
         &mut self,
         children: &mut [impl Widget<W>],
-    ) -> EventResponse<W> {
+    ) -> EventResponse {
         for (child, child_layout) in
             children.iter_mut().zip(self.layout.children())
         {
@@ -268,7 +264,7 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
     pub fn pass_to_child(
         &mut self,
         child: &mut impl Widget<W>,
-    ) -> EventResponse<W> {
+    ) -> EventResponse {
         self.pass_to_children(core::slice::from_mut(child))
     }
 
@@ -280,41 +276,40 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
     pub fn handle_focusable(
         &mut self,
         id: ElId,
-        press: impl FnOnce(&mut Self, bool) -> EventResponse<W>,
-    ) -> EventResponse<W> {
-        if self.is_focused(id) {
-            let focus_click = if self.event.is_focus_press() {
-                Some(true)
-            } else if self.event.is_focus_release() {
-                Some(false)
-            } else {
-                None
-            };
-
-            return if let Some(activate) = focus_click {
-                press(self, activate)
-            } else {
-                self.ignore()
-            };
+        press: impl FnOnce(&mut Self, bool) -> EventResponse,
+    ) -> EventResponse {
+        if let &Event::Focus(FocusEvent::Focus(new_focus)) = self.event {
+            if new_focus == id {
+                return self.capture();
+            }
         }
 
-        self.ignore()
+        if self.is_focused(id) {
+            match self.event {
+                Event::Press(press_event) => {
+                    let pressed = match press_event {
+                        crate::event::PressEvent::Press => true,
+                        crate::event::PressEvent::Release => false,
+                    };
+
+                    press(self, pressed)
+                },
+                _ => self.ignore(),
+            }
+        } else {
+            self.ignore()
+        }
     }
 
     #[inline]
-    pub fn capture(&self) -> EventResponse<W> {
+    pub fn capture(&self) -> EventResponse {
         EventResponse::Break(Capture::Captured(CaptureData {
             absolute_position: self.layout.outer.top_left,
         }))
     }
 
     #[inline]
-    pub fn bubble(&self, bubbled_data: BubbledData<W>) -> EventResponse<W> {
-        EventResponse::Break(Capture::Bubble(bubbled_data))
-    }
-
-    #[inline]
-    pub fn ignore(&self) -> EventResponse<W> {
+    pub fn ignore(&self) -> EventResponse {
         EventResponse::Continue(Propagate::Ignored)
     }
 }
@@ -414,7 +409,7 @@ where
     // TODO: Reactive draw?
     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult;
     // TODO: Reactive event context? Is it possible?
-    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse<W>;
+    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse;
 }
 
 /// Not implementing [`SizedWidget`] and [`BlockModelWidget`] does not mean that
@@ -524,8 +519,8 @@ pub mod prelude {
     pub use crate::{
         el::{El, ElId},
         event::{
-            message::UiMessage, BubbledData, Capture, Event, EventResponse,
-            ExitEvent, FocusEvent, NullEvent, Propagate,
+            message::UiMessage, Capture, Event, EventResponse, FocusEvent,
+            Propagate,
         },
         font::{FontSize, FontStyle},
         layout::{

@@ -44,7 +44,7 @@ use super::prelude::*;
 //     fn on_event(
 //         &mut self,
 //         ctx: &mut super::EventCtx<'_, W>,
-//     ) -> super::EventResponse<W> {
+//     ) -> super::EventResponse {
 //         todo!()
 //     }
 // }
@@ -73,7 +73,7 @@ use super::prelude::*;
 //     fn on_event(
 //         &mut self,
 //         ctx: &mut super::EventCtx<'_, W>,
-//     ) -> super::EventResponse<W> {
+//     ) -> super::EventResponse {
 //         todo!()
 //     }
 // }
@@ -135,7 +135,7 @@ use super::prelude::*;
 //     fn on_event(
 //         &mut self,
 //         ctx: &mut super::EventCtx<'_, W>,
-//     ) -> super::EventResponse<W> {
+//     ) -> super::EventResponse {
 //         todo!()
 //     }
 // }
@@ -187,7 +187,7 @@ impl<W: WidgetCtx> Widget<W> for Unit {
     fn on_event(
         &mut self,
         ctx: &mut super::EventCtx<'_, W>,
-    ) -> super::EventResponse<W> {
+    ) -> super::EventResponse {
         let _ = ctx;
         ctx.ignore()
     }
@@ -231,7 +231,7 @@ impl<W: WidgetCtx> Widget<W> for Option<El<W>> {
     fn on_event(
         &mut self,
         ctx: &mut super::EventCtx<'_, W>,
-    ) -> super::EventResponse<W> {
+    ) -> super::EventResponse {
         self.as_mut().map(|widget| widget.on_event(ctx)).unwrap_or(ctx.ignore())
     }
 }

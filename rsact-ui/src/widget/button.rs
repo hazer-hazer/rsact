@@ -2,11 +2,6 @@ use rsact_reactive::maybe::IntoMaybeReactive;
 
 use crate::{prelude::*, render::Renderable};
 
-pub trait ButtonEvent {
-    fn as_button_press(&self) -> bool;
-    fn as_button_release(&self) -> bool;
-}
-
 #[derive(Clone, Copy)]
 pub struct ButtonState {
     pub pressed: bool,
@@ -94,23 +89,18 @@ impl<W: WidgetCtx + 'static> Button<W> {
     }
 }
 
-impl<W: WidgetCtx + 'static> SizedWidget<W> for Button<W>
-where
-    W::Event: ButtonEvent,
-    W::Styler: WidgetStylist<ButtonStyle<W::Color>>,
+impl<W: WidgetCtx + 'static> SizedWidget<W> for Button<W> where
+    W::Styler: WidgetStylist<ButtonStyle<W::Color>>
 {
 }
 
-impl<W: WidgetCtx + 'static> BlockModelWidget<W> for Button<W>
-where
-    W::Event: ButtonEvent,
-    W::Styler: WidgetStylist<ButtonStyle<W::Color>>,
+impl<W: WidgetCtx + 'static> BlockModelWidget<W> for Button<W> where
+    W::Styler: WidgetStylist<ButtonStyle<W::Color>>
 {
 }
 
 impl<W: WidgetCtx + 'static> Widget<W> for Button<W>
 where
-    W::Event: ButtonEvent,
     W::Styler: WidgetStylist<ButtonStyle<W::Color>>,
 {
     fn meta(&self) -> MetaTree {
@@ -155,7 +145,7 @@ where
     fn on_event(
         &mut self,
         ctx: &mut crate::widget::EventCtx<'_, W>,
-    ) -> EventResponse<W> {
+    ) -> EventResponse {
         ctx.handle_focusable(self.id, |ctx, pressed| {
             let current_state = self.state.get();
 

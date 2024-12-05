@@ -133,7 +133,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
     fn on_event(
         &mut self,
         ctx: &mut crate::widget::EventCtx<'_, W>,
-    ) -> EventResponse<W> {
+    ) -> EventResponse {
         // self.content.control_flow(|content| ctx.pass_to_child(content))
         ctx.pass_to_child(&mut self.content)
     }

@@ -15,10 +15,6 @@ use embedded_graphics::prelude::{Point, Transform};
 use layout::{axis::Anchor, flex::flex_content_size, size::RectangleExt};
 use rsact_reactive::{maybe::IntoMaybeReactive, memo_chain::IntoMemoChain};
 
-pub trait SelectEvent {
-    fn as_select(&self, axis: Axis) -> Option<i32>;
-}
-
 #[derive(Clone, Copy)]
 pub struct SelectState {
     pub pressed: bool,
@@ -225,7 +221,6 @@ where
 
 impl<W, K, Dir> BlockModelWidget<W> for Select<W, K, Dir>
 where
-    W::Event: SelectEvent,
     W: WidgetCtx,
     K: PartialEq + Display + 'static,
     Dir: Direction,
@@ -235,7 +230,6 @@ where
 
 impl<W, K, Dir> SizedWidget<W> for Select<W, K, Dir>
 where
-    W::Event: SelectEvent,
     W: WidgetCtx,
     K: PartialEq + Clone + Display + 'static,
     Dir: Direction,
@@ -246,7 +240,6 @@ where
 impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> Widget<W>
     for Select<W, K, Dir>
 where
-    W::Event: SelectEvent,
     W::Styler: WidgetStylist<SelectStyle<W::Color>>,
 {
     fn meta(&self) -> MetaTree {
@@ -339,11 +332,12 @@ where
         })
     }
 
-    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse<W> {
+    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {
         let state = self.state.get();
 
         if state.active && ctx.is_focused(self.id) {
-            if let Some(mut offset) = ctx.event.as_select(Dir::AXIS) {
+            // TODO: Right select interpretation
+            if let Some(mut offset) = ctx.event.interpret_as_rotation() {
                 let current = state.selected;
 
                 let new = current

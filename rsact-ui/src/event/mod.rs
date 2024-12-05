@@ -1,19 +1,156 @@
-use crate::{
-    el::ElId,
-    layout::Axis,
-    widget::{
-        button::ButtonEvent, scrollable::ScrollEvent, slider::SliderEvent,
-        WidgetCtx,
-    },
-};
+use crate::{el::ElId, widget::WidgetCtx};
 use core::{fmt::Debug, ops::ControlFlow};
-use dev::{DevElHover, DevToolsToggle};
 use embedded_graphics::prelude::Point;
 
-pub mod dev;
 pub mod message;
 #[cfg(feature = "simulator")]
 pub mod simulator;
+
+#[derive(Debug, Clone, Copy)]
+pub enum DevToolsEvent {
+    Activate,
+    Deactivate,
+    /// Toggling Activate/Deactivate
+    Toggle,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum MoveDir {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+impl MoveDir {
+    /// Sign of the direction on screen. Coordinates start from top left
+    pub fn sign(&self) -> i32 {
+        match self {
+            MoveDir::Left => -1,
+            MoveDir::Right => 1,
+            MoveDir::Up => -1,
+            MoveDir::Down => 1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct MoveEvent {
+    dir: MoveDir,
+    delta: u16,
+}
+
+/// Event sent internally on focus move.
+#[derive(Debug, Clone, Copy)]
+pub enum FocusEvent {
+    Focus(ElId),
+    // Blur(ElId),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum PressEvent {
+    Press,
+    Release,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum MouseButton {
+    Left,
+    Middle,
+    Right,
+    // TODO: Additional buttons
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum MouseWheelDir {
+    Normal,
+    Flipped,
+}
+
+impl Into<i32> for MouseWheelDir {
+    fn into(self) -> i32 {
+        match self {
+            MouseWheelDir::Normal => 1,
+            MouseWheelDir::Flipped => -1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum MouseEvent {
+    ButtonDown(MouseButton),
+    ButtonUp(MouseButton),
+    MouseMove(Point),
+    Wheel(Point, MouseWheelDir),
+}
+
+// TODO: Accept WidgetCtx
+#[derive(Debug)]
+pub enum Event<Custom = ()> {
+    Move(MoveEvent),
+    Focus(FocusEvent),
+    Press(PressEvent),
+    Exit,
+    DevTools(DevToolsEvent),
+    Mouse(MouseEvent),
+    Custom(Custom),
+}
+
+impl<Custom> Event<Custom> {
+    // Constructors //
+    pub fn move_1(dir: MoveDir) -> Self {
+        Self::Move(MoveEvent { dir, delta: 1 })
+    }
+
+    pub fn movement(dir: MoveDir, delta: u16) -> Self {
+        Self::Move(MoveEvent { dir, delta })
+    }
+
+    // Interpretations //
+    pub fn interpret_as_focus_move(&self) -> Option<i32> {
+        match self {
+            &Event::Move(move_event) => {
+                Some(move_event.delta as i32 * move_event.dir.sign())
+            },
+            Event::Focus(_)
+            | Event::Press(_)
+            | Event::Exit
+            | Event::DevTools(_) => None,
+            Event::Mouse(mouse_event) => match mouse_event {
+                MouseEvent::ButtonDown(_)
+                | MouseEvent::ButtonUp(_)
+                | MouseEvent::MouseMove(_) => None,
+                MouseEvent::Wheel(point, dir) => match dir {
+                    MouseWheelDir::Normal => Some(point.y as i32),
+                    MouseWheelDir::Flipped => Some(-(point.y as i32)),
+                },
+            },
+            Event::Custom(_) => None,
+        }
+    }
+
+    pub fn interpret_as_rotation(&self) -> Option<i32> {
+        match self {
+            &Event::Move(move_event) => {
+                Some(move_event.delta as i32 * move_event.dir.sign())
+            },
+            Event::Focus(_)
+            | Event::Press(_)
+            | Event::Exit
+            | Event::DevTools(_) => None,
+            Event::Mouse(mouse_event) => match mouse_event {
+                MouseEvent::ButtonDown(_)
+                | MouseEvent::ButtonUp(_)
+                | MouseEvent::MouseMove(_) => None,
+                // TODO: What about X movement?
+                &MouseEvent::Wheel(point, dir) => {
+                    Some(Into::<i32>::into(dir) * point.y)
+                },
+            },
+            Event::Custom(_) => None,
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 pub struct FocusedWidget {
@@ -22,30 +159,24 @@ pub struct FocusedWidget {
 }
 
 pub enum UnhandledEvent<W: WidgetCtx> {
-    Event(W::Event),
-    Bubbled(<W::Event as Event>::BubbledData),
+    Event(Event<W::CustomEvent>),
 }
 
 impl<W: WidgetCtx> Debug for UnhandledEvent<W> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Event(arg0) => f.debug_tuple("Event").field(arg0).finish(),
-            Self::Bubbled(arg0) => {
-                f.debug_tuple("Bubbled").field(arg0).finish()
-            },
         }
     }
 }
 
-#[derive(Clone, Debug)]
-pub enum BubbledData<W: WidgetCtx> {
-    // // /// Focused element bubbles its absolute position so parent can react
-    // // to /// that event, for example, by scrolling to it
-    // // Focused(ElId, Point),
-    // Message(Message<W>),
-    // FocusOffset(i32),
-    Custom(<W::Event as Event>::BubbledData),
-}
+// impl<W: WidgetCtx> Debug for UnhandledEvent<W> {
+//     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+//         match self {
+//             Self::Event(arg0) => f.debug_tuple("Event").field(arg0).finish(),
+//         }
+//     }
+// }
 
 /// Info about element that captured event. Useful in such elements where child event handling affects parent behavior.
 #[derive(Debug)]
@@ -55,16 +186,14 @@ pub struct CaptureData {
 }
 
 #[derive(Debug)]
-pub enum Capture<W: WidgetCtx> {
+pub enum Capture {
     /// Event is captured by element and should not be handled by its parents
     Captured(CaptureData),
-    /// BubbleUp captured by parent
-    Bubble(BubbledData<W>),
 }
 
-impl<W: WidgetCtx> Into<EventResponse<W>> for Capture<W> {
+impl Into<EventResponse> for Capture {
     #[inline]
-    fn into(self) -> EventResponse<W> {
+    fn into(self) -> EventResponse {
         EventResponse::Break(self)
     }
 }
@@ -82,14 +211,14 @@ pub enum Propagate {
     // up. BubbleUp(ElId, E),
 }
 
-impl<W: WidgetCtx> Into<EventResponse<W>> for Propagate {
+impl Into<EventResponse> for Propagate {
     #[inline]
-    fn into(self) -> EventResponse<W> {
+    fn into(self) -> EventResponse {
         EventResponse::Continue(self)
     }
 }
 
-pub type EventResponse<W> = ControlFlow<Capture<W>, Propagate>;
+pub type EventResponse = ControlFlow<Capture, Propagate>;
 
 // TODO: Rename to InputEdge or something
 #[derive(Clone, Copy)]
@@ -106,87 +235,5 @@ impl ButtonEdge {
             (false, true) => Self::Rising,
             (true, true) | (false, false) => Self::None,
         }
-    }
-}
-
-pub trait FocusEvent {
-    fn zero() -> Self;
-    fn as_focus_move(&self) -> Option<i32>;
-    fn is_focus_press(&self) -> bool;
-    fn is_focus_release(&self) -> bool;
-}
-
-pub trait ExitEvent {
-    fn as_exit(&self) -> bool;
-}
-
-pub trait Event:
-    FocusEvent + ExitEvent + DevToolsToggle + DevElHover + Debug + Clone
-{
-    /// User-defined bubbled data found in event responses
-    type BubbledData: Clone + Debug;
-}
-
-#[derive(Clone, Debug)]
-pub struct NullEvent;
-
-impl Event for NullEvent {
-    type BubbledData = ();
-}
-impl ButtonEvent for NullEvent {
-    fn as_button_press(&self) -> bool {
-        false
-    }
-
-    fn as_button_release(&self) -> bool {
-        false
-    }
-}
-
-impl ExitEvent for NullEvent {
-    fn as_exit(&self) -> bool {
-        false
-    }
-}
-
-impl FocusEvent for NullEvent {
-    fn zero() -> Self {
-        Self
-    }
-
-    fn as_focus_move(&self) -> Option<i32> {
-        None
-    }
-
-    fn is_focus_press(&self) -> bool {
-        false
-    }
-
-    fn is_focus_release(&self) -> bool {
-        false
-    }
-}
-
-impl ScrollEvent for NullEvent {
-    fn as_scroll(&self, _axis: Axis) -> Option<i32> {
-        None
-    }
-}
-
-impl SliderEvent for NullEvent {
-    fn as_slider_move(&self, _axis: Axis) -> Option<i32> {
-        None
-    }
-}
-
-impl DevElHover for NullEvent {
-    fn as_dev_el_hover(&self) -> Option<embedded_graphics::prelude::Point> {
-        None
-    }
-}
-
-impl DevToolsToggle for NullEvent {
-    fn as_dev_tools_toggle(&self) -> bool {
-        false
     }
 }

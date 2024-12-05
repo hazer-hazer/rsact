@@ -85,7 +85,7 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Space<W, Dir> {
         Ok(())
     }
 
-    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse<W> {
+    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {
         ctx.ignore()
     }
 }

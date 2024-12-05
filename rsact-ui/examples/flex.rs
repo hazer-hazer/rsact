@@ -1,21 +1,19 @@
-use std::os::unix::process;
 
 use embedded_graphics::{
-    pixelcolor::{BinaryColor, Rgb888},
+    pixelcolor::Rgb888,
     prelude::Dimensions,
 };
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
 use rand::random;
-use rsact_reactive::memo::{Keyed, NeverEqual};
 use rsact_ui::{
     el::El,
     event::simulator::simulator_single_encoder,
     layout::Align,
     page::id::SinglePage,
     prelude::{
-        create_signal, BlockStyle, Edge, Flex, IntoInert, MonoText, Select,
+        create_signal, Edge, Flex, IntoInert, MonoText, Select,
         SignalMap, SignalSetter, Size, Slider,
     },
     style::NullStyler,

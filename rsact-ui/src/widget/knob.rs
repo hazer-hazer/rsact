@@ -6,10 +6,6 @@ use embedded_graphics::prelude::{Angle, Primitive};
 use embedded_graphics::primitives::{PrimitiveStyle, PrimitiveStyleBuilder};
 use layout::size::SizeExt;
 
-pub trait KnobEvent {
-    fn as_knob_rotate(&self) -> Option<i32>;
-}
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct KnobState {
     pub pressed: bool,
@@ -101,7 +97,6 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
 impl<W: WidgetCtx, V: RangeValue + 'static> Widget<W> for Knob<W, V>
 where
     W::Styler: WidgetStylist<KnobStyle<W::Color>>,
-    W::Event: KnobEvent,
 {
     fn meta(&self) -> MetaTree {
         let id = self.id;
@@ -142,11 +137,11 @@ where
         ctx.draw_focus_outline(self.id)
     }
 
-    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse<W> {
+    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {
         let current_state = self.state.get();
 
         if current_state.active && ctx.is_focused(self.id) {
-            if let Some(offset) = ctx.event.as_knob_rotate() {
+            if let Some(offset) = ctx.event.interpret_as_rotation() {
                 let current = self.value.get();
 
                 let new = current.offset(offset);

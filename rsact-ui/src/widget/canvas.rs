@@ -219,7 +219,7 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
         Ok(())
     }
 
-    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse<W> {
+    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {
         let _ = ctx;
         ctx.ignore()
     }

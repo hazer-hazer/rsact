@@ -4,7 +4,7 @@ use crate::widget::{
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 use layout::flex::flex_content_size;
-use rsact_reactive::{maybe::IntoMaybeReactive, memo::Keyed};
+use rsact_reactive::maybe::IntoMaybeReactive;
 
 // pub type Row<C> = Flex<C, RowDir>;
 // pub type Col<C> = Flex<C, ColDir>;
@@ -217,7 +217,7 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Widget<W> for Flex<W, Dir> {
     fn on_event(
         &mut self,
         ctx: &mut crate::widget::EventCtx<'_, W>,
-    ) -> EventResponse<W> {
+    ) -> EventResponse {
         self.children
             .update_untracked(|children| ctx.pass_to_children(children))
     }

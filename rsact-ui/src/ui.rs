@@ -1,9 +1,8 @@
 use crate::{
     el::El,
     event::{
-        dev::DevToolsToggle,
         message::{UiMessage, UiQueue},
-        Event, ExitEvent as _, NullEvent, UnhandledEvent,
+        Event, UnhandledEvent,
     },
     layout::size::Size,
     page::{dev::DevTools, id::PageId, Page},
@@ -11,13 +10,14 @@ use crate::{
     widget::{WidgetCtx, Wtf},
 };
 use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
-use core::marker::PhantomData;
+use core::{fmt::Debug, marker::PhantomData};
 use embedded_graphics::prelude::DrawTarget;
 use rsact_reactive::{maybe::IntoMaybeReactive, prelude::*};
 use smallvec::SmallVec;
 
 pub struct UiOptions {
     auto_focus: bool,
+    // TODO: Event interpretation
 }
 
 impl Default for UiOptions {
@@ -56,12 +56,12 @@ where
     }
 }
 
-impl<R, E, S, I> UI<Wtf<R, E, S, I>, NoPages>
+impl<R, S, I, E> UI<Wtf<R, S, I, E>, NoPages>
 where
     R: Renderer + 'static,
-    E: Event + 'static,
     S: PartialEq + Copy + 'static,
     I: PageId + 'static,
+    E: Debug + 'static,
 {
     // TODO: Maybe just use embedded_graphics Size to avoid conversion and marking value as inert
     pub fn new<V: PartialEq + Into<Size> + Copy + 'static>(
@@ -99,7 +99,7 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
     /// Hinting method to avoid specifying generics but just set [`WidgetCtx::Event`] to [`NullEvent`]
     pub fn no_events(self) -> Self
     where
-        W: WidgetCtx<Event = NullEvent>,
+        W: WidgetCtx<CustomEvent = ()>,
     {
         self
     }
@@ -191,7 +191,7 @@ impl<W: WidgetCtx> UI<W, WithPages> {
         self.current_page().force_redraw();
 
         if self.options.auto_focus {
-            self.current_page().auto_focus();
+            self.current_page().apply_auto_focus();
         }
     }
 
@@ -247,30 +247,34 @@ impl<W: WidgetCtx> UI<W, WithPages> {
 
     pub fn tick(
         &mut self,
-        events: impl Iterator<Item = W::Event>,
+        events: impl Iterator<Item = Event<W::CustomEvent>>,
     ) -> Vec<UnhandledEvent<W>> {
         let unhandled = self
             .current_page()
             .handle_events(events)
             .into_iter()
             .filter_map(|unhandled| {
-                if let UnhandledEvent::Event(event) = unhandled {
-                    if event.as_dev_tools_toggle() {
-                        self.dev_tools.update(|dt| dt.enabled = !dt.enabled);
-                        return None;
-                    }
+                let UnhandledEvent::Event(event) = unhandled;
 
-                    if let (Some(on_exit), true) =
-                        (self.on_exit.as_ref(), event.as_exit())
-                    {
-                        on_exit();
-                        return None;
-                    }
-
-                    Some(UnhandledEvent::Event(event))
-                } else {
-                    Some(unhandled)
+                if let Event::DevTools(dt_event) = &event {
+                    self.dev_tools.update(|dt| {
+                        dt.enabled = match dt_event {
+                            crate::event::DevToolsEvent::Activate => true,
+                            crate::event::DevToolsEvent::Deactivate => false,
+                            crate::event::DevToolsEvent::Toggle => !dt.enabled,
+                        }
+                    });
+                    return None;
                 }
+
+                if let (Some(on_exit), Event::Exit) =
+                    (self.on_exit.as_ref(), &event)
+                {
+                    on_exit();
+                    return None;
+                }
+
+                Some(UnhandledEvent::Event(event))
             })
             .collect();
 

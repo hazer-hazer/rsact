@@ -62,7 +62,7 @@ impl<W: WidgetCtx> Widget<W> for Show<W> {
         }
     }
 
-    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse<W> {
+    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {
         if self.show.get() {
             self.el.on_event(ctx)
         } else {

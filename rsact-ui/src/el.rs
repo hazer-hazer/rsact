@@ -81,7 +81,7 @@ where
         self.widget.draw(ctx)
     }
 
-    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse<W> {
+    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {
         self.widget.on_event(ctx)
     }
 }

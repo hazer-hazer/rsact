@@ -116,7 +116,7 @@ where
     fn on_event(
         &mut self,
         ctx: &mut crate::widget::EventCtx<'_, W>,
-    ) -> EventResponse<W> {
+    ) -> EventResponse {
         ctx.handle_focusable(self.id, |ctx, pressed| {
             let current_state = self.state.get();
 

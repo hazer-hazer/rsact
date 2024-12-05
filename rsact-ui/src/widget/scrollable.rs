@@ -9,17 +9,12 @@ use embedded_graphics::{
     prelude::{Point, Primitive, Transform},
     primitives::{PrimitiveStyle, PrimitiveStyleBuilder},
 };
-use layout::ScrollableLayout;
 use rsact_reactive::maybe::IntoMaybeReactive;
 
 #[derive(Clone, Copy)]
 pub enum ScrollableMode {
     Interactive,
     Tracker,
-}
-
-pub trait ScrollEvent {
-    fn as_scroll(&self, axis: Axis) -> Option<i32>;
 }
 
 // TODO: Add feature for meaningful focus. When scrollable does not overflow, it
@@ -167,7 +162,6 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
 
 impl<W: WidgetCtx> SizedWidget<W> for Scrollable<W, RowDir>
 where
-    W::Event: ScrollEvent,
     W::Styler: WidgetStylist<ScrollableStyle<W::Color>>,
 {
     fn width<L: Into<Length> + PartialEq + Copy + 'static>(
@@ -187,7 +181,6 @@ where
 
 impl<W> SizedWidget<W> for Scrollable<W, ColDir>
 where
-    W::Event: ScrollEvent,
     W: WidgetCtx,
     W::Styler: WidgetStylist<ScrollableStyle<W::Color>>,
 {
@@ -208,7 +201,6 @@ where
 
 impl<W, Dir> Widget<W> for Scrollable<W, Dir>
 where
-    W::Event: ScrollEvent,
     W: WidgetCtx,
     Dir: Direction,
     W::Styler: WidgetStylist<ScrollableStyle<W::Color>>,
@@ -334,7 +326,7 @@ where
         ctx.draw_focus_outline(self.id)
     }
 
-    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse<W> {
+    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {
         let current_state = self.state.get();
 
         match self.mode {
@@ -342,7 +334,8 @@ where
                 // FocusEvent can be treated as ScrollEvent thus handle it
                 // before focus move
                 if current_state.active && ctx.is_focused(self.id) {
-                    if let Some(offset) = ctx.event.as_scroll(Dir::AXIS) {
+                    // TODO: Right scrolling handling
+                    if let Some(offset) = ctx.event.interpret_as_rotation() {
                         let max_offset = self.max_offset(ctx);
 
                         let new_offset = (current_state.offset as i64

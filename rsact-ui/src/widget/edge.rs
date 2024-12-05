@@ -59,7 +59,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
     fn on_event(
         &mut self,
         ctx: &mut crate::widget::EventCtx<'_, W>,
-    ) -> EventResponse<W> {
+    ) -> EventResponse {
         ctx.ignore()
     }
 }
