@@ -13,7 +13,7 @@ use crate::{
 use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use core::marker::PhantomData;
 use embedded_graphics::prelude::DrawTarget;
-use rsact_reactive::prelude::*;
+use rsact_reactive::{maybe::IntoMaybeReactive, prelude::*};
 use smallvec::SmallVec;
 
 pub struct UiOptions {
@@ -113,9 +113,9 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
     /// Set rendering options
     pub fn with_renderer_options(
         mut self,
-        options: impl Into<MaybeReactive<<W::Renderer as Renderer>::Options>>,
+        options: impl IntoMaybeReactive<<W::Renderer as Renderer>::Options>,
     ) -> Self {
-        self.renderer.setter(options.into(), |renderer, options| {
+        self.renderer.setter(options.maybe_reactive(), |renderer, options| {
             renderer.set_options(options.clone().into())
         });
         self

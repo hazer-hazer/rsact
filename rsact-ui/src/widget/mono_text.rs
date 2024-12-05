@@ -15,7 +15,10 @@ use embedded_text::{
     TextBox,
 };
 use layout::ContentLayout;
-use rsact_reactive::{maybe::MaybeReactive, memo_chain::IntoMemoChain};
+use rsact_reactive::{
+    maybe::{IntoMaybeReactive, MaybeReactive},
+    memo_chain::IntoMemoChain,
+};
 
 pub const MIN_MONO_HEIGHT: u32 = 6;
 pub const MAX_MONO_HEIGHT: u32 = 20;
@@ -130,14 +133,16 @@ pub struct MonoText<W: WidgetCtx> {
 }
 
 impl<W: WidgetCtx + 'static> MonoText<W> {
-    pub fn new_static<T: ToString + PartialEq + 'static>(content: T) -> Self {
-        Self::new_inner(content.to_string().inert().into())
+    pub fn new_inert<T: ToString + PartialEq + 'static>(content: T) -> Self {
+        Self::new_inner(content.to_string().inert().maybe_reactive())
     }
 
     pub fn new<T: ToString + Clone + PartialEq + 'static>(
-        content: impl Into<MaybeReactive<T>>,
+        content: impl IntoMaybeReactive<T>,
     ) -> Self {
-        Self::new_inner(content.into().map(|content| content.to_string()))
+        Self::new_inner(
+            content.maybe_reactive().map(|content| content.to_string()),
+        )
     }
 
     fn new_inner(content: MaybeReactive<String>) -> Self {
@@ -190,9 +195,9 @@ impl<W: WidgetCtx + 'static> MonoText<W> {
 
     pub fn font_size<T: Into<FontSize> + Copy + PartialEq + 'static>(
         mut self,
-        font_size: impl Into<MaybeReactive<T>>,
+        font_size: impl IntoMaybeReactive<T>,
     ) -> Self {
-        self.props.setter(font_size.into(), |props, &font_size| {
+        self.props.setter(font_size.maybe_reactive(), |props, &font_size| {
             props.size = font_size.into();
         });
         self
@@ -200,9 +205,9 @@ impl<W: WidgetCtx + 'static> MonoText<W> {
 
     pub fn font_style(
         mut self,
-        font_style: impl Into<MaybeReactive<FontStyle>>,
+        font_style: impl IntoMaybeReactive<FontStyle>,
     ) -> Self {
-        self.props.setter(font_style.into(), |props, &font_style| {
+        self.props.setter(font_style.maybe_reactive(), |props, &font_style| {
             props.style = font_style;
         });
         self
@@ -278,7 +283,7 @@ where
     W::Styler: WidgetStylist<MonoTextStyle<W::Color>>,
 {
     fn into(self) -> El<W> {
-        MonoText::new_static(self.to_string()).el()
+        MonoText::new_inert(self.to_string()).el()
     }
 }
 
@@ -287,7 +292,7 @@ where
     W::Styler: WidgetStylist<MonoTextStyle<W::Color>>,
 {
     fn into(self) -> El<W> {
-        MonoText::new_static(self.to_string()).el()
+        MonoText::new_inert(self.to_string()).el()
     }
 }
 
@@ -296,7 +301,7 @@ where
     W::Styler: WidgetStylist<MonoTextStyle<W::Color>>,
 {
     fn into(self) -> El<W> {
-        MonoText::new_static(self).el()
+        MonoText::new_inert(self).el()
     }
 }
 

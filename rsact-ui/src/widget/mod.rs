@@ -26,6 +26,7 @@ use bitflags::bitflags;
 use core::marker::PhantomData;
 use embedded_graphics::prelude::Point;
 use prelude::*;
+use rsact_reactive::maybe::IntoMaybeReactive;
 
 pub type DrawResult = Result<(), ()>;
 
@@ -79,7 +80,7 @@ pub type MetaTree = MemoTree<Meta>;
 // }
 
 // TODO: Not an actual context, rename to something like `WidgetTypeFamily`
-pub trait WidgetCtx: Sized + 'static {
+pub trait WidgetCtx: Sized + Clone + 'static {
     type Renderer: Renderer<Color = Self::Color>;
     type Styler: PartialEq + Copy;
     type Color: Color;
@@ -107,6 +108,21 @@ where
     _event: PhantomData<E>,
     _styler: PhantomData<S>,
     _page_id: PhantomData<I>,
+}
+
+impl<R, E, S, I> Clone for Wtf<R, E, S, I>
+where
+    R: Renderer,
+    E: Event,
+{
+    fn clone(&self) -> Self {
+        Self {
+            _renderer: self._renderer.clone(),
+            _event: self._event.clone(),
+            _styler: self._styler.clone(),
+            _page_id: self._page_id.clone(),
+        }
+    }
 }
 
 impl<R, E, S, I> Wtf<R, E, S, I>
@@ -138,25 +154,16 @@ where
     type Event = E;
 }
 
-#[derive(Debug)]
-pub struct FocusedEl {
-    pub id: ElId,
-    pub index: usize,
-    pub absolute_position: Point,
-}
-
 pub struct PageState<W: WidgetCtx> {
     /// Element id + its absolute tree index among all focusable elements (see [`PageTree`])
-    pub focused: Option<FocusedEl>,
-    /// The next element to focus in case if focus event won't be intercepted by element. See [`EventCtx::handle_focusable`] for logic on this.
-    pub next_focus: Option<ElId>,
+    pub focused: Option<(ElId, usize)>,
 
     ctx: PhantomData<W>,
 }
 
 impl<W: WidgetCtx> PageState<W> {
     pub fn new() -> Self {
-        Self { focused: None, next_focus: None, ctx: PhantomData }
+        Self { focused: None, ctx: PhantomData }
     }
 
     pub fn is_focused(&self, id: ElId) -> bool {
@@ -199,7 +206,7 @@ impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
             Block {
                 border: Border::zero()
                     // TODO: Theme focus color
-                    .color(Some(<W::Color as Color>::default_foreground()))
+                    .color(Some(<W::Color as Color>::accents()[0]))
                     .width(1),
                 rect: self.layout.outer,
                 background: None,
@@ -253,7 +260,6 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
                 event: self.event,
                 page_state: self.page_state,
                 layout: &child_layout,
-                // pass: &mut self.pass,
             })?;
         }
         self.ignore()
@@ -445,12 +451,12 @@ pub trait SizedWidget<W: WidgetCtx>: Widget<W> {
 
     fn width<L: Into<Length> + PartialEq + Copy + 'static>(
         self,
-        width: impl Into<MaybeReactive<L>>,
+        width: impl IntoMaybeReactive<L>,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout().setter(width.into(), |layout, &width| {
+        self.layout().setter(width.maybe_reactive(), |layout, &width| {
             layout.size.width = width.into();
         });
         self
@@ -458,12 +464,12 @@ pub trait SizedWidget<W: WidgetCtx>: Widget<W> {
 
     fn height<L: Into<Length> + PartialEq + Copy + 'static>(
         self,
-        height: impl Into<MaybeReactive<L>> + 'static,
+        height: impl IntoMaybeReactive<L> + 'static,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout().setter(height.into(), |layout, &height| {
+        self.layout().setter(height.maybe_reactive(), |layout, &height| {
             layout.size.height = height.into();
         });
         self
@@ -480,25 +486,28 @@ pub trait SizedWidget<W: WidgetCtx>: Widget<W> {
 pub trait BlockModelWidget<W: WidgetCtx>: Widget<W> {
     fn border_width(
         self,
-        border_width: impl Into<MaybeReactive<u32>> + 'static,
+        border_width: impl IntoMaybeReactive<u32> + 'static,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout().setter(border_width.into(), |layout, &border_width| {
-            layout.set_border_width(border_width);
-        });
+        self.layout().setter(
+            border_width.maybe_reactive(),
+            |layout, &border_width| {
+                layout.set_border_width(border_width);
+            },
+        );
         self
     }
 
     fn padding<P: Into<Padding> + PartialEq + Copy + 'static>(
         self,
-        padding: impl Into<MaybeReactive<P>> + 'static,
+        padding: impl IntoMaybeReactive<P> + 'static,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout().setter(padding.into(), |layout, &padding| {
+        self.layout().setter(padding.maybe_reactive(), |layout, &padding| {
             layout.set_padding(padding.into());
         });
         self

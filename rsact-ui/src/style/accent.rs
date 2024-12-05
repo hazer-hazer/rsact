@@ -124,7 +124,7 @@ impl<C: Color + 'static> WidgetStylist<SelectStyle<C>> for AccentStyler<C> {
     ) -> SelectStyle<C>
            + 'static {
         move |base, state| match state {
-            SelectState { pressed: _, active: true } => {
+            SelectState { pressed: _, active: true, selected: _ } => {
                 base.selected_border_color(self.accent)
             },
             _ => base,

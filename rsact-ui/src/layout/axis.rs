@@ -73,8 +73,11 @@ pub trait Axial {
         (f(self.x()), f(self.y()))
     }
 
-    fn destruct(&self) -> (Self::Data, Self::Data) {
-        (self.x(), self.y())
+    fn destruct(&self, axis: Axis) -> (Self::Data, Self::Data) {
+        match axis {
+            Axis::X => (self.x(), self.y()),
+            Axis::Y => (self.y(), self.x()),
+        }
     }
 
     #[inline]
@@ -274,15 +277,17 @@ impl<T: Axial> AxialData<T> {
     }
 }
 
-pub trait Direction {
+pub trait Direction: Clone {
     const AXIS: Axis;
 }
 
+#[derive(Clone)]
 pub struct RowDir;
 impl Direction for RowDir {
     const AXIS: Axis = Axis::X;
 }
 
+#[derive(Clone)]
 pub struct ColDir;
 impl Direction for ColDir {
     const AXIS: Axis = Axis::Y;

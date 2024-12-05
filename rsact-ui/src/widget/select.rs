@@ -13,7 +13,7 @@ use alloc::string::ToString;
 use core::{fmt::Display, marker::PhantomData};
 use embedded_graphics::prelude::{Point, Transform};
 use layout::{axis::Anchor, flex::flex_content_size, size::RectangleExt};
-use rsact_reactive::memo_chain::IntoMemoChain;
+use rsact_reactive::{maybe::IntoMaybeReactive, memo_chain::IntoMemoChain};
 
 pub trait SelectEvent {
     fn as_select(&self, axis: Axis) -> Option<i32>;
@@ -23,11 +23,12 @@ pub trait SelectEvent {
 pub struct SelectState {
     pub pressed: bool,
     pub active: bool,
+    pub selected: Option<usize>,
 }
 
 impl SelectState {
-    pub fn none() -> Self {
-        Self { pressed: false, active: false }
+    pub fn initial(selected: Option<usize>) -> Self {
+        Self { pressed: false, active: false, selected }
     }
 }
 
@@ -75,7 +76,7 @@ impl<W: WidgetCtx, K: PartialEq> SelectOption<W, K> {
         let string = key.to_string();
         SelectOption {
             key,
-            el: Container::new(MonoText::new_static(string).el())
+            el: Container::new(MonoText::new_inert(string).el())
                 .padding(5u32)
                 .el(),
         }
@@ -92,12 +93,11 @@ impl<W: WidgetCtx, K: PartialEq> PartialEq for SelectOption<W, K> {
     }
 }
 
-pub struct Select<W: WidgetCtx, K: PartialEq, Dir: Direction> {
+pub struct Select<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> {
     id: ElId,
     layout: Signal<Layout>,
     state: Signal<SelectState>,
     style: MemoChain<SelectStyle<W::Color>>,
-    selected: Signal<Option<usize>>,
     options: Memo<Vec<SelectOption<W, K>>>,
     dir: PhantomData<Dir>,
 }
@@ -108,8 +108,11 @@ where
     W::Styler: WidgetStylist<MonoTextStyle<W::Color>>,
     K: PartialEq + Clone + Display + 'static,
 {
-    pub fn vertical(options: impl IntoMemo<Vec<K>>) -> Self {
-        Self::new(options)
+    pub fn vertical(
+        selected: impl Into<MaybeSignal<K>>,
+        options: impl IntoMemo<Vec<K>>,
+    ) -> Self {
+        Self::new(selected, options)
     }
 }
 
@@ -119,8 +122,11 @@ where
     W: WidgetCtx,
     K: PartialEq + Clone + Display + 'static,
 {
-    pub fn horizontal(options: impl IntoMemo<Vec<K>>) -> Self {
-        Self::new(options)
+    pub fn horizontal(
+        selected: impl Into<MaybeSignal<K>>,
+        options: impl IntoMemo<Vec<K>>,
+    ) -> Self {
+        Self::new(selected, options)
     }
 }
 
@@ -131,16 +137,38 @@ where
     W::Styler: WidgetStylist<MonoTextStyle<W::Color>>,
     Dir: Direction,
 {
-    // TODO: MaybeReactive
-    pub fn new(options: impl IntoMemo<Vec<K>>) -> Self {
-        let options: Memo<Vec<SelectOption<W, K>>> =
-            options.memo().map(|options| {
-                options
-                    .into_iter()
-                    .cloned()
-                    .map(|opt| SelectOption::new(opt))
-                    .collect()
-            });
+    // TODO: MaybeReactive options
+    pub fn new(
+        selected: impl Into<MaybeSignal<K>>,
+        options: impl IntoMemo<Vec<K>>,
+    ) -> Self {
+        let options: Memo<Vec<_>> = options.memo().map(|options| {
+            options
+                .into_iter()
+                .cloned()
+                .map(|opt| SelectOption::new(opt))
+                .collect()
+        });
+
+        let mut selected: MaybeSignal<K> = selected.into();
+
+        let state = SelectState::initial(with!(move |selected, options| {
+            options.iter().position(|opt| &opt.key == selected)
+        }))
+        .signal();
+
+        selected.setter(
+            state.map(|state| state.selected).maybe_reactive(),
+            move |selected, position| {
+                if let Some(option) = position.and_then(|pos| {
+                    options.with(|options| {
+                        options.get(pos).map(|opt| opt.key.clone())
+                    })
+                }) {
+                    *selected = option;
+                }
+            },
+        );
 
         Self {
             id: ElId::unique(),
@@ -159,18 +187,17 @@ where
                 .align_cross(Align::Center),
             ))
             .signal(),
-            state: SelectState::none().signal(),
+            state,
             style: SelectStyle::base().memo_chain(),
-            selected: None.signal(),
             options,
             dir: PhantomData,
         }
     }
 
-    fn option_position(&self, key: &K) -> Option<usize> {
-        self.options
-            .with(|options| options.iter().position(|opt| &opt.key == key))
-    }
+    // fn option_position(&self, key: &K) -> Option<usize> {
+    //     self.options
+    //         .with(|options| options.iter().position(|opt| &opt.key == key))
+    // }
 
     // TODO: Use lenses
     // pub fn use_value(
@@ -238,20 +265,25 @@ where
     fn build_layout_tree(&self) -> rsact_reactive::prelude::MemoTree<Layout> {
         MemoTree {
             data: self.layout.memo(),
-            children: self.options.map(|options| {
-                options.iter().map(|opt| opt.el.build_layout_tree()).collect()
-            }),
+            children: self
+                .options
+                .map(|options| {
+                    options
+                        .iter()
+                        .map(|opt| opt.el.build_layout_tree())
+                        .collect()
+                })
+                .memo(),
         }
     }
 
     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         let style = self.style.get();
+        let state = self.state.get();
 
         let children_layouts = ctx.layout.children().collect::<Vec<_>>();
 
-        let selected = self.selected.get();
-
-        let options_offset = if let Some(selected) = selected {
+        let options_offset = if let Some(selected) = state.selected {
             let selected_child_layout = children_layouts.get(selected).unwrap();
 
             let options_offset =
@@ -293,7 +325,7 @@ where
                             renderer,
                             layout: &option_layout.translate(options_offset),
                             tree_style: ctx.tree_style.text_color(
-                                if Some(index) == selected {
+                                if Some(index) == state.selected {
                                     style.selected_text_color
                                 } else {
                                     style.text_color
@@ -308,11 +340,11 @@ where
     }
 
     fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse<W> {
-        let current_state = self.state.get();
+        let state = self.state.get();
 
-        if current_state.active && ctx.is_focused(self.id) {
+        if state.active && ctx.is_focused(self.id) {
             if let Some(mut offset) = ctx.event.as_select(Dir::AXIS) {
-                let current = self.selected.get();
+                let current = state.selected;
 
                 let new = current
                     .or_else(|| {
@@ -333,7 +365,7 @@ where
                     });
 
                 if current != new {
-                    self.selected.set(new);
+                    self.state.update(|state| state.selected = new);
                 }
 
                 return ctx.capture();
@@ -342,8 +374,8 @@ where
 
         ctx.handle_focusable(self.id, |ctx, pressed| {
             // TODO: Generalize
-            if current_state.pressed != pressed {
-                let toggle_active = !current_state.pressed && pressed;
+            if state.pressed != pressed {
+                let toggle_active = !state.pressed && pressed;
 
                 self.state.update(|state| {
                     state.pressed = pressed;

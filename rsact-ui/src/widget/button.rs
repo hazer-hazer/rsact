@@ -1,3 +1,5 @@
+use rsact_reactive::maybe::IntoMaybeReactive;
+
 use crate::{prelude::*, render::Renderable};
 
 pub trait ButtonEvent {
@@ -43,7 +45,7 @@ pub struct Button<W: WidgetCtx> {
 
 impl<W: WidgetCtx + 'static> Button<W> {
     pub fn new(content: impl Into<El<W>>) -> Self {
-        let content = content.into();
+        let content: El<W> = content.into();
         let state = create_signal(ButtonState::none());
 
         let layout = Layout::shrink(LayoutKind::Container(ContainerLayout {
@@ -53,7 +55,7 @@ impl<W: WidgetCtx + 'static> Button<W> {
             content_size: content
                 .layout()
                 .map(|layout| layout.content_size())
-                .into(),
+                .maybe_reactive(),
         }))
         .signal();
 

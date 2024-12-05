@@ -13,6 +13,10 @@ impl BlockModel {
         Self { border_width: 0, padding: Padding::zero() }
     }
 
+    pub fn full_padding(&self) -> Padding {
+        self.padding + Padding::new_equal(self.border_width)
+    }
+
     pub fn border_width(mut self, border_width: u32) -> Self {
         self.border_width = border_width;
         self

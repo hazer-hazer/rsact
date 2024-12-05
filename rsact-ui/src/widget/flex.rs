@@ -4,6 +4,7 @@ use crate::widget::{
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 use layout::flex::flex_content_size;
+use rsact_reactive::{maybe::IntoMaybeReactive, memo::Keyed};
 
 // pub type Row<C> = Flex<C, RowDir>;
 // pub type Col<C> = Flex<C, ColDir>;
@@ -81,27 +82,39 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Flex<W, Dir> {
         self
     }
 
-    pub fn gap(mut self, gap: impl Into<Size>) -> Self {
-        self.layout.update_untracked(|layout| {
+    pub fn gap<G: Into<Size> + Copy + PartialEq + 'static>(
+        mut self,
+        gap: impl IntoMaybeReactive<G>,
+    ) -> Self {
+        self.layout.setter(gap.maybe_reactive(), |layout, &gap| {
             layout.expect_flex_mut().gap = gap.into();
         });
         self
     }
 
-    pub fn vertical_align(mut self, vertical_align: impl Into<Align>) -> Self {
-        self.layout.update_untracked(|layout| {
-            layout.expect_flex_mut().vertical_align = vertical_align.into();
-        });
+    pub fn vertical_align(
+        mut self,
+        vertical_align: impl IntoMaybeReactive<Align>,
+    ) -> Self {
+        self.layout.setter(
+            vertical_align.maybe_reactive(),
+            |layout, &vertical_align| {
+                layout.expect_flex_mut().vertical_align = vertical_align;
+            },
+        );
         self
     }
 
     pub fn horizontal_align(
         mut self,
-        horizontal_align: impl Into<Align>,
+        horizontal_align: impl IntoMaybeReactive<Align>,
     ) -> Self {
-        self.layout.update_untracked(|layout| {
-            layout.expect_flex_mut().horizontal_align = horizontal_align.into();
-        });
+        self.layout.setter(
+            horizontal_align.maybe_reactive(),
+            |layout, &horizontal_align| {
+                layout.expect_flex_mut().horizontal_align = horizontal_align;
+            },
+        );
         self
     }
 

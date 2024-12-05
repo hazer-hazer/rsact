@@ -1,6 +1,7 @@
 use super::{layout::ContentLayout, Limits, Size};
 use crate::widget::prelude::*;
 use rsact_icons::IconSet;
+use rsact_reactive::maybe::IntoMaybeReactive;
 
 declare_widget_style! {
     IconStyle () {
@@ -45,9 +46,10 @@ impl<W: WidgetCtx, I: IconSet + 'static> Icon<W, I> {
 
     pub fn size<S: Into<FontSize> + Clone + PartialEq + 'static>(
         mut self,
-        size: impl Into<MaybeReactive<S>>,
+        size: impl IntoMaybeReactive<S>,
     ) -> Self {
-        self.size.set_from(size.into().map(|size| size.clone().into()));
+        self.size
+            .set_from(size.maybe_reactive().map(|size| size.clone().into()));
         self
     }
 

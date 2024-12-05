@@ -39,11 +39,11 @@ fn main() {
         NullStyler,
     ).no_events().with_page(SinglePage, 
         Flex::col([
-            MonoText::new_static("System icons").el(),
-            Flex::row(system_icons).wrap(true).gap(5).el(),
-            MonoText::new_static("Common icons").el(),
-            Flex::row(common_icons).wrap(true).gap(5).el(),
-            MonoText::new_static(format!("Icons of size {ICON_SIZE}. Auto-generated from Material Design Icons")).el()
+            MonoText::new_inert("System icons").el(),
+            Flex::row(system_icons).wrap(true).gap(5u32).el(),
+            MonoText::new_inert("Common icons").el(),
+            Flex::row(common_icons).wrap(true).gap(5u32).el(),
+            MonoText::new_inert(format!("Icons of size {ICON_SIZE}. Auto-generated from Material Design Icons")).el()
         ])
         .center()
         .fill()

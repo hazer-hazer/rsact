@@ -16,7 +16,9 @@
           "--features",
           "std,simulator",
           "--features",
-          "rsact-icons/common"
+          "rsact-icons/common",
+          "--profile",
+          "example"
         ],
         // "filter": {
         //   "name": "${input:pickExample}",

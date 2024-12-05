@@ -13,7 +13,7 @@ use embedded_graphics::{
 use flex::model_flex;
 pub use limits::Limits;
 use padding::Padding;
-use rsact_reactive::prelude::*;
+use rsact_reactive::{maybe::IntoMaybeReactive, prelude::*};
 use size::{Length, Size};
 
 pub mod axis;
@@ -24,11 +24,21 @@ pub mod limits;
 pub mod padding;
 pub mod size;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, IntoMaybeReactive)]
 pub enum Align {
     Start,
     Center,
     End,
+}
+
+impl Display for Align {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Align::Start => "Start",
+            Align::Center => "Center",
+            Align::End => "End",
+        })
+    }
 }
 
 impl Align {
@@ -50,8 +60,8 @@ pub struct ContentLayout {
 }
 
 impl ContentLayout {
-    pub fn new(content_size: impl Into<MaybeReactive<Limits>>) -> Self {
-        Self { content_size: content_size.into() }
+    pub fn new(content_size: impl IntoMaybeReactive<Limits>) -> Self {
+        Self { content_size: content_size.maybe_reactive() }
     }
 
     pub fn min_size(&self) -> Size {
@@ -68,12 +78,12 @@ pub struct ContainerLayout {
 }
 
 impl ContainerLayout {
-    pub fn base(content_size: impl Into<MaybeReactive<Limits>>) -> Self {
+    pub fn base(content_size: impl IntoMaybeReactive<Limits>) -> Self {
         Self {
             block_model: BlockModel::zero(),
             horizontal_align: Align::Start,
             vertical_align: Align::Start,
-            content_size: content_size.into(),
+            content_size: content_size.maybe_reactive(),
         }
     }
 
@@ -98,7 +108,7 @@ impl FlexLayout {
     /// Default but with specific axis
     pub fn base(
         axis: Axis,
-        content_size: impl Into<MaybeReactive<Limits>>,
+        content_size: impl IntoMaybeReactive<Limits>,
     ) -> Self {
         Self {
             wrap: false,
@@ -107,7 +117,7 @@ impl FlexLayout {
             gap: Size::zero(),
             horizontal_align: Align::Start,
             vertical_align: Align::Start,
-            content_size: content_size.into(),
+            content_size: content_size.maybe_reactive(),
         }
     }
 
@@ -161,8 +171,8 @@ pub struct ScrollableLayout {
 }
 
 impl ScrollableLayout {
-    pub fn new(content_size: impl Into<MaybeReactive<Limits>>) -> Self {
-        Self { content_size: content_size.into() }
+    pub fn new(content_size: impl IntoMaybeReactive<Limits>) -> Self {
+        Self { content_size: content_size.maybe_reactive() }
     }
 
     pub fn min_size(&self) -> Size {
@@ -176,6 +186,7 @@ pub struct DevFlexLayout {
     real: FlexLayout,
 }
 
+/// DevLayout preserves some initial layout properties that are not required in LayoutModel.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DevLayout {
     pub size: Size<Length>,
@@ -342,8 +353,10 @@ impl Layout {
 
     /// Construct base scrollable layout where main axis will be shrinking and cross axis will fill. Also checks if content layout is with growing length on main axis which is disallowed.
     pub fn scrollable<Dir: Direction>(
-        content_layout: MaybeReactive<Layout>,
+        content_layout: impl IntoMaybeReactive<Layout>,
     ) -> Self {
+        let content_layout = content_layout.maybe_reactive();
+
         let content_layout_length =
             content_layout.with(|layout| layout.size.main(Dir::AXIS));
 
@@ -531,21 +544,29 @@ pub struct LayoutModel {
 
 impl LayoutModel {
     pub fn new(
-        size: Size,
+        inner_size: Size,
         children: Vec<LayoutModel>,
         #[cfg(debug_assertions)] dev: DevLayout,
     ) -> Self {
         Self {
-            outer: Rectangle::new(Point::zero(), size.into()),
-            inner: Rectangle::new(Point::zero(), size.into()),
+            outer: Rectangle::new(Point::zero(), inner_size.into()),
+            inner: Rectangle::new(Point::zero(), inner_size.into()),
             children,
             #[cfg(debug_assertions)]
             dev,
         }
     }
 
-    fn full_padding(mut self, full_padding: Padding) -> Self {
-        self.inner = self.inner - full_padding;
+    /// Full padding includes padding + border size
+    fn with_full_padding(mut self, full_padding: Padding) -> Self {
+        let padding_size: Size = full_padding.into();
+
+        self.inner = self.inner.translate(full_padding.top_left());
+
+        self.outer = self.outer.resized(
+            self.outer.size + padding_size.into(),
+            embedded_graphics::geometry::AnchorPoint::TopLeft,
+        );
         self
     }
 
@@ -645,6 +666,7 @@ pub fn model_layout(
         let size = layout.size.in_parent(parent_size);
 
         match &layout.kind {
+            // TODO: Panic or not?
             LayoutKind::Zero => LayoutModel::zero(),
             LayoutKind::Edge => {
                 let limits = parent_limits.limit_by(size);
@@ -709,7 +731,7 @@ pub fn model_layout(
                 LayoutModel::new(
                     // TODO: Generalize logic with real_size.expand/shrink and
                     // full_padding
-                    real_size.expand(full_padding),
+                    real_size,
                     vec![content_layout],
                     #[cfg(debug_assertions)]
                     DevLayout::new(
@@ -717,7 +739,7 @@ pub fn model_layout(
                         DevLayoutKind::Container(container_layout.clone()),
                     ),
                 )
-                .full_padding(full_padding)
+                .with_full_padding(full_padding)
             },
             LayoutKind::Scrollable(scrollable_layout) => {
                 // TODO: Useless?

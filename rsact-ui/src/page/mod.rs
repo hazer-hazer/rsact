@@ -8,8 +8,7 @@ use crate::{
     render::{color::Color, Renderer},
     style::TreeStyle,
     widget::{
-        Behavior, DrawCtx, EventCtx, FocusedEl, MountCtx, PageState, Widget,
-        WidgetCtx,
+        Behavior, DrawCtx, EventCtx, MountCtx, PageState, Widget, WidgetCtx,
     },
 };
 use alloc::vec::Vec;
@@ -234,7 +233,7 @@ impl<W: WidgetCtx> Page<W> {
         let focusable_count = self.meta.focusable.with(Vec::len);
 
         let current_offset = self.state.with(|state| {
-            state.focused.as_ref().map(|focused| focused.index).unwrap_or(0)
+            state.focused.as_ref().map(|focused| focused.1).unwrap_or(0)
         });
 
         let new_focus_offset = (current_offset as i64 + offset as i64)
@@ -254,7 +253,7 @@ impl<W: WidgetCtx> Page<W> {
         }
     }
 
-    fn apply_focus(&mut self, focus: FocusedEl) {
+    fn apply_focus(&mut self, focus: (ElId, usize)) {
         self.state.update(|state| state.focused = Some(focus))
     }
 
@@ -285,16 +284,12 @@ impl<W: WidgetCtx> Page<W> {
                     }
                 }
 
-                let next_focus = if let Some(next_focus) = event
+                let new_focus = if let Some(new_focus) = event
                     .as_focus_move()
                     .map(|offset| self.find_focus(offset))
                     .flatten()
                 {
-                    self.state.update(|state| {
-                        state.next_focus = Some(next_focus.0);
-                    });
-
-                    Some(next_focus)
+                    Some(new_focus)
                 } else {
                     None
                 };
@@ -325,26 +320,18 @@ impl<W: WidgetCtx> Page<W> {
                     // TODO: Maybe better merge bubble and capture as they have similar logic?
                     EventResponse::Break(capture) => match capture {
                         // TODO: Captured data may be useful for debugging, for example we can point where on screen user clicked or something
-                        Capture::Captured(capture) => {
-                            if let Some(next_focus) = next_focus {
-                                self.state.update(|state| {
-                                    state.focused = Some(FocusedEl {
-                                        id: next_focus.0,
-                                        index: next_focus.1,
-                                        absolute_position: capture
-                                            .absolute_position,
-                                    });
-                                    state.next_focus = None;
-                                });
+                        Capture::Captured(_capture) => {
+                            if let Some(new_focus) = new_focus {
+                                self.apply_focus(new_focus);
                             }
                             None
                         },
                         Capture::Bubble(data) => match data {
-                            crate::event::BubbledData::FocusOffset(offset) => {
-                                self.find_focus(offset)
-                                    .map(|focus| self.apply_focus(focus));
-                                None
-                            },
+                            // crate::event::BubbledData::FocusOffset(offset) => {
+                            //     self.find_focus(offset)
+                            //         .map(|focus| self.apply_focus(focus));
+                            //     None
+                            // },
                             crate::event::BubbledData::Custom(custom) => {
                                 // Users receive only their custom bubbled data
                                 Some(UnhandledEvent::Bubbled(custom))

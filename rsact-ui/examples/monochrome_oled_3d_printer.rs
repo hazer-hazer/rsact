@@ -63,7 +63,7 @@ fn main() {
                 Icon::new(SystemIcon::ArrowLeft).size(6u32).el(),
                 "Back".into(),
             ])
-            .gap(2)
+            .gap(2u32)
             .center(),
         )
         .padding(2u32)
@@ -87,7 +87,7 @@ fn main() {
         .el(),
     ])
     .fill()
-    .gap(10)
+    .gap(10u32)
     .padding(10u32)
     .horizontal_align(Align::Center)
     .el();
@@ -133,7 +133,7 @@ fn main() {
                 .collect::<Vec<_>>(),
         )
         .fill_width()
-        .gap(1)
+        .gap(1u32)
         .el(),
     )
     .tracker()
@@ -199,7 +199,7 @@ fn main() {
         .padding(1u32)
         .fill_height()
         .center()
-        .gap(3)
+        .gap(3u32)
         .el(),
         Flex::col([
             Button::new("Z+")
@@ -217,7 +217,7 @@ fn main() {
                 .el(),
         ])
         .center()
-        .gap(1)
+        .gap(1u32)
         .fill_height()
         .el(),
         Flex::col([
@@ -225,7 +225,7 @@ fn main() {
             MonoText::new(position.memo()).el(),
             position_button("Y+", UnitV2::DOWN),
         ])
-        .gap(5)
+        .gap(5u32)
         .center()
         .fill()
         .el(),
@@ -285,24 +285,24 @@ fn main() {
                 .el(),
         ])
         .center()
-        .gap(5)
+        .gap(5u32)
         .fill()
         .el(),
         Flex::col([
             MonoText::new(bed_temp.map(|temp| format!("{temp}C"))).el(),
             Knob::new(bed_temp).el(),
-            MonoText::new_static("Bed").el(),
+            MonoText::new_inert("Bed").el(),
         ])
-        .gap(2)
+        .gap(2u32)
         .center()
         .fill()
         .el(),
         Flex::col([
             MonoText::new(nozzle_temp.map(|temp| format!("{temp}C"))).el(),
             Knob::new(nozzle_temp).el(),
-            MonoText::new_static("Nozzle").el(),
+            MonoText::new_inert("Nozzle").el(),
         ])
-        .gap(2)
+        .gap(2u32)
         .center()
         .fill()
         .el(),
@@ -317,7 +317,7 @@ fn main() {
                     Icon::new(CommonIcon::File).size(8u32).el(),
                     "Files".into(),
                 ])
-                .gap(3),
+                .gap(3u32),
             )
             .on_click(move || {
                 queue.publish(UiMessage::GoTo(files_page_id));
@@ -329,7 +329,7 @@ fn main() {
                     Icon::new(CommonIcon::MapMarker).size(8u32).el(),
                     "Position".into(),
                 ])
-                .gap(3),
+                .gap(3u32),
             )
             .on_click(move || {
                 queue.publish(UiMessage::GoTo(position_page_id));
@@ -341,7 +341,7 @@ fn main() {
                     Icon::new(CommonIcon::Thermometer).size(8u32).el(),
                     "Temperature".into(),
                 ])
-                .gap(3),
+                .gap(3u32),
             )
             .on_click(move || {
                 queue.publish(UiMessage::GoTo(temp_page_id));
@@ -349,7 +349,7 @@ fn main() {
             .fill_width()
             .el(),
         ])
-        .gap(1)
+        .gap(1u32)
         .fill_width()
         .el(),
     )

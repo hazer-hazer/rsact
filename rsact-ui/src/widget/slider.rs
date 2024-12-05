@@ -166,8 +166,12 @@ where
     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         let style = self.style.get();
 
-        let track_len =
-            ctx.layout.inner.size.main(Dir::AXIS) - style.thumb_size - 1;
+        let track_len = ctx
+            .layout
+            .inner
+            .size
+            .main(Dir::AXIS)
+            .saturating_sub(style.thumb_size + 1);
 
         let start = ctx.layout.inner.top_left
             + Dir::AXIS.canon::<Point>(

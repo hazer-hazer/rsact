@@ -10,6 +10,7 @@ use embedded_graphics::{
     primitives::{PrimitiveStyle, PrimitiveStyleBuilder},
 };
 use layout::ScrollableLayout;
+use rsact_reactive::maybe::IntoMaybeReactive;
 
 #[derive(Clone, Copy)]
 pub enum ScrollableMode {
@@ -123,8 +124,7 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
         let content = content.el();
         let state = create_signal(ScrollableState::none());
 
-        let layout =
-            Layout::scrollable::<Dir>(content.layout().into()).signal();
+        let layout = Layout::scrollable::<Dir>(content.layout()).signal();
 
         Self {
             id: ElId::unique(),
@@ -172,12 +172,12 @@ where
 {
     fn width<L: Into<Length> + PartialEq + Copy + 'static>(
         self,
-        width: impl Into<MaybeReactive<L>>,
+        width: impl IntoMaybeReactive<L>,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout().setter(width.into(), |layout, &width| {
+        self.layout().setter(width.maybe_reactive(), |layout, &width| {
             layout.size.width =
                 Length::InfiniteWindow(width.into().try_into().unwrap());
         });
@@ -193,12 +193,12 @@ where
 {
     fn height<L: Into<Length> + PartialEq + Copy + 'static>(
         self,
-        height: impl Into<MaybeReactive<L>> + 'static,
+        height: impl IntoMaybeReactive<L> + 'static,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout().setter(height.into(), |layout, &height| {
+        self.layout().setter(height.maybe_reactive(), |layout, &height| {
             layout.size.height =
                 Length::InfiniteWindow(height.into().try_into().unwrap());
         });

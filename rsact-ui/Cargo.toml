@@ -41,3 +41,6 @@ simulator = ["dep:embedded-graphics-simulator"]
 [[example]]
 name = "animation"
 required-features = ["std"]
+
+[[example]]
+name = "flex"

@@ -43,7 +43,7 @@ pub enum BubbledData<W: WidgetCtx> {
     // // to /// that event, for example, by scrolling to it
     // // Focused(ElId, Point),
     // Message(Message<W>),
-    FocusOffset(i32),
+    // FocusOffset(i32),
     Custom(<W::Event as Event>::BubbledData),
 }
 

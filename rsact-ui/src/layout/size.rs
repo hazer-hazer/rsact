@@ -402,11 +402,11 @@ impl Size<u32> {
         Self { width: 0, height: 0 }
     }
 
-    pub fn expand(self, by: impl Into<Size>) -> Self {
-        let by = by.into();
+    // pub fn expand(self, by: impl Into<Self>) -> Self {
+    //     let by = by.into();
 
-        Self::new(self.width + by.width, self.height + by.height)
-    }
+    //     Self::new(self.width + by.width, self.height + by.height)
+    // }
 
     pub fn as_fixed_length(self) -> Size<Length> {
         Size::new(Length::Fixed(self.width), Length::Fixed(self.height))

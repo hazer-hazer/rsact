@@ -6,7 +6,6 @@ use crate::{
     layout::{
         axis::Axial as _,
         model_layout,
-        padding::Padding,
         size::{DivFactors, SubTake as _},
         Align, DevFlexLayout, DevLayout,
     },
@@ -17,7 +16,8 @@ use embedded_graphics::prelude::Point;
 use num::traits::SaturatingAdd;
 use rsact_reactive::prelude::*;
 
-// TODO: May not work with wrap
+// TODO: Wrap and gap are not taken into account
+// TODO: Move usage of this function into FlexLayout::base function accepting list of maybe reactive children
 pub fn flex_content_size<'a, W: WidgetCtx, E: Widget<W> + 'a>(
     axis: Axis,
     children: impl Iterator<Item = &'a E>,
@@ -41,8 +41,28 @@ pub fn flex_content_size<'a, W: WidgetCtx, E: Widget<W> + 'a>(
     })
 }
 
+struct FlexItem {
+    // Line number
+    line: usize,
+    /// Marker for item which is the last in line
+    last_in_line: bool,
+}
+
+// Single main axis line in flexbox
+#[derive(Clone, Copy)]
+struct FlexLine {
+    div_factors: DivFactors,
+    /// Number of items line contains
+    items_count: u32,
+    /// Available main axis left
+    free_main: u32,
+    /// Maximum item cross axis size in line
+    max_cross: u32,
+}
+
 pub fn model_flex(
     tree: MemoTree<Layout>,
+    // TODO: Replace with parent max size as parent_limits.min is not used at all.
     parent_limits: Limits,
     flex_layout: &FlexLayout,
     size: Size<Length>,
@@ -55,61 +75,45 @@ pub fn model_flex(
         gap,
         horizontal_align,
         vertical_align,
-        ..
+        content_size: _,
     } = flex_layout;
 
-    let full_padding =
-        block_model.padding + Padding::new_equal(block_model.border_width);
-
-    struct FlexItem {
-        // Cross axis line number
-        line: usize,
-        last_in_line: bool,
-    }
-
-    // Single main axis line in flexbox
-    #[derive(Clone, Copy)]
-    struct FlexLine {
-        div_factors: DivFactors,
-        items_count: u32,
-        free_main: u32,
-        // max_fixed_cross: u32,
-        min_cross: u32,
-    }
+    let full_padding = block_model.full_padding();
 
     let limits = parent_limits.limit_by(size).shrink(full_padding);
+    let (max_possible_main, max_possible_cross) = limits.max().destruct(axis);
 
     let children_count = tree.children.with(Vec::len);
-    let max_possible_main = limits.max().main(axis);
-    let max_possible_cross = limits.max().cross(axis);
 
-    let new_line = FlexLine {
+    let const_new_line = FlexLine {
         div_factors: DivFactors::zero(),
         items_count: 0,
         free_main: max_possible_main,
-        min_cross: 0,
+        max_cross: 0,
     };
 
     let mut items: Vec<FlexItem> = Vec::with_capacity(children_count);
-    let mut lines = vec![new_line];
+    let mut lines = vec![const_new_line];
 
     let mut children_layouts = Vec::with_capacity(children_count);
     children_layouts.resize_with(children_count, || LayoutModel::zero());
 
+    let (gap_main, gap_cross) = gap.destruct(axis);
+
     let mut container_free_cross = max_possible_cross;
     tree.children.with(|children| {
-        for (i, child) in children.iter().enumerate() {
-            let child_size = child.data.with(|child| child.size);
-
-            let child_min_size = child.data.with(|layout| layout.min_size());
+        for (item_index, child) in children.iter().enumerate() {
+            let (child_size, child_min_size) =
+                child.data.with(|child| (child.size, child.min_size()));
 
             {
+                // Wrapping //
                 let min_item_size = child_size.max_fixed(child_min_size);
 
-                let needed_item_space =
-                    min_item_size + if i != 0 { gap } else { Size::zero() };
+                let needed_item_space = min_item_size
+                    + if item_index != 0 { gap } else { Size::zero() };
 
-                let last_line = *lines.last().unwrap();
+                let last_line = lines.last().unwrap();
                 let free_main = last_line.free_main;
 
                 // Allow fluid item to wrap the container even if it is a
@@ -122,16 +126,16 @@ pub fn model_flex(
                     //     .saturating_sub(last_line.fluid_space.
                     // cross(axis));
                     container_free_cross = container_free_cross
-                        .saturating_sub(last_line.min_cross);
+                        .saturating_sub(last_line.max_cross);
 
                     if let Some(last_item) = items.last_mut() {
                         last_item.last_in_line = true;
                     }
 
-                    lines.push(new_line);
+                    lines.push(const_new_line);
                 } else if last_line.items_count != 0 {
                     lines.last_mut().unwrap().free_main =
-                        free_main.saturating_sub(gap.main(axis));
+                        free_main.saturating_sub(gap_main);
                 }
             }
 
@@ -155,24 +159,24 @@ pub fn model_flex(
                 // TODO: Not working properly
                 // // Min content size of child must have been less or
                 // // equal to resulting size.
-                // debug_assert!(
-                //     child_layout.outer_size().main(axis) <= line.free_main
-                // );
+                debug_assert!(
+                    child_layout.outer_size().main(axis) <= line.free_main
+                );
 
                 let child_layout_size = child_layout.outer_size();
 
-                children_layouts[i] = child_layout;
+                children_layouts[item_index] = child_layout;
 
-                // Subtract known children main axis length from free
-                // space to overflow. Free cross
-                // axis is calculated on wrap
+                // Subtract known children main axis length from free space to overflow. Free cross axis is calculated on wrap
                 line.free_main =
                     line.free_main.saturating_sub(child_layout_size.main(axis));
 
-                line.min_cross =
-                    line.min_cross.max(child_layout_size.cross(axis));
+                line.max_cross =
+                    line.max_cross.max(child_layout_size.cross(axis));
             } else {
-                line.min_cross = line.min_cross.max(child_min_size.cross(axis));
+                // TODO: Is it right to use min size of a child to determine max_cross? It won't let fill sized elements to grow.
+                // - But otherwise how do we determine the amount the element should grow? We only exactly know fixed sizes of elements before computing fluid sizes. So fluid elements grow to maximum of fixed size used.
+                line.max_cross = line.max_cross.max(child_min_size.cross(axis));
             }
 
             // Calculate total divisions for a line, even for fixed
@@ -181,17 +185,16 @@ pub fn model_flex(
             line.div_factors += child_div_factors;
             line.items_count += 1;
 
-            items.push(FlexItem { line: line_number, last_in_line: false });
+            items.push(FlexItem {
+                line: line_number,
+                last_in_line: item_index == children_count - 1,
+            });
         }
-    });
-
-    items.last_mut().map(|last| {
-        last.last_in_line = true;
     });
 
     lines.last().map(|line| {
         container_free_cross =
-            container_free_cross.saturating_sub(line.min_cross);
+            container_free_cross.saturating_sub(line.max_cross);
     });
 
     #[derive(Clone, Copy)]
@@ -236,7 +239,7 @@ pub fn model_flex(
                     // TODO: InfiniteWindow inner
                     Length::InfiniteWindow(_) | Length::Shrink => {
                         // line.max_fixed_cross
-                        line.min_cross
+                        line.max_cross
                     },
                     // Note: We can use max_possible_cross as we have one line,
                     // so it fills the parent and no wrap logic applied
@@ -247,7 +250,7 @@ pub fn model_flex(
                     },
                 }
             } else {
-                line.min_cross
+                line.max_cross
                     + if size.cross(axis).is_grow() {
                         container_free_cross_div
                             + if container_free_cross_rem > 0 {
@@ -352,7 +355,7 @@ pub fn model_flex(
 
                 used_cross += model_line.cross
                     + if item.line < model_lines.len() - 1 {
-                        gap.cross(axis)
+                        gap_cross
                     } else {
                         0
                     };
@@ -361,7 +364,7 @@ pub fn model_flex(
                 *next_pos.cross_mut(axis) = used_cross as i32;
                 // (model_line.cross.saturating_add(gap.cross(axis))) as i32;
             } else {
-                model_line.used_main += gap.main(axis);
+                model_line.used_main += gap_main;
 
                 *next_pos.main_mut(axis) = model_line.used_main as i32;
             }
@@ -393,9 +396,8 @@ pub fn model_flex(
         }
     }
 
-    // TODO: Expand must be done in `full_padding` method?
     LayoutModel::new(
-        layout_size.expand(full_padding),
+        layout_size,
         children_layouts,
         #[cfg(debug_assertions)]
         DevLayout::new(
@@ -410,5 +412,5 @@ pub fn model_flex(
             }),
         ),
     )
-    .full_padding(full_padding)
+    .with_full_padding(full_padding)
 }

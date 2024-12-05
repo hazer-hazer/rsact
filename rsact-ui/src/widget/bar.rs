@@ -9,6 +9,7 @@ use embedded_graphics::{
     primitives::{PrimitiveStyle, PrimitiveStyleBuilder},
 };
 use layout::size::RectangleExt;
+use rsact_reactive::maybe::IntoMaybeReactive;
 
 // TODO: Padding for inner bar
 
@@ -40,6 +41,7 @@ impl<C: Color> BarStyle<C> {
     }
 }
 
+#[derive(Clone)]
 pub struct Bar<W: WidgetCtx, V: RangeValue, Dir: Direction> {
     value: MaybeReactive<V>,
     layout: Signal<Layout>,
@@ -48,21 +50,21 @@ pub struct Bar<W: WidgetCtx, V: RangeValue, Dir: Direction> {
 }
 
 impl<W: WidgetCtx, V: RangeValue + 'static> Bar<W, V, ColDir> {
-    pub fn vertical(value: impl Into<MaybeReactive<V>>) -> Self {
+    pub fn vertical(value: impl IntoMaybeReactive<V>) -> Self {
         Self::new(value)
     }
 }
 
 impl<W: WidgetCtx, V: RangeValue + 'static> Bar<W, V, RowDir> {
-    pub fn horizontal(value: impl Into<MaybeReactive<V>>) -> Self {
+    pub fn horizontal(value: impl IntoMaybeReactive<V>) -> Self {
         Self::new(value)
     }
 }
 
 impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction> Bar<W, V, Dir> {
-    pub fn new(value: impl Into<MaybeReactive<V>>) -> Self {
+    pub fn new(value: impl IntoMaybeReactive<V>) -> Self {
         Self {
-            value: value.into(),
+            value: value.maybe_reactive(),
             layout: Layout {
                 kind: LayoutKind::Edge,
                 size: Dir::AXIS.canon(Length::fill(), Length::Fixed(10)),
