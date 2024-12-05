@@ -12,6 +12,8 @@ impl<B, C> UpdateNotification for ControlFlow<B, C> {
     }
 }
 
+// TODO: Add `change` method, like `set` but notifies only if value is changed. Open question is if `change` should track get of current value to compare with new one or do it silently
+
 pub trait WriteSignal<T> {
     /// Notify subscribers that signal is updated
     fn notify(&self);

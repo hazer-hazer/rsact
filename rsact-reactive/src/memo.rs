@@ -141,6 +141,7 @@ pub trait IntoMemo<T: PartialEq> {
     fn memo(self) -> Memo<T>;
 }
 
+// TODO: Optimize identity memos. Memo should allow storing signal as it is, without creation of new Memo value.
 impl<T: PartialEq + Clone + 'static, M: marker::CanRead + 'static> IntoMemo<T>
     for Signal<T, M>
 {
@@ -215,10 +216,35 @@ impl<T: PartialEq + 'static> MemoTree<T> {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct NeverEqual;
+
+impl PartialEq for NeverEqual {
+    fn eq(&self, _other: &Self) -> bool {
+        false
+    }
+}
+
 /// [`Keyed`] is a helper for memos which you can use to avoid computationally expensive comparisons in some cases. It is a pair of data and its key, where, unlike in raw memo, key is used for memoization comparisons.
 pub struct Keyed<K: PartialEq, V> {
     key: K,
     value: V,
+}
+
+impl<K: PartialEq, V> Keyed<K, V> {
+    pub fn value(&self) -> &V {
+        &self.value
+    }
+
+    pub fn key(&self) -> &K {
+        &self.key
+    }
+}
+
+impl<V> Keyed<NeverEqual, V> {
+    pub fn never_equal(value: V) -> Self {
+        Self { key: NeverEqual, value }
+    }
 }
 
 impl<K: PartialEq, V> Deref for Keyed<K, V> {

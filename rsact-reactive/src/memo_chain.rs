@@ -1,6 +1,6 @@
 use crate::{
     callback::AnyCallback,
-    memo::Memo,
+    memo::{IntoMemo, Memo},
     prelude::create_memo,
     read::{impl_read_signal_traits, ReadSignal, SignalMap},
     runtime::with_current_runtime,
@@ -92,6 +92,10 @@ impl<T: PartialEq + 'static> MemoChain<T> {
         with_current_runtime(|rt| rt.is_alive(self.id))
     }
 
+    // TODO: Add methods `first_mapped` and `last_mapped` which will wrap first and last mappers with new mapping memos. This will allow infinite depth of chain.
+    // Also it is better to add common logic for such case as memo replacement -- allow replacing memo with new function functionality. It seems very bad practice, but I see cases where it might be needed. Of course, preserving initial return type.
+
+    // TODO: Should these methods require mutable access?
     #[must_use = "Setting memo chain can fail"]
     pub fn first(
         self,
@@ -164,6 +168,12 @@ impl<T: PartialEq> Clone for MemoChain<T> {
 }
 
 impl<T: PartialEq> Copy for MemoChain<T> {}
+
+impl<T: PartialEq + Clone + 'static> IntoMemo<T> for MemoChain<T> {
+    fn memo(self) -> Memo<T> {
+        self.map(|value| value.clone())
+    }
+}
 
 pub trait IntoMemoChain<T: PartialEq> {
     fn memo_chain(self) -> MemoChain<T>;
