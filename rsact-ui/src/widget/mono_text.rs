@@ -15,10 +15,7 @@ use embedded_text::{
     TextBox,
 };
 use layout::ContentLayout;
-use rsact_reactive::{
-    maybe::{IntoMaybeReactive, MaybeReactive},
-    memo_chain::IntoMemoChain,
-};
+use rsact_reactive::{maybe::IntoMaybeReactive, memo_chain::IntoMemoChain};
 
 pub const MIN_MONO_HEIGHT: u32 = 6;
 pub const MAX_MONO_HEIGHT: u32 = 20;
@@ -29,6 +26,7 @@ pub struct MonoFontProps {
     style: FontStyle,
 }
 
+// TODO: Static font to avoid expansion of many fonts consts
 fn pick_font(
     size: FontSize,
     style: FontStyle,
@@ -125,7 +123,8 @@ impl<C: Color> MonoTextStyle<C> {
 }
 
 pub struct MonoText<W: WidgetCtx> {
-    content: MaybeReactive<String>,
+    // TODO: Think how to make content MaybeReactive, still having reactive font?
+    content: Memo<String>,
     layout: Signal<Layout>,
     props: MaybeSignal<MonoFontProps>,
     font: Signal<MonoFont<'static>>,
@@ -134,24 +133,23 @@ pub struct MonoText<W: WidgetCtx> {
 
 impl<W: WidgetCtx + 'static> MonoText<W> {
     pub fn new_inert<T: ToString + PartialEq + 'static>(content: T) -> Self {
-        Self::new_inner(content.to_string().inert().maybe_reactive())
+        Self::new_inner(content.to_string().inert().memo())
     }
 
     pub fn new<T: ToString + Clone + PartialEq + 'static>(
-        content: impl IntoMaybeReactive<T>,
+        content: impl IntoMemo<T>,
     ) -> Self {
-        Self::new_inner(
-            content.maybe_reactive().map(|content| content.to_string()),
-        )
+        Self::new_inner(content.memo().map(|content| content.to_string()))
     }
 
-    fn new_inner(content: MaybeReactive<String>) -> Self {
+    fn new_inner(content: Memo<String>) -> Self {
         let font = create_signal(FONT_6X10);
 
         let layout = Layout::shrink(LayoutKind::Content(ContentLayout {
-            content_size: content.map(move |content| {
-                measure_text_content_size(content, &font.get())
-            }),
+            content_size: map!(move |font, content| measure_text_content_size(
+                content, font
+            ))
+            .maybe_reactive(),
         }))
         .signal();
 
@@ -225,18 +223,17 @@ where
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
         ctx.accept_styles(self.style, ());
 
-        let viewport = ctx.viewport;
-        let props = self.props.get();
-
         // self.font.set_from(mapped!(move |viewport, props| pick_font(
         //     props.size,
         //     props.style,
         //     *viewport
         // )));
 
-        // TODO: Not reactive, font must be a computed
-        self.font.update_untracked(|font| {
-            *font = pick_font(props.size, props.style, viewport.get())
+        let props = self.props;
+
+        self.font.setter(ctx.viewport, move |font, &viewport| {
+            let props = props.get();
+            *font = pick_font(props.size, props.style, viewport)
         });
     }
 

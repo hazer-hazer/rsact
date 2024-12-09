@@ -87,8 +87,13 @@ impl ContainerLayout {
         }
     }
 
+    pub fn block_model(mut self, block_model: BlockModel) -> Self {
+        self.block_model = block_model;
+        self
+    }
+
     pub fn min_size(&self) -> Size {
-        self.content_size.get().min() + self.block_model.padding
+        self.content_size.get().min() + self.block_model.full_padding()
     }
 }
 
@@ -161,7 +166,7 @@ impl FlexLayout {
     }
 
     pub fn min_size(&self) -> Size {
-        self.content_size.get().min() + self.block_model.padding
+        self.content_size.get().min() + self.block_model.full_padding()
     }
 }
 
@@ -414,6 +419,7 @@ impl Layout {
     pub fn min_size(&self) -> Size {
         match &self.kind {
             LayoutKind::Zero => Size::zero(),
+            // TODO: Wrong? Edge can be fixed
             LayoutKind::Edge => Size::zero(),
             LayoutKind::Content(content_layout) => content_layout.min_size(),
             LayoutKind::Container(container_layout) => {
@@ -703,8 +709,7 @@ pub fn model_layout(
 
                 // let min_content = content_size.get().min();
 
-                let full_padding = block_model.padding
-                    + Padding::new_equal(block_model.border_width);
+                let full_padding = block_model.full_padding();
 
                 let limits = parent_limits.limit_by(size).shrink(full_padding);
 

@@ -9,6 +9,13 @@ use rsact_reactive::maybe::IntoMaybeReactive;
 // pub type Row<C> = Flex<C, RowDir>;
 // pub type Col<C> = Flex<C, ColDir>;
 
+// TODO: Do we need flex style?
+// declare_widget_style! {
+//     FlexStyle () {
+//         container: container,
+//     }
+// }
+
 pub trait IntoChildren<W: WidgetCtx> {
     fn into_children(self) -> MaybeSignal<Vec<El<W>>>;
 }
@@ -75,8 +82,8 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Flex<W, Dir> {
         }
     }
 
-    pub fn wrap(mut self, wrap: bool) -> Self {
-        self.layout.update_untracked(|layout| {
+    pub fn wrap(mut self, wrap: impl IntoMaybeReactive<bool>) -> Self {
+        self.layout.setter(wrap.maybe_reactive(), |layout, &wrap| {
             layout.expect_flex_mut().wrap = wrap;
         });
         self

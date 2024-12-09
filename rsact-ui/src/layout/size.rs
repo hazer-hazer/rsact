@@ -224,7 +224,7 @@ impl Display for Length {
             Length::Fixed(fixed) if *fixed == u32::MAX => {
                 write!(f, "Inf")
             },
-            Length::Fixed(fixed) => write!(f, "Fixed({fixed})"),
+            Length::Fixed(fixed) => write!(f, "{fixed}"),
             Length::InfiniteWindow(length) => {
                 write!(f, "InfiniteWindow({length:?})")
             },

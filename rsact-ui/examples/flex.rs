@@ -1,29 +1,39 @@
-
-use embedded_graphics::{
-    pixelcolor::Rgb888,
-    prelude::Dimensions,
-};
+use embedded_graphics::{pixelcolor::Rgb888, prelude::Dimensions};
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
-use rand::random;
+use rand::{random, thread_rng, Rng};
+use rsact_reactive::prelude::*;
 use rsact_ui::{
     el::El,
     event::simulator::simulator_single_encoder,
     layout::Align,
     page::id::SinglePage,
     prelude::{
-        create_signal, Edge, Flex, IntoInert, MonoText, Select,
-        SignalMap, SignalSetter, Size, Slider,
+        create_signal, BlockStyle, Button, Checkbox, Container, Edge, Flex,
+        IntoInert, Length, MonoText, MonoTextStyle, Select, SignalMap,
+        SignalSetter, Size, Slider,
     },
-    style::NullStyler,
+    render::color::RgbColor,
+    style::{NullStyler, WidgetStylist},
     ui::UI,
     widget::{SizedWidget, Widget, WidgetCtx},
 };
 
-fn random_color_edge<W: WidgetCtx<Color = Rgb888>>() -> El<W> {
-    Edge::new()
-        .size(Size::new(50.into(), 50.into()))
+fn random_size() -> Size<Length> {
+    Size::new(
+        Length::Fixed(thread_rng().gen_range(25..=100)),
+        Length::Fixed(thread_rng().gen_range(25..=100)),
+    )
+}
+
+fn item<W: WidgetCtx<Color = Rgb888>>(size: Size<Length>) -> El<W>
+where
+    W::Styler: WidgetStylist<MonoTextStyle<Rgb888>>,
+{
+    Container::new(MonoText::new_inert(size))
+        .center()
+        .size(size)
         .style(|base| {
             base.background_color(Rgb888::new(random(), random(), random()))
         })
@@ -43,22 +53,45 @@ fn main() {
 
     window.update(&display);
 
-    let children_count = create_signal(10u8);
-    let gap = create_signal(Size::new(5, 5));
+    // TODO: Reactive axis!
+
+    let gap_x = create_signal(5u8);
+    let gap_y = create_signal(5u8);
+    let wrap = create_signal(false);
     let horizontal_align = create_signal(Align::Start);
     let vertical_align = create_signal(Align::Start);
 
     let mut children = create_signal(vec![]);
 
-    children.setter(children_count, |children, &count| {
-        children.resize_with(count as usize, random_color_edge);
-    });
-
     let props = Flex::col([
-        MonoText::new(children_count.map(|count| format!("Children: {count}")))
+        MonoText::new(
+            children.map(|children| format!("Children: {}", children.len())),
+        )
+        .el(),
+        MonoText::new_inert("Add item").el(),
+        Button::new("Add random size item")
+            .on_click(move || {
+                children.update(|children| children.push(item(random_size())))
+            })
             .el(),
-        Slider::horizontal(children_count).el(),
-        MonoText::new(gap.map(|gap| format!("Gap: {gap}"))).el(),
+        Button::new("Add fill item")
+            .on_click(move || {
+                children.update(|children| children.push(item(Size::fill())))
+            })
+            .el(),
+        MonoText::new(map!(move |gap_x, gap_y| format!(
+            "Gap: {gap_x}x{gap_y}"
+        )))
+        .el(),
+        Slider::horizontal(gap_x).el(),
+        Slider::horizontal(gap_y).el(),
+        MonoText::new(
+            wrap.map(|&wrap| {
+                format!("{}", if wrap { "wrap" } else { "no wrap" })
+            }),
+        )
+        .el(),
+        Checkbox::new(wrap).el(),
         MonoText::new(
             horizontal_align
                 .map(|align| format!("Horizontal alignment: {align}")),
@@ -79,16 +112,26 @@ fn main() {
         )
         .el(),
     ])
+    .width(350u32)
+    .gap(5u32)
     .el();
 
-    let flex = Flex::row(children)
-        .gap(gap)
-        .vertical_align(vertical_align)
-        .horizontal_align(horizontal_align)
-        .fill()
-        .el();
+    let flex = Container::new(
+        Flex::row(children)
+            .gap(map!(move |gap_x, gap_y| Size::new(
+                (*gap_x) as u32,
+                (*gap_y) as u32
+            )))
+            .wrap(wrap)
+            .vertical_align(vertical_align)
+            .horizontal_align(horizontal_align)
+            .fill(),
+    )
+    .style(|base| base.background_color(Rgb888::hex(0x636363)))
+    .fill()
+    .el();
 
-    let page = Flex::row([props, flex]).gap(5u32);
+    let page = Flex::row([props, flex]).gap(5u32).fill();
 
     let mut ui = UI::new(display.bounding_box().size.inert(), NullStyler)
         .auto_focus()
@@ -96,7 +139,12 @@ fn main() {
         .with_page(SinglePage, page);
 
     loop {
-        ui.tick(window.events().filter_map(simulator_single_encoder));
+        ui.tick(
+            window
+                .events()
+                .filter_map(simulator_single_encoder)
+                .inspect(|e| println!("Event: {e:?}")),
+        );
         ui.draw(&mut display);
 
         window.update(&display);

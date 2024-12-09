@@ -150,6 +150,7 @@ impl<W: WidgetCtx> Page<W> {
                     // TODO: How to handle results?
                     let _result = layout
                         .with(|layout| {
+                            // FIXME: This might be wrong. User possibly want to create new reactive values. Better make it a debug feature.
                             let _deny_new = new_deny_new_scope();
                             root.update_untracked(|root| {
                                 root.draw(&mut DrawCtx {

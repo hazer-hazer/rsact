@@ -56,6 +56,8 @@ struct FlexLine {
     items_count: u32,
     /// Available main axis left
     free_main: u32,
+    /// The amount of main axis length left for fluid items determined by their minimum size.
+    fluid_main_space: u32,
     /// Maximum item cross axis size in line
     max_cross: u32,
 }
@@ -89,6 +91,7 @@ pub fn model_flex(
         div_factors: DivFactors::zero(),
         items_count: 0,
         free_main: max_possible_main,
+        fluid_main_space: 0,
         max_cross: 0,
     };
 
@@ -106,19 +109,21 @@ pub fn model_flex(
             let (child_size, child_min_size) =
                 child.data.with(|child| (child.size, child.min_size()));
 
+            let min_item_size = child_size.max_fixed(child_min_size);
+            let needed_item_space = min_item_size
+                + if item_index != 0 { gap } else { Size::zero() };
+
             {
                 // Wrapping //
-                let min_item_size = child_size.max_fixed(child_min_size);
-
-                let needed_item_space = min_item_size
-                    + if item_index != 0 { gap } else { Size::zero() };
-
                 let last_line = lines.last().unwrap();
                 let free_main = last_line.free_main;
 
                 // Allow fluid item to wrap the container even if it is a
                 // shrink length, so it fits its content.
-                if wrap && free_main < needed_item_space.main(axis) {
+                if wrap
+                    && free_main.saturating_sub(last_line.fluid_main_space)
+                        < needed_item_space.main(axis)
+                {
                     // On wrap, set main axis to the max limit (the width or
                     // height of the container) and cross
 
@@ -177,6 +182,7 @@ pub fn model_flex(
                 // TODO: Is it right to use min size of a child to determine max_cross? It won't let fill sized elements to grow.
                 // - But otherwise how do we determine the amount the element should grow? We only exactly know fixed sizes of elements before computing fluid sizes. So fluid elements grow to maximum of fixed size used.
                 line.max_cross = line.max_cross.max(child_min_size.cross(axis));
+                line.fluid_main_space += needed_item_space.main(axis);
             }
 
             // Calculate total divisions for a line, even for fixed
@@ -304,6 +310,8 @@ pub fn model_flex(
     let mut longest_line = 0;
     let mut used_cross = 0;
     let mut next_pos = Point::zero();
+
+    // TODO: Should flex item be at least of min content size?
 
     tree.children.with(|children| {
         for ((i, child), item) in children.iter().enumerate().zip(items.iter())

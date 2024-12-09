@@ -222,6 +222,7 @@ impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
         children: C,
         map_layout: impl Fn(LayoutModelNode<'a>) -> LayoutModelNode<'a>,
     ) -> DrawResult {
+        // TODO: Debug assert zip equal lengths
         children.zip(self.layout.children().map(map_layout)).try_for_each(
             |(child, child_layout)| {
                 child.draw(&mut DrawCtx {

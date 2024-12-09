@@ -15,7 +15,13 @@ pub fn simulator_single_encoder(event: SE) -> Option<Event> {
             Keycode::Up => Some(Event::move_1(super::MoveDir::Up)),
             Keycode::Down => Some(Event::move_1(super::MoveDir::Down)),
             Keycode::D
-                if keymod == Mod::LSHIFTMOD || keymod == Mod::RSHIFTMOD =>
+                if [
+                    Mod::LCTRLMOD,
+                    Mod::RCTRLMOD,
+                    Mod::LGUIMOD,
+                    Mod::RGUIMOD,
+                ]
+                .contains(&keymod) =>
             {
                 Some(Event::DevTools(DevToolsEvent::Toggle))
             },
@@ -49,7 +55,8 @@ pub fn simulator_single_encoder(event: SE) -> Option<Event> {
             MouseWheelDirection::Unknown(_) => None,
         },
         SE::Quit => Some(Event::Exit),
-        // TODO: Mouse
-        SE::MouseMove { point } => None,
+        SE::MouseMove { point } => {
+            Some(Event::Mouse(MouseEvent::MouseMove(point)))
+        },
     }
 }

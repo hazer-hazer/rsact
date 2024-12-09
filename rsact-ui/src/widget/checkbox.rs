@@ -24,7 +24,11 @@ declare_widget_style! {
 
 impl<C: Color> CheckboxStyle<C> {
     pub fn base() -> Self {
-        Self { container: BlockStyle::base() }
+        Self {
+            container: BlockStyle::base().border(
+                BorderStyle::base().color(C::default_foreground()).radius(5),
+            ),
+        }
     }
 }
 
@@ -55,7 +59,8 @@ where
             layout: Layout::shrink(LayoutKind::Container(
                 ContainerLayout::base(
                     icon.layout().map(|icon_layout| icon_layout.content_size()),
-                ),
+                )
+                .block_model(BlockModel::zero().border_width(1)),
             ))
             .signal(),
             icon,
@@ -90,7 +95,12 @@ where
     }
 
     fn build_layout_tree(&self) -> rsact_reactive::prelude::MemoTree<Layout> {
-        MemoTree::childless(self.layout)
+        let icon_layout = self.icon.build_layout_tree();
+
+        MemoTree {
+            data: self.layout.memo(),
+            children: create_memo(move |_| vec![icon_layout]),
+        }
     }
 
     fn draw(
@@ -105,6 +115,8 @@ where
             style.container,
         )
         .render(ctx.renderer)?;
+
+        ctx.draw_focus_outline(self.id)?;
 
         if self.value.get() {
             ctx.draw_child(&self.icon)?;

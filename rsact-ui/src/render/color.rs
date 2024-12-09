@@ -42,8 +42,8 @@ pub trait RgbColor:
     #[inline]
     fn hex(hex: u32) -> Self {
         Self::rgb(
-            (hex & 0xff0000 >> 4) as u8,
-            (hex & 0x00ff00 >> 2) as u8,
+            (hex & 0xff0000 >> 16) as u8,
+            (hex & 0x00ff00 >> 8) as u8,
             (hex & 0x0000ff) as u8,
         )
     }
