@@ -119,7 +119,8 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
         let content = content.el();
         let state = create_signal(ScrollableState::none());
 
-        let layout = Layout::scrollable::<Dir>(content.layout()).signal();
+        let layout =
+            Layout::scrollable::<Dir>(content.layout().memo()).signal();
 
         Self {
             id: ElId::unique(),
@@ -223,14 +224,6 @@ where
         self.layout
     }
 
-    fn build_layout_tree(&self) -> MemoTree<Layout> {
-        let content_tree = self.content.build_layout_tree();
-        MemoTree {
-            data: self.layout.memo(),
-            children: create_memo(move |_| vec![content_tree]),
-        }
-    }
-
     fn draw(
         &self,
         ctx: &mut crate::widget::DrawCtx<'_, W>,
@@ -320,6 +313,8 @@ where
                 layout: &child_layout
                     .translate(Dir::AXIS.canon(-(offset as i32), 0)),
                 tree_style: ctx.tree_style,
+                viewport: ctx.viewport,
+                fonts: ctx.fonts,
             })
         })?;
 

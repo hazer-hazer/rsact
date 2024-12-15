@@ -1,4 +1,4 @@
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 use axis::Direction;
 pub use axis::{Axial as _, Axis};
 use block_model::BlockModel;
@@ -15,6 +15,8 @@ pub use limits::Limits;
 use padding::Padding;
 use rsact_reactive::{maybe::IntoMaybeReactive, prelude::*};
 use size::{Length, Size};
+
+use crate::font::{Font, FontCtx, FontLib, FontSize};
 
 pub mod axis;
 pub mod block_model;
@@ -55,17 +57,48 @@ impl Align {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ContentLayout {
-    pub content_size: MaybeReactive<Limits>,
+pub enum ContentLayout {
+    Text { font: Memo<Font>, content: Memo<String> },
+    Icon(Memo<FontSize>),
+    Fixed(Size),
+}
+
+impl Display for ContentLayout {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ContentLayout::Text { font, content } => todo!(),
+            ContentLayout::Icon(memo) => todo!(),
+            ContentLayout::Fixed(size) => todo!(),
+        }
+    }
 }
 
 impl ContentLayout {
-    pub fn new(content_size: impl IntoMaybeReactive<Limits>) -> Self {
-        Self { content_size: content_size.maybe_reactive() }
+    pub fn text(font: Memo<Font>, content: Memo<String>) -> Self {
+        Self::Text { font, content }
     }
 
-    pub fn min_size(&self) -> Size {
-        self.content_size.get().min()
+    pub fn icon(size: Memo<FontSize>) -> Self {
+        Self::Icon(size)
+    }
+
+    pub fn fixed(size: Size) -> Self {
+        Self::Fixed(size)
+    }
+
+    pub fn min_size(&self, ctx: &LayoutCtx) -> Size {
+        match self {
+            ContentLayout::Text { font, content } => {
+                with!(move |font, content| ctx
+                    .fonts
+                    .measure_text_size(font, content))
+                .min()
+            },
+            ContentLayout::Icon(memo) => {
+                Size::new_equal(memo.with(|size| size.resolve(ctx.viewport)))
+            },
+            ContentLayout::Fixed(size) => *size,
+        }
     }
 }
 
@@ -74,16 +107,16 @@ pub struct ContainerLayout {
     pub block_model: BlockModel,
     pub horizontal_align: Align,
     pub vertical_align: Align,
-    pub content_size: MaybeReactive<Limits>,
+    pub content: Memo<Layout>,
 }
 
 impl ContainerLayout {
-    pub fn base(content_size: impl IntoMaybeReactive<Limits>) -> Self {
+    pub fn base(content: impl IntoMemo<Layout>) -> Self {
         Self {
             block_model: BlockModel::zero(),
             horizontal_align: Align::Start,
             vertical_align: Align::Start,
-            content_size: content_size.maybe_reactive(),
+            content: content.memo(),
         }
     }
 
@@ -92,8 +125,9 @@ impl ContainerLayout {
         self
     }
 
-    pub fn min_size(&self) -> Size {
-        self.content_size.get().min() + self.block_model.full_padding()
+    pub fn min_size(&self, ctx: &LayoutCtx) -> Size {
+        self.content.with(|content| content.min_size(ctx))
+            + self.block_model.full_padding()
     }
 }
 
@@ -106,15 +140,12 @@ pub struct FlexLayout {
     pub gap: Size,
     pub horizontal_align: Align,
     pub vertical_align: Align,
-    pub content_size: MaybeReactive<Limits>,
+    pub children: Memo<Vec<Memo<Layout>>>,
 }
 
 impl FlexLayout {
     /// Default but with specific axis
-    pub fn base(
-        axis: Axis,
-        content_size: impl IntoMaybeReactive<Limits>,
-    ) -> Self {
+    pub fn base(axis: Axis, children: Memo<Vec<Memo<Layout>>>) -> Self {
         Self {
             wrap: false,
             block_model: BlockModel::zero(),
@@ -122,7 +153,7 @@ impl FlexLayout {
             gap: Size::zero(),
             horizontal_align: Align::Start,
             vertical_align: Align::Start,
-            content_size: content_size.maybe_reactive(),
+            children,
         }
     }
 
@@ -165,23 +196,25 @@ impl FlexLayout {
         }
     }
 
-    pub fn min_size(&self) -> Size {
-        self.content_size.get().min() + self.block_model.full_padding()
+    pub fn min_size(&self, ctx: &LayoutCtx) -> Size {
+        // TODO
+        // self.content_size.get().min() + self.block_model.full_padding()
+        todo!()
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ScrollableLayout {
-    pub content_size: MaybeReactive<Limits>,
+    pub content: Memo<Layout>,
 }
 
 impl ScrollableLayout {
-    pub fn new(content_size: impl IntoMaybeReactive<Limits>) -> Self {
-        Self { content_size: content_size.maybe_reactive() }
+    pub fn new(content: Memo<Layout>) -> Self {
+        Self { content }
     }
 
-    pub fn min_size(&self) -> Size {
-        self.content_size.get().min()
+    pub fn min_size(&self, ctx: &LayoutCtx) -> Size {
+        self.content.with(|content| content.min_size(ctx))
     }
 }
 
@@ -241,20 +274,19 @@ impl Display for DevLayoutKind {
         match self {
             DevLayoutKind::Zero => write!(f, "[Zero]"),
             DevLayoutKind::Edge => write!(f, "Edge"),
-            DevLayoutKind::Content(ContentLayout { content_size }) => {
-                write!(f, "Content {}", content_size.get())
+            DevLayoutKind::Content(content) => {
+                write!(f, "Content {}", content)
             },
             DevLayoutKind::Container(ContainerLayout {
                 horizontal_align,
                 vertical_align,
                 block_model: _,
-                content_size,
+                content,
             }) => write!(
                 f,
-                "Container align:h{},v{} content:{}",
+                "Container align:h{},v{}",
                 horizontal_align.display_code(Axis::X),
-                vertical_align.display_code(Axis::Y),
-                content_size.get()
+                vertical_align.display_code(Axis::Y)
             ),
             DevLayoutKind::Flex(DevFlexLayout {
                 real:
@@ -265,7 +297,7 @@ impl Display for DevLayoutKind {
                         gap,
                         horizontal_align,
                         vertical_align,
-                        content_size,
+                        children,
                     },
                 // lines: _,
             }) => {
@@ -281,14 +313,13 @@ impl Display for DevLayoutKind {
 
                 write!(
                     f,
-                    "align:h{}v{} content:{}",
+                    "align:h{}v{}",
                     horizontal_align.display_code(Axis::X),
                     vertical_align.display_code(Axis::Y),
-                    content_size.get()
                 )
             },
-            DevLayoutKind::Scrollable(ScrollableLayout { content_size }) => {
-                write!(f, "Scrollable content:{}", content_size.get())
+            DevLayoutKind::Scrollable(ScrollableLayout { content: _ }) => {
+                write!(f, "Scrollable content")
             },
         }
     }
@@ -341,7 +372,7 @@ pub enum LayoutKind {
     Scrollable(ScrollableLayout),
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Layout {
     pub(crate) kind: LayoutKind,
     pub(crate) size: Size<Length>,
@@ -357,13 +388,9 @@ impl Layout {
     }
 
     /// Construct base scrollable layout where main axis will be shrinking and cross axis will fill. Also checks if content layout is with growing length on main axis which is disallowed.
-    pub fn scrollable<Dir: Direction>(
-        content_layout: impl IntoMaybeReactive<Layout>,
-    ) -> Self {
-        let content_layout = content_layout.maybe_reactive();
-
+    pub fn scrollable<Dir: Direction>(content: Memo<Layout>) -> Self {
         let content_layout_length =
-            content_layout.with(|layout| layout.size.main(Dir::AXIS));
+            content.with(|layout| layout.size.main(Dir::AXIS));
 
         if content_layout_length.is_grow() {
             panic!(
@@ -373,11 +400,7 @@ impl Layout {
         }
 
         Self {
-            kind: LayoutKind::Scrollable(ScrollableLayout {
-                content_size: content_layout
-                    .map(|content| content.content_size())
-                    .into(),
-            }),
+            kind: LayoutKind::Scrollable(ScrollableLayout { content }),
             size: Dir::AXIS.canon(
                 Length::InfiniteWindow(Length::Shrink.try_into().unwrap()),
                 Length::fill(),
@@ -403,30 +426,37 @@ impl Layout {
     //     self.size = size;
     // }
 
-    pub fn content_size(&self) -> Limits {
-        match &self.kind {
-            LayoutKind::Zero => Limits::zero(),
-            LayoutKind::Edge => Limits::unlimited(),
-            LayoutKind::Content(ContentLayout { content_size })
-            | LayoutKind::Container(ContainerLayout { content_size, .. })
-            | LayoutKind::Flex(FlexLayout { content_size, .. })
-            | LayoutKind::Scrollable(ScrollableLayout { content_size }) => {
-                content_size.get()
-            },
-        }
-    }
+    // pub fn content_size(&self, ctx: &LayoutCtx) -> Limits {
+    //     match &self.kind {
+    //         LayoutKind::Zero => Limits::zero(),
+    //         LayoutKind::Edge => Limits::unlimited(),
+    //         LayoutKind::Container(ContainerLayout { content_size, .. })
+    //         | LayoutKind::Flex(FlexLayout { content_size, .. })
+    //         | LayoutKind::Scrollable(ScrollableLayout { content_size }) => {
+    //             content_size.get()
+    //         },
+    //         LayoutKind::Content(content) => {
+    //             let min_size = content.min_size(ctx);
 
-    pub fn min_size(&self) -> Size {
+    //             // TODO: Text wrap would give two limits
+    //             Limits::new(min_size, min_size)
+    //         },
+    //     }
+    // }
+
+    pub fn min_size(&self, ctx: &LayoutCtx) -> Size {
         match &self.kind {
             LayoutKind::Zero => Size::zero(),
             // TODO: Wrong? Edge can be fixed
             LayoutKind::Edge => Size::zero(),
-            LayoutKind::Content(content_layout) => content_layout.min_size(),
+            LayoutKind::Content(content_layout) => content_layout.min_size(ctx),
             LayoutKind::Container(container_layout) => {
-                container_layout.min_size()
+                container_layout.min_size(ctx)
             },
-            LayoutKind::Flex(flex_layout) => flex_layout.min_size(),
-            LayoutKind::Scrollable(content_layout) => content_layout.min_size(),
+            LayoutKind::Flex(flex_layout) => flex_layout.min_size(ctx),
+            LayoutKind::Scrollable(content_layout) => {
+                content_layout.min_size(ctx)
+            },
         }
     }
 
@@ -449,7 +479,7 @@ impl Layout {
         }
     }
 
-    // TODO: Panic on invalid layout kind usage?
+    // TODO: Panic on invalid layout kind usage in these methods?
     pub fn block_model(&self) -> BlockModel {
         match self.kind {
             LayoutKind::Zero
@@ -660,15 +690,22 @@ impl LayoutModel {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct LayoutCtx<'a> {
+    pub fonts: &'a FontCtx,
+    pub viewport: Size,
+}
+
 // TODO: Should viewport be unwrapped value as we depend modeling on viewport
 // value?
 pub fn model_layout(
-    tree: MemoTree<Layout>,
+    ctx: &LayoutCtx,
+    layout: Memo<Layout>,
     parent_limits: Limits,
     parent_size: Size<Length>,
     // viewport: Memo<Size>,
 ) -> LayoutModel {
-    tree.data.with(|layout| {
+    layout.with(|layout| {
         let size = layout.size.in_parent(parent_size);
 
         match &layout.kind {
@@ -685,8 +722,7 @@ pub fn model_layout(
                 )
             },
             LayoutKind::Content(content_layout) => {
-                let ContentLayout { content_size } = content_layout;
-                let min_content = content_size.get().min();
+                let min_content = content_layout.min_size(ctx);
 
                 LayoutModel::new(
                     parent_limits.resolve_size(size, min_content),
@@ -703,8 +739,8 @@ pub fn model_layout(
                     block_model,
                     horizontal_align,
                     vertical_align,
+                    content,
                     // TODO: Useless?
-                    content_size: _,
                 } = container_layout;
 
                 // let min_content = content_size.get().min();
@@ -717,9 +753,7 @@ pub fn model_layout(
                 // child
 
                 let content_layout = model_layout(
-                    tree.children.with(|children| children[0]),
-                    limits,
-                    size,
+                    ctx, *content, limits, size,
                     // viewport,
                 );
 
@@ -748,14 +782,12 @@ pub fn model_layout(
             },
             LayoutKind::Scrollable(scrollable_layout) => {
                 // TODO: Useless?
-                let ScrollableLayout { content_size: _ } = scrollable_layout;
+                let ScrollableLayout { content } = scrollable_layout;
 
                 let limits = parent_limits.limit_by(size);
 
                 let content_layout = model_layout(
-                    tree.children.with(|children| children[0]),
-                    limits,
-                    size,
+                    ctx, *content, limits, size,
                     // viewport,
                 );
 
@@ -775,7 +807,7 @@ pub fn model_layout(
                 )
             },
             LayoutKind::Flex(flex_layout) => {
-                model_flex(tree, parent_limits, flex_layout, size)
+                model_flex(ctx, parent_limits, flex_layout, size)
             },
         }
     })

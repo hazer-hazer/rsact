@@ -47,10 +47,7 @@ impl<W: WidgetCtx + 'static> Button<W> {
             block_model: BlockModel::zero().padding(2).border_width(1),
             horizontal_align: Align::Center,
             vertical_align: Align::Center,
-            content_size: content
-                .layout()
-                .map(|layout| layout.content_size())
-                .maybe_reactive(),
+            content: content.layout().memo(),
         }))
         .signal();
 
@@ -116,15 +113,6 @@ where
 
     fn layout(&self) -> Signal<Layout> {
         self.layout
-    }
-
-    fn build_layout_tree(&self) -> MemoTree<Layout> {
-        let content_tree = self.content.build_layout_tree();
-
-        MemoTree {
-            data: self.layout.memo(),
-            children: create_memo(move |_| vec![content_tree]),
-        }
     }
 
     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {

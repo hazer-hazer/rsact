@@ -1,12 +1,12 @@
 use super::WidgetStylist;
 use crate::{
+    prelude::TextStyle,
     render::color::Color,
     widget::{
         bar::BarStyle,
         button::{ButtonState, ButtonStyle},
         checkbox::{CheckboxState, CheckboxStyle},
         knob::{KnobState, KnobStyle},
-        mono_text::MonoTextStyle,
         scrollable::{ScrollableState, ScrollableStyle},
         select::{SelectState, SelectStyle},
         slider::{SliderState, SliderStyle},
@@ -86,13 +86,13 @@ impl<C: Color + 'static> WidgetStylist<KnobStyle<C>> for AccentStyler<C> {
 }
 
 // TODO: Useless?
-impl<C: Color + 'static> WidgetStylist<MonoTextStyle<C>> for AccentStyler<C> {
+impl<C: Color + 'static> WidgetStylist<TextStyle<C>> for AccentStyler<C> {
     fn style(
         self,
     ) -> impl Fn(
-        MonoTextStyle<C>,
-        <MonoTextStyle<C> as super::WidgetStyle>::Inputs,
-    ) -> MonoTextStyle<C>
+        TextStyle<C>,
+        <TextStyle<C> as super::WidgetStyle>::Inputs,
+    ) -> TextStyle<C>
            + 'static {
         move |base, ()| base
     }

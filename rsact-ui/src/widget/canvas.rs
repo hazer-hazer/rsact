@@ -186,9 +186,6 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
         self.layout
     }
 
-    fn build_layout_tree(&self) -> MemoTree<Layout> {
-        MemoTree::childless(self.layout)
-    }
 
     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         self.queue.queue.track();

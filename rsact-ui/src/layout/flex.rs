@@ -1,6 +1,6 @@
 use super::{
     size::{Length, Size},
-    Axis, FlexLayout, Layout, LayoutModel, Limits,
+    Axis, FlexLayout, Layout, LayoutCtx, LayoutModel, Limits,
 };
 use crate::{
     layout::{
@@ -18,28 +18,28 @@ use rsact_reactive::prelude::*;
 
 // TODO: Wrap and gap are not taken into account
 // TODO: Move usage of this function into FlexLayout::base function accepting list of maybe reactive children
-pub fn flex_content_size<'a, W: WidgetCtx, E: Widget<W> + 'a>(
-    axis: Axis,
-    children: impl Iterator<Item = &'a E>,
-) -> Limits {
-    children.fold(Limits::unlimited(), |limits, child| {
-        let child_limits = child.layout().with(|child| child.content_size());
-        Limits::new(
-            axis.infix(
-                limits.min(),
-                child_limits.min(),
-                |lhs: u32, rhs: u32| SaturatingAdd::saturating_add(&lhs, &rhs),
-                core::cmp::max,
-            ),
-            axis.infix(
-                limits.max(),
-                child_limits.max(),
-                |lhs: u32, rhs: u32| SaturatingAdd::saturating_add(&lhs, &rhs),
-                core::cmp::max,
-            ),
-        )
-    })
-}
+// pub fn flex_content_size<'a, W: WidgetCtx, E: Widget<W> + 'a>(
+//     axis: Axis,
+//     children: impl Iterator<Item = &'a E>,
+// ) -> Limits {
+//     children.fold(Limits::unlimited(), |limits, child| {
+//         let child_limits = child.layout().with(|child| child.content_size());
+//         Limits::new(
+//             axis.infix(
+//                 limits.min(),
+//                 child_limits.min(),
+//                 |lhs: u32, rhs: u32| SaturatingAdd::saturating_add(&lhs, &rhs),
+//                 core::cmp::max,
+//             ),
+//             axis.infix(
+//                 limits.max(),
+//                 child_limits.max(),
+//                 |lhs: u32, rhs: u32| SaturatingAdd::saturating_add(&lhs, &rhs),
+//                 core::cmp::max,
+//             ),
+//         )
+//     })
+// }
 
 struct FlexItem {
     // Line number
@@ -63,7 +63,7 @@ struct FlexLine {
 }
 
 pub fn model_flex(
-    tree: MemoTree<Layout>,
+    ctx: &LayoutCtx,
     // TODO: Replace with parent max size as parent_limits.min is not used at all.
     parent_limits: Limits,
     flex_layout: &FlexLayout,
@@ -77,7 +77,7 @@ pub fn model_flex(
         gap,
         horizontal_align,
         vertical_align,
-        content_size: _,
+        children,
     } = flex_layout;
 
     let full_padding = block_model.full_padding();
@@ -85,7 +85,7 @@ pub fn model_flex(
     let limits = parent_limits.limit_by(size).shrink(full_padding);
     let (max_possible_main, max_possible_cross) = limits.max().destruct(axis);
 
-    let children_count = tree.children.with(Vec::len);
+    let children_count = children.with(Vec::len);
 
     let const_new_line = FlexLine {
         div_factors: DivFactors::zero(),
@@ -104,10 +104,10 @@ pub fn model_flex(
     let (gap_main, gap_cross) = gap.destruct(axis);
 
     let mut container_free_cross = max_possible_cross;
-    tree.children.with(|children| {
+    children.with(|children| {
         for (item_index, child) in children.iter().enumerate() {
             let (child_size, child_min_size) =
-                child.data.with(|child| (child.size, child.min_size()));
+                child.with(|child| (child.size, child.min_size(ctx)));
 
             let min_item_size = child_size.max_fixed(child_min_size);
             let needed_item_space = min_item_size
@@ -152,6 +152,7 @@ pub fn model_flex(
             // Calculate Fixed/Shrink items layouts
             if child_div_factors.main(axis) == 0 {
                 let child_layout = model_layout(
+                    ctx,
                     *child,
                     Limits::only_max(
                         // child_min_size,
@@ -313,12 +314,11 @@ pub fn model_flex(
 
     // TODO: Should flex item be at least of min content size?
 
-    tree.children.with(|children| {
+    children.with(|children| {
         for ((i, child), item) in children.iter().enumerate().zip(items.iter())
         {
-            let child_min_size =
-                child.data.with(|child| child.content_size().min());
-            let child_size = child.data.with(|child| child.size);
+            let child_min_size = child.with(|child| child.min_size(ctx));
+            let child_size = child.with(|child| child.size);
             let model_line = &mut model_lines[item.line];
 
             let child_div_factors = child_size.div_factors();
@@ -333,6 +333,7 @@ pub fn model_flex(
                 model_line.line_div_remainder -= child_rem_part;
 
                 children_layouts[i] = model_layout(
+                    ctx,
                     *child,
                     Limits::new(child_min_size, child_max_size),
                     size,

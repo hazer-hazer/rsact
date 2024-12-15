@@ -77,10 +77,6 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Space<W, Dir> {
 
     fn on_mount(&mut self, _ctx: crate::widget::MountCtx<W>) {}
 
-    fn build_layout_tree(&self) -> MemoTree<Layout> {
-        MemoTree::childless(self.layout.memo())
-    }
-
     fn draw(&self, _ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         Ok(())
     }

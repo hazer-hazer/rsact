@@ -3,7 +3,6 @@ use crate::widget::{
 };
 use alloc::vec::Vec;
 use core::marker::PhantomData;
-use layout::flex::flex_content_size;
 use rsact_reactive::maybe::IntoMaybeReactive;
 
 // pub type Row<C> = Flex<C, RowDir>;
@@ -68,14 +67,15 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Flex<W, Dir> {
     pub fn new(children: impl IntoChildren<W>) -> Self {
         let children = children.into_children();
 
-        let content_size = children
-            .map(|children| flex_content_size(Dir::AXIS, children.iter()));
+        let layout_children = children.map_reactive(|children| {
+            children.iter().map(|child| child.layout().memo()).collect()
+        });
 
         Self {
             children,
             layout: Layout::shrink(LayoutKind::Flex(FlexLayout::base(
                 Dir::AXIS,
-                content_size,
+                layout_children,
             )))
             .signal(),
             dir: PhantomData,
@@ -203,15 +203,6 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Widget<W> for Flex<W, Dir> {
 
     fn layout(&self) -> Signal<Layout> {
         self.layout
-    }
-
-    fn build_layout_tree(&self) -> MemoTree<Layout> {
-        MemoTree {
-            data: self.layout.memo(),
-            children: self.children.map_reactive(|children| {
-                children.iter().map(Widget::build_layout_tree).collect()
-            }),
-        }
     }
 
     fn draw(

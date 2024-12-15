@@ -31,12 +31,6 @@ use super::prelude::*;
 //         todo!()
 //     }
 
-//     fn build_layout_tree(
-//         &self,
-//     ) -> rsact_reactive::prelude::MemoTree<super::Layout> {
-//         todo!()
-//     }
-
 //     fn draw(&self, ctx: &mut super::DrawCtx<'_, W>) -> super::DrawResult {
 //         todo!()
 //     }
@@ -59,10 +53,6 @@ use super::prelude::*;
 //     }
 
 //     fn layout(&self) -> rsact_reactive::prelude::Signal<Layout> {
-//         todo!()
-//     }
-
-//     fn build_layout_tree(&self) -> MemoTree<Layout> {
 //         todo!()
 //     }
 
@@ -124,10 +114,6 @@ use super::prelude::*;
 //         self.el
 //     }
 
-//     fn build_layout_tree(&self) -> MemoTree<Layout> {
-//         todo!()
-//     }
-
 //     fn draw(&self, ctx: &mut super::DrawCtx<'_, W>) -> super::DrawResult {
 //         todo!()
 //     }
@@ -175,10 +161,6 @@ impl<W: WidgetCtx> Widget<W> for Unit {
         Layout::zero().signal()
     }
 
-    fn build_layout_tree(&self) -> MemoTree<Layout> {
-        MemoTree::childless(Layout::zero)
-    }
-
     fn draw(&self, ctx: &mut super::DrawCtx<'_, W>) -> super::DrawResult {
         let _ = ctx;
         Ok(())
@@ -214,14 +196,6 @@ impl<W: WidgetCtx> Widget<W> for Option<El<W>> {
         self.as_ref()
             .map(|widget| widget.layout())
             .unwrap_or(Layout::zero().signal())
-    }
-
-    fn build_layout_tree(
-        &self,
-    ) -> rsact_reactive::prelude::MemoTree<super::Layout> {
-        self.as_ref()
-            .map(|widget| widget.build_layout_tree())
-            .unwrap_or(MemoTree::childless(self.layout()))
     }
 
     fn draw(&self, ctx: &mut super::DrawCtx<'_, W>) -> super::DrawResult {

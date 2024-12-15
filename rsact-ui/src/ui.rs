@@ -58,7 +58,7 @@ where
 
 impl<R, S, I, E> UI<Wtf<R, S, I, E>, NoPages>
 where
-    R: Renderer + 'static,
+    R: Renderer + DrawTarget<Color = <R as Renderer>::Color> + 'static,
     S: PartialEq + Copy + 'static,
     I: PageId + 'static,
     E: Debug + 'static,

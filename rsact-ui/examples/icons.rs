@@ -6,7 +6,7 @@ use embedded_graphics_simulator::{
 };
 use rsact_icons::{common::CommonIcon, system::SystemIcon, IconSet};
 use rsact_ui::{
-    page::id::SinglePage, prelude::{Flex, Icon, IntoInert, MonoText, Size}, style::NullStyler, ui::UI, widget::{SizedWidget, Widget}
+    page::id::SinglePage, prelude::{Flex, Icon, IntoInert, Size, Text}, style::NullStyler, ui::UI, widget::{SizedWidget, Widget}
 };
 
 fn main() {
@@ -39,11 +39,11 @@ fn main() {
         NullStyler,
     ).no_events().with_page(SinglePage, 
         Flex::col([
-            MonoText::new_inert("System icons").el(),
+            Text::fixed("System icons").el(),
             Flex::row(system_icons).wrap(true).gap(5u32).el(),
-            MonoText::new_inert("Common icons").el(),
+            Text::fixed("Common icons").el(),
             Flex::row(common_icons).wrap(true).gap(5u32).el(),
-            MonoText::new_inert(format!("Icons of size {ICON_SIZE}. Auto-generated from Material Design Icons")).el()
+            Text::fixed(format!("Icons of size {ICON_SIZE}. Auto-generated from Material Design Icons")).el()
         ])
         .center()
         .fill()

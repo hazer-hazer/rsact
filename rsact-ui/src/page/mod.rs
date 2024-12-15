@@ -4,7 +4,8 @@ use crate::{
         Capture, Event, EventResponse, FocusEvent, MouseEvent, Propagate,
         UnhandledEvent,
     },
-    layout::{model_layout, size::Size, LayoutModel, Limits},
+    font::{FontCtx, GLOBAL_FALLBACK_FONT},
+    layout::{model_layout, size::Size, LayoutCtx, LayoutModel, Limits},
     render::{color::Color, Renderer},
     style::TreeStyle,
     widget::{
@@ -15,7 +16,11 @@ use alloc::vec::Vec;
 use dev::{DevHoveredEl, DevTools};
 use embedded_graphics::prelude::{DrawTarget, Point};
 use num::traits::WrappingAdd as _;
-use rsact_reactive::{prelude::*, runtime::new_deny_new_scope};
+use rsact_reactive::{
+    memo::{Keyed, NeverEqual},
+    prelude::*,
+    runtime::new_deny_new_scope,
+};
 
 pub mod dev;
 pub mod id;
@@ -72,8 +77,14 @@ impl<W: WidgetCtx> Page<W> {
         let mut root: El<W> = root.into();
         let state = PageState::new().signal();
 
+        let fonts = create_signal(FontCtx::new());
+
         // Raw root initialization //
-        root.on_mount(MountCtx { viewport, styler });
+        root.on_mount(MountCtx {
+            viewport,
+            styler,
+            inherited_font: GLOBAL_FALLBACK_FONT.inert().memo(),
+        });
 
         // TODO: `on_mount` dependency on viewport can be removed for text,
         //  icon, etc. by adding special LayoutKind dependent on viewport and
@@ -100,16 +111,18 @@ impl<W: WidgetCtx> Page<W> {
         });
 
         // TODO: Should be `mapped`? Now, root is kind of partially-reactive
-        let layout_tree = root.build_layout_tree();
-        let layout = viewport.map(move |&viewport_size| {
+        let layout_tree = root.layout();
+        let layout_model = map!(move |viewport, fonts| {
+            let viewport = *viewport;
             // println!("Relayout");
             // TODO: Possible optimization is to use previous memo result, pass
             // it to model_layout as tree and don't relayout parents if layouts
             // inside Fixed-sized container changed, returning previous result
             let layout = model_layout(
-                layout_tree,
-                Limits::only_max(viewport_size),
-                viewport_size.into(),
+                &LayoutCtx { fonts, viewport },
+                layout_tree.memo(),
+                Limits::only_max(viewport),
+                viewport.into(),
                 // viewport,
             );
 
@@ -148,20 +161,21 @@ impl<W: WidgetCtx> Page<W> {
                         .unwrap();
 
                     // TODO: How to handle results?
-                    let _result = layout
-                        .with(|layout| {
-                            // FIXME: This might be wrong. User possibly want to create new reactive values. Better make it a debug feature.
-                            let _deny_new = new_deny_new_scope();
-                            root.update_untracked(|root| {
-                                root.draw(&mut DrawCtx {
-                                    state,
-                                    renderer,
-                                    layout: &layout.tree_root(),
-                                    tree_style: TreeStyle::base(),
-                                })
+                    let _result = with!(|layout_model, fonts| {
+                        // FIXME: This might be wrong. User possibly want to create new reactive values. Better make it a debug feature.
+                        let _deny_new = new_deny_new_scope();
+                        root.update_untracked(|root| {
+                            root.draw(&mut DrawCtx {
+                                state,
+                                renderer,
+                                layout: &layout_model.tree_root(),
+                                tree_style: TreeStyle::base(),
+                                viewport,
+                                fonts,
                             })
                         })
-                        .unwrap();
+                    })
+                    .unwrap();
 
                     with!(|dev_tools| {
                         if dev_tools.enabled {
@@ -181,7 +195,7 @@ impl<W: WidgetCtx> Page<W> {
 
         Self {
             root,
-            layout,
+            layout: layout_model,
             state,
             style,
             meta: PageMeta { focusable },

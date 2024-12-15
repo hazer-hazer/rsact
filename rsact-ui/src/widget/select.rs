@@ -1,6 +1,6 @@
 use super::{
     container::Container,
-    mono_text::{MonoText, MonoTextStyle},
+    text::{Text, TextStyle},
 };
 use crate::{
     declare_widget_style,
@@ -12,7 +12,7 @@ use crate::{
 use alloc::string::ToString;
 use core::{fmt::Display, marker::PhantomData};
 use embedded_graphics::prelude::{Point, Transform};
-use layout::{axis::Anchor, flex::flex_content_size, size::RectangleExt};
+use layout::{axis::Anchor, size::RectangleExt};
 use rsact_reactive::{maybe::IntoMaybeReactive, memo_chain::IntoMemoChain};
 
 #[derive(Clone, Copy)]
@@ -66,13 +66,13 @@ pub struct SelectOption<W: WidgetCtx, K: PartialEq> {
 impl<W: WidgetCtx, K: PartialEq> SelectOption<W, K> {
     pub fn new(key: K) -> Self
     where
-        W::Styler: WidgetStylist<MonoTextStyle<W::Color>>,
+        W::Styler: WidgetStylist<TextStyle<W::Color>>,
         K: Display,
     {
         let string = key.to_string();
         SelectOption {
             key,
-            el: Container::new(MonoText::new_inert(string).el())
+            el: Container::new(Text::new(string.inert()).el())
                 .padding(5u32)
                 .el(),
         }
@@ -101,7 +101,7 @@ pub struct Select<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> {
 impl<W, K> Select<W, K, ColDir>
 where
     W: WidgetCtx,
-    W::Styler: WidgetStylist<MonoTextStyle<W::Color>>,
+    W::Styler: WidgetStylist<TextStyle<W::Color>>,
     K: PartialEq + Clone + Display + 'static,
 {
     pub fn vertical(
@@ -114,7 +114,7 @@ where
 
 impl<W, K> Select<W, K, RowDir>
 where
-    W::Styler: WidgetStylist<MonoTextStyle<W::Color>>,
+    W::Styler: WidgetStylist<TextStyle<W::Color>>,
     W: WidgetCtx,
     K: PartialEq + Clone + Display + 'static,
 {
@@ -130,7 +130,7 @@ impl<W, K, Dir> Select<W, K, Dir>
 where
     K: PartialEq + Clone + Display + 'static,
     W: WidgetCtx,
-    W::Styler: WidgetStylist<MonoTextStyle<W::Color>>,
+    W::Styler: WidgetStylist<TextStyle<W::Color>>,
     Dir: Direction,
 {
     // TODO: MaybeReactive options
@@ -172,10 +172,10 @@ where
                 FlexLayout::base(
                     Dir::AXIS,
                     options.map(|options| {
-                        flex_content_size(
-                            Dir::AXIS,
-                            options.iter().map(SelectOption::widget),
-                        )
+                        options
+                            .iter()
+                            .map(|opt| opt.el.layout().memo())
+                            .collect()
                     }),
                 )
                 .gap(Dir::AXIS.canon(5, 0))
@@ -255,21 +255,6 @@ where
         self.layout
     }
 
-    fn build_layout_tree(&self) -> rsact_reactive::prelude::MemoTree<Layout> {
-        MemoTree {
-            data: self.layout.memo(),
-            children: self
-                .options
-                .map(|options| {
-                    options
-                        .iter()
-                        .map(|opt| opt.el.build_layout_tree())
-                        .collect()
-                })
-                .memo(),
-        }
-    }
-
     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         let style = self.style.get();
         let state = self.state.get();
@@ -325,6 +310,8 @@ where
                                 }
                                 .get(),
                             ),
+                            viewport: ctx.viewport,
+                            fonts: ctx.fonts,
                         };
                         option.widget().draw(&mut ctx)
                     })

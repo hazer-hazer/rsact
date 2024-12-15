@@ -73,10 +73,6 @@ where
         self.widget.layout()
     }
 
-    fn build_layout_tree(&self) -> MemoTree<Layout> {
-        self.widget.build_layout_tree()
-    }
-
     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> crate::widget::DrawResult {
         self.widget.draw(ctx)
     }

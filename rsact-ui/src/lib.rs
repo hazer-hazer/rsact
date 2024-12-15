@@ -29,8 +29,8 @@ pub mod prelude {
         ui::UI,
         widget::{
             button::*, checkbox::*, container::*, edge::*, flex::*, icon::*,
-            image::*, mono_text::*, prelude::*, scrollable::*, select::*,
-            slider::*, space::*,
+            image::*, prelude::*, scrollable::*, select::*, slider::*,
+            space::*, text::*,
         },
     };
 }

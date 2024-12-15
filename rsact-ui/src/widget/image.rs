@@ -45,10 +45,6 @@ where
         self.layout
     }
 
-    fn build_layout_tree(&self) -> MemoTree<Layout> {
-        MemoTree::childless(self.layout.memo())
-    }
-
     fn draw(
         &self,
         ctx: &mut crate::widget::DrawCtx<'_, W>,

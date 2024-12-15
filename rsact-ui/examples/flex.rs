@@ -11,8 +11,8 @@ use rsact_ui::{
     page::id::SinglePage,
     prelude::{
         create_signal, BlockStyle, Button, Checkbox, Container, Edge, Flex,
-        IntoInert, Length, MonoText, MonoTextStyle, Select, SignalMap,
-        SignalSetter, Size, Slider,
+        IntoInert, Length, Select, SignalMap, SignalSetter, Size, Slider, Text,
+        TextStyle,
     },
     render::color::RgbColor,
     style::{NullStyler, WidgetStylist},
@@ -29,9 +29,9 @@ fn random_size() -> Size<Length> {
 
 fn item<W: WidgetCtx<Color = Rgb888>>(size: Size<Length>) -> El<W>
 where
-    W::Styler: WidgetStylist<MonoTextStyle<Rgb888>>,
+    W::Styler: WidgetStylist<TextStyle<Rgb888>>,
 {
-    Container::new(MonoText::new_inert(size))
+    Container::new(Text::fixed(size))
         .center()
         .size(size)
         .style(|base| {
@@ -64,11 +64,11 @@ fn main() {
     let mut children = create_signal(vec![]);
 
     let props = Flex::col([
-        MonoText::new(
+        Text::new(
             children.map(|children| format!("Children: {}", children.len())),
         )
         .el(),
-        MonoText::new_inert("Add item").el(),
+        Text::fixed("Add item").el(),
         Button::new("Add random size item")
             .on_click(move || {
                 children.update(|children| children.push(item(random_size())))
@@ -79,20 +79,18 @@ fn main() {
                 children.update(|children| children.push(item(Size::fill())))
             })
             .el(),
-        MonoText::new(map!(move |gap_x, gap_y| format!(
-            "Gap: {gap_x}x{gap_y}"
-        )))
-        .el(),
+        Text::new(map!(move |gap_x, gap_y| format!("Gap: {gap_x}x{gap_y}")))
+            .el(),
         Slider::horizontal(gap_x).el(),
         Slider::horizontal(gap_y).el(),
-        MonoText::new(
+        Text::new(
             wrap.map(|&wrap| {
                 format!("{}", if wrap { "wrap" } else { "no wrap" })
             }),
         )
         .el(),
         Checkbox::new(wrap).el(),
-        MonoText::new(
+        Text::new(
             horizontal_align
                 .map(|align| format!("Horizontal alignment: {align}")),
         )
@@ -102,7 +100,7 @@ fn main() {
             vec![Align::Start, Align::Center, Align::End].inert(),
         )
         .el(),
-        MonoText::new(
+        Text::new(
             vertical_align.map(|align| format!("Vertical alignment: {align}")),
         )
         .el(),

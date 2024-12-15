@@ -15,9 +15,7 @@ impl<W: WidgetCtx + 'static> Container<W> {
 
         Self {
             layout: Layout::shrink(LayoutKind::Container(
-                ContainerLayout::base(
-                    content.layout().map(|layout| layout.content_size()),
-                ),
+                ContainerLayout::base(content.layout()),
             ))
             .signal(),
             content,
@@ -106,14 +104,6 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
 
     fn layout(&self) -> Signal<Layout> {
         self.layout
-    }
-
-    fn build_layout_tree(&self) -> MemoTree<Layout> {
-        let content_tree = self.content.build_layout_tree();
-        MemoTree {
-            data: self.layout.memo(),
-            children: create_memo(move |_| vec![content_tree]),
-        }
     }
 
     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> crate::widget::DrawResult {

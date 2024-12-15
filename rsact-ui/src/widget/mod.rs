@@ -9,21 +9,23 @@ pub mod flex;
 pub mod icon;
 pub mod image;
 pub mod knob;
-pub mod mono_text;
 pub mod scrollable;
 pub mod select;
 pub mod show;
 pub mod slider;
 pub mod space;
+pub mod text;
 
 use crate::{
     event::CaptureData,
+    font::{Font, FontCtx},
     page::id::PageId,
     render::Renderable,
     style::{TreeStyle, WidgetStyle, WidgetStylist},
 };
 use bitflags::bitflags;
 use core::{fmt::Debug, marker::PhantomData};
+use embedded_graphics::prelude::DrawTarget;
 use prelude::*;
 use rsact_reactive::maybe::IntoMaybeReactive;
 
@@ -80,7 +82,8 @@ pub type MetaTree = MemoTree<Meta>;
 
 // TODO: Not an actual context, rename to something like `WidgetTypeFamily`
 pub trait WidgetCtx: Sized + Clone + 'static {
-    type Renderer: Renderer<Color = Self::Color>;
+    type Renderer: Renderer<Color = Self::Color>
+        + DrawTarget<Color = <Self::Renderer as Renderer>::Color>;
     type Styler: PartialEq + Copy;
     type Color: Color;
     type PageId: PageId;
@@ -138,13 +141,13 @@ where
 
 impl<R, S, I, E> WidgetCtx for Wtf<R, S, I, E>
 where
-    R: Renderer + 'static,
+    R: Renderer + DrawTarget<Color = <R as Renderer>::Color> + 'static,
     S: PartialEq + Copy + 'static,
     I: PageId + 'static,
     E: Debug + 'static,
 {
     type Renderer = R;
-    type Color = R::Color;
+    type Color = <R as DrawTarget>::Color;
     type Styler = S;
     type PageId = I;
     type CustomEvent = E;
@@ -167,16 +170,14 @@ impl<W: WidgetCtx> PageState<W> {
     }
 }
 
-pub struct LayoutCtx<'a, W: WidgetCtx> {
-    pub page_state: &'a PageState<W>,
-}
-
 // TODO: Make DrawCtx a delegate to renderer so u can do `Primitive::(...).render(ctx)`
 pub struct DrawCtx<'a, W: WidgetCtx> {
     pub state: &'a PageState<W>,
     pub renderer: &'a mut W::Renderer,
     pub layout: &'a LayoutModelNode<'a>,
     pub tree_style: TreeStyle<W::Color>,
+    pub viewport: Memo<Size>,
+    pub fonts: &'a FontCtx,
 }
 
 impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
@@ -230,6 +231,8 @@ impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
                     renderer: &mut self.renderer,
                     layout: &child_layout,
                     tree_style: self.tree_style,
+                    viewport: self.viewport,
+                    fonts: &self.fonts,
                 })
             },
         )
@@ -318,6 +321,7 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
 pub struct MountCtx<W: WidgetCtx> {
     pub viewport: Memo<Size>,
     pub styler: Memo<W::Styler>,
+    pub inherited_font: Memo<Font>,
 }
 
 impl<W: WidgetCtx> MountCtx<W> {
@@ -381,9 +385,14 @@ impl<W: WidgetCtx> MountCtx<W> {
 
 impl<W: WidgetCtx> Clone for MountCtx<W> {
     fn clone(&self) -> Self {
-        Self { viewport: self.viewport.clone(), styler: self.styler.clone() }
+        Self {
+            viewport: self.viewport.clone(),
+            styler: self.styler.clone(),
+            inherited_font: self.inherited_font.clone(),
+        }
     }
 }
+
 impl<W: WidgetCtx> Copy for MountCtx<W> {}
 
 pub trait Widget<W>
@@ -404,7 +413,6 @@ where
     // These functions MUST be called only ones per widget //
     fn on_mount(&mut self, ctx: MountCtx<W>);
     fn layout(&self) -> Signal<Layout>;
-    fn build_layout_tree(&self) -> MemoTree<Layout>;
 
     // Hot-loop called functions //
     // TODO: Reactive draw?
@@ -539,8 +547,8 @@ pub mod prelude {
         render::{color::Color, Block, Border, Renderer},
         style::{block::*, declare_widget_style, ColorStyle, WidgetStylist},
         widget::{
-            BlockModelWidget, DrawCtx, DrawResult, EventCtx, LayoutCtx, Meta,
-            MetaTree, MountCtx, SizedWidget, Widget, WidgetCtx,
+            BlockModelWidget, DrawCtx, DrawResult, EventCtx, Meta, MetaTree,
+            MountCtx, SizedWidget, Widget, WidgetCtx,
         },
     };
     pub use alloc::{boxed::Box, string::String, vec::Vec};

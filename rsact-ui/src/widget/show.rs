@@ -33,26 +33,6 @@ impl<W: WidgetCtx> Widget<W> for Show<W> {
         self.el.layout()
     }
 
-    fn build_layout_tree(&self) -> MemoTree<Layout> {
-        let el_layout_tree = self.el.build_layout_tree();
-
-        MemoTree {
-            data: self.show.map(move |&show| {
-                if show {
-                    el_layout_tree.data.get_cloned()
-                } else {
-                    Layout::zero()
-                }
-            }),
-            children: self.show.map(move |&show| {
-                if show {
-                    el_layout_tree.children.get_cloned()
-                } else {
-                    vec![]
-                }
-            }),
-        }
-    }
 
     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         if self.show.get() {

@@ -153,11 +153,7 @@ where
     fn layout(&self) -> Signal<Layout> {
         self.layout
     }
-
-    fn build_layout_tree(&self) -> MemoTree<Layout> {
-        MemoTree::childless(self.layout.memo())
-    }
-
+    
     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         let style = self.style.get();
 

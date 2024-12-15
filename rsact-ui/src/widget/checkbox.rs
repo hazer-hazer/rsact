@@ -4,6 +4,7 @@ use super::{
 };
 use crate::{render::Renderable, widget::prelude::*};
 use rsact_icons::system::SystemIcon;
+use rsact_reactive::maybe::IsReactive;
 
 #[derive(Clone, Copy)]
 pub struct CheckboxState {
@@ -32,7 +33,7 @@ impl<C: Color> CheckboxStyle<C> {
     }
 }
 
-// TODO: Do we need `on_change` event with signal value?
+// TODO: Do we need `on_change` event while having signal value?
 
 type IconKind = SystemIcon;
 
@@ -41,7 +42,7 @@ pub struct Checkbox<W: WidgetCtx> {
     state: Signal<CheckboxState>,
     layout: Signal<Layout>,
     // TODO: Reactive icon?
-    icon: Icon<W, IconKind>,
+    icon: Icon<W, IconKind, IsReactive>,
     value: MaybeSignal<bool>,
     style: MemoChain<CheckboxStyle<W::Color>>,
 }
@@ -57,10 +58,8 @@ where
             id: ElId::unique(),
             state: CheckboxState::none().signal(),
             layout: Layout::shrink(LayoutKind::Container(
-                ContainerLayout::base(
-                    icon.layout().map(|icon_layout| icon_layout.content_size()),
-                )
-                .block_model(BlockModel::zero().border_width(1)),
+                ContainerLayout::base(icon.layout().memo())
+                    .block_model(BlockModel::zero().border_width(1)),
             ))
             .signal(),
             icon,
@@ -70,7 +69,7 @@ where
     }
 
     pub fn check_icon(mut self, icon: IconKind) -> Self {
-        self.icon.kind.set(icon);
+        self.icon.set(icon);
         self
     }
 }
@@ -92,15 +91,6 @@ where
 
     fn layout(&self) -> Signal<Layout> {
         self.layout
-    }
-
-    fn build_layout_tree(&self) -> rsact_reactive::prelude::MemoTree<Layout> {
-        let icon_layout = self.icon.build_layout_tree();
-
-        MemoTree {
-            data: self.layout.memo(),
-            children: create_memo(move |_| vec![icon_layout]),
-        }
     }
 
     fn draw(
