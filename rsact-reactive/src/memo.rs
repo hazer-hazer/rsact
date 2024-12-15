@@ -58,9 +58,13 @@ where
  * Or better introduce `ReadSignal` (not a trait) which is an enum of readable signals, but this is very similar to `MaybeReactive`...
  */
 
-pub struct Memo<T: PartialEq> {
-    id: ValueId,
-    ty: PhantomData<T>,
+pub enum Memo<T: PartialEq> {
+    Memo {
+        id: ValueId,
+        ty: PhantomData<T>,
+    },
+    /// Identity-mapped signal as memo. Stored in memo as is to avoid creation of new memo for signals mapped as readonly identity values.
+    Signal(Signal<T>),
 }
 
 impl_read_signal_traits!(Memo<T>: PartialEq);
@@ -69,7 +73,7 @@ impl<T: PartialEq + 'static> Memo<T> {
     #[track_caller]
     pub fn new(f: impl FnMut(Option<&T>) -> T + 'static) -> Self {
         let caller = Location::caller();
-        Self {
+        Self::Memo {
             id: with_current_runtime(|rt| rt.create_memo(f, caller)),
             ty: PhantomData,
         }
@@ -83,44 +87,67 @@ impl<T: PartialEq + 'static> Memo<T> {
     // }
 }
 
-impl<T: PartialEq> Clone for Memo<T> {
+impl<T: PartialEq + 'static> Clone for Memo<T> {
     fn clone(&self) -> Self {
-        Self { id: self.id.clone(), ty: self.ty.clone() }
+        match self {
+            &Memo::Memo { id, ty } => Self::Memo { id, ty },
+            &Memo::Signal(signal) => Memo::Signal(signal),
+        }
     }
 }
 
-impl<T: PartialEq> Copy for Memo<T> {}
+impl<T: PartialEq + 'static> Copy for Memo<T> {}
 
 impl<T: PartialEq + 'static> ReactiveValue for Memo<T> {
     type Value = T;
 
     fn is_alive(&self) -> bool {
-        with_current_runtime(|rt| rt.is_alive(self.id))
+        match self {
+            &Memo::Memo { id, ty: _ } => {
+                with_current_runtime(|rt| rt.is_alive(id))
+            },
+            Memo::Signal(signal) => signal.is_alive(),
+        }
     }
 
     fn dispose(self) {
-        with_current_runtime(|rt| rt.dispose(self.id))
+        match self {
+            Memo::Memo { id, ty: _ } => {
+                with_current_runtime(|rt| rt.dispose(id))
+            },
+            Memo::Signal(signal) => signal.dispose(),
+        }
     }
 }
 
 impl<T: PartialEq + 'static> ReadSignal<T> for Memo<T> {
     #[track_caller]
     fn track(&self) {
-        with_current_runtime(|rt| self.id.subscribe(rt))
+        match self {
+            Memo::Memo { id, ty: _ } => {
+                with_current_runtime(|rt| id.subscribe(rt))
+            },
+            Memo::Signal(signal) => signal.track(),
+        }
     }
 
     #[track_caller]
     fn with_untracked<U>(&self, f: impl FnOnce(&T) -> U) -> U {
-        let caller = Location::caller();
-        with_current_runtime(|rt| {
-            self.id.with_untracked(
-                rt,
-                |memoized: &Option<T>| {
-                    f(memoized.as_ref().expect("Must already been set"))
-                },
-                caller,
-            )
-        })
+        match self {
+            &Memo::Memo { id, ty: _ } => {
+                let caller = Location::caller();
+                with_current_runtime(|rt| {
+                    id.with_untracked(
+                        rt,
+                        |memoized: &Option<T>| {
+                            f(memoized.as_ref().expect("Must already been set"))
+                        },
+                        caller,
+                    )
+                })
+            },
+            Memo::Signal(signal) => signal.with_untracked(f),
+        }
     }
 }
 
@@ -142,12 +169,11 @@ pub trait IntoMemo<T: PartialEq> {
 }
 
 // TODO: Optimize identity memos. Memo should allow storing signal as it is, without creation of new Memo value.
-impl<T: PartialEq + Clone + 'static, M: marker::CanRead + 'static> IntoMemo<T>
-    for Signal<T, M>
-{
+impl<T: PartialEq + 'static> IntoMemo<T> for Signal<T> {
+    /// Converting Signal to Memo is cheap, and does not actually create new memo instance!
     #[track_caller]
     fn memo(self) -> Memo<T> {
-        create_memo(move |_| self.get_cloned())
+        Memo::Signal(self)
     }
 }
 
@@ -161,7 +187,7 @@ where
     }
 }
 
-impl<T: PartialEq + Clone + 'static> IntoMemo<T> for Memo<T> {
+impl<T: PartialEq + 'static> IntoMemo<T> for Memo<T> {
     /// Should never be called directly being redundant
     fn memo(self) -> Memo<T> {
         self
@@ -226,12 +252,17 @@ impl PartialEq for NeverEqual {
 }
 
 /// [`Keyed`] is a helper for memos which you can use to avoid computationally expensive comparisons in some cases. It is a pair of data and its key, where, unlike in raw memo, key is used for memoization comparisons.
+#[derive(Debug)]
 pub struct Keyed<K: PartialEq, V> {
     key: K,
     value: V,
 }
 
 impl<K: PartialEq, V> Keyed<K, V> {
+    pub fn new(key: K, value: V) -> Self {
+        Self { key, value }
+    }
+
     pub fn value(&self) -> &V {
         &self.value
     }

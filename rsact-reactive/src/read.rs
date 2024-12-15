@@ -55,6 +55,33 @@ pub trait SignalMap<T: 'static> {
     }
 }
 
+// TODO: Implement SignalMap for tuple of signals or map! macro is enough?
+// macro_rules! impl_signal_map_tuple {
+//     () => {};
+
+//     ($first: ident, $($alphas: ident,)*) => {
+//         impl<$first, $($alphas,)*> SignalMap<($first, $($alphas,)*)> for ($first, $($alphas,)*)  {
+//             fn map(self) -> MaybeReactive<($first, $($alphas,)*)> {
+//                 MaybeReactive::new_inert(self)
+//             }
+//         }
+
+//         impl_static_into_maybe_reactive_tuple!($($alphas,)*);
+//     };
+// }
+
+// impl<T: 'static> SignalMap<(T,)> for (crate::signal::Signal<T>,) {
+//     type Output<U: PartialEq + 'static> = Memo<U>;
+
+//     fn map<U: PartialEq + 'static>(
+//         &self,
+//         map: impl FnMut(&(T,)) -> U + 'static,
+//     ) -> Self::Output<U> {
+//         let (T,) = *self;
+//         create_memo(move |_| with!(move |T,| ))
+//     }
+// }
+
 #[macro_export]
 macro_rules! with {
     (|$param: ident $(,)?| $body: expr) => {
@@ -80,19 +107,19 @@ pub use with;
 #[macro_export]
 macro_rules! map {
     (|$param: ident $(,)?| $body: expr) => {
-        $param.mapped(|$param| $body)
+        $param.map(|$param| $body)
     };
 
     (|$param: ident, $($rest: ident),+ $(,)?| $body: expr) => {
-        $param.mapped(|$param| $crate::read::with!(|$($rest),+| $body))
+        $param.map(|$param| $crate::read::with!(|$($rest),+| $body))
     };
 
     (move |$param: ident $(,)?| $body: expr) => {
-        $param.mapped(move |$param| $body)
+        $param.map(move |$param| $body)
     };
 
     (move |$param: ident, $($rest: ident),+ $(,)?| $body: expr) => {
-        $param.mapped(move |$param| $crate::read::with!(move |$($rest),+| $body))
+        $param.map(move |$param| $crate::read::with!(move |$($rest),+| $body))
     };
 }
 
@@ -201,3 +228,5 @@ macro_rules! impl_read_signal_traits {
 }
 
 pub(crate) use impl_read_signal_traits;
+
+use crate::memo::{create_memo, Memo};

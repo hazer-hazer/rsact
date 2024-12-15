@@ -25,7 +25,8 @@ pub mod prelude {
     pub use super::{
         effect::{create_effect, Effect},
         maybe::{
-            Inert, IntoInert, MaybeReactive, MaybeSignal, SignalMapReactive,
+            Inert, IntoInert, IntoMaybeSignal, MaybeReactive, MaybeSignal,
+            SignalMapReactive,
         },
         memo::{create_memo, IntoMemo, Memo, MemoTree},
         memo_chain::{create_memo_chain, IntoMemoChain, MemoChain},

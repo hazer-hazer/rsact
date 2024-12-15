@@ -376,11 +376,28 @@ impl<T: PartialEq + Clone> IntoMemo<T> for MaybeReactive<T> {
     }
 }
 
+#[derive(Clone, Copy)]
 pub enum MaybeSignal<T: 'static> {
     /// Option needed to deal with conversion from [`Inert`] into [`Signal`]
     /// Optimize: Can be replaced with MaybeUninit for performance
     Inert(Option<T>),
     Signal(Signal<T>),
+}
+
+pub trait IntoMaybeSignal<T> {
+    fn maybe_signal(self) -> MaybeSignal<T>;
+}
+
+impl<T: 'static> IntoMaybeSignal<T> for Signal<T> {
+    fn maybe_signal(self) -> MaybeSignal<T> {
+        MaybeSignal::Signal(self)
+    }
+}
+
+impl<T: 'static> IntoMaybeSignal<T> for T {
+    fn maybe_signal(self) -> MaybeSignal<T> {
+        MaybeSignal::new_inert(self)
+    }
 }
 
 impl_read_signal_traits!(MaybeSignal<T>);
@@ -599,6 +616,26 @@ impl<T: 'static> SignalMapReactive<T> for MaybeSignal<T> {
         }
     }
 }
+
+impl<T: PartialEq + 'static> SignalMapReactive<T> for MaybeReactive<T> {
+    fn map_reactive<U: PartialEq + Clone + 'static>(
+        &self,
+        map: impl Fn(&T) -> U + 'static,
+    ) -> Memo<U> {
+        // TODO: Review this
+        self.map(map).memo()
+    }
+}
+
+pub trait ReactivityMarker {}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct IsReactive;
+impl ReactivityMarker for IsReactive {}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct IsInert;
+impl ReactivityMarker for IsInert {}
 
 #[cfg(test)]
 mod tests {
