@@ -7,18 +7,19 @@ use rsact_reactive::prelude::*;
 use rsact_ui::{
     el::El,
     event::simulator::simulator_single_encoder,
+    font::FontImport,
     layout::Align,
     page::id::SinglePage,
     prelude::{
-        create_signal, BlockStyle, Button, Checkbox, Container, Edge, Flex,
-        IntoInert, Length, Select, SignalMap, SignalSetter, Size, Slider, Text,
-        TextStyle,
+        create_signal, Button, Checkbox, Container, Flex, IntoInert, Length,
+        Select, SignalMap, Size, Slider, Text, TextStyle,
     },
     render::color::RgbColor,
     style::{NullStyler, WidgetStylist},
     ui::UI,
-    widget::{SizedWidget, Widget, WidgetCtx},
+    widget::{BlockModelWidget, SizedWidget, Widget, WidgetCtx},
 };
+use u8g2_fonts::FontRenderer;
 
 fn random_size() -> Size<Length> {
     Size::new(
@@ -31,7 +32,7 @@ fn item<W: WidgetCtx<Color = Rgb888>>(size: Size<Length>) -> El<W>
 where
     W::Styler: WidgetStylist<TextStyle<Rgb888>>,
 {
-    Container::new(Text::fixed(size))
+    Container::new(Text::new_inert(size))
         .center()
         .size(size)
         .style(|base| {
@@ -53,7 +54,7 @@ fn main() {
 
     window.update(&display);
 
-    // TODO: Reactive axis!
+    // TODO: Reactive axis!?
 
     let gap_x = create_signal(5u8);
     let gap_y = create_signal(5u8);
@@ -68,7 +69,7 @@ fn main() {
             children.map(|children| format!("Children: {}", children.len())),
         )
         .el(),
-        Text::fixed("Add item").el(),
+        Text::new_inert("Add item").el(),
         Button::new("Add random size item")
             .on_click(move || {
                 children.update(|children| children.push(item(random_size())))
@@ -112,6 +113,7 @@ fn main() {
     ])
     .width(350u32)
     .gap(5u32)
+    .padding(5u32)
     .el();
 
     let flex = Container::new(
@@ -131,10 +133,14 @@ fn main() {
 
     let page = Flex::row([props, flex]).gap(5u32).fill();
 
+    static DEFAULT_FONT: FontRenderer =
+        FontRenderer::new::<u8g2_fonts::fonts::u8g2_font_profont22_mf>();
+
     let mut ui = UI::new(display.bounding_box().size.inert(), NullStyler)
         .auto_focus()
         .on_exit(|| std::process::exit(0))
-        .with_page(SinglePage, page);
+        .with_page(SinglePage, page)
+        .with_default_font(FontImport::fixed_u8g2(&DEFAULT_FONT));
 
     loop {
         ui.tick(

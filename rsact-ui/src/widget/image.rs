@@ -8,10 +8,7 @@ use embedded_graphics::{
     image::ImageRaw, iterator::raw::RawDataSlice, pixelcolor::raw::ByteOrder,
     prelude::*,
 };
-use rsact_reactive::{
-    memo::{IntoMemo, MemoTree},
-    signal::{IntoSignal, Signal},
-};
+use rsact_reactive::signal::{IntoSignal, Signal};
 
 /// Static Image
 pub struct Image<'a, W: WidgetCtx, BO: ByteOrder> {

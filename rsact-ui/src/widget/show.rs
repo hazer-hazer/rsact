@@ -22,7 +22,7 @@ impl<W: WidgetCtx> Widget<W> for Show<W> {
     }
 
     fn on_mount(&mut self, ctx: MountCtx<W>) {
-        self.el.on_mount(ctx);
+        ctx.pass_to_child(self.layout(), &mut self.el);
     }
 
     // Note: This method is used to modify the layout of the element, not to
@@ -32,7 +32,6 @@ impl<W: WidgetCtx> Widget<W> for Show<W> {
     fn layout(&self) -> Signal<Layout> {
         self.el.layout()
     }
-
 
     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         if self.show.get() {

@@ -26,6 +26,7 @@ use crate::{
 use bitflags::bitflags;
 use core::{fmt::Debug, marker::PhantomData};
 use embedded_graphics::prelude::DrawTarget;
+use layout::LayoutFontProps;
 use prelude::*;
 use rsact_reactive::maybe::IntoMaybeReactive;
 
@@ -321,7 +322,7 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
 pub struct MountCtx<W: WidgetCtx> {
     pub viewport: Memo<Size>,
     pub styler: Memo<W::Styler>,
-    pub inherited_font: Memo<Font>,
+    pub inherit_font_props: LayoutFontProps,
 }
 
 impl<W: WidgetCtx> MountCtx<W> {
@@ -341,8 +342,52 @@ impl<W: WidgetCtx> MountCtx<W> {
             .first(move |base| {
                 styler.get().style()(base.clone(), inputs.get_cloned())
             })
-            // TODO: Don't panic, better rewrite `first` but emit a warning 
+            // TODO: Don't panic, better overwrite `first` but emit a warning 
             .unwrap();
+    }
+
+    // Note: Setting inherited font is not a reactive process. If user didn't set the font, the inherited is set. But user cannot unset font, thus font never fallbacks to inherited.
+    pub fn inherit_font_props(self, mut layout: Signal<Layout>) -> Self {
+        // Set inherited font props in layout
+        layout.update_untracked(|layout| {
+            if let Some(font_props) = layout.font_props_mut() {
+                font_props.inherit(&self.inherit_font_props);
+            }
+        });
+
+        // Set new inherited font for use with children
+        if let Some(font_props) = layout.with(|layout| layout.font_props()) {
+            Self { inherit_font_props: font_props, ..self }
+        } else {
+            self
+        }
+    }
+
+    pub fn pass_to_child(
+        self,
+        this_layout: Signal<Layout>,
+        child: &mut impl Widget<W>,
+    ) {
+        child.on_mount(self.inherit_font_props(this_layout));
+    }
+
+    pub fn pass_to_children(
+        mut self,
+        this_layout: Signal<Layout>,
+        children: &mut MaybeSignal<Vec<El<W>>>,
+    ) {
+        self = self.inherit_font_props(this_layout);
+
+        if let Some(inert) = children.as_inert_mut() {
+            inert.iter_mut().for_each(|child| child.on_mount(self));
+        } else if let Some(mut signal) = children.as_signal() {
+            create_effect(move |_| {
+                signal.track();
+                signal.update(|children| {
+                    children.iter_mut().for_each(|child| child.on_mount(self));
+                });
+            });
+        }
     }
 
     // TODO: Use watch?
@@ -388,7 +433,7 @@ impl<W: WidgetCtx> Clone for MountCtx<W> {
         Self {
             viewport: self.viewport.clone(),
             styler: self.styler.clone(),
-            inherited_font: self.inherited_font.clone(),
+            inherit_font_props: self.inherit_font_props.clone(),
         }
     }
 }
@@ -518,6 +563,55 @@ pub trait BlockModelWidget<W: WidgetCtx>: Widget<W> {
     }
 }
 
+pub trait FontSettingWidget<W: WidgetCtx>: Widget<W> + Sized + 'static {
+    fn font_props(&self) -> LayoutFontProps {
+        self.layout().with(|layout| layout.font_props().unwrap())
+    }
+
+    fn update_font_props(&mut self, update: impl FnOnce(&mut LayoutFontProps)) {
+        self.layout()
+            .update_untracked(|layout| update(layout.font_props_mut().unwrap()))
+    }
+
+    // Constructors //
+    fn font_size<S: Into<FontSize> + Clone + PartialEq + 'static>(
+        mut self,
+        font_size: impl IntoMaybeReactive<S>,
+    ) -> Self {
+        // TODO: Warn on overwrite
+        self.update_font_props(|font_props| {
+            font_props.font_size = Some(
+                font_size
+                    .maybe_reactive()
+                    .map(|font_size| font_size.clone().into()),
+            )
+        });
+
+        self
+    }
+
+    fn font_style(
+        mut self,
+        font_style: impl IntoMaybeReactive<FontStyle>,
+    ) -> Self {
+        self.update_font_props(|font_props| {
+            font_props.font_style = Some(font_style.maybe_reactive())
+        });
+        self
+    }
+
+    fn font<F: Into<Font> + PartialEq + Clone + 'static>(
+        mut self,
+        font: impl IntoMaybeReactive<F>,
+    ) -> Self {
+        self.update_font_props(|font_props| {
+            font_props.font =
+                Some(font.maybe_reactive().map(|font| font.clone().into()))
+        });
+        self
+    }
+}
+
 pub trait IntoWidget<W: WidgetCtx> {
     type Widget: Widget<W>;
 
@@ -547,8 +641,8 @@ pub mod prelude {
         render::{color::Color, Block, Border, Renderer},
         style::{block::*, declare_widget_style, ColorStyle, WidgetStylist},
         widget::{
-            BlockModelWidget, DrawCtx, DrawResult, EventCtx, Meta, MetaTree,
-            MountCtx, SizedWidget, Widget, WidgetCtx,
+            BlockModelWidget, DrawCtx, DrawResult, EventCtx, FontSettingWidget,
+            Meta, MetaTree, MountCtx, SizedWidget, Widget, WidgetCtx,
         },
     };
     pub use alloc::{boxed::Box, string::String, vec::Vec};

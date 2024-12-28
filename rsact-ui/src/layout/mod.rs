@@ -1,3 +1,4 @@
+use crate::font::{AbsoluteFontProps, Font, FontCtx, FontSize, FontStyle};
 use alloc::{string::String, vec::Vec};
 use axis::Direction;
 pub use axis::{Axial as _, Axis};
@@ -12,11 +13,10 @@ use embedded_graphics::{
 };
 use flex::model_flex;
 pub use limits::Limits;
+use num::traits::SaturatingAdd;
 use padding::Padding;
-use rsact_reactive::{maybe::IntoMaybeReactive, prelude::*};
+use rsact_reactive::prelude::*;
 use size::{Length, Size};
-
-use crate::font::{Font, FontCtx, FontLib, FontSize};
 
 pub mod axis;
 pub mod block_model;
@@ -58,7 +58,7 @@ impl Align {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ContentLayout {
-    Text { font: Memo<Font>, content: Memo<String> },
+    Text { font_props: LayoutFontProps, content: Memo<String> },
     Icon(Memo<FontSize>),
     Fixed(Size),
 }
@@ -66,16 +66,20 @@ pub enum ContentLayout {
 impl Display for ContentLayout {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            ContentLayout::Text { font, content } => todo!(),
-            ContentLayout::Icon(memo) => todo!(),
-            ContentLayout::Fixed(size) => todo!(),
+            ContentLayout::Text { font_props, content: _ } => {
+                write!(f, "Text [{font_props}]")
+            },
+            ContentLayout::Icon(size) => {
+                size.with(|size| write!(f, "Icon [{size}]"))
+            },
+            ContentLayout::Fixed(size) => write!(f, "Fixed [{size}]"),
         }
     }
 }
 
 impl ContentLayout {
-    pub fn text(font: Memo<Font>, content: Memo<String>) -> Self {
-        Self::Text { font, content }
+    pub fn text(content: Memo<String>) -> Self {
+        Self::Text { font_props: Default::default(), content }
     }
 
     pub fn icon(size: Memo<FontSize>) -> Self {
@@ -88,10 +92,12 @@ impl ContentLayout {
 
     pub fn min_size(&self, ctx: &LayoutCtx) -> Size {
         match self {
-            ContentLayout::Text { font, content } => {
-                with!(move |font, content| ctx
-                    .fonts
-                    .measure_text_size(font, content))
+            &ContentLayout::Text { font_props, content } => {
+                with!(move |content| {
+                    let props = font_props.resolve(ctx.viewport);
+                    let font = font_props.font();
+                    ctx.fonts.measure_text_size(font, content, props)
+                })
                 .min()
             },
             ContentLayout::Icon(memo) => {
@@ -108,6 +114,7 @@ pub struct ContainerLayout {
     pub horizontal_align: Align,
     pub vertical_align: Align,
     pub content: Memo<Layout>,
+    pub font_props: LayoutFontProps,
 }
 
 impl ContainerLayout {
@@ -117,6 +124,7 @@ impl ContainerLayout {
             horizontal_align: Align::Start,
             vertical_align: Align::Start,
             content: content.memo(),
+            font_props: Default::default(),
         }
     }
 
@@ -141,6 +149,7 @@ pub struct FlexLayout {
     pub horizontal_align: Align,
     pub vertical_align: Align,
     pub children: Memo<Vec<Memo<Layout>>>,
+    pub font_props: LayoutFontProps,
 }
 
 impl FlexLayout {
@@ -154,6 +163,7 @@ impl FlexLayout {
             horizontal_align: Align::Start,
             vertical_align: Align::Start,
             children,
+            font_props: Default::default(),
         }
     }
 
@@ -197,20 +207,46 @@ impl FlexLayout {
     }
 
     pub fn min_size(&self, ctx: &LayoutCtx) -> Size {
-        // TODO
-        // self.content_size.get().min() + self.block_model.full_padding()
-        todo!()
+        self.children.with(|children| {
+            children.iter().fold(Size::zero(), |min_size, child| {
+                self.axis.infix(
+                    min_size,
+                    child.with(|child| child.min_size(ctx)),
+                    |lhs, rhs| SaturatingAdd::saturating_add(&lhs, &rhs),
+                    core::cmp::max,
+                )
+            })
+        })
+
+        // children.fold(Limits::unlimited(), |limits, child| {
+        //     let child_limits = child.layout().with(|child| child.content_size());
+        //     Limits::new(
+        //         axis.infix(
+        //             limits.min(),
+        //             child_limits.min(),
+        //             |lhs: u32, rhs: u32| SaturatingAdd::saturating_add(&lhs, &rhs),
+        //             core::cmp::max,
+        //         ),
+        //         axis.infix(
+        //             limits.max(),
+        //             child_limits.max(),
+        //             |lhs: u32, rhs: u32| SaturatingAdd::saturating_add(&lhs, &rhs),
+        //             core::cmp::max,
+        //         ),
+        //     )
+        // })
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ScrollableLayout {
     pub content: Memo<Layout>,
+    pub font_props: LayoutFontProps,
 }
 
 impl ScrollableLayout {
     pub fn new(content: Memo<Layout>) -> Self {
-        Self { content }
+        Self { content, font_props: Default::default() }
     }
 
     pub fn min_size(&self, ctx: &LayoutCtx) -> Size {
@@ -281,7 +317,8 @@ impl Display for DevLayoutKind {
                 horizontal_align,
                 vertical_align,
                 block_model: _,
-                content,
+                content: _,
+                font_props: _,
             }) => write!(
                 f,
                 "Container align:h{},v{}",
@@ -297,7 +334,8 @@ impl Display for DevLayoutKind {
                         gap,
                         horizontal_align,
                         vertical_align,
-                        children,
+                        children: _,
+                        font_props: _,
                     },
                 // lines: _,
             }) => {
@@ -318,7 +356,10 @@ impl Display for DevLayoutKind {
                     vertical_align.display_code(Axis::Y),
                 )
             },
-            DevLayoutKind::Scrollable(ScrollableLayout { content: _ }) => {
+            DevLayoutKind::Scrollable(ScrollableLayout {
+                content: _,
+                font_props: _,
+            }) => {
                 write!(f, "Scrollable content")
             },
         }
@@ -362,6 +403,54 @@ impl Display for DevHoveredLayout {
     }
 }
 
+/// Tree-structured font properties stored inside layouts with contents
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct LayoutFontProps {
+    pub font: Option<MaybeReactive<Font>>,
+    pub font_size: Option<MaybeReactive<FontSize>>,
+    pub font_style: Option<MaybeReactive<FontStyle>>,
+}
+
+impl LayoutFontProps {
+    pub fn inherit(&mut self, parent: &LayoutFontProps) {
+        if let font @ None = &mut self.font {
+            *font = parent.font.clone();
+        }
+        if let font_size @ None = &mut self.font_size {
+            *font_size = parent.font_size.clone();
+        }
+        if let font_style @ None = &mut self.font_style {
+            *font_style = parent.font_style.clone();
+        }
+    }
+
+    pub fn resolve(&self, viewport: Size) -> AbsoluteFontProps {
+        let font_size = self
+            .font_size
+            .map(|font_size| font_size.get())
+            .unwrap_or_default()
+            .resolve(viewport);
+
+        let font_style = self
+            .font_style
+            .map(|font_style| font_style.get())
+            .unwrap_or_default();
+
+        AbsoluteFontProps { size: font_size, style: font_style }
+    }
+
+    pub fn font(&self) -> Font {
+        // TODO: Is font required to be set at least by global default or we should fallback here?
+        self.font.unwrap().get()
+    }
+}
+
+impl Display for LayoutFontProps {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        todo!()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum LayoutKind {
     Zero,
@@ -400,7 +489,10 @@ impl Layout {
         }
 
         Self {
-            kind: LayoutKind::Scrollable(ScrollableLayout { content }),
+            kind: LayoutKind::Scrollable(ScrollableLayout {
+                content,
+                font_props: Default::default(),
+            }),
             size: Dir::AXIS.canon(
                 Length::InfiniteWindow(Length::Shrink.try_into().unwrap()),
                 Length::fill(),
@@ -508,6 +600,48 @@ impl Layout {
                 block_model.padding = padding
             },
             _ => {},
+        }
+    }
+
+    pub fn font_props(&self) -> Option<LayoutFontProps> {
+        match &self.kind {
+            LayoutKind::Zero => None,
+            LayoutKind::Edge => None,
+            LayoutKind::Content(content_layout) => match content_layout {
+                ContentLayout::Text { font_props, content: _ } => {
+                    Some(*font_props)
+                },
+                ContentLayout::Icon(_) => None,
+                ContentLayout::Fixed(_) => None,
+            },
+            LayoutKind::Container(container_layout) => {
+                Some(container_layout.font_props)
+            },
+            LayoutKind::Flex(flex_layout) => Some(flex_layout.font_props),
+            LayoutKind::Scrollable(scrollable_layout) => {
+                Some(scrollable_layout.font_props)
+            },
+        }
+    }
+
+    pub fn font_props_mut(&mut self) -> Option<&mut LayoutFontProps> {
+        match &mut self.kind {
+            LayoutKind::Zero => None,
+            LayoutKind::Edge => None,
+            LayoutKind::Content(content_layout) => match content_layout {
+                ContentLayout::Text { font_props, content: _ } => {
+                    Some(font_props)
+                },
+                ContentLayout::Icon(_) => None,
+                ContentLayout::Fixed(_) => None,
+            },
+            LayoutKind::Container(container_layout) => {
+                Some(&mut container_layout.font_props)
+            },
+            LayoutKind::Flex(flex_layout) => Some(&mut flex_layout.font_props),
+            LayoutKind::Scrollable(scrollable_layout) => {
+                Some(&mut scrollable_layout.font_props)
+            },
         }
     }
 }
@@ -696,8 +830,7 @@ pub struct LayoutCtx<'a> {
     pub viewport: Size,
 }
 
-// TODO: Should viewport be unwrapped value as we depend modeling on viewport
-// value?
+// TODO: Should viewport be unwrapped value as we depend modeling on viewport value?
 pub fn model_layout(
     ctx: &LayoutCtx,
     layout: Memo<Layout>,
@@ -740,6 +873,7 @@ pub fn model_layout(
                     horizontal_align,
                     vertical_align,
                     content,
+                    font_props: _,
                     // TODO: Useless?
                 } = container_layout;
 
@@ -782,7 +916,8 @@ pub fn model_layout(
             },
             LayoutKind::Scrollable(scrollable_layout) => {
                 // TODO: Useless?
-                let ScrollableLayout { content } = scrollable_layout;
+                let ScrollableLayout { content, font_props: _ } =
+                    scrollable_layout;
 
                 let limits = parent_limits.limit_by(size);
 

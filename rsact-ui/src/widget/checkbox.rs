@@ -86,7 +86,7 @@ where
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
         ctx.accept_styles(self.style, self.state);
-        self.icon.on_mount(ctx)
+        ctx.pass_to_child(self.layout, &mut self.icon);
     }
 
     fn layout(&self) -> Signal<Layout> {

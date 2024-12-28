@@ -4,8 +4,11 @@ use crate::{
         Capture, Event, EventResponse, FocusEvent, MouseEvent, Propagate,
         UnhandledEvent,
     },
-    font::{FontCtx, GLOBAL_FALLBACK_FONT},
-    layout::{model_layout, size::Size, LayoutCtx, LayoutModel, Limits},
+    font::{Font, FontCtx},
+    layout::{
+        model_layout, size::Size, LayoutCtx, LayoutFontProps, LayoutModel,
+        Limits,
+    },
     render::{color::Color, Renderer},
     style::TreeStyle,
     widget::{
@@ -17,9 +20,7 @@ use dev::{DevHoveredEl, DevTools};
 use embedded_graphics::prelude::{DrawTarget, Point};
 use num::traits::WrappingAdd as _;
 use rsact_reactive::{
-    memo::{Keyed, NeverEqual},
-    prelude::*,
-    runtime::new_deny_new_scope,
+    maybe::IntoMaybeReactive, prelude::*, runtime::new_deny_new_scope,
 };
 
 pub mod dev;
@@ -73,17 +74,20 @@ impl<W: WidgetCtx> Page<W> {
         styler: Memo<W::Styler>,
         dev_tools: Signal<DevTools>,
         mut renderer: Signal<W::Renderer>,
+        fonts: Signal<FontCtx>,
     ) -> Self {
         let mut root: El<W> = root.into();
         let state = PageState::new().signal();
-
-        let fonts = create_signal(FontCtx::new());
 
         // Raw root initialization //
         root.on_mount(MountCtx {
             viewport,
             styler,
-            inherited_font: GLOBAL_FALLBACK_FONT.inert().memo(),
+            inherit_font_props: LayoutFontProps {
+                font: Some(Font::Auto.maybe_reactive()),
+                font_size: None,
+                font_style: None,
+            },
         });
 
         // TODO: `on_mount` dependency on viewport can be removed for text,

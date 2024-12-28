@@ -2,16 +2,11 @@ use core::f32;
 
 use embedded_graphics::{
     prelude::{Angle, Dimensions, Point, Primitive, Transform},
-    primitives::{
-        PrimitiveStyle, Rectangle, StyledDrawable,
-    },
+    primitives::{PrimitiveStyle, Rectangle, StyledDrawable},
     Pixel,
 };
 
-use crate::{
-    prelude::Color,
-    render::alpha::StyledAlphaDrawable,
-};
+use crate::{prelude::Color, render::alpha::StyledAlphaDrawable};
 
 use super::line::Line;
 

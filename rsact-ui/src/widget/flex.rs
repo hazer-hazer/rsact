@@ -182,6 +182,10 @@ impl<W: WidgetCtx + 'static, Dir: Direction> BlockModelWidget<W>
     for Flex<W, Dir>
 {
 }
+impl<W: WidgetCtx + 'static, Dir: Direction + 'static> FontSettingWidget<W>
+    for Flex<W, Dir>
+{
+}
 
 impl<W: WidgetCtx + 'static, Dir: Direction> Widget<W> for Flex<W, Dir> {
     fn meta(&self) -> MetaTree {
@@ -195,10 +199,7 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Widget<W> for Flex<W, Dir> {
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
         // ctx.pass_to_children(self.children);
-        // TODO: Use writable lens/computed
-        self.children.update_untracked(|children| {
-            children.iter_mut().for_each(|child| child.on_mount(ctx));
-        })
+        ctx.pass_to_children(self.layout, &mut self.children);
     }
 
     fn layout(&self) -> Signal<Layout> {

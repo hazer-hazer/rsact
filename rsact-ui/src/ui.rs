@@ -4,6 +4,7 @@ use crate::{
         message::{UiMessage, UiQueue},
         Event, UnhandledEvent,
     },
+    font::{FontCtx, FontImport},
     layout::size::Size,
     page::{dev::DevTools, id::PageId, Page},
     render::{color::Color, draw_target::LayeringRenderer, Renderer},
@@ -43,6 +44,7 @@ pub struct UI<W: WidgetCtx, P: HasPages> {
     message_queue: Option<UiQueue<W>>,
     options: UiOptions,
     has_pages: PhantomData<P>,
+    fonts: Signal<FontCtx>,
 }
 
 // LayeringRenderer is DrawTarget layering wrapper which is the only Renderer supported for now.
@@ -74,6 +76,8 @@ where
         let dev_tools =
             create_signal(DevTools { enabled: false, hovered: None });
 
+        let fonts = create_signal(FontCtx::new());
+
         Self {
             page_history: Default::default(),
             viewport,
@@ -86,6 +90,7 @@ where
             message_queue: None,
             options: Default::default(),
             has_pages: PhantomData,
+            fonts,
         }
     }
 
@@ -148,6 +153,7 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
             message_queue: self.message_queue,
             options: self.options,
             has_pages: PhantomData,
+            fonts: self.fonts,
         };
 
         // Go to page if it is the first one
@@ -168,10 +174,26 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
                     self.viewport,
                     self.styler,
                     self.dev_tools,
-                    self.renderer
+                    self.renderer,
+                    self.fonts
                 )
             )
             .is_none())
+    }
+
+    // Fonts //
+    /// Adds font import into UI.
+    pub fn with_font(mut self, import: FontImport) -> Self {
+        self.fonts.update(|fonts| fonts.insert(import));
+        self
+    }
+
+    // TODO: Can we support reactive default?
+    pub fn with_default_font(mut self, import: FontImport) -> Self {
+        self.fonts.update(|fonts| {
+            fonts.set_default(import);
+        });
+        self
     }
 }
 

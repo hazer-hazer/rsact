@@ -1,19 +1,15 @@
 use super::{
     size::{Length, Size},
-    Axis, FlexLayout, Layout, LayoutCtx, LayoutModel, Limits,
+    FlexLayout, LayoutCtx, LayoutModel, Limits,
 };
-use crate::{
-    layout::{
-        axis::Axial as _,
-        model_layout,
-        size::{DivFactors, SubTake as _},
-        Align, DevFlexLayout, DevLayout,
-    },
-    widget::{Widget, WidgetCtx},
+use crate::layout::{
+    axis::Axial as _,
+    model_layout,
+    size::{DivFactors, SubTake as _},
+    Align, DevFlexLayout, DevLayout,
 };
 use alloc::vec::Vec;
 use embedded_graphics::prelude::Point;
-use num::traits::SaturatingAdd;
 use rsact_reactive::prelude::*;
 
 // TODO: Wrap and gap are not taken into account
@@ -78,6 +74,7 @@ pub fn model_flex(
         horizontal_align,
         vertical_align,
         children,
+        font_props: _,
     } = flex_layout;
 
     let full_padding = block_model.full_padding();

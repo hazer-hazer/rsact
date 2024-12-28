@@ -1,5 +1,3 @@
-use rsact_reactive::maybe::IntoMaybeReactive;
-
 use crate::{prelude::*, render::Renderable};
 
 #[derive(Clone, Copy)]
@@ -40,7 +38,7 @@ pub struct Button<W: WidgetCtx> {
 
 impl<W: WidgetCtx + 'static> Button<W> {
     pub fn new(content: impl Into<El<W>>) -> Self {
-        let content: El<W> = content.into();
+        let content = content.into();
         let state = create_signal(ButtonState::none());
 
         let layout = Layout::shrink(LayoutKind::Container(ContainerLayout {
@@ -48,6 +46,7 @@ impl<W: WidgetCtx + 'static> Button<W> {
             horizontal_align: Align::Center,
             vertical_align: Align::Center,
             content: content.layout().memo(),
+            font_props: Default::default(),
         }))
         .signal();
 
@@ -96,6 +95,11 @@ impl<W: WidgetCtx + 'static> BlockModelWidget<W> for Button<W> where
 {
 }
 
+impl<W: WidgetCtx> FontSettingWidget<W> for Button<W> where
+    W::Styler: WidgetStylist<ButtonStyle<W::Color>>
+{
+}
+
 impl<W: WidgetCtx + 'static> Widget<W> for Button<W>
 where
     W::Styler: WidgetStylist<ButtonStyle<W::Color>>,
@@ -107,8 +111,7 @@ where
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
         ctx.accept_styles(self.style, self.state);
-
-        self.content.on_mount(ctx);
+        ctx.pass_to_child(self.layout, &mut self.content);
     }
 
     fn layout(&self) -> Signal<Layout> {

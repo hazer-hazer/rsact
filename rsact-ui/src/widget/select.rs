@@ -10,7 +10,7 @@ use crate::{
     widget::{prelude::*, Meta, MetaTree},
 };
 use alloc::string::ToString;
-use core::{fmt::Display, marker::PhantomData};
+use core::{cell::RefCell, fmt::Display, marker::PhantomData};
 use embedded_graphics::prelude::{Point, Transform};
 use layout::{axis::Anchor, size::RectangleExt};
 use rsact_reactive::{maybe::IntoMaybeReactive, memo_chain::IntoMemoChain};
@@ -60,7 +60,8 @@ impl<C: Color> SelectStyle<C> {
 
 pub struct SelectOption<W: WidgetCtx, K: PartialEq> {
     key: K,
-    el: El<W>,
+    // TODO: This RefCell needed to do on_mount for memoized (i.e. readonly) options. But it if we won't require options to depend on global states, we can get rid of this RefCell. For example, fonts and styles can be given by Select widget states/styles.
+    el: RefCell<El<W>>,
 }
 
 impl<W: WidgetCtx, K: PartialEq> SelectOption<W, K> {
@@ -72,14 +73,12 @@ impl<W: WidgetCtx, K: PartialEq> SelectOption<W, K> {
         let string = key.to_string();
         SelectOption {
             key,
-            el: Container::new(Text::new(string.inert()).el())
-                .padding(5u32)
-                .el(),
+            el: RefCell::new(
+                Container::new(Text::new(string.inert()).el())
+                    .padding(5u32)
+                    .el(),
+            ),
         }
-    }
-
-    pub fn widget(&self) -> &impl Widget<W> {
-        &self.el
     }
 }
 
@@ -105,7 +104,7 @@ where
     K: PartialEq + Clone + Display + 'static,
 {
     pub fn vertical(
-        selected: impl Into<MaybeSignal<K>>,
+        selected: impl IntoMaybeSignal<K>,
         options: impl IntoMemo<Vec<K>>,
     ) -> Self {
         Self::new(selected, options)
@@ -119,7 +118,7 @@ where
     K: PartialEq + Clone + Display + 'static,
 {
     pub fn horizontal(
-        selected: impl Into<MaybeSignal<K>>,
+        selected: impl IntoMaybeSignal<K>,
         options: impl IntoMemo<Vec<K>>,
     ) -> Self {
         Self::new(selected, options)
@@ -135,7 +134,7 @@ where
 {
     // TODO: MaybeReactive options
     pub fn new(
-        selected: impl Into<MaybeSignal<K>>,
+        selected: impl IntoMaybeSignal<K>,
         options: impl IntoMemo<Vec<K>>,
     ) -> Self {
         let options: Memo<Vec<_>> = options.memo().map(|options| {
@@ -146,7 +145,7 @@ where
                 .collect()
         });
 
-        let mut selected: MaybeSignal<K> = selected.into();
+        let mut selected = selected.maybe_signal();
 
         let state = SelectState::initial(with!(move |selected, options| {
             options.iter().position(|opt| &opt.key == selected)
@@ -174,7 +173,7 @@ where
                     options.map(|options| {
                         options
                             .iter()
-                            .map(|opt| opt.el.layout().memo())
+                            .map(|opt| opt.el.borrow().layout().memo())
                             .collect()
                     }),
                 )
@@ -237,6 +236,15 @@ where
 {
 }
 
+impl<W, K, Dir: 'static> FontSettingWidget<W> for Select<W, K, Dir>
+where
+    W: WidgetCtx,
+    K: PartialEq + Clone + Display + 'static,
+    Dir: Direction,
+    W::Styler: WidgetStylist<SelectStyle<W::Color>>,
+{
+}
+
 impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> Widget<W>
     for Select<W, K, Dir>
 where
@@ -249,6 +257,13 @@ where
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
         ctx.accept_styles(self.style, self.state);
+
+        let layout = self.layout;
+        self.options.with(|options| {
+            options.iter().for_each(move |opt| {
+                ctx.pass_to_child(layout, &mut *opt.el.borrow_mut());
+            })
+        });
     }
 
     fn layout(&self) -> Signal<Layout> {
@@ -313,7 +328,7 @@ where
                             viewport: ctx.viewport,
                             fonts: ctx.fonts,
                         };
-                        option.widget().draw(&mut ctx)
+                        option.el.borrow().draw(&mut ctx)
                     })
             })
         })

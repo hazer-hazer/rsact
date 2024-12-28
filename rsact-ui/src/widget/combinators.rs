@@ -189,7 +189,8 @@ impl<W: WidgetCtx> Widget<W> for Option<El<W>> {
     }
 
     fn on_mount(&mut self, ctx: super::MountCtx<W>) {
-        self.as_mut().map(|widget| widget.on_mount(ctx));
+        let layout = self.layout();
+        self.as_mut().map(|widget| ctx.pass_to_child(layout, widget));
     }
 
     fn layout(&self) -> rsact_reactive::prelude::Signal<super::Layout> {

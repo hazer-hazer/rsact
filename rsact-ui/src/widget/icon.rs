@@ -1,7 +1,6 @@
-use core::marker::PhantomData;
-
-use super::{layout::ContentLayout, Limits, Size};
+use super::{layout::ContentLayout, Size};
 use crate::widget::prelude::*;
+use core::marker::PhantomData;
 use embedded_graphics::pixelcolor::raw::BigEndian;
 use rsact_icons::{EmptyIconSet, IconRaw, IconSet};
 use rsact_reactive::maybe::{

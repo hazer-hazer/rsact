@@ -16,7 +16,7 @@ use rsact_ui::{
         Align,
     },
     prelude::{
-        create_effect, create_signal, Button, Icon, IntoInert, IntoMemo,
+        create_effect, create_signal, Button, Icon, IntoInert,
         ReadSignal, Scrollable, SignalMap, Text, UiMessage, WriteSignal,
     },
     style::NullStyler,
@@ -291,7 +291,7 @@ fn main() {
         Flex::col([
             Text::new(bed_temp.map(|temp| format!("{temp}C"))).el(),
             Knob::new(bed_temp).el(),
-            Text::fixed("Bed").el(),
+            Text::new_inert("Bed").el(),
         ])
         .gap(2u32)
         .center()
@@ -300,7 +300,7 @@ fn main() {
         Flex::col([
             Text::new(nozzle_temp.map(|temp| format!("{temp}C"))).el(),
             Knob::new(nozzle_temp).el(),
-            Text::fixed("Nozzle").el(),
+            Text::new_inert("Nozzle").el(),
         ])
         .gap(2u32)
         .center()

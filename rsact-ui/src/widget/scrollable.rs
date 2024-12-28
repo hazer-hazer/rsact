@@ -200,6 +200,13 @@ where
     }
 }
 
+impl<W: WidgetCtx, Dir: Direction + 'static> FontSettingWidget<W>
+    for Scrollable<W, Dir>
+where
+    W::Styler: WidgetStylist<ScrollableStyle<W::Color>>,
+{
+}
+
 impl<W, Dir> Widget<W> for Scrollable<W, Dir>
 where
     W: WidgetCtx,
@@ -216,8 +223,7 @@ where
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
         ctx.accept_styles(self.style, self.state);
-        // ctx.pass_to_child(self.content);
-        self.content.on_mount(ctx);
+        ctx.pass_to_child(self.layout, &mut self.content);
     }
 
     fn layout(&self) -> Signal<Layout> {

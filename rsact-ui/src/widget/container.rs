@@ -86,6 +86,8 @@ impl<W: WidgetCtx + 'static> Container<W> {
 impl<W: WidgetCtx + 'static> SizedWidget<W> for Container<W> {}
 impl<W: WidgetCtx + 'static> BlockModelWidget<W> for Container<W> {}
 
+impl<W: WidgetCtx> FontSettingWidget<W> for Container<W> {}
+
 impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
     fn meta(&self) -> MetaTree {
         let content_tree = self.content.meta();
@@ -98,8 +100,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
         // ctx.accept_styles(self.style, ());
-        // ctx.pass_to_child(self.content);
-        self.content.on_mount(ctx);
+        ctx.pass_to_child(self.layout, &mut self.content);
     }
 
     fn layout(&self) -> Signal<Layout> {
