@@ -122,10 +122,11 @@ impl<T> IntoInert<T> for T {
 /// For RW version of [`MaybeReactive`] see [`MaybeSignal`]
 pub enum MaybeReactive<T: PartialEq + 'static> {
     Inert(Inert<T>),
+    // TODO: Remove Signal, Memo can now store signals
     Signal(Signal<T>),
     Memo(Memo<T>),
     MemoChain(MemoChain<T>),
-    Derived(Rc<RefCell<dyn FnMut() -> T>>),
+    // Derived(Rc<RefCell<dyn FnMut() -> T>>),
 }
 
 impl_read_signal_traits!(MaybeReactive<T>: PartialEq);
@@ -135,9 +136,9 @@ impl<T: PartialEq + 'static> MaybeReactive<T> {
         Self::Inert(value.inert())
     }
 
-    pub fn new_derived(f: impl FnMut() -> T + 'static) -> Self {
-        Self::Derived(Rc::new(RefCell::new(f)))
-    }
+    // pub fn new_derived(f: impl FnMut() -> T + 'static) -> Self {
+    //     Self::Derived(Rc::new(RefCell::new(f)))
+    // }
 }
 
 impl<T: PartialEq + 'static> ReactiveValue for MaybeReactive<T> {
@@ -150,7 +151,7 @@ impl<T: PartialEq + 'static> ReactiveValue for MaybeReactive<T> {
             MaybeReactive::Signal(signal) => signal.is_alive(),
             MaybeReactive::Memo(memo) => memo.is_alive(),
             MaybeReactive::MemoChain(memo_chain) => memo_chain.is_alive(),
-            MaybeReactive::Derived(_) => true,
+            // MaybeReactive::Derived(_) => true,
         }
     }
 
@@ -161,7 +162,7 @@ impl<T: PartialEq + 'static> ReactiveValue for MaybeReactive<T> {
             MaybeReactive::Signal(signal) => signal.dispose(),
             MaybeReactive::Memo(memo) => memo.dispose(),
             MaybeReactive::MemoChain(memo_chain) => memo_chain.dispose(),
-            MaybeReactive::Derived(derived) => core::mem::drop(derived),
+            // MaybeReactive::Derived(derived) => core::mem::drop(derived),
         }
     }
 }
@@ -174,7 +175,7 @@ impl<T: PartialEq + 'static> ReadSignal<T> for MaybeReactive<T> {
             MaybeReactive::Signal(signal) => signal.track(),
             MaybeReactive::Memo(memo) => memo.track(),
             MaybeReactive::MemoChain(memo_chain) => memo_chain.track(),
-            MaybeReactive::Derived(_) => {},
+            // MaybeReactive::Derived(_) => {},
         }
     }
 
@@ -187,7 +188,7 @@ impl<T: PartialEq + 'static> ReadSignal<T> for MaybeReactive<T> {
             MaybeReactive::MemoChain(memo_chain) => {
                 memo_chain.with_untracked(f)
             },
-            MaybeReactive::Derived(derived) => f(&derived.borrow_mut()()),
+            // MaybeReactive::Derived(derived) => f(&derived.borrow_mut()()),
         }
     }
 }
@@ -217,10 +218,10 @@ impl<T: PartialEq + 'static> SignalMap<T> for MaybeReactive<T> {
             MaybeReactive::MemoChain(memo_chain) => {
                 MaybeReactive::Memo(memo_chain.map(map))
             },
-            MaybeReactive::Derived(derived) => {
-                let derived = Rc::clone(derived);
-                MaybeReactive::new_derived(move || map(&derived.borrow_mut()()))
-            },
+            // MaybeReactive::Derived(derived) => {
+            //     let derived = Rc::clone(derived);
+            //     MaybeReactive::new_derived(move || map(&derived.borrow_mut()()))
+            // },
         }
     }
 }
@@ -253,13 +254,13 @@ impl<T: PartialEq + 'static> IntoMaybeReactive<T> for MemoChain<T> {
     }
 }
 
-impl<T: PartialEq + 'static, F: FnMut() -> T + 'static> IntoMaybeReactive<T>
-    for F
-{
-    fn maybe_reactive(self) -> MaybeReactive<T> {
-        MaybeReactive::new_derived(self)
-    }
-}
+// impl<T: PartialEq + 'static, F: FnMut() -> T + 'static> IntoMaybeReactive<T>
+//     for F
+// {
+//     fn maybe_reactive(self) -> MaybeReactive<T> {
+//         MaybeReactive::new_derived(self)
+//     }
+// }
 
 impl<T: PartialEq + 'static> IntoMaybeReactive<T> for Inert<T> {
     fn maybe_reactive(self) -> MaybeReactive<T> {
@@ -274,10 +275,12 @@ impl<T: PartialEq + Clone + 'static> Clone for MaybeReactive<T> {
             Self::Signal(arg0) => Self::Signal(arg0.clone()),
             Self::Memo(arg0) => Self::Memo(arg0.clone()),
             Self::MemoChain(arg0) => Self::MemoChain(arg0.clone()),
-            Self::Derived(arg0) => Self::Derived(arg0.clone()),
+            // Self::Derived(arg0) => Self::Derived(arg0.clone()),
         }
     }
 }
+
+impl<T: PartialEq + Copy + 'static> Copy for MaybeReactive<T> {}
 
 macro_rules! impl_inert_into_maybe_reactive {
     ($($ty: ty),* $(,)?) => {
@@ -368,10 +371,10 @@ impl<T: PartialEq + Clone> IntoMemo<T> for MaybeReactive<T> {
             MaybeReactive::Signal(signal) => signal.memo(),
             MaybeReactive::Memo(memo) => memo,
             MaybeReactive::MemoChain(memo_chain) => memo_chain.memo(),
-            MaybeReactive::Derived(derived) => {
-                let derived = Rc::clone(&derived);
-                create_memo(move |_| derived.borrow_mut()())
-            },
+            // MaybeReactive::Derived(derived) => {
+            //     let derived = Rc::clone(&derived);
+            //     create_memo(move |_| derived.borrow_mut()())
+            // },
         }
     }
 }
@@ -380,7 +383,9 @@ impl<T: PartialEq + Clone> IntoMemo<T> for MaybeReactive<T> {
 pub enum MaybeSignal<T: 'static> {
     /// Option needed to deal with conversion from [`Inert`] into [`Signal`]
     /// Optimize: Can be replaced with MaybeUninit for performance
+    #[non_exhaustive]
     Inert(Option<T>),
+    #[non_exhaustive]
     Signal(Signal<T>),
 }
 
@@ -413,8 +418,32 @@ impl<T: 'static> IntoSignal<T> for MaybeSignal<T> {
 }
 
 impl<T: 'static> MaybeSignal<T> {
+    /// Creates new inert MaybeSignal
     pub fn new_inert(value: T) -> Self {
         Self::Inert(Some(value))
+    }
+
+    pub fn as_inert(&self) -> Option<&T> {
+        match self {
+            // Note: Option here is for lazy initialization, so unwrap is right
+            MaybeSignal::Inert(inert) => Some(inert.as_ref().unwrap()),
+            MaybeSignal::Signal(_) => None,
+        }
+    }
+
+    pub fn as_inert_mut(&mut self) -> Option<&mut T> {
+        match self {
+            // Note: Option here is for lazy initialization, so unwrap is right
+            MaybeSignal::Inert(inert) => Some(inert.as_mut().unwrap()),
+            MaybeSignal::Signal(_) => None,
+        }
+    }
+
+    pub fn as_signal(&self) -> Option<Signal<T>> {
+        match self {
+            MaybeSignal::Signal(signal) => Some(*signal),
+            _ => None,
+        }
     }
 
     #[track_caller]
@@ -509,11 +538,11 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MaybeReactive<U>>
             MaybeReactive::MemoChain(memo_chain) => {
                 self.now_reactive().setter(memo_chain, set_map)
             },
-            MaybeReactive::Derived(derived) => {
-                // TODO: use_effect or not to use effect? See [`Signal: SignalSetter<T, MaybeReactive<U>>`] case for Derived
-                let derived = Rc::clone(&derived);
-                self.update(|this| set_map(this, &derived.borrow_mut()()))
-            },
+            // MaybeReactive::Derived(derived) => {
+            //     // TODO: use_effect or not to use effect? See [`Signal: SignalSetter<T, MaybeReactive<U>>`] case for Derived
+            //     let derived = Rc::clone(&derived);
+            //     self.update(|this| set_map(this, &derived.borrow_mut()()))
+            // },
         }
     }
 }
@@ -670,8 +699,8 @@ mod tests {
         // Inert<()>
         // Inert values need explicit conversion into Inert wrapper
         accept_maybe_reactive(().inert());
-        // Derived signal
-        accept_maybe_reactive(|| {});
+        // // Derived signal
+        // accept_maybe_reactive(|| {});
         // Memo<()>
         accept_maybe_reactive(create_memo(move |_| {}));
         // Signal<()>

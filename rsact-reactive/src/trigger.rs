@@ -1,6 +1,6 @@
 use crate::{
-    prelude::create_signal, read::ReadSignal as _, signal::Signal,
-    write::WriteSignal as _,
+    prelude::create_signal, read::ReadSignal, signal::Signal,
+    write::WriteSignal,
 };
 
 #[track_caller]
@@ -30,5 +30,25 @@ impl Trigger {
     #[track_caller]
     pub fn notify(&self) {
         self.inner.notify();
+    }
+}
+
+impl ReadSignal<()> for Trigger {
+    fn track(&self) {
+        self.track();
+    }
+
+    fn with_untracked<U>(&self, f: impl FnOnce(&()) -> U) -> U {
+        f(&())
+    }
+}
+
+impl WriteSignal<()> for Trigger {
+    fn notify(&self) {
+        self.notify();
+    }
+
+    fn update_untracked<U>(&mut self, f: impl FnOnce(&mut ()) -> U) -> U {
+        f(&mut ())
     }
 }

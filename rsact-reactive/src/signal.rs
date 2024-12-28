@@ -82,6 +82,10 @@ impl<T: 'static, M: marker::Any> Signal<T, M> {
         }
     }
 
+    pub fn id(&self) -> ValueId {
+        self.id
+    }
+
     #[track_caller]
     pub fn is_alive(self) -> bool {
         with_current_runtime(|rt| rt.is_alive(self.id))
@@ -219,11 +223,11 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MaybeReactive<U>>
             MaybeReactive::MemoChain(memo_chain) => {
                 self.setter(memo_chain, set_map)
             },
-            MaybeReactive::Derived(derived) => {
-                // TODO: use_effect or not to use effect? How do we know if derived function is using reactive values or not
-                let derived = Rc::clone(&derived);
-                self.update(|this| set_map(this, &derived.borrow_mut()()));
-            },
+            // MaybeReactive::Derived(derived) => {
+            //     // TODO: use_effect or not to use effect? How do we know if derived function is using reactive values or not
+            //     let derived = Rc::clone(&derived);
+            //     self.update(|this| set_map(this, &derived.borrow_mut()()));
+            // },
         }
     }
 }

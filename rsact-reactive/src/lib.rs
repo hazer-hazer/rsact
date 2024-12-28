@@ -7,6 +7,7 @@ extern crate alloc;
 
 mod callback;
 pub mod computed;
+pub mod cow;
 pub mod eco;
 pub mod effect;
 pub mod maybe;
@@ -23,6 +24,7 @@ pub mod write;
 
 pub mod prelude {
     pub use super::{
+        cow::CowSignal,
         effect::{create_effect, Effect},
         maybe::{
             Inert, IntoInert, IntoMaybeSignal, MaybeReactive, MaybeSignal,

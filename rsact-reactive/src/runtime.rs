@@ -503,7 +503,7 @@ impl Runtime {
     }
 
     #[cfg(debug_assertions)]
-    pub(crate) fn debug_info(&self, id: ValueId) -> ValueDebugInfo {
+    pub fn debug_info(&self, id: ValueId) -> ValueDebugInfo {
         let debug_info = self.storage.debug_info(id).unwrap();
 
         if let Some(ValueDebugInfo { created_at: Some(observer), .. }) = self

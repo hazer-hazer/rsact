@@ -79,6 +79,13 @@ impl<T: PartialEq + 'static> Memo<T> {
         }
     }
 
+    pub fn id(&self) -> ValueId {
+        match self {
+            Memo::Memo { id, ty } => *id,
+            Memo::Signal(signal) => signal.id(),
+        }
+    }
+
     // TODO: As a simplification and replacement of MemoChain
     // pub fn after_map(&mut self, f: impl FnMut(&T) -> T + 'static) -> Self {
     //     // Replace old callback with new one. Now, passed callback is called first. [`replace_callback`] removes all subs and sources
@@ -333,6 +340,19 @@ mod tests {
         runs.get();
 
         assert_eq!(runs.get(), 3);
+    }
+
+    #[test]
+    fn signal_into_memo() {
+        let mut signal = create_signal(1);
+
+        let memo = signal.memo();
+
+        assert_eq!(memo.get(), 1);
+
+        signal.set(2);
+
+        assert_eq!(memo.get(), 2);
     }
 
     // No longer works
