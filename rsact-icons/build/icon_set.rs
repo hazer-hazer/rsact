@@ -2,7 +2,7 @@ macro_rules! icon_set {
     (@icon $set: ident $icon_kind: ident: $filename: literal ($($aliases: ident),*)) => {{
         let icon = crate::Icon {
             source_filename: $filename,
-            data: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/icon-libs/material-design/svg/", $filename, ".svg")),
+            data: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/icon-libs/material-design/", $filename, ".svg")),
             name: stringify!($icon_kind),
             kind: $set::$icon_kind,
             aliases: &[$(stringify!($aliases)),*]

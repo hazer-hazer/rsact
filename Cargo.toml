@@ -21,7 +21,7 @@ members = [
 authors = ["hazer-hazer"]
 repository = "https://github.com/hazer-hazer/rsact"
 license = "MIT"
-exclude = ["examples"]
+exclude = ["examples", "./rsact-icons/icon-libs"]
 
 [workspace.package]
 edition = "2021"
