@@ -5,8 +5,8 @@ edition = "2021"
 
 [dependencies]
 # rsact-reactive = {path = "./rsact-reactive", features = ["single-thread"]}
-rsact-encoder = {path = "./rsact-encoder"}
-rsact-ui = {path = "./rsact-ui"}
+rsact-encoder = { path = "./rsact-encoder" }
+rsact-ui = { path = "./rsact-ui" }
 
 [workspace]
 resolver = "2"
@@ -16,11 +16,11 @@ members = [
     "rsact-encoder",
     "rsact-icons",
     "rsact-widgets",
-    "rsact-macros"
+    "rsact-macros",
 ]
-authors = ["hazer-hazer"]
-repository = "https://github.com/hazer-hazer/rsact"
-license = "MIT"
+# authors = ["hazer-hazer"]
+# repository = "https://github.com/hazer-hazer/rsact"
+# license = "MIT"
 exclude = ["examples", "./rsact-icons/icon-libs"]
 
 [workspace.package]
@@ -28,21 +28,21 @@ edition = "2021"
 version = "0.1.0"
 
 [workspace.dependencies]
-rsact-reactive = { path = "./rsact-reactive", default-features = false}
-rsact-ui = { path = "./rsact-ui", default-features = false}
-rsact-encoder = {path = "./rsact-encoder", default-features = false}
-rsact-icons = {path = "./rsact-icons", default-features = false}
-rsact-macros = {path = "./rsact-macros", default-features = false}
-rsact-widgets = {path = "./rsact-widgets", default-features = false}
+rsact-reactive = { path = "./rsact-reactive", default-features = false }
+rsact-ui = { path = "./rsact-ui", default-features = false }
+rsact-encoder = { path = "./rsact-encoder", default-features = false }
+rsact-icons = { path = "./rsact-icons", default-features = false }
+rsact-macros = { path = "./rsact-macros", default-features = false }
+rsact-widgets = { path = "./rsact-widgets", default-features = false }
 
-[profile.dev]
+# [profile.dev]
 # opt-level = 0
-debug = "full"
+# debug = "full"
 
-[profile.example]
-inherits = "dev"
-opt-level = 3
-debug = "full"
+# [profile.example]
+# inherits = "dev"
+# opt-level = 3
+# debug = "full"
 
 [features]
 std = ["rsact-ui/std"]
