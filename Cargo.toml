@@ -39,6 +39,11 @@ rsact-widgets = {path = "./rsact-widgets", default-features = false}
 # opt-level = 0
 debug = "full"
 
+[profile.example]
+inherits = "dev"
+opt-level = 3
+debug = "full"
+
 [features]
 std = ["rsact-ui/std"]
 single-thread = ["rsact-ui/single-thread"]

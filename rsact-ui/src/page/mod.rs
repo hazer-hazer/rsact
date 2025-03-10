@@ -4,11 +4,8 @@ use crate::{
         Capture, Event, EventResponse, FocusEvent, MouseEvent, Propagate,
         UnhandledEvent,
     },
-    font::{Font, FontCtx},
-    layout::{
-        model_layout, size::Size, LayoutCtx, LayoutFontProps, LayoutModel,
-        Limits,
-    },
+    font::{Font, FontCtx, FontProps},
+    layout::{model_layout, size::Size, LayoutCtx, LayoutModel, Limits},
     render::{color::Color, Renderer},
     style::TreeStyle,
     widget::{
@@ -83,7 +80,7 @@ impl<W: WidgetCtx> Page<W> {
         root.on_mount(MountCtx {
             viewport,
             styler,
-            inherit_font_props: LayoutFontProps {
+            inherit_font_props: FontProps {
                 font: Some(Font::Auto.maybe_reactive()),
                 font_size: None,
                 font_style: None,

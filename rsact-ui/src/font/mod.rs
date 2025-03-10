@@ -1,17 +1,19 @@
-pub mod fixed;
-
-use core::{fmt::Display, sync::atomic::AtomicUsize};
-
 use crate::{
     layout::{size::Size, Limits},
     widget::{DrawResult, WidgetCtx},
 };
 use alloc::collections::btree_map::BTreeMap;
+use core::{
+    fmt::{Debug, Display},
+    sync::atomic::AtomicUsize,
+};
 use embedded_graphics::primitives::Rectangle;
 use fixed::{FixedFont, FixedFontCollection};
 use rsact_reactive::{
-    memo::Memo, prelude::IntoMaybeReactive, read::ReadSignal, with,
+    maybe::MaybeReactive, prelude::IntoMaybeReactive, read::ReadSignal,
 };
+
+pub mod fixed;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum TextHorizontalAlign {
@@ -31,11 +33,57 @@ pub enum TextVerticalAlign {
     Bottom,
 }
 
+/// Tree-targeting font properties stored inside layouts with contents and passed on mount to widgets.
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct FontProps {
+    pub font: Option<MaybeReactive<Font>>,
+    pub font_size: Option<MaybeReactive<FontSize>>,
+    pub font_style: Option<MaybeReactive<FontStyle>>,
+}
+
+impl FontProps {
+    pub fn inherit(&mut self, parent: &FontProps) {
+        if let font @ None = &mut self.font {
+            *font = parent.font.clone();
+        }
+        if let font_size @ None = &mut self.font_size {
+            *font_size = parent.font_size.clone();
+        }
+        if let font_style @ None = &mut self.font_style {
+            *font_style = parent.font_style.clone();
+        }
+    }
+
+    pub fn resolve(&self, viewport: Size) -> AbsoluteFontProps {
+        let font_size = self
+            .font_size
+            .map(|font_size| font_size.get())
+            .unwrap_or_default()
+            .resolve(viewport);
+
+        let font_style = self
+            .font_style
+            .map(|font_style| font_style.get())
+            .unwrap_or_default();
+
+        AbsoluteFontProps { size: font_size, style: font_style }
+    }
+
+    pub fn font(&self) -> Font {
+        // TODO: Is font required to be set at least by global default or we should fallback here?
+        self.font.unwrap().get()
+    }
+}
+
+impl Display for FontProps {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        todo!()
+    }
+}
+
 /// User-specified font size
 #[derive(Clone, Copy, Debug, PartialEq, IntoMaybeReactive)]
 pub enum FontSize {
-    // TODO: Remove?
-    Unset,
     /// Fixed font-size in pixels.
     Fixed(u32),
     /// Relative to viewport value where 1.0 is given by default Unset variant
@@ -51,7 +99,6 @@ impl Default for FontSize {
 impl Display for FontSize {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            FontSize::Unset => write!(f, "unset"),
             FontSize::Fixed(fixed) => write!(f, "{fixed}"),
             FontSize::Relative(relative) => write!(f, "{relative:.2}"),
         }
@@ -84,7 +131,6 @@ impl FontSize {
         };
 
         match self {
-            FontSize::Unset => base,
             &FontSize::Fixed(fixed) => fixed,
             &FontSize::Relative(rel) => (base as f32 * rel) as u32,
         }
@@ -125,7 +171,7 @@ pub enum FontFamily {
 }
 
 /// Font setting found in text widget. It is an identifier pointing to the actual font or a fixed-size font set for a specific text widget (e.g. embedded_graphics MonoFont or u8g2 font)
-#[derive(Clone, Copy, Debug, IntoMaybeReactive)]
+#[derive(Clone, Copy, Debug, PartialEq, IntoMaybeReactive)]
 pub enum Font {
     // TODO: Common fonts similar to egui: small, button, heading, etc.
     Auto,
@@ -133,10 +179,6 @@ pub enum Font {
     Id(FontId),
     /// Fixed-size font
     Fixed(FixedFont),
-    /// Font inherited from parent element or global
-    /// Not allowed to be set by user, thus non_exhaustive used
-    #[non_exhaustive]
-    Inherited(Memo<Font>),
 }
 
 impl Display for Font {
@@ -145,19 +187,6 @@ impl Display for Font {
             Font::Auto => write!(f, "auto"),
             Font::Id(font_id) => write!(f, "font#{font_id}"),
             Font::Fixed(fixed_font) => write!(f, "{fixed_font}"),
-            Font::Inherited(memo) => memo.with(|font| font.fmt(f)),
-        }
-    }
-}
-
-impl PartialEq for Font {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Inherited(lhs), Self::Inherited(rhs)) => {
-                with!(move |lhs, rhs| lhs == rhs)
-            },
-            (Font::Auto, Font::Auto) => true,
-            _ => false,
         }
     }
 }
@@ -344,9 +373,6 @@ impl FontCtx {
     ) -> Limits {
         match font {
             Font::Auto => self.auto_font().measure_text_size(content, props),
-            Font::Inherited(font) => {
-                Some(self.measure_text_size(font.get(), content, props))
-            },
             Font::Id(font_id) => {
                 self.expect(font_id).measure_text_size(content, props)
             },
@@ -374,14 +400,6 @@ impl FontCtx {
             Font::Auto => self
                 .auto_font()
                 .draw::<W>(content, props, bounds, color, renderer),
-            Font::Inherited(font) => Some(self.draw::<W>(
-                font.get(),
-                content,
-                props,
-                bounds,
-                color,
-                renderer,
-            )),
             Font::Fixed(fixed_font) => {
                 fixed_font.draw::<W>(content, props, bounds, color, renderer)
             },

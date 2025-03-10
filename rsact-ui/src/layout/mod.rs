@@ -1,4 +1,4 @@
-use crate::font::{AbsoluteFontProps, Font, FontCtx, FontSize, FontStyle};
+use crate::font::{FontCtx, FontProps, FontSize};
 use alloc::{string::String, vec::Vec};
 use axis::Direction;
 pub use axis::{Axial as _, Axis};
@@ -58,7 +58,7 @@ impl Align {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ContentLayout {
-    Text { font_props: LayoutFontProps, content: Memo<String> },
+    Text { font_props: FontProps, content: Memo<String> },
     Icon(Memo<FontSize>),
     Fixed(Size),
 }
@@ -114,7 +114,7 @@ pub struct ContainerLayout {
     pub horizontal_align: Align,
     pub vertical_align: Align,
     pub content: Memo<Layout>,
-    pub font_props: LayoutFontProps,
+    pub font_props: FontProps,
 }
 
 impl ContainerLayout {
@@ -149,7 +149,7 @@ pub struct FlexLayout {
     pub horizontal_align: Align,
     pub vertical_align: Align,
     pub children: Memo<Vec<Memo<Layout>>>,
-    pub font_props: LayoutFontProps,
+    pub font_props: FontProps,
 }
 
 impl FlexLayout {
@@ -241,7 +241,7 @@ impl FlexLayout {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ScrollableLayout {
     pub content: Memo<Layout>,
-    pub font_props: LayoutFontProps,
+    pub font_props: FontProps,
 }
 
 impl ScrollableLayout {
@@ -403,54 +403,6 @@ impl Display for DevHoveredLayout {
     }
 }
 
-/// Tree-structured font properties stored inside layouts with contents
-#[derive(Clone, Copy, Default, Debug, PartialEq)]
-pub struct LayoutFontProps {
-    pub font: Option<MaybeReactive<Font>>,
-    pub font_size: Option<MaybeReactive<FontSize>>,
-    pub font_style: Option<MaybeReactive<FontStyle>>,
-}
-
-impl LayoutFontProps {
-    pub fn inherit(&mut self, parent: &LayoutFontProps) {
-        if let font @ None = &mut self.font {
-            *font = parent.font.clone();
-        }
-        if let font_size @ None = &mut self.font_size {
-            *font_size = parent.font_size.clone();
-        }
-        if let font_style @ None = &mut self.font_style {
-            *font_style = parent.font_style.clone();
-        }
-    }
-
-    pub fn resolve(&self, viewport: Size) -> AbsoluteFontProps {
-        let font_size = self
-            .font_size
-            .map(|font_size| font_size.get())
-            .unwrap_or_default()
-            .resolve(viewport);
-
-        let font_style = self
-            .font_style
-            .map(|font_style| font_style.get())
-            .unwrap_or_default();
-
-        AbsoluteFontProps { size: font_size, style: font_style }
-    }
-
-    pub fn font(&self) -> Font {
-        // TODO: Is font required to be set at least by global default or we should fallback here?
-        self.font.unwrap().get()
-    }
-}
-
-impl Display for LayoutFontProps {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        todo!()
-    }
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum LayoutKind {
     Zero,
@@ -499,42 +451,6 @@ impl Layout {
             ),
         }
     }
-
-    // pub fn min_size(&self) -> Size {
-    //     match self.kind {
-    //         LayoutKind::Edge => Size::zero(),
-    //         LayoutKind::Content(ContentLayout { content_size })
-    //         | LayoutKind::Container(ContainerLayout { content_size, .. })
-    //         | LayoutKind::Flex(FlexLayout { content_size, .. }) => {
-    //             content_size.get().min()
-    //         },
-    //         LayoutKind::Scrollable(ContentLayout { content_size }) => {
-    //             content_size.get().min()
-    //         },
-    //     }
-    // }
-
-    // pub fn set_size(&mut self, size: Size<Length>) {
-    //     self.size = size;
-    // }
-
-    // pub fn content_size(&self, ctx: &LayoutCtx) -> Limits {
-    //     match &self.kind {
-    //         LayoutKind::Zero => Limits::zero(),
-    //         LayoutKind::Edge => Limits::unlimited(),
-    //         LayoutKind::Container(ContainerLayout { content_size, .. })
-    //         | LayoutKind::Flex(FlexLayout { content_size, .. })
-    //         | LayoutKind::Scrollable(ScrollableLayout { content_size }) => {
-    //             content_size.get()
-    //         },
-    //         LayoutKind::Content(content) => {
-    //             let min_size = content.min_size(ctx);
-
-    //             // TODO: Text wrap would give two limits
-    //             Limits::new(min_size, min_size)
-    //         },
-    //     }
-    // }
 
     pub fn min_size(&self, ctx: &LayoutCtx) -> Size {
         match &self.kind {
@@ -603,7 +519,7 @@ impl Layout {
         }
     }
 
-    pub fn font_props(&self) -> Option<LayoutFontProps> {
+    pub fn font_props(&self) -> Option<FontProps> {
         match &self.kind {
             LayoutKind::Zero => None,
             LayoutKind::Edge => None,
@@ -624,7 +540,7 @@ impl Layout {
         }
     }
 
-    pub fn font_props_mut(&mut self) -> Option<&mut LayoutFontProps> {
+    pub fn font_props_mut(&mut self) -> Option<&mut FontProps> {
         match &mut self.kind {
             LayoutKind::Zero => None,
             LayoutKind::Edge => None,

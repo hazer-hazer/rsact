@@ -29,7 +29,7 @@ fn main() {
 
     let value = create_signal(String::new());
 
-    let page = Flex::col([
+    let page = Flex::row([
         Container::new(MonoText::new(
             value.map(|value| format!("Value: {value}")),
         ))
@@ -37,7 +37,7 @@ fn main() {
         .height(40u32)
         .fill_width()
         .el(),
-        EncoderKeyboard::row(value).fill_width().el(),
+        EncoderKeyboard::col(value).fill().el(),
         // Scrollable::horizontal(Flex::row(
         //     ('a'..='z')
         //         .map(|char| Button::new(char).on_click(move || {}).el())

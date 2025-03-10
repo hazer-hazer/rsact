@@ -16,9 +16,9 @@ pub(crate) fn impl_into_maybe_reactive(
     let (impl_gen, type_gen, where_clause) = ast.generics.split_for_impl();
 
     let result = quote! {
-        impl #impl_gen From<#name #type_gen> for  rsact_reactive::maybe::MaybeReactive<#name #type_gen> #where_clause {
-            fn from(value: #name #type_gen) -> Self {
-                Self::new_inert(value)
+        impl #impl_gen rsact_reactive::maybe::IntoMaybeReactive<#name #type_gen> for #name #type_gen #where_clause {
+            fn maybe_reactive(self) -> rsact_reactive::maybe::MaybeReactive<#name #type_gen> {
+                rsact_reactive::maybe::MaybeReactive::new_inert(self)
             }
         }
     }.into();

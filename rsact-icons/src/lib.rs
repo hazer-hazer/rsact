@@ -15,8 +15,8 @@ pub use rendered::*;
 #[derive(Clone, Copy)]
 // TODO: Really use ByteOrder to get bit offset in `bit` method
 pub struct IconRaw<BO: ByteOrder> {
-    data: &'static [u8],
-    size: u32,
+    pub data: &'static [u8],
+    pub size: u32,
     bo: PhantomData<BO>,
 }
 
@@ -103,10 +103,26 @@ impl<C: PixelColor, BO: ByteOrder> Drawable for Icon<C, BO> {
 }
 
 pub trait IconSet<BO: embedded_graphics::pixelcolor::raw::ByteOrder = BigEndian>:
-    Sized + 'static
+    PartialEq + Sized + 'static
 {
     const KINDS: &[Self];
+
     const SIZES: &[u32];
 
-    fn size(&self, size: u32) -> crate::IconRaw<BO>;
+    fn size(&self, size: u32) -> crate::IconRaw<BigEndian>;
+}
+
+// TODO: Real Endianness
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EmptyIconSet;
+
+impl IconSet<BigEndian> for EmptyIconSet {
+    const KINDS: &[Self] = &[];
+
+    const SIZES: &[u32] = &[];
+
+    fn size(&self, _size: u32) -> crate::IconRaw<BigEndian> {
+        panic!("Cannot use empty icon set")
+    }
 }

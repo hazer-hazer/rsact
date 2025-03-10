@@ -18,7 +18,7 @@ pub mod text;
 
 use crate::{
     event::CaptureData,
-    font::{Font, FontCtx},
+    font::{Font, FontCtx, FontProps},
     page::id::PageId,
     render::Renderable,
     style::{TreeStyle, WidgetStyle, WidgetStylist},
@@ -26,7 +26,6 @@ use crate::{
 use bitflags::bitflags;
 use core::{fmt::Debug, marker::PhantomData};
 use embedded_graphics::prelude::DrawTarget;
-use layout::LayoutFontProps;
 use prelude::*;
 use rsact_reactive::maybe::IntoMaybeReactive;
 
@@ -322,7 +321,7 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
 pub struct MountCtx<W: WidgetCtx> {
     pub viewport: Memo<Size>,
     pub styler: Memo<W::Styler>,
-    pub inherit_font_props: LayoutFontProps,
+    pub inherit_font_props: FontProps,
 }
 
 impl<W: WidgetCtx> MountCtx<W> {
@@ -564,11 +563,11 @@ pub trait BlockModelWidget<W: WidgetCtx>: Widget<W> {
 }
 
 pub trait FontSettingWidget<W: WidgetCtx>: Widget<W> + Sized + 'static {
-    fn font_props(&self) -> LayoutFontProps {
+    fn font_props(&self) -> FontProps {
         self.layout().with(|layout| layout.font_props().unwrap())
     }
 
-    fn update_font_props(&mut self, update: impl FnOnce(&mut LayoutFontProps)) {
+    fn update_font_props(&mut self, update: impl FnOnce(&mut FontProps)) {
         self.layout()
             .update_untracked(|layout| update(layout.font_props_mut().unwrap()))
     }
