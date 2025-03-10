@@ -1,33 +1,33 @@
 [package]
+edition.workspace = true
 name = "rsact-ui"
 version.workspace = true
-edition.workspace = true
 
 [dependencies]
-rsact-reactive = { workspace = true }
-rsact-icons = { workspace = true, features = ["common", "all-sizes"] }
-defmt = { version = "0.3.8", optional = true }
+bitflags = {version = "2.6.0"}
+defmt = {version = "0.3.8", optional = true}
+derivative = {version = "2.2.0", default-features = false, features = [
+  "use_core",
+]}
+embedded-canvas = "0.3.1"
 embedded-graphics = "0.8.1"
 embedded-graphics-core = "0.4.0"
+embedded-graphics-simulator = {version = "0.7.0", optional = true}
 embedded-text = "0.7.2"
-log = { version = "0.4.22", default-features = false, features = [
-    "max_level_off",
-] }
+embedded-time = {version = "0.12.1"}
 env_logger = "0.11.5"
+log = {version = "0.4.22", default-features = false, features = [
+  "max_level_off",
+]}
 num = "0.4.3"
-embedded-graphics-simulator = { version = "0.7.0", optional = true }
-embedded-canvas = "0.3.1"
-bitflags = { version = "2.6.0" }
-derivative = { version = "2.2.0", default-features = false, features = [
-    "use_core",
-] }
-embedded-time = { version = "0.12.1" }
-smallvec = { version = "1.13.2" }
+rsact-icons = {workspace = true, features = ["common", "all-sizes"]}
+rsact-reactive = {workspace = true}
+smallvec = {version = "1.13.2"}
 u8g2-fonts = "0.4.0"
 
 [dev-dependencies]
 cap = "0.1.2"
-embedded-graphics-simulator = { version = "0.7.0" }
+embedded-graphics-simulator = {version = "0.7.0"}
 fake = "3.0.0"
 rand = "0.8.5"
 
@@ -35,13 +35,14 @@ rand = "0.8.5"
 default = []
 
 defmt = ["dep:defmt"]
-std = ["log/std", "rsact-reactive/std"]
-single-thread = ["rsact-reactive/single-thread"]
 simulator = ["dep:embedded-graphics-simulator"]
+single-thread = ["rsact-reactive/single-thread"]
+std = ["log/std", "rsact-reactive/std"]
 
 [[example]]
 name = "animation"
-required-features = ["std"]
+required-features = ["std", "simulator"]
 
 [[example]]
 name = "flex"
+required-features = ["std", "simulator"]
