@@ -5,6 +5,8 @@ version.workspace = true
 
 build = "./build/main.rs"
 
+exclude = ["./icon-libs"]
+
 [dependencies]
 embedded-graphics = "0.8.1"
 
@@ -44,7 +46,28 @@ default = ["common", "all-sizes"]
 23px = []
 24px = []
 
-all-sizes = ["5px", "6px", "7px", "8px", "9px", "10px", "11px", "12px", "13px", "14px", "15px", "16px", "17px", "18px", "19px", "20px", "21px", "22px", "23px", "24px"]
+all-sizes = [
+    "5px",
+    "6px",
+    "7px",
+    "8px",
+    "9px",
+    "10px",
+    "11px",
+    "12px",
+    "13px",
+    "14px",
+    "15px",
+    "16px",
+    "17px",
+    "18px",
+    "19px",
+    "20px",
+    "21px",
+    "22px",
+    "23px",
+    "24px",
+]
 
 # Icon Sets
 system = []
