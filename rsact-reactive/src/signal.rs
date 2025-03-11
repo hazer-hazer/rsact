@@ -1,13 +1,12 @@
 use crate::{
+    ReactiveValue,
     effect::create_effect,
     prelude::*,
     read::impl_read_signal_traits,
     runtime::with_current_runtime,
     storage::ValueId,
     write::{SignalSetter, WriteSignal},
-    ReactiveValue,
 };
-use alloc::rc::Rc;
 use core::{marker::PhantomData, panic::Location};
 
 #[track_caller]
@@ -146,7 +145,7 @@ impl<T: 'static, U: 'static> SignalSetter<T, Signal<U>> for Signal<T> {
         &mut self,
         source: Signal<U>,
         mut set_map: impl FnMut(&mut T, &<Signal<U> as ReactiveValue>::Value)
-            + 'static,
+        + 'static,
     ) {
         let this = *self;
         create_effect(move |_| {
@@ -164,7 +163,7 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, Memo<U>>
         &mut self,
         source: Memo<U>,
         mut set_map: impl FnMut(&mut T, &<Memo<U> as ReactiveValue>::Value)
-            + 'static,
+        + 'static,
     ) {
         let this = *self;
         create_effect(move |_| {
@@ -182,7 +181,7 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MemoChain<U>>
         &mut self,
         source: MemoChain<U>,
         mut set_map: impl FnMut(&mut T, &<Memo<U> as ReactiveValue>::Value)
-            + 'static,
+        + 'static,
     ) {
         let this = *self;
         create_effect(move |_| {
@@ -200,7 +199,7 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, Inert<U>>
         &mut self,
         source: Inert<U>,
         mut set_map: impl FnMut(&mut T, &<Inert<U> as ReactiveValue>::Value)
-            + 'static,
+        + 'static,
     ) {
         self.update(|this| set_map(this, &source))
     }
@@ -213,12 +212,11 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MaybeReactive<U>>
     fn setter(
         &mut self,
         source: MaybeReactive<U>,
-        mut set_map: impl FnMut(&mut T, &<MaybeReactive<U> as ReactiveValue>::Value)
-            + 'static,
+        set_map: impl FnMut(&mut T, &<MaybeReactive<U> as ReactiveValue>::Value)
+        + 'static,
     ) {
         match source {
             MaybeReactive::Inert(raw) => self.setter(raw, set_map),
-            MaybeReactive::Signal(signal) => self.setter(signal, set_map),
             MaybeReactive::Memo(memo) => self.setter(memo, set_map),
             MaybeReactive::MemoChain(memo_chain) => {
                 self.setter(memo_chain, set_map)
@@ -513,11 +511,7 @@ mod tests {
         let mut c_calls = create_signal(0);
         let c = create_memo(move |_| {
             c_calls.update_untracked(|calls| *calls += 1);
-            if b.get() {
-                1
-            } else {
-                0
-            }
+            if b.get() { 1 } else { 0 }
         });
 
         assert_eq!(c.get(), 0);
@@ -710,20 +704,12 @@ mod tests {
         let i = create_memo(move |_| {
             let a = y.get();
             z.get();
-            if a == 0 {
-                x.get()
-            } else {
-                a
-            }
+            if a == 0 { x.get() } else { a }
         });
         let j = create_memo(move |_| {
             let a = i.get();
             z.get();
-            if a == 0 {
-                x.get()
-            } else {
-                a
-            }
+            if a == 0 { x.get() } else { a }
         });
 
         j.get();

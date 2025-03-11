@@ -1,20 +1,20 @@
 use crate::{
     el::El,
     event::{
-        message::{UiMessage, UiQueue},
         Event, UnhandledEvent,
+        message::{UiMessage, UiQueue},
     },
     font::{FontCtx, FontImport},
     layout::size::Size,
-    page::{dev::DevTools, id::PageId, Page},
-    render::{color::Color, draw_target::LayeringRenderer, Renderer},
+    page::{Page, dev::DevTools, id::PageId},
+    render::{Renderer, color::Color, draw_target::LayeringRenderer},
     widget::{WidgetCtx, Wtf},
 };
 use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use core::{fmt::Debug, marker::PhantomData};
 use embedded_graphics::prelude::DrawTarget;
 use rsact_reactive::{maybe::IntoMaybeReactive, prelude::*};
-use smallvec::SmallVec;
+use tinyvec::TinyVec;
 
 pub struct UiOptions {
     auto_focus: bool,
@@ -34,7 +34,7 @@ pub struct WithPages;
 impl HasPages for WithPages {}
 
 pub struct UI<W: WidgetCtx, P: HasPages> {
-    page_history: SmallVec<[W::PageId; 1]>,
+    page_history: TinyVec<[W::PageId; 1]>,
     pages: BTreeMap<W::PageId, Page<W>>,
     viewport: Memo<Size>,
     on_exit: Option<Box<dyn Fn()>>,
@@ -165,20 +165,21 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
     }
 
     fn add_page(&mut self, id: W::PageId, page_root: impl Into<El<W>>) {
-        assert!(self
-            .pages
-            .insert(
-                id,
-                Page::new(
-                    page_root,
-                    self.viewport,
-                    self.styler,
-                    self.dev_tools,
-                    self.renderer,
-                    self.fonts
+        assert!(
+            self.pages
+                .insert(
+                    id,
+                    Page::new(
+                        page_root,
+                        self.viewport,
+                        self.styler,
+                        self.dev_tools,
+                        self.renderer,
+                        self.fonts
+                    )
                 )
-            )
-            .is_none())
+                .is_none()
+        )
     }
 
     // Fonts //

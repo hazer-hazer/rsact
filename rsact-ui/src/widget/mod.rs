@@ -621,12 +621,13 @@ pub mod prelude {
     pub use crate::{
         el::{El, ElId},
         event::{
-            message::UiMessage, Capture, Event, EventResponse, FocusEvent,
-            Propagate,
+            Capture, Event, EventResponse, FocusEvent, Propagate,
+            message::UiMessage,
         },
         font::{FontSize, FontStyle},
         layout::{
-            self,
+            self, Align, ContainerLayout, FlexLayout, Layout, LayoutKind,
+            LayoutModelNode, Limits,
             axis::{
                 Anchor, Axial as _, Axis, AxisAnchorPoint, ColDir, Direction,
                 RowDir,
@@ -634,11 +635,9 @@ pub mod prelude {
             block_model::BlockModel,
             padding::Padding,
             size::{Length, Size},
-            Align, ContainerLayout, FlexLayout, Layout, LayoutKind,
-            LayoutModelNode, Limits,
         },
-        render::{color::Color, Block, Border, Renderer},
-        style::{block::*, declare_widget_style, ColorStyle, WidgetStylist},
+        render::{Block, Border, Renderer, color::Color},
+        style::{ColorStyle, WidgetStylist, block::*, declare_widget_style},
         widget::{
             BlockModelWidget, DrawCtx, DrawResult, EventCtx, FontSettingWidget,
             Meta, MetaTree, MountCtx, SizedWidget, Widget, WidgetCtx,

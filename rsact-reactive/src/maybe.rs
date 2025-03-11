@@ -1,10 +1,10 @@
 use crate::{
-    memo::{create_memo, IntoMemo, Memo},
-    prelude::MemoChain,
-    read::{impl_read_signal_traits, ReadSignal, SignalMap},
-    signal::{create_signal, IntoSignal, Signal},
-    write::{SignalSetter, WriteSignal},
     ReactiveValue,
+    memo::{IntoMemo, Memo, create_memo},
+    prelude::MemoChain,
+    read::{ReadSignal, SignalMap, impl_read_signal_traits},
+    signal::{IntoSignal, Signal, create_signal},
+    write::{SignalSetter, WriteSignal},
 };
 use alloc::{rc::Rc, vec::Vec};
 use core::{
@@ -15,7 +15,6 @@ use core::{
 
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-// TODO: Maybe rename to Idle/Phlegmatic/Inert/Supine for shortness?
 /// Plain data, basically a wrapper around T which you can treat as a real reactive value but it isn't reactive: not tracked and not trackable. Important: Unlike other reactive values, [`Inert`] is not copy-type!
 pub struct Inert<T: 'static> {
     value: T,
@@ -122,8 +121,6 @@ impl<T> IntoInert<T> for T {
 /// For RW version of [`MaybeReactive`] see [`MaybeSignal`]
 pub enum MaybeReactive<T: PartialEq + 'static> {
     Inert(Inert<T>),
-    // TODO: Remove Signal, Memo can now store signals
-    Signal(Signal<T>),
     Memo(Memo<T>),
     MemoChain(MemoChain<T>),
     // Derived(Rc<RefCell<dyn FnMut() -> T>>),
@@ -148,7 +145,6 @@ impl<T: PartialEq + 'static> ReactiveValue for MaybeReactive<T> {
     fn is_alive(&self) -> bool {
         match self {
             MaybeReactive::Inert(static_signal) => static_signal.is_alive(),
-            MaybeReactive::Signal(signal) => signal.is_alive(),
             MaybeReactive::Memo(memo) => memo.is_alive(),
             MaybeReactive::MemoChain(memo_chain) => memo_chain.is_alive(),
             // MaybeReactive::Derived(_) => true,
@@ -159,7 +155,6 @@ impl<T: PartialEq + 'static> ReactiveValue for MaybeReactive<T> {
     fn dispose(self) {
         match self {
             MaybeReactive::Inert(static_signal) => static_signal.dispose(),
-            MaybeReactive::Signal(signal) => signal.dispose(),
             MaybeReactive::Memo(memo) => memo.dispose(),
             MaybeReactive::MemoChain(memo_chain) => memo_chain.dispose(),
             // MaybeReactive::Derived(derived) => core::mem::drop(derived),
@@ -172,7 +167,6 @@ impl<T: PartialEq + 'static> ReadSignal<T> for MaybeReactive<T> {
     fn track(&self) {
         match self {
             MaybeReactive::Inert(_) => {},
-            MaybeReactive::Signal(signal) => signal.track(),
             MaybeReactive::Memo(memo) => memo.track(),
             MaybeReactive::MemoChain(memo_chain) => memo_chain.track(),
             // MaybeReactive::Derived(_) => {},
@@ -183,7 +177,6 @@ impl<T: PartialEq + 'static> ReadSignal<T> for MaybeReactive<T> {
     fn with_untracked<U>(&self, f: impl FnOnce(&T) -> U) -> U {
         match self {
             MaybeReactive::Inert(inert) => f(inert),
-            MaybeReactive::Signal(signal) => signal.with_untracked(f),
             MaybeReactive::Memo(memo) => memo.with_untracked(f),
             MaybeReactive::MemoChain(memo_chain) => {
                 memo_chain.with_untracked(f)
@@ -200,7 +193,7 @@ impl<T: PartialEq + 'static> SignalMap<T> for MaybeReactive<T> {
     #[track_caller]
     fn map<U: PartialEq + 'static>(
         &self,
-        mut map: impl FnMut(&T) -> U + 'static,
+        map: impl FnMut(&T) -> U + 'static,
     ) -> Self::Output<U> {
         match self {
             MaybeReactive::Inert(inert) => {
@@ -210,9 +203,6 @@ impl<T: PartialEq + 'static> SignalMap<T> for MaybeReactive<T> {
                 //     map(&inert)
                 // })))
                 inert.map(map).maybe_reactive()
-            },
-            MaybeReactive::Signal(signal) => {
-                MaybeReactive::Memo(signal.map(map))
             },
             MaybeReactive::Memo(memo) => MaybeReactive::Memo(memo.map(map)),
             MaybeReactive::MemoChain(memo_chain) => {
@@ -238,7 +228,7 @@ impl<T: PartialEq + 'static> IntoMaybeReactive<T> for MaybeReactive<T> {
 
 impl<T: PartialEq + 'static> IntoMaybeReactive<T> for Signal<T> {
     fn maybe_reactive(self) -> MaybeReactive<T> {
-        MaybeReactive::Signal(self)
+        MaybeReactive::Memo(self.memo())
     }
 }
 
@@ -272,7 +262,6 @@ impl<T: PartialEq + Clone + 'static> Clone for MaybeReactive<T> {
     fn clone(&self) -> Self {
         match self {
             Self::Inert(arg0) => Self::Inert(arg0.clone()),
-            Self::Signal(arg0) => Self::Signal(arg0.clone()),
             Self::Memo(arg0) => Self::Memo(arg0.clone()),
             Self::MemoChain(arg0) => Self::MemoChain(arg0.clone()),
             // Self::Derived(arg0) => Self::Derived(arg0.clone()),
@@ -368,7 +357,6 @@ impl<T: PartialEq + Clone> IntoMemo<T> for MaybeReactive<T> {
         // TODO: Check this
         match self {
             MaybeReactive::Inert(inert) => inert.memo(),
-            MaybeReactive::Signal(signal) => signal.memo(),
             MaybeReactive::Memo(memo) => memo,
             MaybeReactive::MemoChain(memo_chain) => memo_chain.memo(),
             // MaybeReactive::Derived(derived) => {
@@ -522,15 +510,12 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MaybeReactive<U>>
         &mut self,
         source: MaybeReactive<U>,
         mut set_map: impl FnMut(&mut T, &<MaybeReactive<U> as ReactiveValue>::Value)
-            + 'static,
+        + 'static,
     ) {
         match source {
             MaybeReactive::Inert(inert) => {
                 // TODO: Use [`Inert`] setter
                 self.update(|this| set_map(this, &inert))
-            },
-            MaybeReactive::Signal(signal) => {
-                self.now_reactive().setter(signal, set_map)
             },
             MaybeReactive::Memo(memo) => {
                 self.now_reactive().setter(memo, set_map)
@@ -670,7 +655,7 @@ impl ReactivityMarker for IsInert {}
 mod tests {
     use crate::{
         maybe::IntoMaybeReactive, prelude::*, read::ReadSignal as _,
-        runtime::new_deny_new_scope,
+        scope::new_deny_new_scope,
     };
 
     #[test]

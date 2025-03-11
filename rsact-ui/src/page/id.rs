@@ -1,8 +1,8 @@
 use core::fmt::Debug;
 
-pub trait PageId: Ord + Copy + Debug {}
+pub trait PageId: Default + Ord + Copy + Debug {}
 
-impl<T: Ord + Copy + Debug> PageId for T {}
+impl<T: Ord + Copy + Debug + Default> PageId for T {}
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct SinglePage;

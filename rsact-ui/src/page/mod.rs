@@ -5,8 +5,8 @@ use crate::{
         UnhandledEvent,
     },
     font::{Font, FontCtx, FontProps},
-    layout::{model_layout, size::Size, LayoutCtx, LayoutModel, Limits},
-    render::{color::Color, Renderer},
+    layout::{LayoutCtx, LayoutModel, Limits, model_layout, size::Size},
+    render::{Renderer, color::Color},
     style::TreeStyle,
     widget::{
         Behavior, DrawCtx, EventCtx, MountCtx, PageState, Widget, WidgetCtx,
@@ -17,7 +17,7 @@ use dev::{DevHoveredEl, DevTools};
 use embedded_graphics::prelude::{DrawTarget, Point};
 use num::traits::WrappingAdd as _;
 use rsact_reactive::{
-    maybe::IntoMaybeReactive, prelude::*, runtime::new_deny_new_scope,
+    maybe::IntoMaybeReactive, prelude::*, scope::new_deny_new_scope,
 };
 
 pub mod dev;

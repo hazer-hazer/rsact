@@ -1,29 +1,55 @@
-use core::{fmt::Display, panic::Location};
-
-use alloc::vec::Vec;
-
 use crate::{runtime::with_current_runtime, storage::ValueId};
+use alloc::vec::Vec;
+use core::fmt::Display;
+
+/// Creates new scope, all reactive values will be dropped on scope drop. Scope dropped automatically when returned ScopeHandle drops.
+#[must_use]
+#[track_caller]
+pub fn new_scope() -> ScopeHandle {
+    #[cfg(feature = "debug-info")]
+    let caller = core::panic::Location::caller();
+    with_current_runtime(|rt| {
+        rt.new_scope(
+            #[cfg(feature = "debug-info")]
+            caller,
+        )
+    })
+}
+
+// TODO: Remove to something tautology like `new_void_scope` or `new_childless_scope`
+/// Creates new scope where creation of new reactive values is disallowed and will cause a panic. Useful mostly only for debugging.
+#[track_caller]
+pub fn new_deny_new_scope() -> ScopeHandle {
+    #[cfg(feature = "debug-info")]
+    let caller = core::panic::Location::caller();
+    with_current_runtime(|rt| {
+        rt.new_deny_new_scope(
+            #[cfg(feature = "debug-info")]
+            caller,
+        )
+    })
+}
 
 slotmap::new_key_type! {
     pub struct ScopeId;
 }
 
 pub struct ScopeData {
-    // TODO: Use enum, deny_new makes values useless
+    // TODO: Use enum, deny_new makes values field useless
     pub(crate) deny_new: bool,
     pub(crate) values: Vec<ValueId>,
-    #[cfg(debug_assertions)]
-    pub(crate) created_at: &'static Location<'static>,
+    #[cfg(feature = "debug-info")]
+    pub(crate) created_at: &'static core::panic::Location<'static>,
 }
 
-#[cfg(debug_assertions)]
+#[cfg(feature = "debug-info")]
 impl Display for ScopeData {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "Scope at {}", self.created_at)
     }
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(not(feature = "debug-info"))]
 impl Display for ScopeData {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "")
@@ -32,23 +58,25 @@ impl Display for ScopeData {
 
 impl ScopeData {
     pub fn new(
-        #[cfg(debug_assertions)] created_at: &'static Location<'static>,
+        #[cfg(feature = "debug-info")]
+        created_at: &'static core::panic::Location<'static>,
     ) -> Self {
         Self {
             deny_new: false,
             values: Default::default(),
-            #[cfg(debug_assertions)]
+            #[cfg(feature = "debug-info")]
             created_at,
         }
     }
 
     pub fn new_deny_new(
-        #[cfg(debug_assertions)] created_at: &'static Location<'static>,
+        #[cfg(feature = "debug-info")]
+        created_at: &'static core::panic::Location<'static>,
     ) -> Self {
         Self {
             deny_new: true,
             values: Default::default(),
-            #[cfg(debug_assertions)]
+            #[cfg(feature = "debug-info")]
             created_at,
         }
     }
@@ -74,7 +102,7 @@ impl Drop for ScopeHandle {
 
 #[cfg(test)]
 mod tests {
-    use crate::{prelude::create_signal, runtime::new_scope};
+    use crate::{prelude::create_signal, scope::new_scope};
 
     #[test]
     fn scoping() {

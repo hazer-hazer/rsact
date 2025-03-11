@@ -18,11 +18,11 @@ micromath = {workspace = true}
 num = {workspace = true}
 rsact-icons = {workspace = true, features = ["common", "all-sizes"]}
 rsact-reactive = {workspace = true}
-smallvec = {workspace = true}
+tinyvec = {workspace = true}
 u8g2-fonts = {workspace = true}
 
 [dev-dependencies]
-cap = "0.1.2"
+cap = {workspace = true}
 fake = "4.0.0"
 rand = "0.9"
 
@@ -33,6 +33,7 @@ defmt = ["dep:defmt"]
 simulator = ["dep:embedded-graphics-simulator"]
 single-thread = ["rsact-reactive/single-thread"]
 std = ["log/std", "rsact-reactive/std"]
+debug-info = []
 
 [[example]]
 name = "animation"

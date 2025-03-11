@@ -1,16 +1,14 @@
 use crate::{callback::AnyCallback, runtime::Runtime};
-use alloc::{
-    boxed::Box, collections::btree_map::BTreeMap, format, rc::Rc, vec::Vec,
-};
+use alloc::{boxed::Box, format, rc::Rc};
 use core::{
-    any::{type_name, Any},
+    any::{Any, type_name},
     cell::RefCell,
     fmt::{Debug, Display},
     panic::Location,
 };
 use slotmap::SlotMap;
 
-// TODO: Add typed ValueId's
+// TODO: Add typed ValueId's (per Memo, Signal, etc.)
 slotmap::new_key_type! {
     pub struct ValueId;
 }
@@ -40,7 +38,7 @@ impl ValueId {
         rt.maybe_update(*self);
 
         // let value = self.get_untracked(rt);
-        #[cfg(debug_assertions)]
+        #[cfg(feature = "debug-info")]
         rt.storage.set_debug_info(*self, |info| {
             info.borrowed = Some(_caller);
         });
@@ -48,12 +46,12 @@ impl ValueId {
         let value = match RefCell::try_borrow(&value.value) {
             Ok(value) => value,
             Err(err) => {
-                #[cfg(debug_assertions)]
+                #[cfg(feature = "debug-info")]
                 panic!(
                     "Failed to borrow reactive value: {err}\n{}",
                     rt.debug_info(*self)
                 );
-                #[cfg(not(debug_assertions))]
+                #[cfg(not(feature = "debug-info"))]
                 panic!("Failed to borrow reactive value: {err}");
             },
         };
@@ -63,7 +61,7 @@ impl ValueId {
 
         let result = f(value);
 
-        #[cfg(debug_assertions)]
+        #[cfg(feature = "debug-info")]
         rt.storage.set_debug_info(*self, |info| {
             // TODO: Invalid, should reset to previous `borrowed`
             info.borrowed = None;
@@ -100,7 +98,7 @@ impl ValueId {
         // rt.updating.set(rt.updating.get() + 1);
 
         // let value = self.get_untracked(rt);
-        #[cfg(debug_assertions)]
+        #[cfg(feature = "debug-info")]
         rt.storage.set_debug_info(*self, |debug_info| {
             debug_info.borrowed_mut = _caller;
         });
@@ -116,7 +114,7 @@ impl ValueId {
 
         let result = f(value);
 
-        #[cfg(debug_assertions)]
+        #[cfg(feature = "debug-info")]
         rt.storage.set_debug_info(*self, |debug_info| {
             // TODO: Reset to previous `borrowed`
             debug_info.borrowed_mut = None;
@@ -217,7 +215,7 @@ pub struct StoredValue {
     pub value: Rc<RefCell<dyn Any>>,
     pub kind: ValueKind,
     pub state: ValueState,
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "debug-info")]
     pub debug: ValueDebugInfo,
 }
 
@@ -241,7 +239,7 @@ impl Storage {
         self.values.borrow().get(id).cloned()
     }
 
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "debug-info")]
     pub(crate) fn debug_info(&self, id: ValueId) -> Option<ValueDebugInfo> {
         self.values.borrow().get(id).map(|value| value.debug)
     }
@@ -252,7 +250,7 @@ impl Storage {
         state: ValueState,
         _caller: Option<&'static Location<'static>>,
     ) {
-        #[cfg(debug_assertions)]
+        #[cfg(feature = "debug-info")]
         self.set_debug_info(id, |debug_info| match state {
             ValueState::Clean => debug_info.dirten = None,
             ValueState::Check | ValueState::Dirty => {
@@ -265,7 +263,7 @@ impl Storage {
         value.mark(state);
     }
 
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "debug-info")]
     pub(crate) fn set_debug_info(
         &self,
         id: ValueId,

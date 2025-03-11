@@ -4,9 +4,11 @@ once_cell = {workspace = true}
 replace_with = {workspace = true}
 rsact-macros = {workspace = true}
 slotmap = {workspace = true}
+tinyvec.workspace = true
 
 [dev-dependencies]
 criterion = "0.5.1"
+cap = {workspace = true}
 
 [package]
 edition.workspace = true
@@ -14,9 +16,11 @@ name = "rsact-reactive"
 version.workspace = true
 
 [features]
-default = []
+default = ["default-runtime"]
+default-runtime = []
 single-thread = []
 std = []
+debug-info = []
 
 [[bench]]
 harness = false

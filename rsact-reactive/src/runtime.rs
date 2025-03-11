@@ -60,8 +60,16 @@ pub fn with_current_runtime<T>(f: impl FnOnce(&Runtime) -> T) -> T {
 #[inline(always)]
 pub fn with_new_runtime<T>(f: impl FnOnce(&Runtime) -> T) -> T {
     let rt = create_runtime();
+
+    CURRENT_RUNTIME.with(|current| {
+        let prev = current.get();
+        current.set(Some(rt));
+        prev
+    });
+
     let result = with_current_runtime(f);
     rt.leave();
+
     result
 }
 
@@ -71,37 +79,13 @@ pub fn create_runtime() -> RuntimeId {
     RUNTIMES.with(|rts| rts.borrow_mut().insert(Runtime::new()))
 }
 
-/// Creates new scope, all reactive values will be dropped on scope drop. Scope dropped automatically when returned ScopeHandle drops.
-#[must_use]
-#[track_caller]
-pub fn new_scope() -> ScopeHandle {
-    let caller = Location::caller();
-    with_current_runtime(|rt| {
-        rt.new_scope(
-            #[cfg(debug_assertions)]
-            caller,
-        )
-    })
-}
-
-/// Creates new scope where creation of new reactive values is disallowed and will cause a panic. Useful mostly only for debugging.
-#[track_caller]
-pub fn new_deny_new_scope() -> ScopeHandle {
-    let caller = Location::caller();
-    with_current_runtime(|rt| {
-        rt.new_deny_new_scope(
-            #[cfg(debug_assertions)]
-            caller,
-        )
-    })
-}
-
 crate::thread_local::thread_local_impl! {
     static CURRENT_RUNTIME: Cell<Option<RuntimeId>> = Cell::new(None);
 
     static RUNTIMES: RefCell<SlotMap<RuntimeId, Runtime>> = {
         let mut runtimes = SlotMap::default();
 
+        #[cfg(feature = "default-runtime")]
         CURRENT_RUNTIME.with(|current| current.set(Some(runtimes.insert(Runtime::new()))));
 
         RefCell::new(runtimes)
@@ -117,7 +101,6 @@ pub struct Runtime {
     /// Values owned by observers
     owned: RefCell<SecondaryMap<ValueId, BTreeSet<ValueId>>>,
     pub(crate) observer: Cell<Option<ValueId>>,
-    // TODO: Use SlotMap
     pub(crate) subscribers: RefCell<SecondaryMap<ValueId, BTreeSet<ValueId>>>,
     pub(crate) sources: RefCell<SecondaryMap<ValueId, BTreeSet<ValueId>>>,
     pub(crate) pending_effects: RefCell<BTreeSet<ValueId>>,
@@ -147,10 +130,10 @@ impl Runtime {
     #[must_use]
     pub fn new_scope(
         &self,
-        #[cfg(debug_assertions)] created_at: &'static Location<'static>,
+        #[cfg(feature = "debug-info")] created_at: &'static Location<'static>,
     ) -> ScopeHandle {
         let id = self.scopes.borrow_mut().insert(ScopeData::new(
-            #[cfg(debug_assertions)]
+            #[cfg(feature = "debug-info")]
             created_at,
         ));
         self.current_scope.set(Some(id));
@@ -160,10 +143,10 @@ impl Runtime {
 
     pub fn new_deny_new_scope(
         &self,
-        #[cfg(debug_assertions)] created_at: &'static Location<'static>,
+        #[cfg(feature = "debug-info")] created_at: &'static Location<'static>,
     ) -> ScopeHandle {
         let id = self.scopes.borrow_mut().insert(ScopeData::new_deny_new(
-            #[cfg(debug_assertions)]
+            #[cfg(feature = "debug-info")]
             created_at,
         ));
 
@@ -185,7 +168,9 @@ impl Runtime {
 
         if let Some(scope) = scope {
             if scope.deny_new {
-                panic!("Creating new reactive values is disallowed in special `deny_new` scope. {scope}");
+                panic!(
+                    "Creating new reactive values is disallowed in special `deny_new` scope. {scope}"
+                );
             }
 
             scope.values.push(id);
@@ -211,7 +196,7 @@ impl Runtime {
             value: Rc::new(RefCell::new(value)),
             kind: ValueKind::Signal,
             state: ValueState::Clean,
-            #[cfg(debug_assertions)]
+            #[cfg(feature = "debug-info")]
             debug: ValueDebugInfo {
                 created_at: Some(_caller),
                 dirten: None,
@@ -240,7 +225,7 @@ impl Runtime {
             },
             // Note: Check this, might need to be Dirty
             state: ValueState::Dirty,
-            #[cfg(debug_assertions)]
+            #[cfg(feature = "debug-info")]
             debug: ValueDebugInfo {
                 created_at: Some(_caller),
                 dirten: None,
@@ -268,7 +253,7 @@ impl Runtime {
                 f: Rc::new(RefCell::new(MemoCallback { f, ty: PhantomData })),
             },
             state: ValueState::Dirty,
-            #[cfg(debug_assertions)]
+            #[cfg(feature = "debug-info")]
             debug: ValueDebugInfo {
                 created_at: Some(_caller),
                 dirten: None,
@@ -300,7 +285,7 @@ impl Runtime {
                 last: Rc::new(RefCell::new(None)),
             },
             state: ValueState::Dirty,
-            #[cfg(debug_assertions)]
+            #[cfg(feature = "debug-info")]
             debug: ValueDebugInfo {
                 created_at: Some(_caller),
                 dirten: None,
@@ -502,7 +487,7 @@ impl Runtime {
         self.state(id) == state
     }
 
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "debug-info")]
     pub fn debug_info(&self, id: ValueId) -> ValueDebugInfo {
         let debug_info = self.storage.debug_info(id).unwrap();
 
@@ -664,7 +649,7 @@ pub fn current_runtime_profile() -> Profile {
         let sources_bindings =
             rt.sources.borrow().values().map(|sources| sources.len()).sum();
 
-        #[cfg(debug_assertions)]
+        #[cfg(feature = "debug-info")]
         let top_by_subs = rt
             .subscribers
             .borrow()
@@ -682,7 +667,7 @@ pub fn current_runtime_profile() -> Profile {
                     .map(|created_at| (*created_at, subs))
             });
 
-        #[cfg(debug_assertions)]
+        #[cfg(feature = "debug-info")]
         let top_by_sources = rt
             .sources
             .borrow()
@@ -710,9 +695,9 @@ pub fn current_runtime_profile() -> Profile {
             sources: rt.sources.borrow().len(),
             sources_bindings,
             pending_effects: rt.pending_effects.borrow().len(),
-            #[cfg(debug_assertions)]
+            #[cfg(feature = "debug-info")]
             top_by_subs,
-            #[cfg(debug_assertions)]
+            #[cfg(feature = "debug-info")]
             top_by_sources,
         }
     })
@@ -729,9 +714,9 @@ pub struct Profile {
     sources: usize,
     sources_bindings: usize,
     pending_effects: usize,
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "debug-info")]
     top_by_subs: Option<(Location<'static>, usize)>,
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "debug-info")]
     top_by_sources: Option<(Location<'static>, usize)>,
 }
 
@@ -758,12 +743,12 @@ impl Display for Profile {
 
         writeln!(f, "top values:")?;
 
-        #[cfg(debug_assertions)]
+        #[cfg(feature = "debug-info")]
         if let Some((top_by_subs, count)) = self.top_by_subs {
             writeln!(f, "  by subscribers: {top_by_subs} ({count})")?;
         }
 
-        #[cfg(debug_assertions)]
+        #[cfg(feature = "debug-info")]
         if let Some((top_by_sources, count)) = self.top_by_sources {
             writeln!(f, "  by sources: {top_by_sources} ({count})")?;
         }
@@ -780,8 +765,9 @@ mod tests {
     #[test]
     fn primary_runtime() {
         assert!(
-            RUNTIMES
-                .with(|rts| rts.borrow().contains_key(CURRENT_RUNTIME.with(|current| current.get().unwrap()))),
+            RUNTIMES.with(|rts| rts.borrow().contains_key(
+                CURRENT_RUNTIME.with(|current| current.get().unwrap())
+            )),
             "First insertion into RUNTIMES does not have key of RuntimeId::default()"
         );
     }

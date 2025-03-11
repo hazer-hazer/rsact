@@ -1091,12 +1091,14 @@ dependencies = [
 name = "rsact-reactive"
 version = "0.1.0"
 dependencies = [
+ "cap",
  "criterion",
  "log",
  "once_cell",
  "replace_with",
  "rsact-macros",
  "slotmap",
+ "tinyvec",
 ]
 
 [[package]]
@@ -1120,7 +1122,7 @@ dependencies = [
  "rand",
  "rsact-icons",
  "rsact-reactive",
- "smallvec",
+ "tinyvec",
  "u8g2-fonts",
 ]
 

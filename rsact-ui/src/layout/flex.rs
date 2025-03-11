@@ -1,12 +1,12 @@
 use super::{
-    size::{Length, Size},
     FlexLayout, LayoutCtx, LayoutModel, Limits,
+    size::{Length, Size},
 };
 use crate::layout::{
+    Align, DevFlexLayout, DevLayout,
     axis::Axial as _,
     model_layout,
     size::{DivFactors, SubTake as _},
-    Align, DevFlexLayout, DevLayout,
 };
 use alloc::vec::Vec;
 use embedded_graphics::prelude::Point;
@@ -405,7 +405,7 @@ pub fn model_flex(
     LayoutModel::new(
         layout_size,
         children_layouts,
-        #[cfg(debug_assertions)]
+        #[cfg(feature = "debug-info")]
         DevLayout::new(
             size,
             crate::layout::DevLayoutKind::Flex(DevFlexLayout {

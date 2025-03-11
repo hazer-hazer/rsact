@@ -6,25 +6,25 @@ use embedded_graphics::{
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use rsact_icons::{common::CommonIcon, system::SystemIcon};
 use rsact_reactive::runtime::current_runtime_profile;
 use rsact_ui::{
     event::{message::UiQueue, simulator::simulator_single_encoder},
     layout::{
-        size::{PointExt, Size, UnitV2},
         Align,
+        size::{PointExt, Size, UnitV2},
     },
     prelude::{
-        create_effect, create_signal, Button, Icon, IntoInert,
-        ReadSignal, Scrollable, SignalMap, Text, UiMessage, WriteSignal,
+        Button, Icon, IntoInert, ReadSignal, Scrollable, SignalMap, Text,
+        UiMessage, WriteSignal, create_effect, create_signal,
     },
     style::NullStyler,
     ui::UI,
     utils::lerpi,
     value::RangeU8,
     widget::{
-        bar::Bar, flex::Flex, knob::Knob, BlockModelWidget, SizedWidget, Widget,
+        BlockModelWidget, SizedWidget, Widget, bar::Bar, flex::Flex, knob::Knob,
     },
 };
 use std::{
