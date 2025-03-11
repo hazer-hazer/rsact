@@ -2,10 +2,11 @@ use crate::{
     layout::size::PointExt, prelude::Color, render::alpha::StyledAlphaDrawable,
 };
 use embedded_graphics::{
+    Pixel,
     prelude::{Angle, Dimensions, Point, Primitive, Transform},
     primitives::{PrimitiveStyle, Rectangle, StyledDrawable},
-    Pixel,
 };
+use micromath::F32Ext as _;
 
 // TODO: Canonize Line when constructing? Swap start and end in to always keep start.x < end.x?
 #[derive(Debug, Clone, Copy, PartialEq)]

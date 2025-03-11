@@ -1,7 +1,7 @@
 use super::{
+    Axis,
     axis::{Anchor, Axial},
     padding::Padding,
-    Axis,
 };
 use core::{
     fmt::Display,
@@ -12,6 +12,7 @@ use embedded_graphics::{
     geometry::{AnchorPoint, Point},
     primitives::{CornerRadii, Rectangle},
 };
+use micromath::F32Ext as _;
 use rsact_reactive::prelude::*;
 
 pub trait SubTake<Rhs = Self> {
@@ -741,11 +742,7 @@ pub trait PointExt: Sized + Copy {
     fn swap_axes(self) -> Self;
 
     fn swap_axes_if(self, cond: bool) -> Self {
-        if cond {
-            self.swap_axes()
-        } else {
-            self
-        }
+        if cond { self.swap_axes() } else { self }
     }
 
     /// Unlike `PartialOrd::clamp` this method does fine-grained clamping per axis.

@@ -1,5 +1,5 @@
 {
-  "rust-analyzer.check.allTargets": true,
+  "rust-analyzer.check.allTargets": false,
   "rust-analyzer.check.features": [
     "simulator",
     "single-thread",
@@ -10,6 +10,7 @@
     "single-thread",
     "rsact-icons/common"
   ],
+  "rust-analyzer.cargo.noDefaultFeatures": true,
   "cSpell.words": [
     "antialiasing",
     "Bezier",

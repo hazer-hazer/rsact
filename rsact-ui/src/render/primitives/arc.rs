@@ -1,13 +1,11 @@
-use crate::{
-    prelude::Color,
-    render::alpha::StyledAlphaDrawable,
-};
+use crate::{prelude::Color, render::alpha::StyledAlphaDrawable};
 use core::f32::consts::PI;
 use embedded_graphics::{
+    Pixel,
     prelude::{Angle, Dimensions, Point, Primitive, Transform},
     primitives::{PrimitiveStyle, Rectangle, StyledDrawable},
-    Pixel,
 };
+use micromath::F32Ext as _;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Arc {

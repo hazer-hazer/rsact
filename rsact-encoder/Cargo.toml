@@ -1,19 +1,21 @@
+[dependencies]
+rsact-icons = {workspace = true, features = ["all-sizes", "system"]}
+rsact-ui = {workspace = true}
+
 [package]
+edition.workspace = true
 name = "rsact-encoder"
 version.workspace = true
-edition.workspace = true
-
-[dependencies]
-rsact-ui = { workspace = true }
-rsact-icons = {workspace = true, features = ["all-sizes", "system"]}
 
 [dev-dependencies]
-embedded-graphics-simulator = { version = "0.7.0" }
+embedded-graphics-simulator = {workspace = true}
 
 [features]
 default = []
 
-std = ["rsact-ui/std"]
-single-thread = ["rsact-ui/single-thread"]
 simulator = ["rsact-ui/simulator"]
+single-thread = ["rsact-ui/single-thread"]
+std = ["rsact-ui/std"]
 
+[lints]
+workspace = true

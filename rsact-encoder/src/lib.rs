@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
 // use rsact_ui::{
 //     prelude::{ButtonEvent, ButtonStyle, MonoTextStyle},
 //     style::WidgetStylist,

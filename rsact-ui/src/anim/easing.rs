@@ -1,6 +1,5 @@
 use core::f32::consts::PI;
-
-use num::pow::Pow;
+use micromath::F32Ext as _;
 
 #[derive(Clone)]
 pub enum Easing {
@@ -147,7 +146,7 @@ impl Easing {
                 } else if x == 1.0 {
                     1.0
                 } else {
-                    -2.0f32.pow(10.0 * x - 10.0)
+                    -2.0f32.powf(10.0 * x - 10.0)
                         * ((x * 10.0 - 10.75) * C4).sin()
                 }
             },
@@ -157,7 +156,8 @@ impl Easing {
                 } else if x == 1.0 {
                     1.0
                 } else {
-                    2.0f32.pow(-10.0 * x) * ((x * 10.0 - 0.75) * C4).sin() + 1.0
+                    2.0f32.powf(-10.0 * x) * ((x * 10.0 - 0.75) * C4).sin()
+                        + 1.0
                 }
             },
             Easing::EaseInOutElastic => {
@@ -166,11 +166,11 @@ impl Easing {
                 } else if x == 1.0 {
                     1.0
                 } else if x < 0.5 {
-                    -(2.0f32.pow(20.0 * x - 10.0)
+                    -(2.0f32.powf(20.0 * x - 10.0)
                         * ((20.0 * x - 11.125) * C5).sin())
                         / 2.0
                 } else {
-                    (2.0f32.pow(-20.0 * x + 10.0)
+                    (2.0f32.powf(-20.0 * x + 10.0)
                         * ((20.0 * x - 11.125) * C5).sin())
                         / 2.0
                         + 1.0
@@ -181,14 +181,14 @@ impl Easing {
                 if x == 0.0 {
                     0.0
                 } else {
-                    2.0f32.pow(10.0 * x - 10.0)
+                    2.0f32.powf(10.0 * x - 10.0)
                 }
             },
             Easing::EaseOutExp => {
                 if x == 1.0 {
                     1.0
                 } else {
-                    1.0 - 2.0f32.pow(-10.0 * x)
+                    1.0 - 2.0f32.powf(-10.0 * x)
                 }
             },
             Easing::EaseInOutExp => {
@@ -197,9 +197,9 @@ impl Easing {
                 } else if x == 1.0 {
                     1.0
                 } else if x < 0.5 {
-                    2.0f32.pow(20.0 * x - 10.0) / 2.0
+                    2.0f32.powf(20.0 * x - 10.0) / 2.0
                 } else {
-                    (2.0 - 2.0f32.pow(-20.0 * x + 10.0)) / 2.0
+                    (2.0 - 2.0f32.powf(-20.0 * x + 10.0)) / 2.0
                 }
             },
             // Back

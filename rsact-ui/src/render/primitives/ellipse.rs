@@ -5,10 +5,11 @@ use crate::{
     render::alpha::StyledAlphaDrawable,
 };
 use embedded_graphics::{
+    Pixel,
     prelude::{Dimensions, Point, Primitive, Transform},
     primitives::{PrimitiveStyle, Rectangle, StyledDrawable},
-    Pixel,
 };
+use micromath::F32Ext as _;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Ellipse {

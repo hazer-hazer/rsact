@@ -4,32 +4,27 @@ name = "rsact-ui"
 version.workspace = true
 
 [dependencies]
-bitflags = {version = "2.6.0"}
-defmt = {version = "0.3.8", optional = true}
-derivative = {version = "2.2.0", default-features = false, features = [
-  "use_core",
-]}
-embedded-canvas = "0.3.1"
-embedded-graphics = "0.8.1"
-embedded-graphics-core = "0.4.0"
-embedded-graphics-simulator = {version = "0.7.0", optional = true}
-embedded-text = "0.7.2"
-embedded-time = {version = "0.12.1"}
-env_logger = "0.11.5"
-log = {version = "0.4.22", default-features = false, features = [
-  "max_level_off",
-]}
-num = "0.4.3"
+bitflags = {workspace = true}
+defmt = {workspace = true, optional = true}
+derivative = {workspace = true}
+embedded-canvas = {workspace = true}
+embedded-graphics = {workspace = true}
+embedded-graphics-core = {workspace = true}
+embedded-graphics-simulator = {workspace = true, optional = true}
+embedded-text = {workspace = true}
+embedded-time = {workspace = true}
+log = {workspace = true}
+micromath = {workspace = true}
+num = {workspace = true}
 rsact-icons = {workspace = true, features = ["common", "all-sizes"]}
 rsact-reactive = {workspace = true}
-smallvec = {version = "1.13.2"}
-u8g2-fonts = "0.4.0"
+smallvec = {workspace = true}
+u8g2-fonts = {workspace = true}
 
 [dev-dependencies]
 cap = "0.1.2"
-embedded-graphics-simulator = {version = "0.7.0"}
-fake = "3.0.0"
-rand = "0.8.5"
+fake = "4.0.0"
+rand = "0.9"
 
 [features]
 default = []
@@ -46,3 +41,6 @@ required-features = ["std", "simulator"]
 [[example]]
 name = "flex"
 required-features = ["std", "simulator"]
+
+[lints]
+workspace = true

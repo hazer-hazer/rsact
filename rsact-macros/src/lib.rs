@@ -1,6 +1,8 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
 use maybe_reactive::impl_into_maybe_reactive;
 use proc_macro::TokenStream;
-use syn::{parse_macro_input, DeriveInput};
+use syn::{DeriveInput, parse_macro_input};
 
 extern crate proc_macro2;
 extern crate syn;

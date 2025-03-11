@@ -1,10 +1,12 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
+use core::marker::PhantomData;
 use embedded_graphics::{
+    Drawable, Pixel,
     pixelcolor::raw::{BigEndian, ByteOrder},
     prelude::{PixelColor, PixelIteratorExt, Point},
     primitives::Rectangle,
-    Drawable, Pixel,
 };
-use std::marker::PhantomData;
 
 mod rendered;
 pub use rendered::*;
@@ -65,11 +67,7 @@ impl<C: PixelColor, BO: ByteOrder> Icon<C, BO> {
     }
 
     fn color(&self, bit: bool) -> Option<C> {
-        if bit {
-            self.foreground
-        } else {
-            self.background
-        }
+        if bit { self.foreground } else { self.background }
     }
 }
 

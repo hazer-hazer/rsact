@@ -1,20 +1,21 @@
 use super::line::Line;
 use crate::{
     layout::{
+        Axis,
         axis::Axial,
         size::{ByUnitV2, PointExt, UnitV2},
-        Axis,
     },
     prelude::{BorderRadius, Color},
     render::alpha::StyledAlphaDrawable,
     utils::min_max_range_incl,
 };
 use embedded_graphics::{
+    Pixel,
     geometry::AnchorPoint,
     prelude::{Dimensions, Point, Primitive, Transform},
     primitives::{PrimitiveStyle, Rectangle, StyledDrawable},
-    Pixel,
 };
+use micromath::F32Ext as _;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RoundedRect {

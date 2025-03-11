@@ -64,9 +64,6 @@ impl FontHandler for FixedFont {
                     .bounding_box
                     .unwrap_or(Rectangle::zero());
 
-                extern crate std;
-                std::println!("Bounds {bounds:?}");
-
                 // let max_size = Size::new(
                 //     (bounds.size.width as i32 - bounds.top_left.x) as u32,
                 //     (bounds.size.height as i32 - bounds.top_left.y) as u32,

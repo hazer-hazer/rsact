@@ -1,14 +1,12 @@
-use core::f32;
-
+use super::line::Line;
+use crate::{prelude::Color, render::alpha::StyledAlphaDrawable};
+use core::{f32, ops::Rem as _};
 use embedded_graphics::{
+    Pixel,
     prelude::{Angle, Dimensions, Point, Primitive, Transform},
     primitives::{PrimitiveStyle, Rectangle, StyledDrawable},
-    Pixel,
 };
-
-use crate::{prelude::Color, render::alpha::StyledAlphaDrawable};
-
-use super::line::Line;
+use num::Float;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Sector {
@@ -115,9 +113,8 @@ impl<C: Color> StyledAlphaDrawable<PrimitiveStyle<C>> for Sector {
             // let rx = (r_outer.powi(2) - y.pow(2) as f32).sqrt().ceil() as i32;
             for x in -draw_radius..=draw_radius {
                 // Normalize angle
-                let angle = (y as f32)
-                    .atan2(x as f32)
-                    .rem_euclid(2.0 * f32::consts::PI);
+                let angle =
+                    (y as f32).atan2(x as f32).rem(2.0 * f32::consts::PI);
                 let angle_in_range = if sweep_radians > 0.0 {
                     angle >= start_radians && angle <= end_radians
                 } else {
