@@ -1,4 +1,4 @@
-use super::{alpha::AlphaDrawTarget, color::Color, Renderer};
+use super::{Renderer, alpha::AlphaDrawTarget, color::Color};
 use crate::{layout::size::Size, widget::DrawResult};
 use alloc::{collections::BTreeMap, vec::Vec};
 use core::{
@@ -7,9 +7,9 @@ use core::{
 };
 use embedded_canvas::CanvasAt;
 use embedded_graphics::{
+    Pixel,
     prelude::{Dimensions, DrawTarget, DrawTargetExt, Point},
     primitives::Rectangle,
-    Pixel,
 };
 use embedded_graphics_core::Drawable as _;
 use rsact_reactive::prelude::IntoMaybeReactive;
@@ -74,10 +74,10 @@ impl<C: Color> Layer<C> {
     }
 }
 
-// TODO: Possibly we can only use 2 layers for now, main and the overlaying
-// one
+// TODO: Possibly we can only use 2 layers for now, main and the overlaying one
 pub struct LayeringRenderer<C: Color> {
     viewport_stack: Vec<Viewport>,
+    // TODO: Use signed int for underlayers
     layers: BTreeMap<usize, Layer<C>>,
     main_viewport: Size,
     options: LayeringRendererOptions,
