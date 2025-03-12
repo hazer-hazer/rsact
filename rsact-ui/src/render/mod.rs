@@ -4,17 +4,18 @@ use crate::{
     widget::DrawResult,
 };
 use alpha::{AlphaDrawTarget, AlphaDrawable};
-use color::Color;
+use color::{Color, MapColor};
 use embedded_graphics::{
+    Drawable, Pixel,
     prelude::DrawTarget,
     primitives::{
         PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, RoundedRectangle,
         StyledDrawable,
     },
-    Drawable, Pixel,
 };
 
 pub mod alpha;
+mod canvas;
 pub mod color;
 pub mod draw_target;
 pub mod primitives;
@@ -231,7 +232,7 @@ impl<C: Color, T> Renderable<C> for T where
 // TODO: Custom MonoText struct with String to pass from Canvas widget. Lifetime
 // in TextBox require Canvas only to draw 'static strings
 
-pub type Alpha = f32;
+// pub type Alpha = f32;
 
 pub trait Renderer {
     type Color: Color;
@@ -242,11 +243,13 @@ pub trait Renderer {
 
     // TODO: Generic targets
     // TODO: This is the same as implementing Drawable for Renderer
-    fn finish_frame(&self, target: &mut impl DrawTarget<Color = Self::Color>);
+    fn finish_frame<DC: Color>(&self, target: &mut impl DrawTarget<Color = DC>)
+    where
+        Self::Color: MapColor<DC>;
 
     fn clear(&mut self, color: Self::Color) -> DrawResult;
     fn clear_rect(&mut self, rect: Rectangle, color: Self::Color)
-        -> DrawResult;
+    -> DrawResult;
     fn clipped(
         &mut self,
         area: Rectangle,
@@ -280,11 +283,7 @@ pub trait Renderer {
         mut pixels: impl Iterator<Item = Option<Pixel<Self::Color>>>,
     ) -> DrawResult {
         pixels.try_for_each(|pixel| {
-            if let Some(pixel) = pixel {
-                self.pixel(pixel)
-            } else {
-                Ok(())
-            }
+            if let Some(pixel) = pixel { self.pixel(pixel) } else { Ok(()) }
         })
     }
 

@@ -2,7 +2,7 @@ use embedded_graphics::{pixelcolor::Rgb888, prelude::Dimensions};
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
-use rand::{random, thread_rng, Rng};
+use rand::{Rng, random, thread_rng};
 use rsact_reactive::prelude::*;
 use rsact_ui::{
     el::El,
@@ -11,10 +11,10 @@ use rsact_ui::{
     layout::Align,
     page::id::SinglePage,
     prelude::{
-        create_signal, Button, Checkbox, Container, Flex, IntoInert, Length,
-        Select, SignalMap, Size, Slider, Text, TextStyle,
+        Button, Checkbox, Container, Flex, IntoInert, Length, Select,
+        SignalMap, Size, Slider, Text, TextStyle, create_signal,
     },
-    render::color::RgbColor,
+    render::color::RgbExt,
     style::{NullStyler, WidgetStylist},
     ui::UI,
     widget::{BlockModelWidget, SizedWidget, Widget, WidgetCtx},

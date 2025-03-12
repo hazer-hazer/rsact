@@ -352,6 +352,13 @@ impl<T> Size<T> {
     pub fn with_height(self, height: T) -> Self {
         Self { width: self.width, height }
     }
+
+    pub fn area(self) -> <T as Mul>::Output
+    where
+        T: Mul,
+    {
+        self.width * self.height
+    }
 }
 
 impl From<embedded_graphics_core::geometry::Size> for Size<Length> {

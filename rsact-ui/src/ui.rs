@@ -7,7 +7,11 @@ use crate::{
     font::{FontCtx, FontImport},
     layout::size::Size,
     page::{Page, dev::DevTools, id::PageId},
-    render::{Renderer, color::Color, draw_target::LayeringRenderer},
+    render::{
+        Renderer,
+        color::{Color, MapColor},
+        draw_target::LayeringRenderer,
+    },
     widget::{WidgetCtx, Wtf},
 };
 use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
@@ -53,7 +57,11 @@ where
     C: Color,
     W: WidgetCtx<Renderer = LayeringRenderer<C>, Color = C>,
 {
-    pub fn draw(&mut self, target: &mut impl DrawTarget<Color = C>) -> bool {
+    pub fn draw<D: DrawTarget>(&mut self, target: &mut D) -> bool
+    where
+        D::Color: Color,
+        C: MapColor<D::Color>,
+    {
         self.current_page().draw(target)
     }
 }

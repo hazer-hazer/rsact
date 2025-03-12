@@ -1,4 +1,4 @@
-use super::{Renderer, alpha::AlphaDrawTarget, color::Color};
+use super::{Renderer, alpha::AlphaDrawTarget, canvas::Canvas, color::Color};
 use crate::{layout::size::Size, widget::DrawResult};
 use alloc::{collections::BTreeMap, vec::Vec};
 use core::{
@@ -65,12 +65,12 @@ impl LayeringRendererOptions {
 // TODO: Real alpha-channel
 struct Layer<C: Color> {
     // TODO: Custom Canvas, `embedded_canvas` doesn't effectively store pixels. This is because pixels are optional, but I think some kind of packing is possible, for example 2 bits per one pixel.
-    canvas: CanvasAt<C>,
+    canvas: Canvas<C>,
 }
 
 impl<C: Color> Layer<C> {
     fn fullscreen(size: Size) -> Self {
-        Self { canvas: CanvasAt::new(Point::zero(), size.into()) }
+        Self { canvas: Canvas::new(size) }
     }
 }
 
@@ -144,7 +144,7 @@ impl<C: Color> AlphaDrawTarget for LayeringRenderer<C> {
         let layer = self.layers.get_mut(&index).unwrap();
         let canvas = &mut layer.canvas;
 
-        let current = canvas.get_pixel(pixel.0);
+        let current = canvas.pixel(pixel.0);
         let color = current
             .map(|current| current.mix(blend, pixel.1))
             .unwrap_or(pixel.1);
@@ -188,9 +188,13 @@ where
     }
 
     // TODO: Real alpha channels
-    fn finish_frame(&self, target: &mut impl DrawTarget<Color = C>) {
+    fn finish_frame<DC: Color>(&self, target: &mut impl DrawTarget<Color = DC>)
+    where
+        Self::Color: super::color::MapColor<DC>,
+    {
         self.layers.iter().for_each(|(_, layer)| {
-            layer.canvas.draw(target).ok().unwrap();
+            // TODO
+            layer.canvas.draw_mapped(target).ok().unwrap();
         });
     }
 

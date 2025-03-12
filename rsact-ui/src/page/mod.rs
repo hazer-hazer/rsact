@@ -6,7 +6,10 @@ use crate::{
     },
     font::{Font, FontCtx, FontProps},
     layout::{LayoutCtx, LayoutModel, Limits, model_layout, size::Size},
-    render::{Renderer, color::Color},
+    render::{
+        Renderer,
+        color::{Color, MapColor},
+    },
     style::TreeStyle,
     widget::{
         Behavior, DrawCtx, EventCtx, MountCtx, PageState, Widget, WidgetCtx,
@@ -378,10 +381,11 @@ impl<W: WidgetCtx> Page<W> {
         unhandled
     }
 
-    pub fn draw(
-        &mut self,
-        target: &mut impl DrawTarget<Color = <W::Renderer as Renderer>::Color>,
-    ) -> bool {
+    pub fn draw<D: DrawTarget>(&mut self, target: &mut D) -> bool
+    where
+        D::Color: Color,
+        W::Color: MapColor<D::Color>,
+    {
         if self.drawing.get() {
             self.renderer.with(|renderer| renderer.finish_frame(target));
             true

@@ -1,11 +1,66 @@
 use core::fmt::Debug;
 use embedded_graphics::{
     pixelcolor::{BinaryColor, Rgb555, Rgb565, Rgb666, Rgb888},
-    prelude::PixelColor,
+    prelude::{PixelColor, RgbColor},
 };
 
+use super::canvas::PackedColor;
+
+/// Trait allows implicit conversion from one color type to another so user can reduce color depth of UI but still drawing on draw target with higher color depth.
+pub trait MapColor<O> {
+    fn map_color(self) -> O;
+}
+
+impl MapColor<BinaryColor> for BinaryColor {
+    fn map_color(self) -> BinaryColor {
+        self
+    }
+}
+
+impl MapColor<Rgb555> for BinaryColor {
+    fn map_color(self) -> Rgb555 {
+        match self {
+            BinaryColor::Off => Rgb555::BLACK,
+            BinaryColor::On => Rgb555::WHITE,
+        }
+    }
+}
+
+impl MapColor<Rgb565> for BinaryColor {
+    fn map_color(self) -> Rgb565 {
+        match self {
+            BinaryColor::Off => Rgb565::BLACK,
+            BinaryColor::On => Rgb565::WHITE,
+        }
+    }
+}
+
+impl MapColor<Rgb666> for BinaryColor {
+    fn map_color(self) -> Rgb666 {
+        match self {
+            BinaryColor::Off => Rgb666::BLACK,
+            BinaryColor::On => Rgb666::WHITE,
+        }
+    }
+}
+
+impl MapColor<Rgb888> for BinaryColor {
+    fn map_color(self) -> Rgb888 {
+        match self {
+            BinaryColor::Off => Rgb888::BLACK,
+            BinaryColor::On => Rgb888::WHITE,
+        }
+    }
+}
+
+impl<T: RgbExt, O: RgbExt> MapColor<O> for T {
+    fn map_color(self) -> O {
+        O::rgb(self.r(), self.g(), self.b())
+    }
+}
+
 pub trait Color:
-    PixelColor + From<<Self as PixelColor>::Raw> + Default + Debug
+    PixelColor + PackedColor + From<<Self as PixelColor>::Raw> + Default + Debug
 {
     fn default_foreground() -> Self;
     fn default_background() -> Self;
@@ -34,10 +89,14 @@ pub trait Color:
     }
 }
 
-pub trait RgbColor:
+pub trait RgbExt:
     Sized + embedded_graphics::pixelcolor::RgbColor + Color
 {
     fn rgb(r: u8, g: u8, b: u8) -> Self;
+
+    // fn r(&self) -> u8;
+    // fn g(&self) -> u8;
+    // fn b(&self) -> u8;
 
     #[inline]
     fn hex(hex: u32) -> Self {
@@ -103,11 +162,21 @@ macro_rules! impl_rgb_colors {
                 }
             }
 
-            impl RgbColor for $color_ty {
+            impl RgbExt for $color_ty {
                 #[inline]
                 fn rgb(r: u8, g: u8, b: u8) -> Self {
                     Self::new(r, g, b)
                 }
+
+                // fn r(&self) -> u8 {
+                //     embedded_graphics_core::pixelcolor::RgbColor::r(self)
+                // }
+                // fn g(&self) -> u8 {
+                //     embedded_graphics_core::pixelcolor::RgbColor::g(self)
+                // }
+                // fn b(&self) -> u8 {
+                //     embedded_graphics_core::pixelcolor::RgbColor::b(self)
+                // }
             }
         )*
     };
