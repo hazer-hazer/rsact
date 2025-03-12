@@ -58,11 +58,7 @@ where
     W: WidgetCtx<Renderer = LayeringRenderer<C>, Color = C>,
 {
     // TODO: Move `MapColor` mapping to separate drawing variant to avoid specifying generic for `C`
-    pub fn draw(&mut self, target: &mut D) -> bool
-    where
-        D::Color: Color,
-        C: MapColor<D::Color>,
-    {
+    pub fn draw(&mut self, target: &mut impl DrawTarget<Color = C>) -> bool {
         self.current_page().draw(target)
     }
 }
