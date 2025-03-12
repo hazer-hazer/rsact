@@ -5,7 +5,6 @@ use core::{
     convert::Infallible,
     f32::{self},
 };
-use embedded_canvas::CanvasAt;
 use embedded_graphics::{
     Pixel,
     prelude::{Dimensions, DrawTarget, DrawTargetExt, Point},
@@ -64,7 +63,6 @@ impl LayeringRendererOptions {
 // Note: Real alpha channel is not supported. Now, alpha channel is more like blending parameter for drawing on a single layer, so each layer is not transparent and alpha parameter only affects blending on current layer.
 // TODO: Real alpha-channel
 struct Layer<C: Color> {
-    // TODO: Custom Canvas, `embedded_canvas` doesn't effectively store pixels. This is because pixels are optional, but I think some kind of packing is possible, for example 2 bits per one pixel.
     canvas: Canvas<C>,
 }
 
@@ -188,13 +186,10 @@ where
     }
 
     // TODO: Real alpha channels
-    fn finish_frame<DC: Color>(&self, target: &mut impl DrawTarget<Color = DC>)
-    where
-        Self::Color: super::color::MapColor<DC>,
-    {
+    fn finish_frame(&self, target: &mut impl DrawTarget<Color = C>) {
         self.layers.iter().for_each(|(_, layer)| {
             // TODO
-            layer.canvas.draw_mapped(target).ok().unwrap();
+            layer.canvas.draw(target).ok().unwrap();
         });
     }
 

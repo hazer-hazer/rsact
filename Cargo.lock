@@ -351,16 +351,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
-name = "embedded-canvas"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1d266939e898d2b110ce1aaf5cf3e797c49b9e2b2c2d00f6fe45634bd201e2d"
-dependencies = [
- "embedded-graphics",
- "embedded-graphics-core",
-]
-
-[[package]]
 name = "embedded-graphics"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1109,7 +1099,6 @@ dependencies = [
  "cap",
  "defmt",
  "derivative",
- "embedded-canvas",
  "embedded-graphics",
  "embedded-graphics-core",
  "embedded-graphics-simulator",

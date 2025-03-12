@@ -243,10 +243,7 @@ pub trait Renderer {
 
     // TODO: Generic targets
     // TODO: This is the same as implementing Drawable for Renderer
-    fn finish_frame<DC: Color>(&self, target: &mut impl DrawTarget<Color = DC>)
-    where
-        Self::Color: MapColor<DC>;
-
+    fn finish_frame(&self, target: &mut impl DrawTarget<Color = Self::Color>);
     fn clear(&mut self, color: Self::Color) -> DrawResult;
     fn clear_rect(&mut self, rect: Rectangle, color: Self::Color)
     -> DrawResult;

@@ -39,7 +39,6 @@ defmt = {version = "0.3.8"}
 derivative = {version = "2.2.0", default-features = false, features = [
   "use_core",
 ]}
-embedded-canvas = "0.3.1"
 embedded-graphics = {version = "0.8.1", features = ["defmt"]}
 embedded-graphics-core = {version = "0.4.0", features = ["defmt"]}
 embedded-graphics-simulator = {version = "0.7.0"}
@@ -76,6 +75,7 @@ opt-level = 3
 default = []
 single-thread = ["rsact-ui/single-thread"]
 std = ["rsact-ui/std"]
+simulator = ["rsact-ui/simulator"]
 
 # [profile.sandbox]
 # inherits = "dev"

@@ -381,11 +381,10 @@ impl<W: WidgetCtx> Page<W> {
         unhandled
     }
 
-    pub fn draw<D: DrawTarget>(&mut self, target: &mut D) -> bool
-    where
-        D::Color: Color,
-        W::Color: MapColor<D::Color>,
-    {
+    pub fn draw(
+        &mut self,
+        target: &mut impl DrawTarget<Color = W::Color>,
+    ) -> bool {
         if self.drawing.get() {
             self.renderer.with(|renderer| renderer.finish_frame(target));
             true

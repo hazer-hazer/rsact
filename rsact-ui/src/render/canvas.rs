@@ -2,66 +2,12 @@ use super::color::{Color, MapColor};
 use crate::prelude::Size;
 use alloc::boxed::Box;
 use embedded_graphics::{
-    Drawable, Pixel,
+    Pixel,
     pixelcolor::{BinaryColor, Rgb555, Rgb565, Rgb666, Rgb888},
     prelude::{Dimensions, DrawTarget, Point, PointsIter},
     primitives::Rectangle,
 };
 use num::Integer;
-
-// TODO: Think how to generically implement this
-// /// Trait allows implicit conversion from one color type to another so user can reduce color depth of UI but still drawing on draw target with higher color depth.
-// pub trait MapColor<O> {
-//     fn map_color(self) -> O;
-// }
-
-// impl MapColor<BinaryColor> for BinaryColor {
-//     fn map_color(self) -> BinaryColor {
-//         self
-//     }
-// }
-
-// impl MapColor<Rgb555> for BinaryColor {
-//     fn map_color(self) -> Rgb555 {
-//         match self {
-//             BinaryColor::Off => Rgb555::BLACK,
-//             BinaryColor::On => Rgb555::WHITE,
-//         }
-//     }
-// }
-
-// impl MapColor<Rgb565> for BinaryColor {
-//     fn map_color(self) -> Rgb565 {
-//         match self {
-//             BinaryColor::Off => Rgb565::BLACK,
-//             BinaryColor::On => Rgb565::WHITE,
-//         }
-//     }
-// }
-
-// impl MapColor<Rgb666> for BinaryColor {
-//     fn map_color(self) -> Rgb666 {
-//         match self {
-//             BinaryColor::Off => Rgb666::BLACK,
-//             BinaryColor::On => Rgb666::WHITE,
-//         }
-//     }
-// }
-
-// impl MapColor<Rgb888> for BinaryColor {
-//     fn map_color(self) -> Rgb888 {
-//         match self {
-//             BinaryColor::Off => Rgb888::BLACK,
-//             BinaryColor::On => Rgb888::WHITE,
-//         }
-//     }
-// }
-
-// impl<T: RgbColorExt, O: RgbColorExt> MapColor<O> for T {
-//     fn map_color(self) -> O {
-//         O::rgb(self.r(), self.g(), self.b())
-//     }
-// }
 
 pub trait PackedColor: Sized {
     type Storage: Clone;
@@ -179,13 +125,12 @@ impl<C: Color> Dimensions for Canvas<C> {
 }
 
 impl<C: Color> Canvas<C> {
-    pub fn draw_mapped<D>(&self, target: &mut D) -> Result<(), D::Error>
-    where
-        D: embedded_graphics::prelude::DrawTarget,
-        C: MapColor<D::Color>,
-    {
+    pub fn draw<D: DrawTarget<Color = C>>(
+        &self,
+        target: &mut D,
+    ) -> Result<(), D::Error> {
         let pixels = self.bounding_box().points().filter_map(|point| {
-            self.pixel(point).map(|color| Pixel(point, color.map_color()))
+            self.pixel(point).map(|color| Pixel(point, color))
         });
 
         target.draw_iter(pixels)

@@ -7,7 +7,6 @@ version.workspace = true
 bitflags = {workspace = true}
 defmt = {workspace = true, optional = true}
 derivative = {workspace = true}
-embedded-canvas = {workspace = true}
 embedded-graphics = {workspace = true}
 embedded-graphics-core = {workspace = true}
 embedded-graphics-simulator = {workspace = true, optional = true}

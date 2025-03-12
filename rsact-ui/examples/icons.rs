@@ -51,6 +51,6 @@ fn main() {
 
     ui.draw(&mut display);
 
-    env::set_var("EG_SIMULATOR_DUMP", "assets/icons.png");
+    unsafe { env::set_var("EG_SIMULATOR_DUMP", "assets/icons.png") };
     window.show_static(&display);
 }
