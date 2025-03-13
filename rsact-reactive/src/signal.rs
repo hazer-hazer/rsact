@@ -286,7 +286,7 @@ impl<T: 'static> IntoSignal<T> for T {
 //         Self { data, children: create_signal(Vec::new()) }
 //     }
 // }
-    
+
 /**
  * Most tests are stolen from Reactively framework :)
  *

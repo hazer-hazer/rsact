@@ -74,9 +74,11 @@ impl<C: Color> Layer<C> {
 
 // TODO: Possibly we can only use 2 layers for now, main and the overlaying one
 pub struct LayeringRenderer<C: Color> {
+    // TODO: Use tinyvec? How often new viewports are created?
     viewport_stack: Vec<Viewport>,
     // TODO: Use signed int for underlayers
     layers: BTreeMap<usize, Layer<C>>,
+    // TODO: Use first element of `viewport_stack`?
     main_viewport: Size,
     options: LayeringRendererOptions,
 }

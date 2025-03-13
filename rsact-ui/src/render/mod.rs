@@ -229,7 +229,7 @@ impl<C: Color, T> Renderable<C> for T where
 //     }
 // }
 
-// TODO: Custom MonoText struct with String to pass from Canvas widget. Lifetime
+// TODO: Custom MonoText struct with String to   pass from Canvas widget. Lifetime
 // in TextBox require Canvas only to draw 'static strings
 
 // pub type Alpha = f32;
