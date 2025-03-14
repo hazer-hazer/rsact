@@ -14,7 +14,6 @@ use embedded_graphics::{
         StyledDrawable,
     },
 };
-use futures::future::BoxFuture;
 
 pub mod alpha;
 pub mod canvas;

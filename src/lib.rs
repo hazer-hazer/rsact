@@ -1,3 +1,4 @@
+#![deny(unused_must_use)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub mod prelude {

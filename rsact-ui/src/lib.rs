@@ -1,5 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-#![cfg_attr(not(feature = "std"), no_std)]
+#![deny(unused_must_use)]
 
 #[macro_use]
 extern crate alloc;
@@ -26,7 +26,7 @@ pub use embedded_text;
 
 pub mod prelude {
     pub use crate::{
-        style::{declare_widget_style, WidgetStylist},
+        style::{WidgetStylist, declare_widget_style},
         ui::UI,
         widget::{
             button::*, checkbox::*, container::*, edge::*, flex::*, icon::*,

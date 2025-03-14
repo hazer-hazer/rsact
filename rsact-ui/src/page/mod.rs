@@ -19,7 +19,6 @@ use crate::{
 use alloc::{boxed::Box, vec::Vec};
 use dev::{DevHoveredEl, DevTools};
 use embedded_graphics::prelude::{DrawTarget, Point};
-use futures::future::BoxFuture;
 use num::traits::WrappingAdd as _;
 use rsact_reactive::{
     maybe::IntoMaybeReactive, prelude::*, scope::new_deny_new_scope,

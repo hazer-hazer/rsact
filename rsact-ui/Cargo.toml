@@ -19,7 +19,6 @@ rsact-icons = {workspace = true, features = ["common", "all-sizes"]}
 rsact-reactive = {workspace = true}
 tinyvec = {workspace = true}
 u8g2-fonts = {workspace = true}
-futures.workspace = true
 
 [dev-dependencies]
 cap = {workspace = true}
@@ -29,11 +28,11 @@ rand = "0.9"
 [features]
 default = []
 
+debug-info = []
 defmt = ["dep:defmt"]
 simulator = ["dep:embedded-graphics-simulator"]
 single-thread = ["rsact-reactive/single-thread"]
 std = ["log/std", "rsact-reactive/std"]
-debug-info = []
 
 [[example]]
 name = "animation"

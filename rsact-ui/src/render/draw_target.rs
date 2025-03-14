@@ -16,7 +16,6 @@ use embedded_graphics::{
     primitives::Rectangle,
 };
 use embedded_graphics_core::Drawable as _;
-use futures::{FutureExt, future::BoxFuture};
 use rsact_reactive::prelude::IntoMaybeReactive;
 
 #[derive(Clone, Copy, Debug)]
@@ -199,7 +198,7 @@ where
         //     // TODO
         //     layer.canvas.draw_buffer(&f);
         // });
-        self.layers.get(&0).unwrap().canvas.draw_buffer(f);
+        self.layers.get(&0).unwrap().canvas.draw_buffer(f).await;
     }
 
     fn clear(&mut self, color: Self::Color) -> DrawResult {

@@ -7,7 +7,6 @@ use embedded_graphics::{
     prelude::{Dimensions, DrawTarget, Point, PointsIter},
     primitives::Rectangle,
 };
-use futures::future::BoxFuture;
 use num::Integer;
 
 pub trait PackedColor: Sized {
