@@ -329,7 +329,7 @@ impl<W: WidgetCtx> UI<W, WithPages> {
     //     self.current_page().draw_buffer(f)
     // }
 
-    pub async fn draw_buffer_async(
+    pub async fn draw_with_renderer(
         &mut self,
         f: impl AsyncFn(Signal<W::Renderer>),
     ) -> bool {

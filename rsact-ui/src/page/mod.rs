@@ -412,7 +412,7 @@ impl<W: WidgetCtx> Page<W> {
         f: impl AsyncFn(Signal<W::Renderer>),
     ) -> bool {
         if self.drawing.get() {
-            f(self.renderer);
+            f(self.renderer).await;
             true
         } else {
             false
