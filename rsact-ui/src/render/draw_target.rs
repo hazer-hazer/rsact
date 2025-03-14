@@ -149,6 +149,7 @@ impl<C: Color> AlphaDrawTarget for LayeringRenderer<C> {
         let layer = self.layers.get_mut(&index).unwrap();
         let canvas = &mut layer.canvas;
 
+        // TODO: Custom default for rgb colors. For example white or black background
         let current = canvas.pixel(pixel.0);
         let color = current
             .map(|current| current.mix(blend, pixel.1))

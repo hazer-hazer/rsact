@@ -28,10 +28,10 @@ pub trait PackedColor: Sized {
 macro_rules! option_packed_color_impl {
     ($($ty: ty),* $(,)?) => {$(
         impl PackedColor for $ty {
-            type Storage = Option<Self>;
+            type Storage = Self;
 
             fn none() -> Self::Storage {
-                None
+                embedded_graphics_core::pixelcolor::RgbColor::BLACK
             }
 
             fn stored_pixels() -> usize {
@@ -40,7 +40,11 @@ macro_rules! option_packed_color_impl {
 
             fn as_color(packed: &Self::Storage, offset: usize) -> Option<Self> {
                 let _ = offset;
-                *packed
+                if packed == &embedded_graphics_core::pixelcolor::RgbColor::BLACK {
+                    return None
+                } else {
+                    Some(*packed)
+                }
             }
 
             fn set_color(
@@ -49,7 +53,11 @@ macro_rules! option_packed_color_impl {
                 color: Option<Self>,
             ) {
                 let _ = offset;
-                *packed = color;
+                *packed = if let Some(color) = color {
+                    color
+                } else {
+                    embedded_graphics_core::pixelcolor::RgbColor::BLACK
+                };
             }
         })*
     };
