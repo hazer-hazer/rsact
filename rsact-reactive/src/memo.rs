@@ -175,7 +175,13 @@ pub trait IntoMemo<T: PartialEq> {
     fn memo(self) -> Memo<T>;
 }
 
-// TODO: Optimize identity memos. Memo should allow storing signal as it is, without creation of new Memo value.
+impl<T: PartialEq + 'static> IntoMemo<T> for Memo<T> {
+    /// Should never be called directly being redundant
+    fn memo(self) -> Memo<T> {
+        self
+    }
+}
+
 impl<T: PartialEq + 'static> IntoMemo<T> for Signal<T> {
     /// Converting Signal to Memo is cheap, and does not actually create new memo instance!
     #[track_caller]
@@ -191,13 +197,6 @@ where
     #[track_caller]
     fn memo(self) -> Memo<T> {
         create_memo(move |_| (self)())
-    }
-}
-
-impl<T: PartialEq + 'static> IntoMemo<T> for Memo<T> {
-    /// Should never be called directly being redundant
-    fn memo(self) -> Memo<T> {
-        self
     }
 }
 

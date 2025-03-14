@@ -16,9 +16,10 @@ use crate::{
         Behavior, DrawCtx, EventCtx, MountCtx, PageState, Widget, WidgetCtx,
     },
 };
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 use dev::{DevHoveredEl, DevTools};
 use embedded_graphics::prelude::{DrawTarget, Point};
+use futures::future::BoxFuture;
 use num::traits::WrappingAdd as _;
 use rsact_reactive::{
     maybe::IntoMaybeReactive, prelude::*, scope::new_deny_new_scope,
@@ -394,15 +395,39 @@ impl<W: WidgetCtx> Page<W> {
     //     }
     // }
 
-    pub fn draw_buffer(
-        &mut self,
-        f: impl Fn(&[<<W as WidgetCtx>::Color as PackedColor>::Storage]),
+    // pub fn draw_buffer(
+    //     &mut self,
+    //     f: impl Fn(&[<<W as WidgetCtx>::Color as PackedColor>::Storage]),
+    // ) -> bool {
+    //     if self.drawing.get() {
+    //         self.renderer.with(|renderer| renderer.finish_frame(f));
+    //         true
+    //     } else {
+    //         false
+    //     }
+    // }
+
+    pub async fn draw_with_renderer(
+        &self,
+        f: impl AsyncFn(Signal<W::Renderer>),
     ) -> bool {
         if self.drawing.get() {
-            self.renderer.with(|renderer| renderer.finish_frame(f));
+            f(self.renderer);
             true
         } else {
             false
         }
     }
+
+    // pub async fn draw_buffer_async<'a>(
+    //     &'a mut self,
+    //     f: impl AsyncFn(&[<W::Color as PackedColor>::Storage]) + 'a,
+    // ) -> bool {
+    //     if self.drawing.get() {
+    //         self.renderer.with(|renderer| renderer.finish_frame(f));
+    //         true
+    //     } else {
+    //         false
+    //     }
+    // }
 }

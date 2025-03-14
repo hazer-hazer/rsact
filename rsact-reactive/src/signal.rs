@@ -94,6 +94,13 @@ impl<T: 'static, M: marker::Any> Signal<T, M> {
     pub fn dispose(self) {
         with_current_runtime(|rt| rt.dispose(self.id))
     }
+
+    // // TODO: Mark unsafe?
+    // pub fn with_static<U>(&self, f: impl Fn(&'static T) -> U) -> U {
+    //     with_current_runtime(|rt| {
+    //         rt.
+    //     })
+    // }
 }
 
 impl<T: 'static, M: marker::CanRead> ReadSignal<T> for Signal<T, M> {

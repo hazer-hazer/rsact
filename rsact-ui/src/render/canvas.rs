@@ -7,10 +7,11 @@ use embedded_graphics::{
     prelude::{Dimensions, DrawTarget, Point, PointsIter},
     primitives::Rectangle,
 };
+use futures::future::BoxFuture;
 use num::Integer;
 
 pub trait PackedColor: Sized {
-    type Storage: Clone;
+    type Storage: Clone + Send + Sync + 'static;
 
     fn none() -> Self::Storage;
     fn stored_pixels() -> usize;
@@ -136,8 +137,8 @@ impl<C: Color> Canvas<C> {
         target.draw_iter(pixels)
     }
 
-    pub fn draw_buffer(&self, f: &impl Fn(&[C::Storage])) {
-        f(self.pixels.as_ref())
+    pub async fn draw_buffer(&self, f: impl AsyncFn(&[C::Storage])) {
+        f(self.pixels.as_ref()).await
     }
 }
 

@@ -1,4 +1,9 @@
-use super::{Renderer, alpha::AlphaDrawTarget, canvas::Canvas, color::Color};
+use super::{
+    Renderer,
+    alpha::AlphaDrawTarget,
+    canvas::{Canvas, PackedColor},
+    color::Color,
+};
 use crate::{layout::size::Size, widget::DrawResult};
 use alloc::{collections::BTreeMap, vec::Vec};
 use core::{
@@ -11,6 +16,7 @@ use embedded_graphics::{
     primitives::Rectangle,
 };
 use embedded_graphics_core::Drawable as _;
+use futures::{FutureExt, future::BoxFuture};
 use rsact_reactive::prelude::IntoMaybeReactive;
 
 #[derive(Clone, Copy, Debug)]
@@ -188,14 +194,12 @@ where
     }
 
     // TODO: Real alpha channels
-    fn finish_frame(
-        &self,
-        draw: impl Fn(&[<Self::Color as super::canvas::PackedColor>::Storage]),
-    ) {
-        self.layers.iter().for_each(|(_, layer)| {
-            // TODO
-            layer.canvas.draw_buffer(&draw);
-        });
+    async fn finish_frame(&self, f: impl AsyncFn(&[C::Storage])) {
+        // self.layers.iter().for_each(|(_, layer)| {
+        //     // TODO
+        //     layer.canvas.draw_buffer(&f);
+        // });
+        self.layers.get(&0).unwrap().canvas.draw_buffer(f);
     }
 
     fn clear(&mut self, color: Self::Color) -> DrawResult {

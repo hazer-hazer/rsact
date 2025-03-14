@@ -322,10 +322,17 @@ impl<W: WidgetCtx> UI<W, WithPages> {
         unhandled
     }
 
-    pub fn draw_buffer(
+    // pub fn draw_buffer(
+    //     &mut self,
+    //     f: impl Fn(&[<<W as WidgetCtx>::Color as PackedColor>::Storage]),
+    // ) -> bool {
+    //     self.current_page().draw_buffer(f)
+    // }
+
+    pub async fn draw_buffer_async(
         &mut self,
-        f: impl Fn(&[<<W as WidgetCtx>::Color as PackedColor>::Storage]),
+        f: impl AsyncFn(Signal<W::Renderer>),
     ) -> bool {
-        self.current_page().draw_buffer(f)
+        self.current_page().draw_with_renderer(f).await
     }
 }

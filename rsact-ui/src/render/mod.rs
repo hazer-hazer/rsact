@@ -14,6 +14,7 @@ use embedded_graphics::{
         StyledDrawable,
     },
 };
+use futures::future::BoxFuture;
 
 pub mod alpha;
 pub mod canvas;
@@ -230,8 +231,7 @@ impl<C: Color, T> Renderable<C> for T where
 //     }
 // }
 
-// TODO: Custom MonoText struct with String to   pass from Canvas widget. Lifetime
-// in TextBox require Canvas only to draw 'static strings
+// TODO: Custom MonoText struct with String to pass from Canvas widget. Lifetime in TextBox require Canvas only to draw 'static strings
 
 // pub type Alpha = f32;
 
@@ -244,9 +244,9 @@ pub trait Renderer {
 
     // TODO: Generic targets
     // TODO: This is the same as implementing Drawable for Renderer
-    fn finish_frame(
+    async fn finish_frame(
         &self,
-        draw: impl Fn(&[<Self::Color as PackedColor>::Storage]),
+        f: impl AsyncFn(&[<Self::Color as PackedColor>::Storage]),
     );
     fn clear(&mut self, color: Self::Color) -> DrawResult;
     fn clear_rect(&mut self, rect: Rectangle, color: Self::Color)

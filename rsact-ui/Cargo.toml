@@ -19,6 +19,7 @@ rsact-icons = {workspace = true, features = ["common", "all-sizes"]}
 rsact-reactive = {workspace = true}
 tinyvec = {workspace = true}
 u8g2-fonts = {workspace = true}
+futures.workspace = true
 
 [dev-dependencies]
 cap = {workspace = true}
