@@ -1,4 +1,4 @@
-pub trait ReadSignal<T> {
+pub trait ReadSignal<T: 'static> {
     fn track(&self);
     fn with_untracked<U>(&self, f: impl FnOnce(&T) -> U) -> U;
 
@@ -229,4 +229,4 @@ macro_rules! impl_read_signal_traits {
 
 pub(crate) use impl_read_signal_traits;
 
-use crate::memo::{create_memo, Memo};
+use crate::memo::{Memo, create_memo};

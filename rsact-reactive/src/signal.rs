@@ -14,9 +14,9 @@ pub fn create_signal<T: 'static>(value: T) -> Signal<T> {
     Signal::new(value)
 }
 
-pub trait RwSignal<T>: ReadSignal<T> + WriteSignal<T> {}
+pub trait RwSignal<T: 'static>: ReadSignal<T> + WriteSignal<T> {}
 
-impl<S, T> RwSignal<T> for S where S: ReadSignal<T> + WriteSignal<T> {}
+impl<S, T: 'static> RwSignal<T> for S where S: ReadSignal<T> + WriteSignal<T> {}
 
 pub mod marker {
     pub struct ReadOnly;
@@ -60,7 +60,7 @@ impl<T: 'static> ReactiveValue for Signal<T> {
     }
 
     #[track_caller]
-    fn dispose(self) {
+    unsafe fn dispose(self) {
         with_current_runtime(|rt| rt.dispose(self.id))
     }
 }

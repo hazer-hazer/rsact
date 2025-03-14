@@ -46,6 +46,6 @@ pub trait ReactiveValue: 'static {
     type Value;
 
     fn is_alive(&self) -> bool;
-    fn dispose(self);
+    unsafe fn dispose(self);
     // TODO: try_dispose?
 }

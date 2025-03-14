@@ -1,10 +1,10 @@
 use crate::{
-    callback::AnyCallback,
-    read::{impl_read_signal_traits, ReadSignal, SignalMap},
-    runtime::with_current_runtime,
-    signal::{marker, Signal},
-    storage::ValueId,
     ReactiveValue,
+    callback::AnyCallback,
+    read::{ReadSignal, SignalMap, impl_read_signal_traits},
+    runtime::with_current_runtime,
+    signal::{Signal, marker},
+    storage::ValueId,
 };
 use alloc::{rc::Rc, vec::Vec};
 use core::{cell::RefCell, marker::PhantomData, ops::Deref, panic::Location};
@@ -117,7 +117,7 @@ impl<T: PartialEq + 'static> ReactiveValue for Memo<T> {
         }
     }
 
-    fn dispose(self) {
+    unsafe fn dispose(self) {
         match self {
             Memo::Memo { id, ty: _ } => {
                 with_current_runtime(|rt| rt.dispose(id))

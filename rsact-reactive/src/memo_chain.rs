@@ -1,11 +1,11 @@
 use crate::{
+    ReactiveValue,
     callback::AnyCallback,
     memo::{IntoMemo, Memo},
     prelude::create_memo,
-    read::{impl_read_signal_traits, ReadSignal, SignalMap},
+    read::{ReadSignal, SignalMap, impl_read_signal_traits},
     runtime::with_current_runtime,
     storage::ValueId,
-    ReactiveValue,
 };
 use alloc::rc::Rc;
 use core::{any::Any, cell::RefCell, marker::PhantomData, panic::Location};
@@ -122,7 +122,7 @@ impl<T: PartialEq + 'static> ReactiveValue for MemoChain<T> {
         with_current_runtime(|rt| rt.is_alive(self.id))
     }
 
-    fn dispose(self) {
+    unsafe fn dispose(self) {
         with_current_runtime(|rt| rt.dispose(self.id))
     }
 }

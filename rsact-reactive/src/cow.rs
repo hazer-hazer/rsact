@@ -1,9 +1,9 @@
 use crate::{
+    ReactiveValue,
     maybe::{IntoMaybeReactive, MaybeReactive},
     read::ReadSignal,
-    signal::{create_signal, Signal},
+    signal::{Signal, create_signal},
     write::{SignalSetter, WriteSignal},
-    ReactiveValue,
 };
 
 /// Clone On Write signal mooooo

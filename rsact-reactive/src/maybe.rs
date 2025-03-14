@@ -1,6 +1,6 @@
 use crate::{
     ReactiveValue,
-    memo::{IntoMemo, Memo, create_memo},
+    memo::{self, IntoMemo, Memo, create_memo},
     prelude::MemoChain,
     read::{ReadSignal, SignalMap, impl_read_signal_traits},
     signal::{IntoSignal, Signal, create_signal},
@@ -43,7 +43,7 @@ impl<T: 'static> ReactiveValue for Inert<T> {
     }
 
     /// Drop [`NonReactive`]
-    fn dispose(self) {
+    unsafe fn dispose(self) {
         core::mem::drop(self);
     }
 }
@@ -152,11 +152,15 @@ impl<T: PartialEq + 'static> ReactiveValue for MaybeReactive<T> {
     }
 
     #[track_caller]
-    fn dispose(self) {
+    unsafe fn dispose(self) {
         match self {
-            MaybeReactive::Inert(static_signal) => static_signal.dispose(),
-            MaybeReactive::Memo(memo) => memo.dispose(),
-            MaybeReactive::MemoChain(memo_chain) => memo_chain.dispose(),
+            MaybeReactive::Inert(static_signal) => unsafe {
+                static_signal.dispose()
+            },
+            MaybeReactive::Memo(memo) => unsafe { memo.dispose() },
+            MaybeReactive::MemoChain(memo_chain) => unsafe {
+                memo_chain.dispose()
+            },
             // MaybeReactive::Derived(derived) => core::mem::drop(derived),
         }
     }
