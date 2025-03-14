@@ -9,6 +9,7 @@ use crate::{
     page::{Page, dev::DevTools, id::PageId},
     render::{
         Renderer,
+        canvas::PackedColor,
         color::{Color, MapColor},
         draw_target::LayeringRenderer,
     },
@@ -51,17 +52,17 @@ pub struct UI<W: WidgetCtx, P: HasPages> {
     fonts: Signal<FontCtx>,
 }
 
-// LayeringRenderer is DrawTarget layering wrapper which is the only Renderer supported for now.
-impl<C, W> UI<W, WithPages>
-where
-    C: Color,
-    W: WidgetCtx<Renderer = LayeringRenderer<C>, Color = C>,
-{
-    // TODO: Move `MapColor` mapping to separate drawing variant to avoid specifying generic for `C`
-    pub fn draw(&mut self, target: &mut impl DrawTarget<Color = C>) -> bool {
-        self.current_page().draw(target)
-    }
-}
+// // LayeringRenderer is DrawTarget layering wrapper which is the only Renderer supported for now.
+// impl<C, W> UI<W, WithPages>
+// where
+//     C: Color,
+//     W: WidgetCtx<Renderer = LayeringRenderer<C>, Color = C>,
+// {
+//     // TODO: Move `MapColor` mapping to separate drawing variant to avoid specifying generic for `C`
+//     pub fn draw(&mut self, target: &mut impl DrawTarget<Color = C>) -> bool {
+//         self.current_page().draw(target)
+//     }
+// }
 
 impl<R, S, I, E> UI<Wtf<R, S, I, E>, NoPages>
 where
@@ -319,5 +320,12 @@ impl<W: WidgetCtx> UI<W, WithPages> {
         }
 
         unhandled
+    }
+
+    pub fn draw_buffer(
+        &mut self,
+        f: impl Fn(&[<<W as WidgetCtx>::Color as PackedColor>::Storage]),
+    ) -> bool {
+        self.current_page().draw_buffer(f)
     }
 }

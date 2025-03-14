@@ -135,6 +135,10 @@ impl<C: Color> Canvas<C> {
 
         target.draw_iter(pixels)
     }
+
+    pub fn draw_buffer(&self, f: &impl Fn(&[C::Storage])) {
+        f(self.pixels.as_ref())
+    }
 }
 
 impl<C: Color> Canvas<C> {

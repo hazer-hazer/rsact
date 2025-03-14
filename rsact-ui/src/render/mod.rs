@@ -4,6 +4,7 @@ use crate::{
     widget::DrawResult,
 };
 use alpha::{AlphaDrawTarget, AlphaDrawable};
+use canvas::PackedColor;
 use color::{Color, MapColor};
 use embedded_graphics::{
     Drawable, Pixel,
@@ -15,7 +16,7 @@ use embedded_graphics::{
 };
 
 pub mod alpha;
-mod canvas;
+pub mod canvas;
 pub mod color;
 pub mod draw_target;
 pub mod primitives;
@@ -243,7 +244,10 @@ pub trait Renderer {
 
     // TODO: Generic targets
     // TODO: This is the same as implementing Drawable for Renderer
-    fn finish_frame(&self, target: &mut impl DrawTarget<Color = Self::Color>);
+    fn finish_frame(
+        &self,
+        draw: impl Fn(&[<Self::Color as PackedColor>::Storage]),
+    );
     fn clear(&mut self, color: Self::Color) -> DrawResult;
     fn clear_rect(&mut self, rect: Rectangle, color: Self::Color)
     -> DrawResult;

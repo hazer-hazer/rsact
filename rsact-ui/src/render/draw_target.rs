@@ -188,10 +188,13 @@ where
     }
 
     // TODO: Real alpha channels
-    fn finish_frame(&self, target: &mut impl DrawTarget<Color = C>) {
+    fn finish_frame(
+        &self,
+        draw: impl Fn(&[<Self::Color as super::canvas::PackedColor>::Storage]),
+    ) {
         self.layers.iter().for_each(|(_, layer)| {
             // TODO
-            layer.canvas.draw(target).ok().unwrap();
+            layer.canvas.draw_buffer(&draw);
         });
     }
 

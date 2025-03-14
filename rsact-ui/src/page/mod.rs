@@ -8,6 +8,7 @@ use crate::{
     layout::{LayoutCtx, LayoutModel, Limits, model_layout, size::Size},
     render::{
         Renderer,
+        canvas::PackedColor,
         color::{Color, MapColor},
     },
     style::TreeStyle,
@@ -381,12 +382,24 @@ impl<W: WidgetCtx> Page<W> {
         unhandled
     }
 
-    pub fn draw(
+    // pub fn draw(
+    //     &mut self,
+    //     target: &mut impl DrawTarget<Color = W::Color>,
+    // ) -> bool {
+    //     if self.drawing.get() {
+    //         self.renderer.with(|renderer| renderer.finish_frame(target));
+    //         true
+    //     } else {
+    //         false
+    //     }
+    // }
+
+    pub fn draw_buffer(
         &mut self,
-        target: &mut impl DrawTarget<Color = W::Color>,
+        f: impl Fn(&[<<W as WidgetCtx>::Color as PackedColor>::Storage]),
     ) -> bool {
         if self.drawing.get() {
-            self.renderer.with(|renderer| renderer.finish_frame(target));
+            self.renderer.with(|renderer| renderer.finish_frame(f));
             true
         } else {
             false
