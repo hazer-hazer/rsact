@@ -329,10 +329,13 @@ impl<W: WidgetCtx> UI<W, WithPages> {
     //     self.current_page().draw_buffer(f)
     // }
 
-    pub async fn draw_with_renderer(
+    pub async fn draw_with_renderer<C: Color>(
         &mut self,
-        f: impl AsyncFn(Signal<W::Renderer>),
-    ) -> bool {
+        f: impl AsyncFn(Signal<LayeringRenderer<C>>),
+    ) -> bool
+    where
+        W: WidgetCtx<Renderer = LayeringRenderer<C>>,
+    {
         self.current_page().draw_with_renderer(f).await
     }
 }

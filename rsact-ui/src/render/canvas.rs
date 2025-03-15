@@ -4,7 +4,7 @@ use alloc::boxed::Box;
 use embedded_graphics::{
     Pixel,
     pixelcolor::{BinaryColor, Rgb555, Rgb565, Rgb666, Rgb888},
-    prelude::{Dimensions, DrawTarget, Point, PointsIter},
+    prelude::{Dimensions, DrawTarget, IntoStorage, Point, PointsIter},
     primitives::Rectangle,
 };
 use num::Integer;
@@ -26,12 +26,12 @@ pub trait PackedColor: Sized {
 }
 
 macro_rules! option_packed_color_impl {
-    ($($ty: ty),* $(,)?) => {$(
+    ($($ty: ty: $storage: ty),* $(,)?) => {$(
         impl PackedColor for $ty {
-            type Storage = Self;
+            type Storage = $storage;
 
             fn none() -> Self::Storage {
-                embedded_graphics_core::pixelcolor::RgbColor::BLACK
+                0x0
             }
 
             fn stored_pixels() -> usize {
@@ -40,10 +40,10 @@ macro_rules! option_packed_color_impl {
 
             fn as_color(packed: &Self::Storage, offset: usize) -> Option<Self> {
                 let _ = offset;
-                if packed == &embedded_graphics_core::pixelcolor::RgbColor::BLACK {
+                if packed == &0x0 {
                     return None
                 } else {
-                    Some(*packed)
+                    Some((*packed).into())
                 }
             }
 
@@ -56,14 +56,14 @@ macro_rules! option_packed_color_impl {
                 *packed = if let Some(color) = color {
                     color
                 } else {
-                    embedded_graphics_core::pixelcolor::RgbColor::BLACK
+                    0x0
                 };
             }
         })*
     };
 }
 
-option_packed_color_impl!(Rgb555, Rgb565, Rgb666, Rgb888);
+option_packed_color_impl!(Rgb555: u16, Rgb565: u16, Rgb666: u32, Rgb888: u32);
 
 impl PackedColor for BinaryColor {
     type Storage = u8;
