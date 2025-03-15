@@ -18,7 +18,10 @@ use crate::{
 };
 use alloc::{boxed::Box, vec::Vec};
 use dev::{DevHoveredEl, DevTools};
-use embedded_graphics::prelude::{DrawTarget, Point};
+use embedded_graphics::{
+    Drawable as _,
+    prelude::{DrawTarget, Point},
+};
 use num::traits::WrappingAdd as _;
 use rsact_reactive::{
     maybe::IntoMaybeReactive, prelude::*, scope::new_deny_new_scope,
@@ -158,11 +161,12 @@ impl<W: WidgetCtx> Page<W> {
                             if let Some(background_color) =
                                 style.background_color
                             {
-                                Renderer::clear(renderer, background_color)
+                                renderer.clear(background_color)
                             } else {
                                 Ok(())
                             }
                         })
+                        .ok()
                         .unwrap();
 
                     // TODO: How to handle results?
@@ -382,17 +386,17 @@ impl<W: WidgetCtx> Page<W> {
         unhandled
     }
 
-    // pub fn draw(
-    //     &mut self,
-    //     target: &mut impl DrawTarget<Color = W::Color>,
-    // ) -> bool {
-    //     if self.drawing.get() {
-    //         self.renderer.with(|renderer| renderer.finish_frame(target));
-    //         true
-    //     } else {
-    //         false
-    //     }
-    // }
+    pub fn draw(
+        &mut self,
+        target: &mut impl DrawTarget<Color = W::Color>,
+    ) -> bool {
+        if self.drawing.get() {
+            self.renderer.with(|renderer| renderer.draw(target)).ok().unwrap();
+            true
+        } else {
+            false
+        }
+    }
 
     // pub fn draw_buffer(
     //     &mut self,

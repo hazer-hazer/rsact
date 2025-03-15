@@ -1,7 +1,7 @@
-use super::{layout::ContentLayout, Size};
+use super::{Size, layout::ContentLayout};
 use crate::widget::prelude::*;
 use core::marker::PhantomData;
-use embedded_graphics::pixelcolor::raw::BigEndian;
+use embedded_graphics::{pixelcolor::raw::BigEndian, prelude::DrawTarget};
 use rsact_icons::{EmptyIconSet, IconRaw, IconSet};
 use rsact_reactive::maybe::{
     IntoMaybeReactive, IsInert, IsReactive, ReactivityMarker,
@@ -139,7 +139,9 @@ where
             style.color.get(),
         );
 
-        ctx.renderer.translucent_pixel_iter(icon.iter())
+        ctx.renderer.draw_iter(icon.iter()).ok().unwrap();
+
+        Ok(())
     }
 
     fn on_event(

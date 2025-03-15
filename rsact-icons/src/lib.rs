@@ -51,7 +51,7 @@ impl<C: PixelColor, BO: ByteOrder> Icon<C, BO> {
         Self { raw, position, background, foreground }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = Option<Pixel<C>>> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = Pixel<C>> + '_ {
         (0..self.raw.size)
             .map(move |y| {
                 (0..self.raw.size).map(move |x| {
@@ -64,6 +64,7 @@ impl<C: PixelColor, BO: ByteOrder> Icon<C, BO> {
                 })
             })
             .flatten()
+            .filter_map(|pixel| pixel)
     }
 
     fn color(&self, bit: bool) -> Option<C> {
@@ -91,12 +92,7 @@ impl<C: PixelColor, BO: ByteOrder> Drawable for Icon<C, BO> {
         //     }
         // }
 
-        self.iter().try_for_each(|pixel| {
-            if let Some(pixel) = pixel {
-                pixel.draw(target)?;
-            }
-            Ok(())
-        })
+        target.draw_iter(self.iter())
     }
 }
 

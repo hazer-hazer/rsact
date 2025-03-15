@@ -8,9 +8,7 @@ use crate::{
     layout::size::Size,
     page::{Page, dev::DevTools, id::PageId},
     render::{
-        Renderer,
-        canvas::PackedColor,
-        color::{Color, MapColor},
+        Renderer, buffer::BufferRenderer, color::Color,
         draw_target::LayeringRenderer,
     },
     widget::{WidgetCtx, Wtf},
@@ -52,17 +50,54 @@ pub struct UI<W: WidgetCtx, P: HasPages> {
     fonts: Signal<FontCtx>,
 }
 
-// // LayeringRenderer is DrawTarget layering wrapper which is the only Renderer supported for now.
-// impl<C, W> UI<W, WithPages>
-// where
-//     C: Color,
-//     W: WidgetCtx<Renderer = LayeringRenderer<C>, Color = C>,
-// {
-//     // TODO: Move `MapColor` mapping to separate drawing variant to avoid specifying generic for `C`
-//     pub fn draw(&mut self, target: &mut impl DrawTarget<Color = C>) -> bool {
-//         self.current_page().draw(target)
-//     }
-// }
+impl<C, S, I, E> UI<Wtf<BufferRenderer<C>, S, I, E>, NoPages>
+where
+    S: PartialEq + Copy + 'static,
+    I: PageId + 'static,
+    E: Debug + 'static,
+    C: Color + 'static,
+{
+    pub fn new_with_buffer_renderer<
+        V: PartialEq + Into<Size> + Copy + 'static,
+    >(
+        // TODO: Rewrite to `IntoMaybeReactive` + MaybeReactive viewport
+        viewport: impl IntoMemo<V>,
+        // TODO: `with_styler` optional. Note: Not easily implementable
+        styler: S,
+    ) -> Self {
+        Self::new(viewport, styler)
+    }
+}
+
+impl<C, S, I, E> UI<Wtf<LayeringRenderer<C>, S, I, E>, NoPages>
+where
+    S: PartialEq + Copy + 'static,
+    I: PageId + 'static,
+    E: Debug + 'static,
+    C: Color + 'static,
+{
+    pub fn new_with_layer_renderer<
+        V: PartialEq + Into<Size> + Copy + 'static,
+    >(
+        // TODO: Rewrite to `IntoMaybeReactive` + MaybeReactive viewport
+        viewport: impl IntoMemo<V>,
+        // TODO: `with_styler` optional. Note: Not easily implementable
+        styler: S,
+    ) -> Self {
+        Self::new(viewport, styler)
+    }
+}
+
+// LayeringRenderer is DrawTarget layering wrapper which is the only Renderer supported for now.
+impl<W: WidgetCtx> UI<W, WithPages> {
+    // TODO: Move `MapColor` mapping to separate drawing variant to avoid specifying generic for `C`
+    pub fn draw(
+        &mut self,
+        target: &mut impl DrawTarget<Color = W::Color>,
+    ) -> bool {
+        self.current_page().draw(target)
+    }
+}
 
 impl<R, S, I, E> UI<Wtf<R, S, I, E>, NoPages>
 where
@@ -329,7 +364,7 @@ impl<W: WidgetCtx> UI<W, WithPages> {
     //     self.current_page().draw_buffer(f)
     // }
 
-    pub async fn draw_with_renderer<C: Color>(
+    pub async fn use_renderer<C: Color>(
         &mut self,
         f: impl AsyncFn(Signal<LayeringRenderer<C>>),
     ) -> bool

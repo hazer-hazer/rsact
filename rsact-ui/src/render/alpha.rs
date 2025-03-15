@@ -1,9 +1,9 @@
 use embedded_graphics::{
+    Drawable, Pixel,
     image::{Image, ImageDrawable},
     prelude::DrawTarget,
     primitives::{PrimitiveStyle, Rectangle, Styled},
     text::renderer::{CharacterStyle, TextRenderer},
-    Drawable, Pixel,
 };
 use embedded_text::TextBox;
 
@@ -96,6 +96,18 @@ impl<'a, C: Color, T: ImageDrawable<Color = C>> AlphaDrawable for Image<'a, T> {
         A: AlphaDrawTarget<Color = Self::Color>,
     {
         self.draw(target).ok().unwrap();
+        Ok(())
+    }
+}
+
+impl<C: Color> AlphaDrawable for Pixel<C> {
+    type Color = C;
+
+    fn draw_alpha<A>(&self, target: &mut A) -> DrawResult
+    where
+        A: AlphaDrawTarget<Color = Self::Color>,
+    {
+        target.draw_iter(core::iter::once(*self)).ok().unwrap();
         Ok(())
     }
 }

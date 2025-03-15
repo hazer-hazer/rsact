@@ -1,7 +1,8 @@
 use super::{
-    Renderer,
+    AntiAliasing, LayerRenderer, Renderer, RendererOptions, Viewport,
+    ViewportKind,
     alpha::AlphaDrawTarget,
-    canvas::{Canvas, PackedColor},
+    canvas::{PackedColor, RawCanvas},
     color::Color,
 };
 use crate::{layout::size::Size, widget::DrawResult};
@@ -11,69 +12,21 @@ use core::{
     f32::{self},
 };
 use embedded_graphics::{
-    Pixel,
+    Drawable, Pixel,
     prelude::{Dimensions, DrawTarget, DrawTargetExt, Point},
     primitives::Rectangle,
 };
-use embedded_graphics_core::Drawable as _;
 use rsact_reactive::prelude::IntoMaybeReactive;
-
-#[derive(Clone, Copy, Debug)]
-pub enum ViewportKind {
-    Fullscreen,
-    /// Clipped part of parent layer with absolute positions relative to screen
-    /// top-left point
-    Clipped(Rectangle),
-    /// Part of parent layer with positions relative to this layer top-left
-    /// point
-    Cropped(Rectangle),
-}
-
-pub struct Viewport {
-    /// It's okay to have multiple Layers pointing to the same Canvas as it can
-    /// be Clipped or Cropped but not for overlaying
-    layer: usize,
-    kind: ViewportKind,
-}
-
-impl Viewport {
-    pub fn root() -> Self {
-        Self { layer: 0, kind: ViewportKind::Fullscreen }
-    }
-}
-
-#[derive(PartialEq, Clone)]
-pub enum AntiAliasing {
-    Disabled,
-    Enabled,
-}
-
-#[derive(Default, Clone, PartialEq, IntoMaybeReactive)]
-pub struct LayeringRendererOptions {
-    anti_aliasing: Option<AntiAliasing>,
-}
-
-impl LayeringRendererOptions {
-    pub fn new() -> Self {
-        Self { anti_aliasing: None }
-    }
-
-    // TODO: Simple `with_anti_aliasing` method shortcut
-    pub fn anti_aliasing(mut self, aa: AntiAliasing) -> Self {
-        self.anti_aliasing = Some(aa);
-        self
-    }
-}
 
 // Note: Real alpha channel is not supported. Now, alpha channel is more like blending parameter for drawing on a single layer, so each layer is not transparent and alpha parameter only affects blending on current layer.
 // TODO: Real alpha-channel
 struct Layer<C: Color> {
-    canvas: Canvas<C>,
+    canvas: RawCanvas<C>,
 }
 
 impl<C: Color> Layer<C> {
     fn fullscreen(size: Size) -> Self {
-        Self { canvas: Canvas::new(size) }
+        Self { canvas: RawCanvas::new(size) }
     }
 }
 
@@ -85,13 +38,42 @@ pub struct LayeringRenderer<C: Color> {
     layers: BTreeMap<usize, Layer<C>>,
     // TODO: Use first element of `viewport_stack`?
     main_viewport: Size,
-    options: LayeringRendererOptions,
+    options: RendererOptions,
+}
+
+impl<C: Color> Drawable for LayeringRenderer<C> {
+    type Color = C;
+    type Output = ();
+
+    fn draw<D>(&self, target: &mut D) -> Result<Self::Output, D::Error>
+    where
+        D: DrawTarget<Color = Self::Color>,
+    {
+        self.layers.values().try_for_each(|layer| layer.canvas.draw(target))
+    }
+}
+
+impl<C: Color> LayerRenderer for LayeringRenderer<C> {
+    fn on_layer(
+        &mut self,
+        index: usize,
+        f: impl FnOnce(&mut Self) -> DrawResult,
+    ) -> DrawResult {
+        self.layers.insert(index, Layer::fullscreen(self.main_viewport.into()));
+
+        self.viewport_stack
+            .push(Viewport { layer: index, kind: ViewportKind::Fullscreen });
+        let result = f(self);
+        self.viewport_stack.pop();
+
+        result
+    }
 }
 
 impl<C: Color> LayeringRenderer<C> {
-    fn viewport(&self) -> &Viewport {
+    fn viewport(&self) -> Viewport {
         // No need for checked last, there must be always at least a single layer
-        self.viewport_stack.last().unwrap()
+        self.viewport_stack.last().copied().unwrap()
     }
 
     fn layer_index(&self) -> usize {
@@ -101,6 +83,16 @@ impl<C: Color> LayeringRenderer<C> {
     fn sub_viewport(&self, kind: ViewportKind) -> Viewport {
         Viewport { layer: self.layer_index(), kind }
     }
+
+    // // TODO: Real alpha channels
+    // pub async fn finish_frame(&self, f: impl AsyncFn(&[C::Storage])) {
+    //     // self.layers.iter().for_each(|(_, layer)| {
+    //     //     // TODO
+    //     //     layer.canvas.draw_buffer(&f);
+    //     // });
+    //     // TODO: RawCanvas is only for BufferRenderer, here we need something like embedded_canvas
+    //     self.layers.get(&0).unwrap().canvas.draw_buffer(f).await;
+    // }
 }
 
 impl<C: Color> Dimensions for LayeringRenderer<C> {
@@ -118,21 +110,14 @@ impl<C: Color> DrawTarget for LayeringRenderer<C> {
     where
         I: IntoIterator<Item = Pixel<Self::Color>>,
     {
-        let index = self.layer_index();
-        let viewport = self.viewport_stack.get(index).unwrap();
-        let layer = self.layers.get_mut(&index).unwrap();
-        let canvas = &mut layer.canvas;
+        let viewport = self.viewport();
 
-        match viewport.kind {
-            ViewportKind::Fullscreen => canvas.draw_iter(pixels),
-            ViewportKind::Clipped(area) => {
-                canvas.clipped(&area).draw_iter(pixels)
-            },
-            ViewportKind::Cropped(area) => {
-                canvas.cropped(&area).draw_iter(pixels)
-            },
-        }
-        .unwrap();
+        viewport
+            .draw_in(
+                &mut self.layers.get_mut(&viewport.layer).unwrap().canvas,
+                pixels,
+            )
+            .unwrap();
 
         Ok(())
     }
@@ -144,30 +129,16 @@ impl<C: Color> AlphaDrawTarget for LayeringRenderer<C> {
         pixel: Pixel<Self::Color>,
         blend: f32,
     ) -> DrawResult {
-        let index = self.layer_index();
-        let viewport = self.viewport_stack.get(index).unwrap();
-        let layer = self.layers.get_mut(&index).unwrap();
-        let canvas = &mut layer.canvas;
+        let viewport = self.viewport();
+        let canvas = &mut self.layers.get_mut(&viewport.layer).unwrap().canvas;
 
         // TODO: Custom default for rgb colors. For example white or black background
-        let current = canvas.pixel(pixel.0);
-        let color = current
+        let color = canvas
+            .pixel(pixel.0)
             .map(|current| current.mix(blend, pixel.1))
             .unwrap_or(pixel.1);
 
-        let pixels = core::iter::once(Pixel(pixel.0, color));
-        match viewport.kind {
-            ViewportKind::Fullscreen => canvas.draw_iter(pixels),
-            ViewportKind::Clipped(area) => {
-                canvas.clipped(&area).draw_iter(pixels)
-            },
-            ViewportKind::Cropped(area) => {
-                canvas.cropped(&area).draw_iter(pixels)
-            },
-        }
-        .unwrap();
-
-        Ok(())
+        viewport.draw_in(canvas, core::iter::once(Pixel(pixel.0, color)))
     }
 }
 
@@ -176,7 +147,7 @@ where
     C: Default,
 {
     type Color = C;
-    type Options = LayeringRendererOptions;
+    type Options = RendererOptions;
 
     fn new(viewport: Size) -> Self {
         Self {
@@ -185,7 +156,7 @@ where
             // TODO: Can avoid storing by getting main viewport from the first
             // layer in the stack
             main_viewport: viewport,
-            options: LayeringRendererOptions::default(),
+            options: RendererOptions::default(),
         }
     }
 
@@ -193,28 +164,10 @@ where
         self.options = options;
     }
 
-    // TODO: Real alpha channels
-    async fn finish_frame(&self, f: impl AsyncFn(&[C::Storage])) {
-        // self.layers.iter().for_each(|(_, layer)| {
-        //     // TODO
-        //     layer.canvas.draw_buffer(&f);
-        // });
-        self.layers.get(&0).unwrap().canvas.draw_buffer(f).await;
-    }
-
-    fn clear(&mut self, color: Self::Color) -> DrawResult {
-        DrawTarget::clear(self, color).ok().unwrap();
-        Ok(())
-    }
-
-    fn clear_rect(
-        &mut self,
-        rect: Rectangle,
-        color: Self::Color,
-    ) -> DrawResult {
-        self.fill_solid(&rect, color).ok().unwrap();
-        Ok(())
-    }
+    // fn clear(&mut self, color: Self::Color) -> DrawResult {
+    //     DrawTarget::clear(self, color).ok().unwrap();
+    //     Ok(())
+    // }
 
     fn clipped(
         &mut self,
@@ -228,36 +181,13 @@ where
         result
     }
 
-    fn on_layer(
-        &mut self,
-        index: usize,
-        f: impl FnOnce(&mut Self) -> DrawResult,
-    ) -> DrawResult {
-        self.layers.insert(index, Layer::fullscreen(self.main_viewport.into()));
-
-        self.viewport_stack
-            .push(Viewport { layer: index, kind: ViewportKind::Fullscreen });
-        let result = f(self);
-        self.viewport_stack.pop();
-
-        result
-    }
-
-    fn render(
-        &mut self,
-        renderable: &impl super::Renderable<Self::Color>,
-    ) -> DrawResult {
+    fn render(&mut self, renderable: &impl super::Renderable<C>) -> DrawResult {
         if matches!(self.options.anti_aliasing, Some(AntiAliasing::Enabled)) {
             renderable.draw_alpha(self).ok().unwrap();
         } else {
             renderable.draw(self).ok().unwrap();
         }
 
-        Ok(())
-    }
-
-    fn pixel(&mut self, pixel: Pixel<Self::Color>) -> DrawResult {
-        pixel.draw(self).unwrap();
         Ok(())
     }
 }

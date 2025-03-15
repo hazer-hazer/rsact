@@ -1,13 +1,16 @@
 use alloc::collections::vec_deque::VecDeque;
-use embedded_graphics::primitives::{PrimitiveStyle, Rectangle, Styled};
+use embedded_graphics::{
+    prelude::DrawTarget,
+    primitives::{PrimitiveStyle, Rectangle, Styled},
+};
 
 use crate::{
     render::{
+        Renderable,
         primitives::{
             arc::Arc, circle::Circle, ellipse::Ellipse, line::Line,
             polygon::Polygon, rounded_rect::RoundedRect, sector::Sector,
         },
-        Renderable,
     },
     widget::prelude::*,
 };
@@ -186,15 +189,17 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
         self.layout
     }
 
-
     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         self.queue.queue.track();
 
+        // TODO: Right DrawResult error
         while let Some(command) = self.queue.pop() {
             match command {
-                DrawCommand::Clear(color) => ctx.renderer.clear(color)?,
+                DrawCommand::Clear(color) => {
+                    ctx.renderer.clear(color).ok().unwrap()
+                },
                 DrawCommand::ClearRect(rect, color) => {
-                    ctx.renderer.clear_rect(rect, color)?
+                    ctx.renderer.fill_solid(&rect, color).ok().unwrap()
                 },
                 DrawCommand::Arc(arc) => arc.render(ctx.renderer)?,
                 DrawCommand::Circle(circle) => circle.render(ctx.renderer)?,

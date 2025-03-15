@@ -82,8 +82,7 @@ pub type MetaTree = MemoTree<Meta>;
 
 // TODO: Not an actual context, rename to something like `WidgetTypeFamily`
 pub trait WidgetCtx: Sized + Clone + 'static {
-    type Renderer: Renderer<Color = Self::Color>
-        + DrawTarget<Color = <Self::Renderer as Renderer>::Color>;
+    type Renderer: Renderer<Color = Self::Color>;
     type Styler: PartialEq + Copy;
     type Color: Color;
     type PageId: PageId;

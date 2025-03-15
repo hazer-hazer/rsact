@@ -8,18 +8,85 @@ use canvas::PackedColor;
 use color::{Color, MapColor};
 use embedded_graphics::{
     Drawable, Pixel,
+    draw_target::DrawTargetExt,
     prelude::DrawTarget,
     primitives::{
         PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, RoundedRectangle,
         StyledDrawable,
     },
 };
+use rsact_reactive::prelude::IntoMaybeReactive;
 
 pub mod alpha;
+pub mod buffer;
 pub mod canvas;
 pub mod color;
 pub mod draw_target;
 pub mod primitives;
+
+#[derive(PartialEq, Clone)]
+pub enum AntiAliasing {
+    Disabled,
+    Enabled,
+}
+
+#[derive(Default, Clone, PartialEq, IntoMaybeReactive)]
+pub struct RendererOptions {
+    anti_aliasing: Option<AntiAliasing>,
+}
+
+impl RendererOptions {
+    pub fn new() -> Self {
+        Self { anti_aliasing: None }
+    }
+
+    // TODO: Simple `with_anti_aliasing` method shortcut
+    pub fn anti_aliasing(mut self, aa: AntiAliasing) -> Self {
+        self.anti_aliasing = Some(aa);
+        self
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum ViewportKind {
+    Fullscreen,
+    /// Clipped part of parent layer with absolute positions relative to screen
+    /// top-left point
+    Clipped(Rectangle),
+    /// Part of parent layer with positions relative to this layer top-left
+    /// point
+    Cropped(Rectangle),
+}
+
+#[derive(Clone, Copy)]
+pub struct Viewport {
+    /// It's okay to have multiple Layers pointing to the same Canvas as it can
+    /// be Clipped or Cropped but not for overlaying
+    layer: usize,
+    kind: ViewportKind,
+}
+
+impl Viewport {
+    pub fn root() -> Self {
+        Self { layer: 0, kind: ViewportKind::Fullscreen }
+    }
+
+    pub fn draw_in<D: DrawTarget>(
+        &self,
+        target: &mut D,
+        pixels: impl IntoIterator<Item = Pixel<D::Color>>,
+    ) -> Result<(), D::Error> {
+        match self.kind {
+            ViewportKind::Fullscreen => target.draw_iter(pixels),
+            ViewportKind::Clipped(area) => {
+                target.clipped(&area).draw_iter(pixels)
+            },
+            ViewportKind::Cropped(area) => {
+                target.cropped(&area).draw_iter(pixels)
+            },
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Border<C: Color>
@@ -234,39 +301,42 @@ impl<C: Color, T> Renderable<C> for T where
 
 // pub type Alpha = f32;
 
-pub trait Renderer {
+pub trait Renderer:
+    DrawTarget<Color = <Self as Renderer>::Color>
+    + Drawable<Color = <Self as Renderer>::Color>
+{
     type Color: Color;
     type Options: PartialEq + Clone + Default;
 
     fn new(viewport: Size) -> Self;
     fn set_options(&mut self, options: Self::Options);
 
-    // TODO: Generic targets
-    // TODO: This is the same as implementing Drawable for Renderer
-    async fn finish_frame(
-        &self,
-        f: impl AsyncFn(&[<Self::Color as PackedColor>::Storage]),
-    );
-    fn clear(&mut self, color: Self::Color) -> DrawResult;
-    fn clear_rect(&mut self, rect: Rectangle, color: Self::Color)
-    -> DrawResult;
+    // // TODO: Generic targets
+    // // TODO: This is the same as implementing Drawable for Renderer
+    // async fn finish_frame(
+    //     &self,
+    //     f: impl AsyncFn(&[<Self::Color as PackedColor>::Storage]),
+    // );
+    // fn clear(&mut self, color: Self::Color) -> DrawResult;
+    // fn clear_rect(&mut self, rect: Rectangle, color: Self::Color)
+    // -> DrawResult;
     fn clipped(
         &mut self,
         area: Rectangle,
         f: impl FnOnce(&mut Self) -> DrawResult,
     ) -> DrawResult;
-    fn on_layer(
-        &mut self,
-        index: usize,
-        f: impl FnOnce(&mut Self) -> DrawResult,
-    ) -> DrawResult;
+    // fn on_layer(
+    //     &mut self,
+    //     index: usize,
+    //     f: impl FnOnce(&mut Self) -> DrawResult,
+    // ) -> DrawResult;
 
-    fn pixel_iter(
-        &mut self,
-        mut pixels: impl Iterator<Item = Pixel<Self::Color>>,
-    ) -> DrawResult {
-        pixels.try_for_each(|pixel| self.pixel(pixel))
-    }
+    // fn pixel_iter(
+    //     &mut self,
+    //     mut pixels: impl Iterator<Item = Pixel<Self::Color>>,
+    // ) -> DrawResult {
+    //     pixels.try_for_each(|pixel| self.pixel(pixel))
+    // }
 
     // fn pixel_iter_alpha(
     //     &mut self,
@@ -275,22 +345,30 @@ pub trait Renderer {
 
     fn render(
         &mut self,
-        renderable: &impl Renderable<Self::Color>,
+        renderable: &impl Renderable<<Self as Renderer>::Color>,
     ) -> DrawResult;
 
-    fn translucent_pixel_iter(
-        &mut self,
-        mut pixels: impl Iterator<Item = Option<Pixel<Self::Color>>>,
-    ) -> DrawResult {
-        pixels.try_for_each(|pixel| {
-            if let Some(pixel) = pixel { self.pixel(pixel) } else { Ok(()) }
-        })
-    }
+    // fn translucent_pixel_iter(
+    //     &mut self,
+    //     mut pixels: impl Iterator<Item = Option<Pixel<Self::Color>>>,
+    // ) -> DrawResult {
+    //     pixels.try_for_each(|pixel| {
+    //         if let Some(pixel) = pixel { self.pixel(pixel) } else { Ok(()) }
+    //     })
+    // }
 
-    fn pixel(&mut self, pixel: Pixel<Self::Color>) -> DrawResult;
+    // fn pixel(&mut self, pixel: Pixel<Self::Color>) -> DrawResult;
     // fn pixel_alpha(
     //     &mut self,
     //     pixel: Pixel<Self::Color>,
     //     alpha: Alpha,
     // ) -> DrawResult;
+}
+
+pub trait LayerRenderer {
+    fn on_layer(
+        &mut self,
+        index: usize,
+        f: impl FnOnce(&mut Self) -> DrawResult,
+    ) -> DrawResult;
 }

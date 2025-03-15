@@ -2,8 +2,8 @@ use super::color::{Color, MapColor};
 use crate::prelude::Size;
 use alloc::boxed::Box;
 use embedded_graphics::{
-    Pixel,
-    pixelcolor::{BinaryColor, Rgb555, Rgb565, Rgb666, Rgb888},
+    Drawable, Pixel,
+    pixelcolor::{BinaryColor, Rgb555, Rgb565, Rgb666, Rgb888, raw::RawData},
     prelude::{Dimensions, DrawTarget, IntoStorage, Point, PointsIter},
     primitives::Rectangle,
 };
@@ -14,6 +14,7 @@ pub trait PackedColor: Sized {
 
     fn none() -> Self::Storage;
     fn stored_pixels() -> usize;
+    // fn into_storage(&self) -> Self::Storage;
     // fn unpack(
     //     packed: &Self::Storage,
     // ) -> impl Iterator<Item = Option<Self::Color>>;
@@ -38,12 +39,16 @@ macro_rules! option_packed_color_impl {
                 1
             }
 
+            // fn into_storage(&self) -> Self::Storage {
+            //     embedded_graphics_core::pixelcolor::IntoStorage::into_storage(*self)
+            // }
+
             fn as_color(packed: &Self::Storage, offset: usize) -> Option<Self> {
                 let _ = offset;
                 if packed == &0x0 {
                     return None
                 } else {
-                    Some((*packed).into())
+                    Some(<Self as embedded_graphics::pixelcolor::PixelColor>::Raw::from_u32(*packed as u32).into())
                 }
             }
 
@@ -54,7 +59,7 @@ macro_rules! option_packed_color_impl {
             ) {
                 let _ = offset;
                 *packed = if let Some(color) = color {
-                    color
+                    Into::<<Self as embedded_graphics::pixelcolor::PixelColor>::Raw>::into(color).into_inner()
                 } else {
                     0x0
                 };
@@ -105,12 +110,30 @@ impl PackedColor for BinaryColor {
     }
 }
 
-pub struct Canvas<C: Color> {
+pub struct RawCanvas<C: Color> {
     size: Size,
     pixels: Box<[C::Storage]>,
 }
 
-impl<C: Color> DrawTarget for Canvas<C> {
+impl<C: Color> Drawable for RawCanvas<C> {
+    type Color = C;
+    type Output = ();
+
+    fn draw<D>(&self, target: &mut D) -> Result<Self::Output, D::Error>
+    where
+        D: DrawTarget<Color = Self::Color>,
+    {
+        // TODO: Is this optimal?
+        let pixels = self
+            .bounding_box()
+            .points()
+            .map(|point| self.pixel(point).map(|color| Pixel(point, color)))
+            .filter_map(|pixel| pixel);
+        target.draw_iter(pixels)
+    }
+}
+
+impl<C: Color> DrawTarget for RawCanvas<C> {
     type Color = C;
     type Error = ();
 
@@ -126,30 +149,13 @@ impl<C: Color> DrawTarget for Canvas<C> {
     }
 }
 
-impl<C: Color> Dimensions for Canvas<C> {
+impl<C: Color> Dimensions for RawCanvas<C> {
     fn bounding_box(&self) -> embedded_graphics::primitives::Rectangle {
         Rectangle::new(Point::zero(), self.size.into())
     }
 }
 
-impl<C: Color> Canvas<C> {
-    pub fn draw<D: DrawTarget<Color = C>>(
-        &self,
-        target: &mut D,
-    ) -> Result<(), D::Error> {
-        let pixels = self.bounding_box().points().filter_map(|point| {
-            self.pixel(point).map(|color| Pixel(point, color))
-        });
-
-        target.draw_iter(pixels)
-    }
-
-    pub async fn draw_buffer(&self, f: impl AsyncFn(&[C::Storage])) {
-        f(self.pixels.as_ref()).await
-    }
-}
-
-impl<C: Color> Canvas<C> {
+impl<C: Color> RawCanvas<C> {
     pub fn new(size: Size) -> Self {
         let pixels = vec![C::none(); size.area() as usize / C::stored_pixels()]
             .into_boxed_slice();
@@ -187,5 +193,20 @@ impl<C: Color> Canvas<C> {
         self.point_to_subpart(point).map(|(pack, offset)| {
             C::set_color(&mut self.pixels[pack], offset, Some(color));
         });
+    }
+
+    pub fn draw<D: DrawTarget<Color = C>>(
+        &self,
+        target: &mut D,
+    ) -> Result<(), D::Error> {
+        let pixels = self.bounding_box().points().filter_map(|point| {
+            self.pixel(point).map(|color| Pixel(point, color))
+        });
+
+        target.draw_iter(pixels)
+    }
+
+    pub async fn draw_buffer(&self, f: impl AsyncFn(&[C::Storage])) {
+        f(self.pixels.as_ref()).await
     }
 }
