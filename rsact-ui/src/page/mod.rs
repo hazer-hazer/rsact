@@ -8,8 +8,8 @@ use crate::{
     layout::{LayoutCtx, LayoutModel, Limits, model_layout, size::Size},
     render::{
         Renderer,
-        framebuf::PackedColor,
         color::{Color, MapColor},
+        framebuf::PackedColor,
     },
     style::TreeStyle,
     widget::{
