@@ -371,7 +371,10 @@ impl<W: WidgetCtx> UI<W, WithPages> {
     pub async fn draw_with_renderer<C: Color>(
         &mut self,
         f: impl AsyncFn(Signal<W::Renderer>),
-    ) -> bool {
+    ) -> bool
+    where
+        W: WidgetCtx<Color = C>,
+    {
         self.current_page().draw_with_renderer(f).await
     }
 }

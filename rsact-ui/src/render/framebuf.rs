@@ -1,11 +1,13 @@
-use core::convert::Infallible;
-
 use super::color::{Color, MapColor};
 use crate::prelude::Size;
 use alloc::boxed::Box;
+use core::convert::Infallible;
 use embedded_graphics::{
     Drawable, Pixel,
-    pixelcolor::{BinaryColor, Rgb555, Rgb565, Rgb666, Rgb888, raw::RawData},
+    pixelcolor::{
+        BinaryColor, Rgb555, Rgb565, Rgb666, Rgb888,
+        raw::{RawData, RawU1},
+    },
     prelude::{Dimensions, DrawTarget, IntoStorage, Point, PointsIter},
     primitives::Rectangle,
 };
@@ -15,17 +17,20 @@ pub trait PackedColor: Sized {
     type Storage: Clone + Send + Sync + 'static;
 
     fn none() -> Self::Storage;
-    fn stored_pixels() -> usize;
+    fn pps() -> usize;
     // fn into_storage(&self) -> Self::Storage;
     // fn unpack(
     //     packed: &Self::Storage,
     // ) -> impl Iterator<Item = Option<Self::Color>>;
-    fn as_color(packed: &Self::Storage, offset: usize) -> Option<Self>;
-    fn set_color(
-        packed: &mut Self::Storage,
-        offset: usize,
-        color: Option<Self>,
-    );
+    // fn as_color(packed: &Self::Storage, offset: usize) -> Option<Self>;
+    // fn set_color(
+    //     packed: &mut Self::Storage,
+    //     offset: usize,
+    //     color: Option<Self>,
+    // );
+
+    fn as_color(packed: &Self::Storage, offset: usize) -> Self;
+    fn set_color(packed: &mut Self::Storage, offset: usize, color: Self);
 }
 
 macro_rules! option_packed_color_impl {
@@ -37,7 +42,7 @@ macro_rules! option_packed_color_impl {
                 0x0
             }
 
-            fn stored_pixels() -> usize {
+            fn pps() -> usize {
                 1
             }
 
@@ -45,26 +50,25 @@ macro_rules! option_packed_color_impl {
             //     embedded_graphics_core::pixelcolor::IntoStorage::into_storage(*self)
             // }
 
-            fn as_color(packed: &Self::Storage, offset: usize) -> Option<Self> {
+            fn as_color(packed: &Self::Storage, offset: usize) -> Self {
                 let _ = offset;
-                if packed == &0x0 {
-                    return None
-                } else {
-                    Some(<Self as embedded_graphics::pixelcolor::PixelColor>::Raw::from_u32(*packed as u32).into())
-                }
+                // if packed == &0x0 {
+                //     return None
+                // } else {
+                //     Some(<Self as embedded_graphics::pixelcolor::PixelColor>::Raw::from_u32(*packed as u32).into())
+                // }
+
+                <Self as embedded_graphics::pixelcolor::PixelColor>::Raw::from_u32(*packed as u32).into()
             }
 
             fn set_color(
                 packed: &mut Self::Storage,
                 offset: usize,
-                color: Option<Self>,
+                color: Self,
             ) {
                 let _ = offset;
-                *packed = if let Some(color) = color {
-                    Into::<<Self as embedded_graphics::pixelcolor::PixelColor>::Raw>::into(color).into_inner()
-                } else {
-                    0x0
-                };
+                *packed =
+                    Into::<<Self as embedded_graphics::pixelcolor::PixelColor>::Raw>::into(color).into_inner();
             }
         })*
     };
@@ -79,36 +83,44 @@ impl PackedColor for BinaryColor {
         0b00
     }
 
-    fn stored_pixels() -> usize {
-        2
+    fn pps() -> usize {
+        8
     }
 
-    fn as_color(packed: &Self::Storage, offset: usize) -> Option<Self> {
-        assert!(offset < 4);
-        let color = (*packed >> (3 - offset) * 2) & 0b11;
+    fn as_color(packed: &Self::Storage, offset: usize) -> Self {
+        assert!(offset < 8);
 
-        match color {
-            0b00 => None,
-            0b01 => Some(BinaryColor::Off),
-            0b11 => Some(BinaryColor::On),
-            _ => panic!("Invalid packed BinaryColor contention: {}", packed),
-        }
+        // let color = (*packed >> (3 - offset) * 2) & 0b11;
+
+        // match color {
+        //     0b00 => None,
+        //     0b01 => Some(BinaryColor::Off),
+        //     0b11 => Some(BinaryColor::On),
+        //     _ => panic!("Invalid packed BinaryColor contention: {}", packed),
+        // }
+
+        let color = (*packed >> (7 - offset)) & 0b1;
+
+        RawU1::from(color).into()
     }
 
-    fn set_color(
-        packed: &mut Self::Storage,
-        offset: usize,
-        color: Option<Self>,
-    ) {
-        let value = match color {
-            Some(color) => match color {
-                BinaryColor::Off => 0b01,
-                BinaryColor::On => 0b11,
-            },
-            None => 0b00,
-        };
+    fn set_color(packed: &mut Self::Storage, offset: usize, color: Self) {
+        assert!(offset < 8);
 
-        *packed |= value << (3 - offset) * 2;
+        // let value = match color {
+        //     Some(color) => match color {
+        //         BinaryColor::Off => 0b01,
+        //         BinaryColor::On => 0b11,
+        //     },
+        //     None => 0b00,
+        // };
+
+        // *packed |= value << (3 - offset) * 2;
+
+        *packed |= match color {
+            BinaryColor::Off => 0b0,
+            BinaryColor::On => 0b1,
+        } << (7 - offset);
     }
 }
 
@@ -120,18 +132,18 @@ pub trait Framebuf<C: Color>: Dimensions + DrawTarget {
 
     fn pixel(&self, point: Point) -> Option<C> {
         self.point_to_subpart(point)
-            .and_then(|(pack, offset)| C::as_color(&self.data()[pack], offset))
+            .map(|(pack, offset)| C::as_color(&self.data()[pack], offset))
     }
 
-    fn reset_pixel(&mut self, point: Point) {
-        self.point_to_subpart(point).map(|(pack, offset)| {
-            C::set_color(&mut self.data_mut()[pack], offset, None);
-        });
-    }
+    // fn reset_pixel(&mut self, point: Point) {
+    //     self.point_to_subpart(point).map(|(pack, offset)| {
+    //         C::set_color(&mut self.data_mut()[pack], offset, None);
+    //     });
+    // }
 
     fn set_pixel(&mut self, point: Point, color: C) {
         self.point_to_subpart(point).map(|(pack, offset)| {
-            C::set_color(&mut self.data_mut()[pack], offset, Some(color));
+            C::set_color(&mut self.data_mut()[pack], offset, color);
         });
     }
 
@@ -159,7 +171,7 @@ pub trait Framebuf<C: Color>: Dimensions + DrawTarget {
         } else {
             let index =
                 point.y as usize * size.width as usize + point.x as usize;
-            let (pack, offset) = index.div_rem(&C::stored_pixels());
+            let (pack, offset) = index.div_rem(&C::pps());
 
             Some((pack, offset))
         }
@@ -209,8 +221,14 @@ impl<C: Color> Dimensions for PackedFramebuf<C> {
 
 impl<C: Color> PackedFramebuf<C> {
     pub fn new(size: Size) -> Self {
-        let pixels = vec![C::none(); size.area() as usize / C::stored_pixels()]
-            .into_boxed_slice();
+        assert!(
+            size.area() as usize % C::pps() == 0,
+            "PackedFramebuf area must be divisible by {} to store pixels packed",
+            C::pps()
+        );
+
+        let pixels =
+            vec![C::none(); size.area() as usize / C::pps()].into_boxed_slice();
         Self { size, pixels }
     }
 }
