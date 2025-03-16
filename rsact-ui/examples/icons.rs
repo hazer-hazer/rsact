@@ -34,7 +34,7 @@ fn main() {
         .map(|kind| Icon::new(kind).size(ICON_SIZE).el())
         .collect::<Vec<_>>();
 
-    let mut ui = UI::new(
+    let mut ui = UI::new_with_buffer_renderer(
         display.bounding_box().size.inert(),
         NullStyler,
     ).no_events().with_page(SinglePage, 

@@ -1,6 +1,8 @@
 use super::{
-    AntiAliasing, Renderer, RendererOptions, Viewport, alpha::AlphaDrawTarget,
-    canvas::RawCanvas, color::Color,
+    AntiAliasing, Renderer, RendererOptions, Viewport,
+    alpha::AlphaDrawTarget,
+    color::Color,
+    framebuf::{Framebuf as _, PackedFramebuf},
 };
 use crate::prelude::Size;
 use alloc::vec::Vec;
@@ -11,9 +13,20 @@ use embedded_graphics::{
 
 pub struct BufferRenderer<C: Color> {
     viewport_stack: Vec<Viewport>,
-    canvas: RawCanvas<C>,
+    buf: PackedFramebuf<C>,
     main_viewport: Size,
     options: RendererOptions,
+}
+
+impl<C: Color> BufferRenderer<C> {
+    pub fn new(viewport: Size) -> Self {
+        Self {
+            viewport_stack: vec![Viewport::root()],
+            buf: PackedFramebuf::new(viewport),
+            main_viewport: viewport,
+            options: RendererOptions::default(),
+        }
+    }
 }
 
 impl<C: Color> Drawable for BufferRenderer<C> {
@@ -24,22 +37,13 @@ impl<C: Color> Drawable for BufferRenderer<C> {
     where
         D: DrawTarget<Color = Self::Color>,
     {
-        self.canvas.draw(target)
+        self.buf.draw(target)
     }
 }
 
 impl<C: Color> Renderer for BufferRenderer<C> {
     type Color = C;
     type Options = RendererOptions;
-
-    fn new(viewport: Size) -> Self {
-        Self {
-            viewport_stack: vec![Viewport::root()],
-            canvas: RawCanvas::new(viewport),
-            main_viewport: viewport,
-            options: RendererOptions::default(),
-        }
-    }
 
     fn set_options(&mut self, options: Self::Options) {
         self.options = options;
@@ -83,13 +87,13 @@ impl<C: Color> Dimensions for BufferRenderer<C> {
 
 impl<C: Color> DrawTarget for BufferRenderer<C> {
     type Color = C;
-    type Error = <RawCanvas<C> as DrawTarget>::Error;
+    type Error = <PackedFramebuf<C> as DrawTarget>::Error;
 
     fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
     where
         I: IntoIterator<Item = embedded_graphics::Pixel<Self::Color>>,
     {
-        self.viewport().draw_in(&mut self.canvas, pixels)
+        self.viewport().draw_in(&mut self.buf, pixels)
     }
 }
 
@@ -100,13 +104,13 @@ impl<C: Color> AlphaDrawTarget for BufferRenderer<C> {
         blend: f32,
     ) -> crate::prelude::DrawResult {
         let color = self
-            .canvas
+            .buf
             .pixel(pixel.0)
             .map(|current| current.mix(blend, pixel.1))
             .unwrap_or(pixel.1);
 
         self.viewport().draw_in(
-            &mut self.canvas,
+            &mut self.buf,
             core::iter::once(embedded_graphics::Pixel(pixel.0, color)),
         )
     }
@@ -119,8 +123,8 @@ impl<C: Color> BufferRenderer<C> {
 
     pub async fn draw_buffer(
         &self,
-        f: impl AsyncFn(&[<C as super::canvas::PackedColor>::Storage]),
+        f: impl AsyncFn(&[<C as super::framebuf::PackedColor>::Storage]),
     ) {
-        self.canvas.draw_buffer(f).await;
+        self.buf.draw_buffer(f).await;
     }
 }

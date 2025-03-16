@@ -10,10 +10,10 @@ use rsact_ui::{
     layout::size::Size,
     page::id::SinglePage,
     prelude::IntoInert,
-    render::draw_target::{AntiAliasing, LayeringRendererOptions},
+    render::{AntiAliasing, RendererOptions},
     style::accent::AccentStyler,
     ui::UI,
-    widget::{flex::Flex, SizedWidget, Widget},
+    widget::{SizedWidget, Widget, flex::Flex},
 };
 use std::time::{Duration, Instant};
 
@@ -30,13 +30,13 @@ fn main() {
 
     let page = Flex::row([]).fill();
 
-    let mut ui = UI::new(
+    let mut ui = UI::new_with_buffer_renderer(
         display.bounding_box().size.inert(),
         AccentStyler::new(Rgb888::RED),
     )
     .with_page(SinglePage, page.el())
     .with_renderer_options(
-        LayeringRendererOptions::new().anti_aliasing(AntiAliasing::Enabled),
+        RendererOptions::new().anti_aliasing(AntiAliasing::Enabled),
     )
     .on_exit(|| std::process::exit(0));
 

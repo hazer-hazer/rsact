@@ -10,7 +10,7 @@ use rsact_ui::{
     anim::Anim,
     event::{message::UiQueue, simulator::simulator_single_encoder},
     page::id::SinglePage,
-    prelude::{create_memo, IntoInert, ReadSignal, SignalMap, Size},
+    prelude::{IntoInert, ReadSignal, SignalMap, Size, create_memo},
     render::{
         draw_target::LayeringRendererOptions,
         primitives::{arc::Arc, circle::Circle},
@@ -18,8 +18,8 @@ use rsact_ui::{
     style::NullStyler,
     ui::UI,
     widget::{
-        canvas::{Canvas, DrawCommand, DrawQueue},
         SizedWidget, Widget, WidgetCtx,
+        canvas::{Canvas, DrawCommand, DrawQueue},
     },
 };
 use std::{
@@ -42,7 +42,11 @@ fn main() {
     let canvas_queue = DrawQueue::new();
     let page = Canvas::new(canvas_queue).fill().el();
 
-    let mut ui = UI::new(display.bounding_box().size.inert(), NullStyler)
+    let mut ui =
+        UI::new_with_buffer_renderer(
+            display.bounding_box().size.inert(),
+            NullStyler,
+        )
         .on_exit(|| process::exit(0))
         .with_page(SinglePage, page)
         .with_renderer_options(LayeringRendererOptions::new().anti_aliasing(
@@ -82,19 +86,21 @@ fn main() {
     );
 
     canvas_queue.draw(loader_anim.value.map(move |anim_value| {
-        vec![Arc::new(
-            Point::new(150, 100),
-            50,
-            Angle::from_degrees(360.0 * anim_value),
-            Angle::from_degrees(360.0 * anim_value),
-        )
-        .into_styled(
-            PrimitiveStyleBuilder::new()
-                .stroke_color(Rgb888::CSS_PURPLE)
-                .stroke_width(10)
-                .build(),
-        )
-        .into()]
+        vec![
+            Arc::new(
+                Point::new(150, 100),
+                50,
+                Angle::from_degrees(360.0 * anim_value),
+                Angle::from_degrees(360.0 * anim_value),
+            )
+            .into_styled(
+                PrimitiveStyleBuilder::new()
+                    .stroke_color(Rgb888::CSS_PURPLE)
+                    .stroke_width(10)
+                    .build(),
+            )
+            .into(),
+        ]
     }));
 
     circle_anim.start();

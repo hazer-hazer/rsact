@@ -136,11 +136,14 @@ fn main() {
     static DEFAULT_FONT: FontRenderer =
         FontRenderer::new::<u8g2_fonts::fonts::u8g2_font_profont22_mf>();
 
-    let mut ui = UI::new(display.bounding_box().size.inert(), NullStyler)
-        .auto_focus()
-        .on_exit(|| std::process::exit(0))
-        .with_page(SinglePage, page)
-        .with_default_font(FontImport::fixed_u8g2(&DEFAULT_FONT));
+    let mut ui = UI::new_with_buffer_renderer(
+        display.bounding_box().size.inert(),
+        NullStyler,
+    )
+    .auto_focus()
+    .on_exit(|| std::process::exit(0))
+    .with_page(SinglePage, page)
+    .with_default_font(FontImport::fixed_u8g2(&DEFAULT_FONT));
 
     loop {
         ui.tick(

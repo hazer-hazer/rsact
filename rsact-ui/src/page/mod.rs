@@ -8,7 +8,7 @@ use crate::{
     layout::{LayoutCtx, LayoutModel, Limits, model_layout, size::Size},
     render::{
         Renderer,
-        canvas::PackedColor,
+        framebuf::PackedColor,
         color::{Color, MapColor},
     },
     style::TreeStyle,

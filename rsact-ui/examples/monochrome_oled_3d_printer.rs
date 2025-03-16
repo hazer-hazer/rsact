@@ -357,7 +357,7 @@ fn main() {
     .fill()
     .el();
 
-    let mut ui = UI::new(
+    let mut ui = UI::new_with_buffer_renderer(
         display.bounding_box().size.inert(),
         NullStyler
         // AccentStyler::new(Rgb888::RED),

@@ -4,7 +4,7 @@ use embedded_graphics::{
     prelude::{PixelColor, RgbColor},
 };
 
-use super::canvas::PackedColor;
+use super::framebuf::PackedColor;
 
 /// Trait allows implicit conversion from one color type to another so user can reduce color depth of UI but still drawing on draw target with higher color depth.
 pub trait MapColor<O> {

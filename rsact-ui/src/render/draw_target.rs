@@ -2,8 +2,8 @@ use super::{
     AntiAliasing, LayerRenderer, Renderer, RendererOptions, Viewport,
     ViewportKind,
     alpha::AlphaDrawTarget,
-    canvas::{PackedColor, RawCanvas},
     color::Color,
+    framebuf::{Framebuf as _, PackedColor, PackedFramebuf},
 };
 use crate::{layout::size::Size, widget::DrawResult};
 use alloc::{collections::BTreeMap, vec::Vec};
@@ -21,12 +21,12 @@ use rsact_reactive::prelude::IntoMaybeReactive;
 // Note: Real alpha channel is not supported. Now, alpha channel is more like blending parameter for drawing on a single layer, so each layer is not transparent and alpha parameter only affects blending on current layer.
 // TODO: Real alpha-channel
 struct Layer<C: Color> {
-    canvas: RawCanvas<C>,
+    canvas: PackedFramebuf<C>,
 }
 
 impl<C: Color> Layer<C> {
     fn fullscreen(size: Size) -> Self {
-        Self { canvas: RawCanvas::new(size) }
+        Self { canvas: PackedFramebuf::new(size) }
     }
 }
 
@@ -71,6 +71,17 @@ impl<C: Color> LayerRenderer for LayeringRenderer<C> {
 }
 
 impl<C: Color> LayeringRenderer<C> {
+    pub fn new(viewport: Size) -> Self {
+        Self {
+            viewport_stack: vec![Viewport::root()],
+            layers: BTreeMap::from([(0, Layer::fullscreen(viewport.into()))]),
+            // TODO: Can avoid storing by getting main viewport from the first
+            // layer in the stack
+            main_viewport: viewport,
+            options: RendererOptions::default(),
+        }
+    }
+
     fn viewport(&self) -> Viewport {
         // No need for checked last, there must be always at least a single layer
         self.viewport_stack.last().copied().unwrap()
@@ -148,17 +159,6 @@ where
 {
     type Color = C;
     type Options = RendererOptions;
-
-    fn new(viewport: Size) -> Self {
-        Self {
-            viewport_stack: vec![Viewport::root()],
-            layers: BTreeMap::from([(0, Layer::fullscreen(viewport.into()))]),
-            // TODO: Can avoid storing by getting main viewport from the first
-            // layer in the stack
-            main_viewport: viewport,
-            options: RendererOptions::default(),
-        }
-    }
 
     fn set_options(&mut self, options: Self::Options) {
         self.options = options;

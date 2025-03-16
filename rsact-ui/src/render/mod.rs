@@ -4,7 +4,7 @@ use crate::{
     widget::DrawResult,
 };
 use alpha::{AlphaDrawTarget, AlphaDrawable};
-use canvas::PackedColor;
+use framebuf::PackedColor;
 use color::{Color, MapColor};
 use embedded_graphics::{
     Drawable, Pixel,
@@ -19,7 +19,7 @@ use rsact_reactive::prelude::IntoMaybeReactive;
 
 pub mod alpha;
 pub mod buffer;
-pub mod canvas;
+pub mod framebuf;
 pub mod color;
 pub mod draw_target;
 pub mod primitives;
@@ -308,7 +308,6 @@ pub trait Renderer:
     type Color: Color;
     type Options: PartialEq + Clone + Default;
 
-    fn new(viewport: Size) -> Self;
     fn set_options(&mut self, options: Self::Options);
 
     // // TODO: Generic targets

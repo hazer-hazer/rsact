@@ -13,8 +13,8 @@ use rsact_ui::{
     page::id::SinglePage,
     prelude::{BorderRadius, IntoInert},
     render::{
+        AntiAliasing, RendererOptions,
         alpha::StyledAlphaDrawable as _,
-        draw_target::{AntiAliasing, LayeringRendererOptions},
         primitives::{
             arc::Arc, circle::Circle, ellipse::Ellipse, line::Line,
             polygon::Polygon, rounded_rect::RoundedRect, sector::Sector,
@@ -22,7 +22,7 @@ use rsact_ui::{
     },
     style::accent::AccentStyler,
     ui::UI,
-    widget::{flex::Flex, SizedWidget, Widget as _},
+    widget::{SizedWidget, Widget as _, flex::Flex},
 };
 use std::time::{Duration, Instant};
 
@@ -39,13 +39,13 @@ fn main() {
 
     let page = Flex::row([]).fill();
 
-    let mut ui = UI::new(
+    let mut ui = UI::new_with_buffer_renderer(
         display.bounding_box().size.inert(),
         AccentStyler::new(Rgb888::RED),
     )
     .with_page(SinglePage, page.el())
     .with_renderer_options(
-        LayeringRendererOptions::new().anti_aliasing(AntiAliasing::Enabled),
+        RendererOptions::new().anti_aliasing(AntiAliasing::Enabled),
     )
     .on_exit(|| std::process::exit(0));
 

@@ -65,7 +65,8 @@ where
         // TODO: `with_styler` optional. Note: Not easily implementable
         styler: S,
     ) -> Self {
-        Self::new(viewport, styler)
+        let viewport = viewport.memo().map(|&viewport| viewport.into());
+        Self::new(viewport, styler, BufferRenderer::new(viewport.get()))
     }
 }
 
@@ -84,7 +85,10 @@ where
         // TODO: `with_styler` optional. Note: Not easily implementable
         styler: S,
     ) -> Self {
-        Self::new(viewport, styler)
+        let viewport = viewport.memo().map(|&viewport| viewport.into());
+
+        // TODO: [`LayeringRenderer`] should use viewport as memo, otherwise it doesn't make any sense to be memo :)
+        Self::new(viewport, styler, LayeringRenderer::new(viewport.get()))
     }
 }
 
@@ -107,13 +111,13 @@ where
     E: Debug + 'static,
 {
     // TODO: Maybe just use embedded_graphics Size to avoid conversion and marking value as inert
-    pub fn new<V: PartialEq + Into<Size> + Copy + 'static>(
+    fn new(
         // TODO: Rewrite to `IntoMaybeReactive` + MaybeReactive viewport
-        viewport: impl IntoMemo<V>,
+        viewport: Memo<Size>,
         // TODO: `with_styler` optional. Note: Not easily implementable
         styler: S,
+        renderer: R,
     ) -> Self {
-        let viewport = viewport.memo().map(|&viewport| viewport.into());
         let dev_tools =
             create_signal(DevTools { enabled: false, hovered: None });
 
@@ -127,7 +131,7 @@ where
             styler: create_memo(move |_| styler),
             dev_tools,
             // TODO: Reactive viewport in Renderer
-            renderer: R::new(viewport.get()).signal(),
+            renderer: renderer.signal(),
             message_queue: None,
             options: Default::default(),
             has_pages: PhantomData,
