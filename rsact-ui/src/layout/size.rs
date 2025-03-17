@@ -345,6 +345,10 @@ impl<T> Size<T> {
         Size::new(f(self.width), f(self.height))
     }
 
+    pub fn swapped(self) -> Size<T> {
+        Size::new(self.height, self.width)
+    }
+
     pub fn with_width(self, width: T) -> Self {
         Self { width, height: self.height }
     }

@@ -410,12 +410,11 @@ impl<W: WidgetCtx> Page<W> {
     //     }
     // }
 
-    pub async fn draw_with_renderer(
-        &self,
-        f: impl AsyncFn(Signal<W::Renderer>),
-    ) -> bool {
+    pub fn draw_with_renderer(&self, f: impl FnOnce(&W::Renderer)) -> bool {
         if self.drawing.get() {
-            f(self.renderer).await;
+            self.renderer.with(|renderer| {
+                f(renderer);
+            });
             true
         } else {
             false

@@ -177,8 +177,8 @@ pub trait Framebuf<C: Color>: Dimensions + DrawTarget {
         }
     }
 
-    async fn draw_buffer(&self, f: impl AsyncFn(&[C::Storage])) {
-        f(self.data()).await
+    fn draw_buffer(&self, f: impl FnOnce(&[C::Storage])) {
+        f(self.data())
     }
 }
 

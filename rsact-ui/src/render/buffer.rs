@@ -121,10 +121,10 @@ impl<C: Color> BufferRenderer<C> {
         self.viewport_stack.last().copied().unwrap()
     }
 
-    pub async fn draw_buffer(
+    pub fn draw_buffer(
         &self,
-        f: impl AsyncFn(&[<C as super::framebuf::PackedColor>::Storage]),
+        f: impl FnOnce(&[<C as super::framebuf::PackedColor>::Storage]),
     ) {
-        self.buf.draw_buffer(f).await;
+        self.buf.draw_buffer(f);
     }
 }
