@@ -1,4 +1,4 @@
-use super::{prelude::*, FontSettingWidget};
+use super::{FontSettingWidget, prelude::*};
 use crate::font::{TextHorizontalAlign, TextVerticalAlign};
 use alloc::string::{String, ToString};
 use layout::ContentLayout;
@@ -150,5 +150,23 @@ where
 {
     fn into(self) -> El<W> {
         Text::new_inert(self).el()
+    }
+}
+
+impl<W: WidgetCtx> Into<El<W>> for String
+where
+    W::Styler: WidgetStylist<TextStyle<W::Color>>,
+{
+    fn into(self) -> El<W> {
+        Text::new_inert(self).el()
+    }
+}
+
+impl<W: WidgetCtx> Into<El<W>> for Signal<String>
+where
+    W::Styler: WidgetStylist<TextStyle<W::Color>>,
+{
+    fn into(self) -> El<W> {
+        Text::new(self).el()
     }
 }

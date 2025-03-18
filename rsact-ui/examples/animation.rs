@@ -12,7 +12,7 @@ use rsact_ui::{
     page::id::SinglePage,
     prelude::{IntoInert, ReadSignal, SignalMap, Size, create_memo},
     render::{
-        draw_target::LayeringRendererOptions,
+        AntiAliasing, RendererOptions,
         primitives::{arc::Arc, circle::Circle},
     },
     style::NullStyler,
@@ -42,17 +42,16 @@ fn main() {
     let canvas_queue = DrawQueue::new();
     let page = Canvas::new(canvas_queue).fill().el();
 
-    let mut ui =
-        UI::new_with_buffer_renderer(
-            display.bounding_box().size.inert(),
-            NullStyler,
-        )
-        .on_exit(|| process::exit(0))
-        .with_page(SinglePage, page)
-        .with_renderer_options(LayeringRendererOptions::new().anti_aliasing(
-            rsact_ui::render::draw_target::AntiAliasing::Enabled,
-        ))
-        .with_queue(queue);
+    let mut ui = UI::new_with_buffer_renderer(
+        display.bounding_box().size.inert(),
+        NullStyler,
+    )
+    .on_exit(|| process::exit(0))
+    .with_page(SinglePage, page)
+    .with_renderer_options(
+        RendererOptions::new().anti_aliasing(AntiAliasing::Enabled),
+    )
+    .with_queue(queue);
 
     let mut circle_anim = queue.anim(
         Anim::new()

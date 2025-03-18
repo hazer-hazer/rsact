@@ -4,24 +4,25 @@ use crate::{
     widget::DrawResult,
 };
 use alpha::{AlphaDrawTarget, AlphaDrawable};
-use framebuf::PackedColor;
 use color::{Color, MapColor};
 use embedded_graphics::{
     Drawable, Pixel,
     draw_target::DrawTargetExt,
-    prelude::DrawTarget,
+    pixelcolor::BinaryColor,
+    prelude::{Dimensions, DrawTarget},
     primitives::{
         PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, RoundedRectangle,
         StyledDrawable,
     },
 };
+use framebuf::PackedColor;
 use rsact_reactive::prelude::IntoMaybeReactive;
 
 pub mod alpha;
 pub mod buffer;
-pub mod framebuf;
 pub mod color;
 pub mod draw_target;
+pub mod framebuf;
 pub mod primitives;
 
 #[derive(PartialEq, Clone)]
@@ -362,6 +363,92 @@ pub trait Renderer:
     //     pixel: Pixel<Self::Color>,
     //     alpha: Alpha,
     // ) -> DrawResult;
+}
+
+#[derive(Default)]
+/// Stub for tests
+pub(crate) struct NullDrawTarget;
+
+impl Dimensions for NullDrawTarget {
+    fn bounding_box(&self) -> Rectangle {
+        Rectangle::zero()
+    }
+}
+
+impl DrawTarget for NullDrawTarget {
+    type Color = BinaryColor;
+    type Error = ();
+
+    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
+    where
+        I: IntoIterator<Item = Pixel<Self::Color>>,
+    {
+        let _ = pixels;
+        Ok(())
+    }
+}
+
+/// Stub for tests
+#[derive(Default)]
+pub(crate) struct NullRenderer;
+
+impl Dimensions for NullRenderer {
+    fn bounding_box(&self) -> Rectangle {
+        Rectangle::zero()
+    }
+}
+
+impl DrawTarget for NullRenderer {
+    type Color = BinaryColor;
+    type Error = ();
+
+    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
+    where
+        I: IntoIterator<Item = Pixel<Self::Color>>,
+    {
+        let _ = pixels;
+        Ok(())
+    }
+}
+
+impl Drawable for NullRenderer {
+    type Color = BinaryColor;
+    type Output = ();
+
+    fn draw<D>(&self, target: &mut D) -> Result<Self::Output, D::Error>
+    where
+        D: DrawTarget<Color = Self::Color>,
+    {
+        let _ = target;
+        Ok(())
+    }
+}
+
+impl Renderer for NullRenderer {
+    type Color = BinaryColor;
+    type Options = ();
+
+    fn set_options(&mut self, options: Self::Options) {
+        let _ = options;
+    }
+
+    fn clipped(
+        &mut self,
+        area: Rectangle,
+        f: impl FnOnce(&mut Self) -> DrawResult,
+    ) -> DrawResult {
+        let _ = f(self);
+        let _ = area;
+        DrawResult::Ok(())
+    }
+
+    fn render(
+        &mut self,
+        renderable: &impl Renderable<<Self as Renderer>::Color>,
+    ) -> DrawResult {
+        let _ = renderable;
+        DrawResult::Ok(())
+    }
 }
 
 pub trait LayerRenderer {

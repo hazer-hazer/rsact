@@ -67,7 +67,7 @@ pub struct Page<W: WidgetCtx> {
     viewport: Memo<Size>,
     dev_tools: Signal<DevTools>,
     force_redraw: Signal<bool>,
-    drawing: Memo<bool>,
+    drawing: Memo<(bool, usize)>,
     draw_calls: Signal<usize>,
 }
 
@@ -147,7 +147,7 @@ impl<W: WidgetCtx> Page<W> {
         // Now root is boxed //
         let mut root = root.signal();
 
-        let drawing = create_memo(move |_| {
+        let drawing = create_memo(move |prev| {
             if force_redraw.get() {
                 force_redraw.set_untracked(false);
             }
@@ -196,10 +196,14 @@ impl<W: WidgetCtx> Page<W> {
                 })
             });
 
-            draw_calls
-                .update(|draw_calls| *draw_calls = draw_calls.wrapping_add(&1));
+            // Draw tag is just count of draw calls
+            // TODO: Review if in case of `take_draw_calls` usage, the tag could overlap with previous one. But we only check for equality of current and previous `draw_calls` so it seem to never be equal as we place 0 into `draw_calls` when take it.
+            let tag = draw_calls.update(|draw_calls| {
+                *draw_calls = draw_calls.wrapping_add(&1);
+                *draw_calls
+            });
 
-            true
+            (prev.map(|(_, prev_tag)| tag == *prev_tag).unwrap_or(false), tag)
         });
 
         Self {
@@ -390,7 +394,7 @@ impl<W: WidgetCtx> Page<W> {
         &mut self,
         target: &mut impl DrawTarget<Color = W::Color>,
     ) -> bool {
-        if self.drawing.get() {
+        if self.drawing.get().0 {
             self.renderer.with(|renderer| renderer.draw(target)).ok().unwrap();
             true
         } else {
@@ -411,7 +415,7 @@ impl<W: WidgetCtx> Page<W> {
     // }
 
     pub fn draw_with_renderer(&self, f: impl FnOnce(&W::Renderer)) -> bool {
-        if self.drawing.get() {
+        if self.drawing.get().0 {
             self.renderer.with(|renderer| {
                 f(renderer);
             });
@@ -432,4 +436,62 @@ impl<W: WidgetCtx> Page<W> {
     //         false
     //     }
     // }
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::string::String;
+    use embedded_graphics::pixelcolor::BinaryColor;
+    use rsact_reactive::{
+        maybe::IntoInert,
+        memo::{IntoMemo, create_memo},
+        signal::IntoSignal,
+        write::WriteSignal,
+    };
+
+    use crate::{
+        el::El,
+        font::FontCtx,
+        prelude::{Edge, Size, Text},
+        render::{NullDrawTarget, NullRenderer},
+        style::NullStyler,
+        widget::{Widget, WidgetCtx, Wtf},
+    };
+
+    use super::{Page, dev::DevTools};
+
+    type NullWtf = Wtf<NullRenderer, NullStyler, (), ()>;
+
+    fn create_null_page(root: impl Into<El<NullWtf>>) -> Page<NullWtf> {
+        Page::new(
+            root,
+            create_memo(|_| Size::new_equal(1)),
+            NullStyler::default().inert().memo(),
+            DevTools::default().signal(),
+            NullRenderer::default().signal(),
+            FontCtx::new().signal(),
+        )
+    }
+
+    #[test]
+    fn draw_on_demand() {
+        let mut redraw_signal_data = String::new().signal();
+
+        let mut page = create_null_page(Text::new(redraw_signal_data).el());
+
+        assert_eq!(page.take_draw_calls(), 0);
+
+        // First draw request without changes subscribes to reactive values inside drawing context.
+        page.draw(&mut NullDrawTarget::default());
+        assert_eq!(page.take_draw_calls(), 1);
+
+        // Nothing changed inside drawing context
+        page.draw(&mut NullDrawTarget::default());
+        assert_eq!(page.take_draw_calls(), 0);
+
+        // Something's changed
+        redraw_signal_data.update(|string| string.push_str("kek"));
+        page.draw(&mut NullDrawTarget::default());
+        assert_eq!(page.take_draw_calls(), 1);
+    }
 }

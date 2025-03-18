@@ -1,5 +1,5 @@
 {
-  "rust-analyzer.check.allTargets": false,
+  "rust-analyzer.check.allTargets": true,
   "cSpell.words": ["Framebuf", "fullscreen", "rsact", "vals", "viewports"],
   "rust-analyzer.runnables.extraTestBinaryArgs": ["--test-threads=1"],
   "rust-analyzer.cargo.noDefaultFeatures": true,
