@@ -16,7 +16,7 @@ pub fn new_scope() -> ScopeHandle {
     })
 }
 
-// TODO: Remove to something tautology like `new_void_scope` or `new_childless_scope`
+// TODO: Rename to something tautology like `new_void_scope` or `new_childless_scope`
 /// Creates new scope where creation of new reactive values is disallowed and will cause a panic. Useful mostly only for debugging.
 #[track_caller]
 pub fn new_deny_new_scope() -> ScopeHandle {

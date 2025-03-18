@@ -223,7 +223,6 @@ impl Runtime {
             kind: ValueKind::Effect {
                 f: Rc::new(RefCell::new(EffectCallback { f, ty: PhantomData })),
             },
-            // Note: Check this, might need to be Dirty
             state: ValueState::Dirty,
             #[cfg(feature = "debug-info")]
             debug: ValueDebugInfo {

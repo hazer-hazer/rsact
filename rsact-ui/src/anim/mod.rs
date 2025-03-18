@@ -1,9 +1,8 @@
-
 use easing::Easing;
 use rsact_reactive::{
-    memo::{create_memo, Memo},
+    memo::{Memo, create_memo},
     read::ReadSignal,
-    signal::{create_signal, Signal},
+    signal::{Signal, create_signal},
     write::WriteSignal,
 };
 

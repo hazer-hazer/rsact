@@ -203,7 +203,7 @@ impl<W: WidgetCtx> Page<W> {
                 *draw_calls
             });
 
-            (prev.map(|(_, prev_tag)| tag == *prev_tag).unwrap_or(false), tag)
+            (prev.map(|(_, prev_tag)| tag != *prev_tag).unwrap_or(false), tag)
         });
 
         Self {
@@ -402,18 +402,6 @@ impl<W: WidgetCtx> Page<W> {
         }
     }
 
-    // pub fn draw_buffer(
-    //     &mut self,
-    //     f: impl Fn(&[<<W as WidgetCtx>::Color as PackedColor>::Storage]),
-    // ) -> bool {
-    //     if self.drawing.get() {
-    //         self.renderer.with(|renderer| renderer.finish_frame(f));
-    //         true
-    //     } else {
-    //         false
-    //     }
-    // }
-
     pub fn draw_with_renderer(&self, f: impl FnOnce(&W::Renderer)) -> bool {
         if self.drawing.get().0 {
             self.renderer.with(|renderer| {
@@ -424,31 +412,11 @@ impl<W: WidgetCtx> Page<W> {
             false
         }
     }
-
-    // pub async fn draw_buffer_async<'a>(
-    //     &'a mut self,
-    //     f: impl AsyncFn(&[<W::Color as PackedColor>::Storage]) + 'a,
-    // ) -> bool {
-    //     if self.drawing.get() {
-    //         self.renderer.with(|renderer| renderer.finish_frame(f));
-    //         true
-    //     } else {
-    //         false
-    //     }
-    // }
 }
 
 #[cfg(test)]
 mod tests {
-    use alloc::string::String;
-    use embedded_graphics::pixelcolor::BinaryColor;
-    use rsact_reactive::{
-        maybe::IntoInert,
-        memo::{IntoMemo, create_memo},
-        signal::IntoSignal,
-        write::WriteSignal,
-    };
-
+    use super::{Page, dev::DevTools};
     use crate::{
         el::El,
         font::FontCtx,
@@ -457,8 +425,14 @@ mod tests {
         style::NullStyler,
         widget::{Widget, WidgetCtx, Wtf},
     };
-
-    use super::{Page, dev::DevTools};
+    use alloc::string::String;
+    use embedded_graphics::pixelcolor::BinaryColor;
+    use rsact_reactive::{
+        maybe::IntoInert,
+        memo::{IntoMemo, create_memo},
+        signal::IntoSignal,
+        write::WriteSignal,
+    };
 
     type NullWtf = Wtf<NullRenderer, NullStyler, (), ()>;
 

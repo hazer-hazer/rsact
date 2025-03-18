@@ -14,7 +14,7 @@ pub enum UiMessage<W: WidgetCtx> {
 }
 
 // TODO: Rename, this is not only about messages.
-/// MessageQueue is indented to reactively publish messages UI processes on `tick` synchronously
+/// MessageQueue is indented to publish messages UI processes on `tick` synchronously
 pub struct UiQueue<W: WidgetCtx> {
     messages: Signal<Vec<UiMessage<W>>>,
     now_millis: Signal<u32>,
@@ -45,7 +45,7 @@ impl<W: WidgetCtx> UiQueue<W> {
     }
 
     /// Note: Animations don't run until [`UI::tick_time`] is called
-    #[must_use = "Animations do nothing unless used"]
+    #[must_use = "Animations do nothing unless used (and don't run without UI::tick_time)"]
     pub fn anim(self, anim: Anim) -> AnimHandle {
         anim.handle(self.anim_now_millis)
     }
