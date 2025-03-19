@@ -16,7 +16,7 @@ use num::Integer;
 pub trait PackedColor: Sized {
     type Storage: Clone + Send + Sync + 'static;
 
-    fn none() -> Self::Storage;
+    // fn none() -> Self::Storage;
     fn pps() -> usize;
     // fn into_storage(&self) -> Self::Storage;
     // fn unpack(
@@ -29,6 +29,8 @@ pub trait PackedColor: Sized {
     //     color: Option<Self>,
     // );
 
+    fn into_storage(&self) -> Self::Storage;
+
     fn as_color(packed: &Self::Storage, offset: usize) -> Self;
     fn set_color(packed: &mut Self::Storage, offset: usize, color: Self);
 }
@@ -38,17 +40,17 @@ macro_rules! option_packed_color_impl {
         impl PackedColor for $ty {
             type Storage = $storage;
 
-            fn none() -> Self::Storage {
-                0x0
-            }
+            // fn none() -> Self::Storage {
+            //     0x0
+            // }
 
             fn pps() -> usize {
                 1
             }
 
-            // fn into_storage(&self) -> Self::Storage {
-            //     embedded_graphics_core::pixelcolor::IntoStorage::into_storage(*self)
-            // }
+            fn into_storage(&self) -> Self::Storage {
+                embedded_graphics_core::pixelcolor::IntoStorage::into_storage(*self)
+            }
 
             fn as_color(packed: &Self::Storage, offset: usize) -> Self {
                 let _ = offset;
@@ -79,12 +81,16 @@ option_packed_color_impl!(Rgb555: u16, Rgb565: u16, Rgb666: u32, Rgb888: u32);
 impl PackedColor for BinaryColor {
     type Storage = u8;
 
-    fn none() -> Self::Storage {
-        0b00
-    }
+    // fn none() -> Self::Storage {
+    //     0b00
+    // }
 
     fn pps() -> usize {
         8
+    }
+
+    fn into_storage(&self) -> Self::Storage {
+        embedded_graphics_core::pixelcolor::IntoStorage::into_storage(*self)
     }
 
     fn as_color(packed: &Self::Storage, offset: usize) -> Self {
@@ -220,7 +226,7 @@ impl<C: Color> Dimensions for PackedFramebuf<C> {
 }
 
 impl<C: Color> PackedFramebuf<C> {
-    pub fn new(size: Size) -> Self {
+    pub fn new(size: Size, default_color: C) -> Self {
         assert!(
             size.area() as usize % C::pps() == 0,
             "PackedFramebuf area must be divisible by {} to store pixels packed",
@@ -228,7 +234,8 @@ impl<C: Color> PackedFramebuf<C> {
         );
 
         let pixels =
-            vec![C::none(); size.area() as usize / C::pps()].into_boxed_slice();
+            vec![default_color.into_storage(); size.area() as usize / C::pps()]
+                .into_boxed_slice();
         Self { size, pixels }
     }
 }

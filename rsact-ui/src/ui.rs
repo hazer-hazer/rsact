@@ -64,9 +64,14 @@ where
         viewport: impl IntoMemo<V>,
         // TODO: `with_styler` optional. Note: Not easily implementable
         styler: S,
+        default_background: C,
     ) -> Self {
         let viewport = viewport.memo().map(|&viewport| viewport.into());
-        Self::new(viewport, styler, BufferRenderer::new(viewport.get()))
+        Self::new(
+            viewport,
+            styler,
+            BufferRenderer::new(viewport.get(), default_background),
+        )
     }
 }
 

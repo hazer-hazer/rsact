@@ -26,7 +26,7 @@ struct Layer<C: Color> {
 
 impl<C: Color> Layer<C> {
     fn fullscreen(size: Size) -> Self {
-        Self { canvas: PackedFramebuf::new(size) }
+        Self { canvas: PackedFramebuf::new(size, C::default_background()) }
     }
 }
 

@@ -19,10 +19,10 @@ pub struct BufferRenderer<C: Color> {
 }
 
 impl<C: Color> BufferRenderer<C> {
-    pub fn new(viewport: Size) -> Self {
+    pub fn new(viewport: Size, default_color: C) -> Self {
         Self {
             viewport_stack: vec![Viewport::root()],
-            buf: PackedFramebuf::new(viewport),
+            buf: PackedFramebuf::new(viewport, default_color),
             main_viewport: viewport,
             options: RendererOptions::default(),
         }
