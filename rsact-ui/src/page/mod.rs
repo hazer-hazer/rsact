@@ -407,6 +407,7 @@ impl<W: WidgetCtx> Page<W> {
             self.renderer.with(|renderer| {
                 f(renderer);
             });
+
             true
         } else {
             false

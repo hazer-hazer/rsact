@@ -186,9 +186,9 @@ impl Anim {
         }
     }
 
-    /// Set animation duration
-    pub fn duration(mut self, duration: u32) -> Self {
-        self.duration = duration;
+    /// Set animation duration in milliseconds
+    pub fn duration(mut self, duration_ms: u32) -> Self {
+        self.duration = duration_ms;
         self
     }
 
@@ -203,8 +203,9 @@ impl Anim {
         self
     }
 
-    pub fn delay(mut self, delay: u32) -> Self {
-        self.delay = delay;
+    /// Set animation delay in milliseconds
+    pub fn delay(mut self, delay_ms: u32) -> Self {
+        self.delay = delay_ms;
         self
     }
 

@@ -70,6 +70,8 @@ pub enum DrawCommand<C: Color> {
     Sector(Styled<Sector, PrimitiveStyle<C>>),
 }
 
+// TODO: Different color in DrawQueue mapped to renderer target color?
+
 #[derive(Clone, Copy)]
 pub struct DrawQueue<C: Color + 'static> {
     queue: Signal<VecDeque<DrawCommand<C>>>,
