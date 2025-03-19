@@ -33,6 +33,7 @@ fn main() {
     let mut ui = UI::new_with_buffer_renderer(
         display.bounding_box().size.inert(),
         AccentStyler::new(Rgb888::RED),
+        Rgb888::WHITE,
     )
     .with_page(SinglePage, page.el())
     .with_renderer_options(

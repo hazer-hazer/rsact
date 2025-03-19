@@ -359,7 +359,8 @@ fn main() {
 
     let mut ui = UI::new_with_buffer_renderer(
         display.bounding_box().size.inert(),
-        NullStyler
+        NullStyler,
+        BinaryColor::Off,
         // AccentStyler::new(Rgb888::RED),
     )
     // .with_renderer_options(

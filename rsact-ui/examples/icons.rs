@@ -1,6 +1,6 @@
 use std::env;
 
-use embedded_graphics::{pixelcolor::Rgb888, prelude::Dimensions};
+use embedded_graphics::{pixelcolor::Rgb888, prelude::{Dimensions, RgbColor}};
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
@@ -37,6 +37,7 @@ fn main() {
     let mut ui = UI::new_with_buffer_renderer(
         display.bounding_box().size.inert(),
         NullStyler,
+        Rgb888::WHITE,
     ).no_events().with_page(SinglePage, 
         Flex::col([
             Text::new_inert("System icons").el(),

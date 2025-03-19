@@ -45,6 +45,7 @@ fn main() {
     let mut ui = UI::new_with_buffer_renderer(
         display.bounding_box().size.inert(),
         NullStyler,
+        Rgb888::WHITE,
     )
     .on_exit(|| process::exit(0))
     .with_page(SinglePage, page)

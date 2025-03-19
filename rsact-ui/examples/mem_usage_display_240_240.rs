@@ -1,7 +1,7 @@
 use cap::Cap;
 use embedded_graphics::{
     pixelcolor::{BinaryColor, Rgb565},
-    prelude::{Dimensions, Point},
+    prelude::{Dimensions, Point, RgbColor},
 };
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
@@ -355,8 +355,9 @@ fn main() {
 
     let mut ui = UI::new_with_buffer_renderer(
         display.bounding_box().size.inert(),
-        NullStyler
+        NullStyler,
         // AccentStyler::new(Rgb888::RED),
+        Rgb565::WHITE,
     )
     // .with_renderer_options(
     //     LayeringRendererOptions::new().anti_aliasing(AntiAliasing::Enabled),

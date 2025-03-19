@@ -148,6 +148,7 @@ impl<W: WidgetCtx> Page<W> {
         let mut root = root.signal();
 
         let drawing = create_memo(move |prev| {
+            // TODO: force_redraw must be placed into ui context and be available in widgets so some widget can request redraw
             if force_redraw.get() {
                 force_redraw.set_untracked(false);
             }
@@ -203,7 +204,7 @@ impl<W: WidgetCtx> Page<W> {
                 *draw_calls
             });
 
-            (prev.map(|(_, prev_tag)| tag != *prev_tag).unwrap_or(false), tag)
+            (prev.map(|(_, prev_tag)| tag != *prev_tag).unwrap_or(true), tag)
         });
 
         Self {
