@@ -98,6 +98,8 @@ impl SliderState {
     }
 }
 
+// TODO: Slider value
+// TODO: Exponential
 pub struct Slider<W: WidgetCtx, Dir: Direction> {
     id: ElId,
     value: Signal<u8>,

@@ -106,6 +106,14 @@ impl<Custom> Event<Custom> {
         Self::Move(MoveEvent { dir, delta })
     }
 
+    pub fn hor_move(offset: i16) -> Self {
+        if offset < 0 {
+            Self::movement(MoveDir::Left, offset.abs() as u16)
+        } else {
+            Self::movement(MoveDir::Right, offset as u16)
+        }
+    }
+
     // Interpretations //
     pub fn interpret_as_focus_move(&self) -> Option<i32> {
         match self {

@@ -132,6 +132,7 @@ where
     W::Styler: WidgetStylist<TextStyle<W::Color>>,
     Dir: Direction,
 {
+    // TODO: Static options?
     // TODO: MaybeReactive options
     pub fn new(
         selected: impl IntoMaybeSignal<K>,
