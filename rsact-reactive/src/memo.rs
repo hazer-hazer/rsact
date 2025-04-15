@@ -63,7 +63,7 @@ pub enum Memo<T: PartialEq> {
         id: ValueId,
         ty: PhantomData<T>,
     },
-    /// Identity-mapped signal as memo. Stored in memo as is to avoid creation of new memo for signals mapped as readonly identity values.
+    /// Identity-mapped signal as memo. Stored in memo as is to avoid creation of new memos for signals mapped as readonly identity values.
     Signal(Signal<T>),
 }
 

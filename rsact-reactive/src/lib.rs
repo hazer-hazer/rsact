@@ -14,6 +14,7 @@ pub mod maybe;
 pub mod memo;
 pub mod memo_chain;
 pub mod read;
+pub mod resource;
 pub mod runtime;
 pub mod scope;
 pub mod signal;
@@ -33,6 +34,7 @@ pub mod prelude {
         memo::{IntoMemo, Memo, MemoTree, create_memo},
         memo_chain::{IntoMemoChain, MemoChain, create_memo_chain},
         read::{ReadSignal, SignalMap, map, with},
+        resource::create_resource,
         rsact_macros::IntoMaybeReactive,
         runtime::{create_runtime, with_current_runtime, with_new_runtime},
         signal::{IntoSignal, RwSignal, Signal, create_signal},
