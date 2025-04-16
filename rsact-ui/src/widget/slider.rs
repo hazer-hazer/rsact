@@ -7,12 +7,16 @@ use crate::{
     style::{ColorStyle, WidgetStylist},
     widget::{Meta, MetaTree, prelude::*},
 };
-use core::marker::PhantomData;
+use core::{marker::PhantomData, ops::RangeInclusive};
 use embedded_graphics::{
     prelude::{Point, Primitive},
     primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, Styled},
 };
 use rsact_reactive::memo_chain::IntoMemoChain;
+
+// TODO: Support any slider value or use f32 with user conversions?
+// pub trait SliderValue {
+// }
 
 // TODO: Sizes depended on viewport
 declare_widget_style! {
@@ -102,7 +106,9 @@ impl SliderState {
 // TODO: Exponential
 pub struct Slider<W: WidgetCtx, Dir: Direction> {
     id: ElId,
-    value: Signal<u8>,
+    value: Signal<f32>,
+    range: Memo<RangeInclusive<f32>>,
+    step: Memo<f32>,
     state: Signal<SliderState>,
     layout: Signal<Layout>,
     style: MemoChain<SliderStyle<W::Color>>,
@@ -110,11 +116,18 @@ pub struct Slider<W: WidgetCtx, Dir: Direction> {
 }
 
 impl<W: WidgetCtx, Dir: Direction> Slider<W, Dir> {
-    pub fn new(value: impl IntoSignal<u8>) -> Self {
+    pub fn new(
+        value: impl IntoSignal<f32>,
+        range: impl IntoMemo<RangeInclusive<f32>>,
+    ) -> Self {
+        let range = range.memo();
+
         Self {
             id: ElId::unique(),
             state: SliderState::none().signal(),
             value: value.signal(),
+            range,
+            step: range.map(|range| Self::step_from_range(range)),
             layout: Layout::edge(
                 Dir::AXIS.canon(Length::fill(), Length::Fixed(25)),
             )
@@ -123,17 +136,36 @@ impl<W: WidgetCtx, Dir: Direction> Slider<W, Dir> {
             dir: PhantomData,
         }
     }
+
+    fn step_from_range(range: &RangeInclusive<f32>) -> f32 {
+        if range.is_empty() {
+            0.0
+        } else {
+            (range.end() - range.start()) * 0.01
+        }
+    }
+
+    pub fn step(mut self, step: impl IntoMemo<f32>) -> Self {
+        self.step = step.memo();
+        self
+    }
 }
 
 impl<W: WidgetCtx> Slider<W, ColDir> {
-    pub fn vertical(value: impl IntoSignal<u8>) -> Self {
-        Self::new(value)
+    pub fn vertical(
+        value: impl IntoSignal<f32>,
+        range: impl IntoMemo<RangeInclusive<f32>>,
+    ) -> Self {
+        Self::new(value, range)
     }
 }
 
 impl<W: WidgetCtx> Slider<W, RowDir> {
-    pub fn horizontal(value: impl IntoSignal<u8>) -> Self {
-        Self::new(value)
+    pub fn horizontal(
+        value: impl IntoSignal<f32>,
+        range: impl IntoMemo<RangeInclusive<f32>>,
+    ) -> Self {
+        Self::new(value, range)
     }
 }
 
@@ -177,7 +209,8 @@ where
             .into_styled(style.track_line_style())
             .render(ctx.renderer)?;
 
-        let thumb_offset = (self.value.get() as f32 / 256.0) * track_len as f32;
+        let range_len = self.range.with(|range| range.end() - range.start());
+        let thumb_offset = (self.value.get() / range_len) * track_len as f32;
 
         style
             .thumb_style(Rectangle::new(
@@ -197,8 +230,9 @@ where
             // TODO: Right slider event interpretation
             if let Some(offset) = ctx.event.interpret_as_rotation() {
                 let current = self.value.get();
-                let new =
-                    (current as i32 + offset).clamp(0, u8::MAX as i32) as u8;
+                let range = self.range.get_cloned();
+                let new = (current + offset as f32 * self.step.get())
+                    .clamp(*range.start(), *range.end());
 
                 if current != new {
                     self.value.set(new);

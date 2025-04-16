@@ -48,6 +48,7 @@ impl<T: 'static> ReactiveValue for Inert<T> {
     }
 }
 
+// TODO: Store Copy values in memos as inert values without need for creating a new Memo.
 impl<T: PartialEq + Clone> IntoMemo<T> for Inert<T> {
     fn memo(self) -> Memo<T> {
         // TODO: Should not clone but box the value in `StoredValue`
