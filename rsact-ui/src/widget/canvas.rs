@@ -167,11 +167,7 @@ impl<W: WidgetCtx> Canvas<W> {
     pub fn new(queue: DrawQueue<W::Color>) -> Self {
         Self {
             queue,
-            layout: Layout {
-                kind: LayoutKind::Edge,
-                size: Size::new_equal(Length::fill()),
-            }
-            .signal(),
+            layout: Layout::edge(Size::new_equal(Length::fill())).signal(),
         }
     }
 }

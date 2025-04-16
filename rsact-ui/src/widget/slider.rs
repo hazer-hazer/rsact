@@ -1,11 +1,11 @@
 use crate::{
     declare_widget_style,
     render::{
-        primitives::{line::Line, rounded_rect::RoundedRect},
         Renderable,
+        primitives::{line::Line, rounded_rect::RoundedRect},
     },
     style::{ColorStyle, WidgetStylist},
-    widget::{prelude::*, Meta, MetaTree},
+    widget::{Meta, MetaTree, prelude::*},
 };
 use core::marker::PhantomData;
 use embedded_graphics::{
@@ -115,10 +115,9 @@ impl<W: WidgetCtx, Dir: Direction> Slider<W, Dir> {
             id: ElId::unique(),
             state: SliderState::none().signal(),
             value: value.signal(),
-            layout: Layout {
-                kind: LayoutKind::Edge,
-                size: Dir::AXIS.canon(Length::fill(), Length::Fixed(25)),
-            }
+            layout: Layout::edge(
+                Dir::AXIS.canon(Length::fill(), Length::Fixed(25)),
+            )
             .signal(),
             style: SliderStyle::base().memo_chain(),
             dir: PhantomData,
@@ -155,7 +154,7 @@ where
     fn layout(&self) -> Signal<Layout> {
         self.layout
     }
-    
+
     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         let style = self.style.get();
 

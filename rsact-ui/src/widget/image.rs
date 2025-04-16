@@ -1,6 +1,6 @@
 use crate::{
     event::EventResponse,
-    layout::{Layout, LayoutKind},
+    layout::Layout,
     render::Renderable,
     widget::{Meta, MetaTree, Widget, WidgetCtx},
 };
@@ -21,7 +21,7 @@ impl<'a, W: WidgetCtx, BO: ByteOrder> Image<'a, W, BO> {
     pub fn new(data: ImageRaw<'a, W::Color, BO>) -> Self {
         let size = data.size().into();
 
-        Self { data, layout: Layout { kind: LayoutKind::Edge, size }.signal() }
+        Self { data, layout: Layout::edge(size).signal() }
     }
 }
 

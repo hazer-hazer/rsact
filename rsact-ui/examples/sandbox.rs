@@ -6,11 +6,13 @@ use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
 use rsact_ui::{
+    col,
     event::simulator::simulator_single_encoder,
     layout::size::Size,
     page::id::SinglePage,
-    prelude::IntoInert,
+    prelude::{IntoInert, Select, create_signal},
     render::{AntiAliasing, RendererOptions},
+    row,
     style::accent::AccentStyler,
     ui::UI,
     widget::{SizedWidget, Widget, flex::Flex},
@@ -28,7 +30,10 @@ fn main() {
 
     window.update(&display);
 
-    let page = Flex::row([]).fill();
+    let selected = create_signal(0);
+    let select = Select::vertical(selected, vec![0, 1, 2, 3].inert());
+
+    let page = row![col![select]].center().fill();
 
     let mut ui = UI::new_with_buffer_renderer(
         display.bounding_box().size.inert(),

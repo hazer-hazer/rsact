@@ -1,5 +1,5 @@
 use crate::widget::{
-    prelude::*, BlockModelWidget, Meta, MetaTree, SizedWidget,
+    BlockModelWidget, Meta, MetaTree, SizedWidget, prelude::*,
 };
 use alloc::vec::Vec;
 use core::marker::PhantomData;
@@ -14,6 +14,25 @@ use rsact_reactive::maybe::IntoMaybeReactive;
 //         container: container,
 //     }
 // }
+
+#[macro_export]
+macro_rules! row {
+    ($($el: expr),* $(,)?) => [
+        Flex::row([
+            $($el.el()),*
+        ])
+    ];
+}
+#[macro_export]
+macro_rules! col {
+    ($($el: expr),* $(,)?) => [
+        Flex::col([
+            $($el.el()),*
+        ])
+    ];
+}
+pub use col;
+pub use row;
 
 pub trait IntoChildren<W: WidgetCtx> {
     fn into_children(self) -> MaybeSignal<Vec<El<W>>>;
@@ -43,6 +62,7 @@ impl<W: WidgetCtx + 'static> IntoChildren<W> for Signal<Vec<El<W>>> {
 
 pub struct Flex<W: WidgetCtx, Dir: Direction> {
     // TODO: Signal vector?
+    // TODO: Can we do fixed size?
     children: MaybeSignal<Vec<El<W>>>,
     layout: Signal<Layout>,
     dir: PhantomData<Dir>,

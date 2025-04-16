@@ -415,17 +415,22 @@ pub enum LayoutKind {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Layout {
-    pub(crate) kind: LayoutKind,
+    kind: LayoutKind,
     pub(crate) size: Size<Length>,
+    show: Option<Memo<bool>>,
 }
 
 impl Layout {
     pub fn zero() -> Self {
-        Self { kind: LayoutKind::Zero, size: Size::zero().into() }
+        Self { kind: LayoutKind::Zero, size: Size::zero().into(), show: None }
     }
 
     pub fn shrink(kind: LayoutKind) -> Self {
-        Self { kind, size: Size::shrink() }
+        Self { kind, size: Size::shrink(), show: None }
+    }
+
+    pub fn edge(size: Size<Length>) -> Self {
+        Self { kind: LayoutKind::Edge, size, show: None }
     }
 
     /// Construct base scrollable layout where main axis will be shrinking and cross axis will fill. Also checks if content layout is with growing length on main axis which is disallowed.
@@ -449,7 +454,17 @@ impl Layout {
                 Length::InfiniteWindow(Length::Shrink.try_into().unwrap()),
                 Length::fill(),
             ),
+            show: None,
         }
+    }
+
+    pub fn set_show(&mut self, show: Memo<bool>) {
+        self.show = Some(show);
+    }
+
+    pub fn show(mut self, show: Memo<bool>) -> Self {
+        self.set_show(show);
+        self
     }
 
     pub fn min_size(&self, ctx: &LayoutCtx) -> Size {
@@ -755,6 +770,11 @@ pub fn model_layout(
     // viewport: Memo<Size>,
 ) -> LayoutModel {
     layout.with(|layout| {
+        if !layout.show.map(|show| show.get()).unwrap_or(true) {
+            // TODO: Should be zero or skipped? Doesn't zero layout take child place in flex?
+            return LayoutModel::zero();
+        }
+
         let size = layout.size.in_parent(parent_size);
 
         match &layout.kind {

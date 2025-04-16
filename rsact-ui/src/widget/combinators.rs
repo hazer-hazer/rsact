@@ -1,8 +1,50 @@
 use super::prelude::*;
 
 // pub struct Maybe<W: WidgetCtx> {
-//     widget: Memo<bool>,
+//     cond: Memo<bool>,
+//     then: El<W>,
+//     otherwise: El<W>,
+// }
 
+// impl<W: WidgetCtx> Widget<W> for Maybe<W> {
+//     fn meta(&self) -> MetaTree {
+//         let cond = self.cond;
+//         let then = self.then.meta();
+//         let otherwise = self.otherwise.meta();
+
+//         MetaTree {
+//             data: cond.map(move |cond| {
+//                 if *cond { then.data.get() } else { otherwise.data.get() }
+//             }),
+//             children: cond.map(move |cond| {
+//                 // TODO: Can we avoid cloning?
+//                 if *cond {
+//                     then.children.get_cloned()
+//                 } else {
+//                     otherwise.children.get_cloned()
+//                 }
+//             }),
+//         }
+//     }
+
+//     fn on_mount(&mut self, ctx: MountCtx<W>) {
+//         self.then.on_mount(ctx);
+//         self.otherwise.on_mount(ctx);
+//     }
+
+//     fn layout(&self) -> Signal<Layout> {}
+
+//     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
+//         todo!()
+//     }
+
+//     fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {
+//         todo!()
+//     }
+// }
+
+// pub struct Maybe<W: WidgetCtx> {
+//     widget: Memo<bool>,
 // }
 
 // impl<W: WidgetCtx> Widget<W> for Maybe<W> {

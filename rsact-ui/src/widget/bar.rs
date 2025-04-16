@@ -1,5 +1,5 @@
 use crate::{
-    render::{primitives::rounded_rect::RoundedRect, Renderable as _},
+    render::{Renderable as _, primitives::rounded_rect::RoundedRect},
     value::RangeValue,
     widget::prelude::*,
 };
@@ -65,10 +65,9 @@ impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction> Bar<W, V, Dir> {
     pub fn new(value: impl IntoMaybeReactive<V>) -> Self {
         Self {
             value: value.maybe_reactive(),
-            layout: Layout {
-                kind: LayoutKind::Edge,
-                size: Dir::AXIS.canon(Length::fill(), Length::Fixed(10)),
-            }
+            layout: Layout::edge(
+                Dir::AXIS.canon(Length::fill(), Length::Fixed(10)),
+            )
             .signal(),
             style: BarStyle::base().memo_chain(),
             dir: PhantomData,

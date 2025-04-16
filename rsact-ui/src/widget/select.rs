@@ -93,6 +93,7 @@ pub struct Select<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> {
     layout: Signal<Layout>,
     state: Signal<SelectState>,
     style: MemoChain<SelectStyle<W::Color>>,
+    // TODO: Can we do fixed size?
     options: Memo<Vec<SelectOption<W, K>>>,
     dir: PhantomData<Dir>,
 }

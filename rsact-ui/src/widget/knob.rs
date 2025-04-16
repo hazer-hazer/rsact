@@ -1,6 +1,6 @@
 use super::prelude::*;
-use crate::render::primitives::sector::Sector;
 use crate::render::Renderable;
+use crate::render::primitives::sector::Sector;
 use crate::value::RangeValue;
 use embedded_graphics::prelude::{Angle, Primitive};
 use embedded_graphics::primitives::{PrimitiveStyle, PrimitiveStyleBuilder};
@@ -68,11 +68,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
     pub fn new(value: Signal<V>) -> Self {
         Self {
             id: ElId::unique(),
-            layout: Layout {
-                kind: LayoutKind::Edge,
-                size: Size::new_equal(Length::Fixed(25)),
-            }
-            .signal(),
+            layout: Layout::edge(Size::new_equal(Length::Fixed(25))).signal(),
             value,
             state: KnobState::none().signal(),
             style: KnobStyle::base().memo_chain(),
