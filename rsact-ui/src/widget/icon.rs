@@ -89,6 +89,7 @@ impl<W: WidgetCtx, I: IconSet + 'static> Icon<W, I, IsReactive> {
         match &mut self.value {
             IconValue::Fixed(_) => {
                 // TODO: Warn or panic?
+                // Better only accept memos?
             },
             IconValue::Relative(size, _) => {
                 size.setter(size_setter.maybe_reactive(), |size, new_size| {
@@ -117,7 +118,7 @@ where
         self.layout
     }
 
-    fn draw(
+    fn render(
         &self,
         ctx: &mut crate::widget::DrawCtx<'_, W>,
     ) -> crate::widget::DrawResult {

@@ -107,7 +107,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
         self.layout
     }
 
-    fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> crate::widget::DrawResult {
+    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> crate::widget::DrawResult {
         let style = self.style.get();
 
         Block::from_layout_style(
@@ -118,7 +118,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
         .render(ctx.renderer)?;
 
         // self.content.with(|content| ctx.draw_child(content))
-        ctx.draw_child(&self.content)
+        ctx.render_child(&self.content)
     }
 
     fn on_event(

@@ -152,7 +152,7 @@ fn main() {
                 .inspect(|e| println!("Event: {e:?}")),
         );
 
-        let drawn = ui.draw(&mut display);
+        let drawn = ui.render(&mut display);
 
         if drawn {
             line.draw_styled(&line_style, &mut display).unwrap();

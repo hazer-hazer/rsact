@@ -109,7 +109,7 @@ fn main() {
     loop {
         ui.tick_time_std()
             .tick(window.events().filter_map(simulator_single_encoder));
-        ui.draw(&mut display);
+        ui.render(&mut display);
 
         window.update(&display);
     }

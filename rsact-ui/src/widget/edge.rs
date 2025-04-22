@@ -41,7 +41,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
 
     fn on_mount(&mut self, _ctx: crate::widget::MountCtx<W>) {}
 
-    fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
+    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         let style = self.style.get();
 
         Block::from_layout_style(

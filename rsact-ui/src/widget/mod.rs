@@ -181,12 +181,12 @@ pub struct DrawCtx<'a, W: WidgetCtx> {
 
 impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
     #[must_use]
-    pub fn draw_child(&mut self, child: &impl Widget<W>) -> DrawResult {
-        self.draw_children(core::iter::once(child))
+    pub fn render_child(&mut self, child: &impl Widget<W>) -> DrawResult {
+        self.render_children(core::iter::once(child))
     }
 
     #[must_use]
-    pub fn draw_children<
+    pub fn render_children<
         'c,
         C: Iterator<Item = &'c (impl Widget<W> + 'c)> + 'c,
     >(
@@ -197,7 +197,7 @@ impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
     }
 
     #[must_use]
-    pub fn draw_focus_outline(&mut self, id: ElId) -> DrawResult {
+    pub fn render_focus_outline(&mut self, id: ElId) -> DrawResult {
         if self.state.is_focused(id) {
             Block {
                 border: Border::zero()
@@ -225,7 +225,7 @@ impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
         // TODO: Debug assert zip equal lengths
         children.zip(self.layout.children().map(map_layout)).try_for_each(
             |(child, child_layout)| {
-                child.draw(&mut DrawCtx {
+                child.render(&mut DrawCtx {
                     state: self.state,
                     renderer: &mut self.renderer,
                     layout: &child_layout,
@@ -458,8 +458,7 @@ where
     fn layout(&self) -> Signal<Layout>;
 
     // Hot-loop called functions //
-    // TODO: Reactive draw?
-    fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult;
+    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult;
     // TODO: Reactive event context? Is it possible?
     fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse;
 }

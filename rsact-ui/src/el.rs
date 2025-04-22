@@ -73,8 +73,8 @@ where
         self.widget.layout()
     }
 
-    fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> crate::widget::DrawResult {
-        self.widget.draw(ctx)
+    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> crate::widget::DrawResult {
+        self.widget.render(ctx)
     }
 
     fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {

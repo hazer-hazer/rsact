@@ -77,7 +77,7 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Space<W, Dir> {
 
     fn on_mount(&mut self, _ctx: crate::widget::MountCtx<W>) {}
 
-    fn draw(&self, _ctx: &mut DrawCtx<'_, W>) -> DrawResult {
+    fn render(&self, _ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         Ok(())
     }
 

@@ -50,7 +50,7 @@ fn main() {
         .fill()
         .el(),);
 
-    ui.draw(&mut display);
+    ui.render(&mut display);
 
     unsafe { env::set_var("EG_SIMULATOR_DUMP", "assets/icons.png") };
     window.show_static(&display);
