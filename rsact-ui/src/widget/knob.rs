@@ -107,7 +107,7 @@ where
         self.layout
     }
 
-    fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
+    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         let style = self.style.get();
 
         let value_real = self.value.get().real_point();
@@ -126,7 +126,7 @@ where
         .render(ctx.renderer)?;
 
         // TODO: Round focus outline
-        ctx.draw_focus_outline(self.id)
+        ctx.render_focus_outline(self.id)
     }
 
     fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {

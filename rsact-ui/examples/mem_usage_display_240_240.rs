@@ -431,7 +431,7 @@ fn main() {
                 println!("Unhandled event {unhandled:?}");
             });
 
-        ui.draw(&mut display);
+        ui.render(&mut display);
         mem_leaked += GLOBAL.allocated().saturating_sub(mem_start);
 
         window.update(&display);

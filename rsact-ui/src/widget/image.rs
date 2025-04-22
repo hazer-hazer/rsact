@@ -42,7 +42,7 @@ where
         self.layout
     }
 
-    fn draw(
+    fn render(
         &self,
         ctx: &mut crate::widget::DrawCtx<'_, W>,
     ) -> crate::widget::DrawResult {

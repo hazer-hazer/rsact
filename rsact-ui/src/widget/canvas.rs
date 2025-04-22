@@ -187,7 +187,7 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
         self.layout
     }
 
-    fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
+    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         self.queue.queue.track();
 
         // TODO: Right DrawResult error

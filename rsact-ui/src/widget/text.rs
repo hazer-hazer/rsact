@@ -119,7 +119,7 @@ where
         self.layout
     }
 
-    fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
+    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         let content = self.content;
         let style = self.style.get();
         let props = self.font_props();

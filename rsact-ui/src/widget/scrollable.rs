@@ -230,7 +230,7 @@ where
         self.layout
     }
 
-    fn draw(
+    fn render(
         &self,
         ctx: &mut crate::widget::DrawCtx<'_, W>,
     ) -> crate::widget::DrawResult {
@@ -313,7 +313,7 @@ where
         // outer == inner
         // // TODO: Should be clipping outer rect???!??!?
         ctx.renderer.clipped(ctx.layout.inner, |renderer| {
-            self.content.draw(&mut DrawCtx {
+            self.content.render(&mut DrawCtx {
                 state: ctx.state,
                 renderer,
                 layout: &child_layout
@@ -324,7 +324,7 @@ where
             })
         })?;
 
-        ctx.draw_focus_outline(self.id)
+        ctx.render_focus_outline(self.id)
     }
 
     fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {

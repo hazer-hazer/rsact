@@ -175,7 +175,7 @@ impl<W: WidgetCtx> Page<W> {
                         // FIXME: This might be wrong. User possibly want to create new reactive values. Better make it a debug feature.
                         let _deny_new = new_deny_new_scope();
                         root.update_untracked(|root| {
-                            root.draw(&mut DrawCtx {
+                            root.render(&mut DrawCtx {
                                 state,
                                 renderer,
                                 layout: &layout_model.tree_root(),
@@ -391,7 +391,7 @@ impl<W: WidgetCtx> Page<W> {
         unhandled
     }
 
-    pub fn draw(
+    pub fn render(
         &mut self,
         target: &mut impl DrawTarget<Color = W::Color>,
     ) -> bool {
@@ -458,16 +458,16 @@ mod tests {
         assert_eq!(page.take_draw_calls(), 0);
 
         // First draw request without changes subscribes to reactive values inside drawing context.
-        page.draw(&mut NullDrawTarget::default());
+        page.render(&mut NullDrawTarget::default());
         assert_eq!(page.take_draw_calls(), 1);
 
         // Nothing changed inside drawing context
-        page.draw(&mut NullDrawTarget::default());
+        page.render(&mut NullDrawTarget::default());
         assert_eq!(page.take_draw_calls(), 0);
 
         // Something's changed
         redraw_signal_data.update(|string| string.push_str("kek"));
-        page.draw(&mut NullDrawTarget::default());
+        page.render(&mut NullDrawTarget::default());
         assert_eq!(page.take_draw_calls(), 1);
     }
 }

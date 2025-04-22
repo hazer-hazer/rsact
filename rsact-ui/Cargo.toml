@@ -24,6 +24,7 @@ u8g2-fonts = {workspace = true}
 cap = {workspace = true}
 fake = "4.0.0"
 rand = "0.9"
+paw = {path = "../../paw"}
 
 [features]
 default = []
@@ -33,6 +34,8 @@ defmt = ["dep:defmt"]
 simulator = ["dep:embedded-graphics-simulator"]
 single-thread = ["rsact-reactive/single-thread"]
 std = ["log/std", "rsact-reactive/std"]
+# TODO: Print pretty blocks in terminal showing layout problems: overflows, insufficient sizes, etc.
+layout-diagnostics = []
 
 [[example]]
 name = "animation"

@@ -66,7 +66,7 @@ fn main() {
                 .inspect(|e| println!("Event: {e:?}")),
         );
 
-        ui.draw(&mut display);
+        ui.render(&mut display);
         window.update(&display);
     }
 }

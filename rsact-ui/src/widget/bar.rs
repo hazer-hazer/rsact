@@ -92,7 +92,7 @@ where
         self.layout
     }
 
-    fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
+    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         let style = self.style.get();
 
         // let start = ctx.layout.area.anchor_point(

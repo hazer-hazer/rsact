@@ -93,7 +93,7 @@ where
         self.layout
     }
 
-    fn draw(
+    fn render(
         &self,
         ctx: &mut crate::widget::DrawCtx<'_, W>,
     ) -> crate::widget::DrawResult {
@@ -106,10 +106,10 @@ where
         )
         .render(ctx.renderer)?;
 
-        ctx.draw_focus_outline(self.id)?;
+        ctx.render_focus_outline(self.id)?;
 
         if self.value.get() {
-            ctx.draw_child(&self.icon)?;
+            ctx.render_child(&self.icon)?;
         }
 
         Ok(())

@@ -42,8 +42,8 @@ impl<W: WidgetCtx> Widget<W> for Show<W> {
         self.el.layout()
     }
 
-    fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
-        if self.show.get() { self.el.draw(ctx) } else { Ok(()) }
+    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
+        if self.show.get() { self.el.render(ctx) } else { Ok(()) }
     }
 
     fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {

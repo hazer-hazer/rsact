@@ -100,11 +100,11 @@ where
 // LayeringRenderer is DrawTarget layering wrapper which is the only Renderer supported for now.
 impl<W: WidgetCtx> UI<W, WithPages> {
     // TODO: Move `MapColor` mapping to separate drawing variant to avoid specifying generic for `C`
-    pub fn draw(
+    pub fn render(
         &mut self,
         target: &mut impl DrawTarget<Color = W::Color>,
     ) -> bool {
-        self.current_page().draw(target)
+        self.current_page().render(target)
     }
 }
 

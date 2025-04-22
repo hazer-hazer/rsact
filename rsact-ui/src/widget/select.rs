@@ -272,7 +272,7 @@ where
         self.layout
     }
 
-    fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
+    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         let style = self.style.get();
         let state = self.state.get();
 
@@ -306,7 +306,7 @@ where
         };
 
         // TODO: Review if focus outline visible
-        ctx.draw_focus_outline(self.id)?;
+        ctx.render_focus_outline(self.id)?;
 
         self.options.with(move |options| {
             ctx.renderer.clipped(ctx.layout.inner, |renderer| {
@@ -330,7 +330,7 @@ where
                             viewport: ctx.viewport,
                             fonts: ctx.fonts,
                         };
-                        option.el.borrow().draw(&mut ctx)
+                        option.el.borrow().render(&mut ctx)
                     })
             })
         })

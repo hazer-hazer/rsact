@@ -1,4 +1,7 @@
-use embedded_graphics::{pixelcolor::Rgb888, prelude::Dimensions};
+use embedded_graphics::{
+    pixelcolor::Rgb888,
+    prelude::{Dimensions, RgbColor},
+};
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
@@ -82,8 +85,8 @@ fn main() {
             .el(),
         Text::new(map!(move |gap_x, gap_y| format!("Gap: {gap_x}x{gap_y}")))
             .el(),
-        Slider::horizontal(gap_x).el(),
-        Slider::horizontal(gap_y).el(),
+        Slider::horizontal(gap_x, 0.0..=25.0).el(),
+        Slider::horizontal(gap_y, 0.0..=25.0).el(),
         Text::new(
             wrap.map(|&wrap| {
                 format!("{}", if wrap { "wrap" } else { "no wrap" })
@@ -139,6 +142,7 @@ fn main() {
     let mut ui = UI::new_with_buffer_renderer(
         display.bounding_box().size.inert(),
         NullStyler,
+        Rgb888::WHITE,
     )
     .auto_focus()
     .on_exit(|| std::process::exit(0))
@@ -152,7 +156,7 @@ fn main() {
                 .filter_map(simulator_single_encoder)
                 .inspect(|e| println!("Event: {e:?}")),
         );
-        ui.draw(&mut display);
+        ui.render(&mut display);
 
         window.update(&display);
     }

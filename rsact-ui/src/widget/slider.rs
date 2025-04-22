@@ -2,7 +2,7 @@ use crate::{
     declare_widget_style,
     render::{
         Renderable,
-        primitives::{line::Line, rounded_rect::RoundedRect},
+        primitives::{circle::Circle, line::Line, rounded_rect::RoundedRect},
     },
     style::{ColorStyle, WidgetStylist},
     widget::{Meta, MetaTree, prelude::*},
@@ -12,7 +12,16 @@ use embedded_graphics::{
     prelude::{Point, Primitive},
     primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, Styled},
 };
-use rsact_reactive::memo_chain::IntoMemoChain;
+use rsact_reactive::{maybe::IntoMaybeReactive, memo_chain::IntoMemoChain};
+
+#[derive(Clone, Copy, Default, PartialEq)]
+pub enum SliderThumbShape {
+    Dash,
+    Square,
+    RoundedSquare,
+    #[default]
+    Circle,
+}
 
 // TODO: Support any slider value or use f32 with user conversions?
 // pub trait SliderValue {
@@ -29,7 +38,9 @@ declare_widget_style! {
             thumb_border_color: border_color,
             thumb_border_radius: border_radius,
         },
+        // TODO: Thumb size can be larger than Slider bounding box, I think it is better to use slider size for thumb size and if user wants padding then Container can be used, this will save us from thumb leaking outside of slider
         thumb_size: u32,
+        thumb_shape: SliderThumbShape
     }
 }
 
@@ -38,9 +49,12 @@ impl<C: Color> SliderStyle<C> {
         Self {
             track_width: 2,
             track_color: ColorStyle::DefaultForeground,
-            thumb_border_width: 1,
-            thumb: BlockStyle::base().border(BorderStyle::base().radius(0.25)),
-            thumb_size: 20,
+            thumb_border_width: 0,
+            thumb: BlockStyle::base()
+                .background_color(C::default_foreground())
+                .border(BorderStyle::base().radius(0.25)),
+            thumb_size: 11,
+            thumb_shape: SliderThumbShape::default(),
         }
     }
 
@@ -54,39 +68,6 @@ impl<C: Color> SliderStyle<C> {
         };
 
         style.stroke_width(self.track_width).build()
-    }
-
-    fn thumb_style(
-        &self,
-        rect: Rectangle,
-    ) -> Styled<RoundedRect, PrimitiveStyle<C>> {
-        let style = PrimitiveStyleBuilder::new()
-            .stroke_width(self.thumb_border_width)
-            .stroke_alignment(
-                embedded_graphics::primitives::StrokeAlignment::Inside,
-            );
-
-        let style = if let Some(thumb_color) = self.thumb.background_color.get()
-        {
-            style.fill_color(thumb_color)
-        } else {
-            style
-        };
-
-        let style = if let Some(border_color) = self.thumb.border.color.get() {
-            style.stroke_color(border_color)
-        } else {
-            style
-        };
-
-        RoundedRect::new(
-            rect.resized(
-                embedded_graphics::prelude::Size::new_equal(self.thumb_size),
-                embedded_graphics::geometry::AnchorPoint::Center,
-            ),
-            self.thumb.border.radius,
-        )
-        .into_styled(style.build())
     }
 }
 
@@ -102,12 +83,12 @@ impl SliderState {
     }
 }
 
-// TODO: Slider value
+// TODO: Floating label?
 // TODO: Exponential
 pub struct Slider<W: WidgetCtx, Dir: Direction> {
     id: ElId,
     value: Signal<f32>,
-    range: Memo<RangeInclusive<f32>>,
+    range: MaybeReactive<RangeInclusive<f32>>,
     step: Memo<f32>,
     state: Signal<SliderState>,
     layout: Signal<Layout>,
@@ -118,18 +99,19 @@ pub struct Slider<W: WidgetCtx, Dir: Direction> {
 impl<W: WidgetCtx, Dir: Direction> Slider<W, Dir> {
     pub fn new(
         value: impl IntoSignal<f32>,
-        range: impl IntoMemo<RangeInclusive<f32>>,
+        range: impl IntoMaybeReactive<RangeInclusive<f32>>,
     ) -> Self {
-        let range = range.memo();
+        let range = range.maybe_reactive();
+        let step = range.map_reactive(|range| Self::step_from_range(range));
 
         Self {
             id: ElId::unique(),
             state: SliderState::none().signal(),
             value: value.signal(),
             range,
-            step: range.map(|range| Self::step_from_range(range)),
+            step,
             layout: Layout::edge(
-                Dir::AXIS.canon(Length::fill(), Length::Fixed(25)),
+                Dir::AXIS.canon(Length::fill(), Length::Fixed(13)),
             )
             .signal(),
             style: SliderStyle::base().memo_chain(),
@@ -154,7 +136,7 @@ impl<W: WidgetCtx, Dir: Direction> Slider<W, Dir> {
 impl<W: WidgetCtx> Slider<W, ColDir> {
     pub fn vertical(
         value: impl IntoSignal<f32>,
-        range: impl IntoMemo<RangeInclusive<f32>>,
+        range: impl IntoMaybeReactive<RangeInclusive<f32>>,
     ) -> Self {
         Self::new(value, range)
     }
@@ -163,7 +145,7 @@ impl<W: WidgetCtx> Slider<W, ColDir> {
 impl<W: WidgetCtx> Slider<W, RowDir> {
     pub fn horizontal(
         value: impl IntoSignal<f32>,
-        range: impl IntoMemo<RangeInclusive<f32>>,
+        range: impl IntoMaybeReactive<RangeInclusive<f32>>,
     ) -> Self {
         Self::new(value, range)
     }
@@ -187,7 +169,9 @@ where
         self.layout
     }
 
-    fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
+    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
+        ctx.render_focus_outline(self.id)?;
+
         let style = self.style.get();
 
         let track_len = ctx
@@ -195,11 +179,13 @@ where
             .inner
             .size
             .main(Dir::AXIS)
-            .saturating_sub(style.thumb_size + 1);
+            .saturating_sub(style.thumb_size + 2);
+
+        let half_thumb_size = style.thumb_size as i32 / 2;
 
         let start = ctx.layout.inner.top_left
             + Dir::AXIS.canon::<Point>(
-                style.thumb_size as i32 / 2,
+                half_thumb_size + 1,
                 ctx.layout.inner.size.cross(Dir::AXIS) as i32 / 2,
             );
 
@@ -210,17 +196,65 @@ where
             .render(ctx.renderer)?;
 
         let range_len = self.range.with(|range| range.end() - range.start());
-        let thumb_offset = (self.value.get() / range_len) * track_len as f32;
 
-        style
-            .thumb_style(Rectangle::new(
-                ctx.layout.inner.top_left
-                    + Dir::AXIS.canon::<Point>(thumb_offset as i32, 0),
-                Into::<Size>::into(ctx.layout.inner.size).max_square().into(),
-            ))
-            .render(ctx.renderer)?;
+        let thumb_pos = start
+            + Dir::AXIS.canon::<Point>(
+                ((self.value.get() / range_len) * track_len as f32) as i32
+                    - half_thumb_size,
+                -half_thumb_size,
+            );
 
-        ctx.draw_focus_outline(self.id)
+        let thumb_style = PrimitiveStyleBuilder::new()
+            .stroke_width(style.thumb_border_width)
+            .stroke_alignment(
+                embedded_graphics::primitives::StrokeAlignment::Inside,
+            );
+
+        let thumb_style =
+            if let Some(thumb_color) = style.thumb.background_color.get() {
+                thumb_style.fill_color(thumb_color)
+            } else {
+                thumb_style
+            };
+
+        let thumb_style =
+            if let Some(border_color) = style.thumb.border.color.get() {
+                thumb_style.stroke_color(border_color)
+            } else {
+                thumb_style
+            };
+
+        match style.thumb_shape {
+            SliderThumbShape::Dash => Line::new(
+                thumb_pos,
+                thumb_pos
+                    + Dir::AXIS.canon::<Point>(0, style.thumb_size as i32),
+            )
+            .into_styled(thumb_style.build())
+            .render(ctx.renderer),
+            SliderThumbShape::RoundedSquare => RoundedRect::new(
+                Rectangle::new(
+                    thumb_pos,
+                    embedded_graphics::prelude::Size::new_equal(
+                        style.thumb_size,
+                    ),
+                ),
+                style.thumb.border.radius,
+            )
+            .into_styled(thumb_style.build())
+            .render(ctx.renderer),
+            SliderThumbShape::Circle => {
+                Circle::new(thumb_pos, style.thumb_size)
+                    .into_styled(thumb_style.build())
+                    .render(ctx.renderer)
+            },
+            SliderThumbShape::Square => Rectangle::new(
+                thumb_pos,
+                embedded_graphics::prelude::Size::new_equal(style.thumb_size),
+            )
+            .into_styled(thumb_style.build())
+            .render(ctx.renderer),
+        }
     }
 
     fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {

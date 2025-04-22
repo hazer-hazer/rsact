@@ -118,7 +118,7 @@ where
         self.layout
     }
 
-    fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
+    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         let style = self.style.get();
 
         Block::from_layout_style(
@@ -128,9 +128,9 @@ where
         )
         .render(ctx.renderer)?;
 
-        ctx.draw_child(&self.content)?;
+        ctx.render_child(&self.content)?;
 
-        ctx.draw_focus_outline(self.id)
+        ctx.render_focus_outline(self.id)
     }
 
     fn on_event(
