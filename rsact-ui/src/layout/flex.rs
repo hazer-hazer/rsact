@@ -59,52 +59,68 @@ struct FlexLine {
 }
 
 pub fn model_flex(
-    ctx: &LayoutCtx,
+    ctx: LayoutCtx,
     // TODO: Replace with parent max size as parent_limits.min is not used at all.
-    parent_limits: Limits,
     flex_layout: &FlexLayout,
-    size: Size<Length>,
+    parent_limits: Memo<Limits>,
+    size: Memo<Size<Length>>,
     // viewport: Memo<Size>,
-) -> LayoutModel {
+) -> Memo<LayoutModel> {
     let &FlexLayout {
         wrap,
         block_model,
         axis,
         gap,
-        horizontal_align,
-        vertical_align,
+        align,
         children,
         font_props: _,
     } = flex_layout;
 
-    let full_padding = block_model.full_padding();
+    let rsize = size;
 
-    let limits = parent_limits.limit_by(size).shrink(full_padding);
-    let (max_possible_main, max_possible_cross) = limits.max().destruct(axis);
+    let content_limits = map!(move |block_model| {
+        let full_padding = block_model.full_padding();
 
-    let children_count = children.with(Vec::len);
+        with!(move |size, parent_limits| {
+            parent_limits.limit_by(size).shrink(full_padding)
+        })
+    });
 
-    let const_new_line = FlexLine {
-        div_factors: DivFactors::zero(),
-        items_count: 0,
-        free_main: max_possible_main,
-        fluid_main_space: 0,
-        max_cross: 0,
-    };
+    let children_layouts = map!(move |content_limits,
+                                      wrap,
+                                      gap,
+                                      children,
+                                      size| {
+        let wrap = *wrap;
+        let gap = *gap;
 
-    let mut items: Vec<FlexItem> = Vec::with_capacity(children_count);
-    let mut lines = vec![const_new_line];
+        let (max_possible_main, max_possible_cross) =
+            content_limits.max().destruct(axis);
 
-    let mut children_layouts = Vec::with_capacity(children_count);
-    children_layouts.resize_with(children_count, || LayoutModel::zero());
+        let children_count = children.len();
 
-    let (gap_main, gap_cross) = gap.destruct(axis);
+        let const_new_line = FlexLine {
+            div_factors: DivFactors::zero(),
+            items_count: 0,
+            free_main: max_possible_main,
+            fluid_main_space: 0,
+            max_cross: 0,
+        };
 
-    let mut container_free_cross = max_possible_cross;
-    children.with(|children| {
-        for (item_index, child) in children.iter().enumerate() {
+        let mut items: Vec<FlexItem> = Vec::with_capacity(children_count);
+        let mut lines = vec![const_new_line];
+
+        let mut children_layouts = Vec::with_capacity(children_count);
+        children_layouts
+            .resize_with(children_count, || LayoutModel::zero().inert().memo());
+
+        let (gap_main, gap_cross) = gap.destruct(axis);
+
+        let mut container_free_cross = max_possible_cross;
+
+        for (item_index, child) in children.iter().copied().enumerate() {
             let (child_size, child_min_size) =
-                child.with(|child| (child.size, child.min_size(ctx)));
+                child.with(|child| (child.size.get(), child.min_size(&ctx)));
 
             let min_item_size = child_size.max_fixed(child_min_size);
             let needed_item_space = min_item_size
@@ -148,16 +164,20 @@ pub fn model_flex(
 
             // Calculate Fixed/Shrink items layouts
             if child_div_factors.main(axis) == 0 {
-                let child_layout = model_layout(
-                    ctx,
-                    *child,
-                    Limits::only_max(
-                        // child_min_size,
-                        axis.canon(line.free_main, container_free_cross),
-                    ),
-                    size,
-                    // viewport,
-                );
+                let child_layout = child.with(|child| {
+                    model_layout(
+                        ctx,
+                        child,
+                        Limits::only_max(
+                            // child_min_size,
+                            axis.canon(line.free_main, container_free_cross),
+                        )
+                        .inert()
+                        .memo(),
+                        rsize,
+                        // viewport,
+                    )
+                });
 
                 // TODO: Not working properly
                 // // Min content size of child must have been less or
@@ -166,7 +186,8 @@ pub fn model_flex(
                 //     child_layout.outer_size().main(axis) <= line.free_main
                 // );
 
-                let child_layout_size = child_layout.outer_size();
+                let child_layout_size =
+                    child_layout.with(LayoutModel::outer_size);
 
                 children_layouts[item_index] = child_layout;
 
@@ -194,129 +215,127 @@ pub fn model_flex(
                 last_in_line: item_index == children_count - 1,
             });
         }
-    });
 
-    lines.last().map(|line| {
-        container_free_cross =
-            container_free_cross.saturating_sub(line.max_cross);
-    });
+        lines.last().map(|line| {
+            container_free_cross =
+                container_free_cross.saturating_sub(line.max_cross);
+        });
 
-    #[derive(Clone, Copy)]
-    struct ModelLine {
-        base_divs: Size,
-        line_div_remainder: Size,
-        line_div_remainder_rem: Size,
-        base_div_remainder_part: Size,
-        used_main: u32,
-        cross: u32,
-    }
+        #[derive(Clone, Copy)]
+        struct ModelLine {
+            base_divs: Size,
+            line_div_remainder: Size,
+            line_div_remainder_rem: Size,
+            base_div_remainder_part: Size,
+            used_main: u32,
+            cross: u32,
+        }
 
-    let lines_count = lines.len() as u32;
+        let lines_count = lines.len() as u32;
 
-    let container_free_cross_div =
-        container_free_cross.checked_div(lines_count).unwrap_or(0);
-    // TODO: Should find GCD or use some other technique to avoid remainders greater than children count.
-    let mut container_free_cross_rem =
-        container_free_cross.checked_rem(lines_count).unwrap_or(0);
-    let mut model_lines = lines
-        .into_iter()
-        .map(|line| {
-            // let base_divs = if line.has_fluid {
-            //     line.fluid_space / line.div_factors
-            // } else {
-            //     axis.canon(
-            //         line.fluid_space.main(axis)
-            //             / line.div_factors.main(axis) as u32,
-            //         max_cross,
-            //     )
-            // };
-            let mut div_factors = line.div_factors;
-            let cross = if lines_count == 1 {
-                debug_assert_eq!(
-                    container_free_cross_div,
-                    container_free_cross
-                );
-                debug_assert_eq!(container_free_cross_rem, 0);
+        let container_free_cross_div =
+            container_free_cross.checked_div(lines_count).unwrap_or(0);
+        // TODO: Should find GCD or use some other technique to avoid remainders greater than children count.
+        let mut container_free_cross_rem =
+            container_free_cross.checked_rem(lines_count).unwrap_or(0);
+        let mut model_lines = lines
+            .into_iter()
+            .map(|line| {
+                // let base_divs = if line.has_fluid {
+                //     line.fluid_space / line.div_factors
+                // } else {
+                //     axis.canon(
+                //         line.fluid_space.main(axis)
+                //             / line.div_factors.main(axis) as u32,
+                //         max_cross,
+                //     )
+                // };
+                let mut div_factors = line.div_factors;
+                let cross = if lines_count == 1 {
+                    debug_assert_eq!(
+                        container_free_cross_div,
+                        container_free_cross
+                    );
+                    debug_assert_eq!(container_free_cross_rem, 0);
 
-                *div_factors.cross_mut(axis) = 1;
+                    *div_factors.cross_mut(axis) = 1;
 
-                match size.cross(axis) {
-                    // TODO: InfiniteWindow inner
-                    Length::InfiniteWindow(_) | Length::Shrink => {
-                        // line.max_fixed_cross
-                        line.max_cross
-                    },
-                    // Note: We can use max_possible_cross as we have one line,
-                    // so it fills the parent and no wrap logic applied
-                    Length::Div(_) => max_possible_cross,
-                    Length::Fixed(fixed) => {
-                        // line.max_fixed_cross
-                        fixed
-                    },
-                }
-            } else {
-                line.max_cross
-                    + if size.cross(axis).is_grow() {
-                        container_free_cross_div
-                            + if container_free_cross_rem > 0 {
-                                container_free_cross_rem -= 1;
-                                1
-                            } else {
-                                0
-                            }
-                    } else {
-                        0
+                    match size.cross(axis) {
+                        // TODO: InfiniteWindow inner
+                        Length::InfiniteWindow(_) | Length::Shrink => {
+                            // line.max_fixed_cross
+                            line.max_cross
+                        },
+                        // Note: We can use max_possible_cross as we have one line,
+                        // so it fills the parent and no wrap logic applied
+                        Length::Div(_) => max_possible_cross,
+                        Length::Fixed(fixed) => {
+                            // line.max_fixed_cross
+                            fixed
+                        },
                     }
-            };
+                } else {
+                    line.max_cross
+                        + if size.cross(axis).is_grow() {
+                            container_free_cross_div
+                                + if container_free_cross_rem > 0 {
+                                    container_free_cross_rem -= 1;
+                                    1
+                                } else {
+                                    0
+                                }
+                        } else {
+                            0
+                        }
+                };
 
-            let fluid_space = axis.canon::<Size>(line.free_main, cross);
+                let fluid_space = axis.canon::<Size>(line.free_main, cross);
 
-            let base_divs = fluid_space / div_factors;
-            let line_div_remainder = fluid_space % div_factors;
+                let base_divs = fluid_space / div_factors;
+                let line_div_remainder = fluid_space % div_factors;
 
-            let base_div_remainder_part = axis.canon(
-                line_div_remainder
-                    .main(axis)
-                    .checked_div(line.items_count)
-                    .unwrap_or(0),
-                line_div_remainder
-                    .cross(axis)
-                    .checked_div(lines_count)
-                    .unwrap_or(0),
-            );
-            let line_div_remainder_rem = axis.canon(
-                line_div_remainder
-                    .main(axis)
-                    .checked_rem(line.items_count)
-                    .unwrap_or(0),
-                line_div_remainder
-                    .cross(axis)
-                    .checked_rem(lines_count)
-                    .unwrap_or(0),
-            );
+                let base_div_remainder_part = axis.canon(
+                    line_div_remainder
+                        .main(axis)
+                        .checked_div(line.items_count)
+                        .unwrap_or(0),
+                    line_div_remainder
+                        .cross(axis)
+                        .checked_div(lines_count)
+                        .unwrap_or(0),
+                );
+                let line_div_remainder_rem = axis.canon(
+                    line_div_remainder
+                        .main(axis)
+                        .checked_rem(line.items_count)
+                        .unwrap_or(0),
+                    line_div_remainder
+                        .cross(axis)
+                        .checked_rem(lines_count)
+                        .unwrap_or(0),
+                );
 
-            ModelLine {
-                base_divs,
-                line_div_remainder,
-                line_div_remainder_rem,
-                base_div_remainder_part,
-                used_main: 0,
-                cross,
-            }
-        })
-        .collect::<Vec<_>>();
+                ModelLine {
+                    base_divs,
+                    line_div_remainder,
+                    line_div_remainder_rem,
+                    base_div_remainder_part,
+                    used_main: 0,
+                    cross,
+                }
+            })
+            .collect::<Vec<_>>();
 
-    let mut longest_line = 0;
-    let mut used_cross = 0;
-    let mut next_pos = Point::zero();
+        let mut longest_line = 0;
+        let mut used_cross = 0;
+        let mut next_pos = Point::zero();
 
-    // TODO: Should flex item be at least of min content size?
+        // TODO: Should flex item be at least of min content size?
 
-    children.with(|children| {
         for ((i, child), item) in children.iter().enumerate().zip(items.iter())
         {
-            let child_min_size = child.with(|child| child.min_size(ctx));
-            let child_size = child.with(|child| child.size);
+            let child_min_size = child.with(|child| child.min_size(&ctx));
+            let child_size = child.with(|child| child.size.get());
             let model_line = &mut model_lines[item.line];
 
             let child_div_factors = child_size.div_factors();
@@ -330,18 +349,23 @@ pub fn model_flex(
 
                 model_line.line_div_remainder -= child_rem_part;
 
-                children_layouts[i] = model_layout(
-                    ctx,
-                    *child,
-                    Limits::new(child_min_size, child_max_size),
-                    size,
-                    // viewport,
-                );
+                children_layouts[i] = child.with(|child| {
+                    model_layout(
+                        ctx,
+                        child,
+                        Limits::new(child_min_size, child_max_size)
+                            .inert()
+                            .memo(),
+                        rsize,
+                        // viewport,
+                    )
+                });
             }
 
-            children_layouts[i].translate_mut(next_pos);
+            children_layouts[i] = children_layouts[i]
+                .map(|child_layout| child_layout.translated(next_pos));
 
-            let child_size = children_layouts[i].outer_size();
+            let child_size = children_layouts[i].with(LayoutModel::outer_size);
 
             let child_length = child_size.main(axis);
             model_line.used_main += child_length;
@@ -378,46 +402,48 @@ pub fn model_flex(
         }
     });
 
-    let layout_size =
-        limits.resolve_size(size, axis.canon(longest_line, used_cross));
+    map!(move |block_model, content_limits, align, children_layouts| {
+        let layout_size = with!(|size, content_limits| content_limits
+            .resolve_size(size, axis.canon(longest_line, used_cross)));
 
-    // TODO: Review alignments
-    if !matches!(
-        (horizontal_align, vertical_align),
-        (Align::Start, Align::Start)
-    ) {
-        for (child_layout, item) in children_layouts.iter_mut().zip(items) {
-            let line = model_lines[item.line];
+        // TODO: Review alignments
+        if !matches!(
+            (horizontal_align, vertical_align),
+            (Align::Start, Align::Start)
+        ) {
+            for (child_layout, item) in children_layouts.iter_mut().zip(items) {
+                let line = model_lines[item.line];
 
-            let free_space = axis
-                .canon::<Size>(layout_size.main(axis), line.cross)
-                - axis.canon::<Size>(
-                    line.used_main,
-                    child_layout.outer_size().cross(axis),
+                let free_space = axis
+                    .canon::<Size>(layout_size.main(axis), line.cross)
+                    - axis.canon::<Size>(
+                        line.used_main,
+                        child_layout.outer_size().cross(axis),
+                    );
+                child_layout.align_mut(
+                    horizontal_align,
+                    vertical_align,
+                    free_space,
                 );
-            child_layout.align_mut(
-                horizontal_align,
-                vertical_align,
-                free_space,
-            );
+            }
         }
-    }
 
-    LayoutModel::new(
-        layout_size,
-        children_layouts,
-        #[cfg(feature = "debug-info")]
-        DevLayout::new(
-            size,
-            crate::layout::DevLayoutKind::Flex(DevFlexLayout {
-                // TODO: Implement dev representation of lines such as browsers does.
-                // lines: model_lines.iter().fold((Vec::new(),
-                // Point::zero()),|line| {
-                //     Rectangle::new(line.)
-                // }),
-                real: flex_layout.clone(),
-            }),
-        ),
-    )
-    .with_full_padding(full_padding)
+        LayoutModel::new(
+            layout_size,
+            children_layouts,
+            #[cfg(feature = "debug-info")]
+            DevLayout::new(
+                size,
+                crate::layout::DevLayoutKind::Flex(DevFlexLayout {
+                    // TODO: Implement dev representation of lines such as browsers does.
+                    // lines: model_lines.iter().fold((Vec::new(),
+                    // Point::zero()),|line| {
+                    //     Rectangle::new(line.)
+                    // }),
+                    real: flex_layout.clone(),
+                }),
+            ),
+        )
+        .with_full_padding(full_padding)
+    })
 }

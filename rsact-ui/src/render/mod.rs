@@ -1,3 +1,5 @@
+use core::marker::PhantomData;
+
 use crate::{
     layout::{block_model::BlockModel, padding::Padding, size::Size},
     style::block::{BlockStyle, BorderRadius, BorderStyle},
@@ -367,16 +369,16 @@ pub trait Renderer:
 
 #[derive(Default)]
 /// Stub for tests
-pub(crate) struct NullDrawTarget;
+pub struct NullDrawTarget<C: Color>(PhantomData<C>);
 
-impl Dimensions for NullDrawTarget {
+impl<C: Color> Dimensions for NullDrawTarget<C> {
     fn bounding_box(&self) -> Rectangle {
         Rectangle::zero()
     }
 }
 
-impl DrawTarget for NullDrawTarget {
-    type Color = BinaryColor;
+impl<C: Color> DrawTarget for NullDrawTarget<C> {
+    type Color = C;
     type Error = ();
 
     fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>

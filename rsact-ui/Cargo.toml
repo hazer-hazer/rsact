@@ -25,6 +25,7 @@ cap = {workspace = true}
 fake = "4.0.0"
 rand = "0.9"
 paw = {path = "../../paw"}
+criterion = "0.5.1"
 
 [features]
 default = []
@@ -44,6 +45,10 @@ required-features = ["std", "simulator"]
 [[example]]
 name = "flex"
 required-features = ["std", "simulator"]
+
+[[bench]]
+harness = false
+name = "many_edges"
 
 [lints]
 workspace = true

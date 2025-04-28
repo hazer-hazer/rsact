@@ -146,7 +146,7 @@ impl<W: WidgetCtx> Page<W> {
 
         // Now root is boxed //
         let mut root = root.signal();
-
+        
         let drawing = create_memo(move |prev| {
             // TODO: force_redraw must be placed into ui context and be available in widgets so some widget can request redraw
             if force_redraw.get() {
@@ -223,7 +223,7 @@ impl<W: WidgetCtx> Page<W> {
         }
     }
 
-    pub(crate) fn force_redraw(&mut self) {
+    pub fn force_redraw(&mut self) {
         self.force_redraw.set(true);
     }
 

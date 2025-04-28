@@ -56,8 +56,8 @@ impl Limits {
         Self::new(self.min, max)
     }
 
-    pub fn limit_by(self, size: impl Into<Size<Length>>) -> Self {
-        let size = size.into();
+    pub fn limit_by(self, size: &Size<Length>) -> Self {
+        // let size = size.into();
 
         self.limit_axis(Axis::X, size.width).limit_axis(Axis::Y, size.height)
     }
@@ -119,7 +119,7 @@ impl Limits {
 
     pub fn resolve_size(
         &self,
-        container_size: Size<Length>,
+        container_size: &Size<Length>,
         content_size: Size<u32>,
     ) -> Size<u32> {
         Size::new(

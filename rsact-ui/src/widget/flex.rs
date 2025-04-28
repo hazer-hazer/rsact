@@ -60,6 +60,8 @@ impl<W: WidgetCtx + 'static> IntoChildren<W> for Signal<Vec<El<W>>> {
     }
 }
 
+// TODO: Flex is not the right name because it is the only widget to contain multiple children, better call Flex widget and Layout a Stack.
+
 pub struct Flex<W: WidgetCtx, Dir: Direction> {
     // TODO: Signal vector?
     // TODO: Can we do fixed size?
