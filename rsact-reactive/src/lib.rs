@@ -25,6 +25,7 @@ pub mod write;
 
 pub mod prelude {
     pub use super::{
+        computed::Computed,
         // cow::CowSignal,
         effect::{Effect, create_effect},
         maybe::{

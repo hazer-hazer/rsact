@@ -1,4 +1,5 @@
 use crate::{
+    computed::ComputedCallback,
     effect::EffectCallback,
     memo::MemoCallback,
     memo_chain::{MemoChainCallback, MemoChainErr},
@@ -264,6 +265,37 @@ impl Runtime {
         })
     }
 
+    #[track_caller]
+    pub fn create_computed<T, F>(
+        &self,
+        f: F,
+        _caller: &'static Location<'static>,
+    ) -> ValueId
+    where
+        T: 'static,
+        F: FnMut(Option<&T>) -> T + 'static,
+    {
+        self.add_value(StoredValue {
+            value: Rc::new(RefCell::new(None::<T>)),
+            kind: ValueKind::Computed {
+                f: Rc::new(RefCell::new(ComputedCallback {
+                    f,
+                    ty: PhantomData,
+                })),
+            },
+            state: ValueState::Dirty,
+            #[cfg(feature = "debug-info")]
+            debug: ValueDebugInfo {
+                created_at: Some(_caller),
+                dirten: None,
+                borrowed: None,
+                borrowed_mut: None,
+                ty: Some(type_name::<F>()),
+                observer: None,
+            },
+        })
+    }
+
     pub fn create_memo_chain<T, F>(
         &self,
         f: F,
@@ -427,7 +459,9 @@ impl Runtime {
                         memo_changed || first_changed || last_changed
                     })
                 },
-                ValueKind::Memo { f } | ValueKind::Effect { f } => {
+                ValueKind::Computed { f }
+                | ValueKind::Memo { f }
+                | ValueKind::Effect { f } => {
                     let value = value.value;
                     self.with_observer(id, move |rt| {
                         rt.cleanup(id);
@@ -627,19 +661,26 @@ impl Runtime {
 
 pub fn current_runtime_profile() -> Profile {
     with_current_runtime(|rt| {
-        let (signals, effects, memos, memo_chains) =
+        let (signals, effects, memos, computed, memo_chains) =
             rt.storage.values.borrow().values().fold(
-                (0, 0, 0, 0),
-                |(mut signals, mut effects, mut memos, mut memo_chains),
+                (0, 0, 0, 0, 0),
+                |(
+                    mut signals,
+                    mut effects,
+                    mut memos,
+                    mut computed,
+                    mut memo_chains,
+                ),
                  value| {
                     match &value.kind {
                         ValueKind::Signal => signals += 1,
                         ValueKind::Effect { .. } => effects += 1,
                         ValueKind::Memo { .. } => memos += 1,
+                        ValueKind::Computed { .. } => computed += 1,
                         ValueKind::MemoChain { .. } => memo_chains += 1,
                     }
 
-                    (signals, effects, memos, memo_chains)
+                    (signals, effects, memos, computed, memo_chains)
                 },
             );
 
@@ -688,6 +729,7 @@ pub fn current_runtime_profile() -> Profile {
             signals,
             effects,
             memos,
+            computed,
             memo_chains,
             subscribers: rt.subscribers.borrow().len(),
             subscribers_bindings,
@@ -707,6 +749,7 @@ pub struct Profile {
     signals: usize,
     effects: usize,
     memos: usize,
+    computed: usize,
     memo_chains: usize,
     subscribers: usize,
     subscribers_bindings: usize,
@@ -729,6 +772,7 @@ impl Display for Profile {
         writeln!(f, "  {} signals", self.signals)?;
         writeln!(f, "  {} effects", self.effects)?;
         writeln!(f, "  {} memos", self.memos)?;
+        writeln!(f, "  {} computed", self.computed)?;
         writeln!(f, "  {} memo chains", self.memo_chains)?;
         writeln!(
             f,

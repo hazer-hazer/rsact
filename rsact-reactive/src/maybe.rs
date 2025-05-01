@@ -6,9 +6,8 @@ use crate::{
     signal::{IntoSignal, Signal, create_signal},
     write::{SignalSetter, WriteSignal},
 };
-use alloc::{rc::Rc, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
 use core::{
-    cell::RefCell,
     marker::PhantomData,
     ops::{Deref, DerefMut},
 };
@@ -37,12 +36,12 @@ impl<T> From<T> for Inert<T> {
 impl<T: 'static> ReactiveValue for Inert<T> {
     type Value = T;
 
-    /// [`NonReactive`] is always alive! Useless to call
+    /// [`Inert`] is always alive! Useless to call
     fn is_alive(&self) -> bool {
         true
     }
 
-    /// Drop [`NonReactive`]
+    /// Drop [`Inert`]
     unsafe fn dispose(self) {
         core::mem::drop(self);
     }
@@ -64,8 +63,7 @@ impl<T> IntoSignal<T> for Inert<T> {
 
 impl<T> ReadSignal<T> for Inert<T> {
     fn track(&self) {
-        // Static signal never changes thus scope does not need to subscribe to
-        // its changes
+        // Static signal never changes thus scope does not need to subscribe to its changes
     }
 
     fn with_untracked<U>(&self, f: impl FnOnce(&T) -> U) -> U {
