@@ -180,6 +180,9 @@ pub enum ValueKind {
     Memo {
         f: Rc<RefCell<dyn AnyCallback>>,
     },
+    Computed {
+        f: Rc<RefCell<dyn AnyCallback>>,
+    },
     MemoChain {
         memo: Rc<RefCell<dyn AnyCallback>>,
         first: Rc<RefCell<Option<Box<dyn AnyCallback>>>>,
@@ -197,6 +200,7 @@ impl Display for ValueKind {
                 ValueKind::Signal => "signal",
                 ValueKind::Memo { .. } => "memo",
                 ValueKind::MemoChain { .. } => "memo chain",
+                ValueKind::Computed { .. } => "computed",
             }
         )
     }
