@@ -1,4 +1,5 @@
 use crate::{
+    callback::CallbackFn,
     computed::ComputedCallback,
     effect::EffectCallback,
     memo::MemoCallback,
@@ -238,49 +239,22 @@ impl Runtime {
     }
 
     #[track_caller]
-    pub fn create_memo<T, F>(
+    pub fn create_memo<T, F, P: 'static>(
         &self,
         f: F,
         _caller: &'static Location<'static>,
     ) -> ValueId
     where
         T: PartialEq + 'static,
-        F: FnMut(Option<&T>) -> T + 'static,
+        F: CallbackFn<T, P> + 'static,
     {
         self.add_value(StoredValue {
             value: Rc::new(RefCell::new(None::<T>)),
             kind: ValueKind::Memo {
-                f: Rc::new(RefCell::new(MemoCallback { f, ty: PhantomData })),
-            },
-            state: ValueState::Dirty,
-            #[cfg(feature = "debug-info")]
-            debug: ValueDebugInfo {
-                created_at: Some(_caller),
-                dirten: None,
-                borrowed: None,
-                borrowed_mut: None,
-                ty: Some(type_name::<F>()),
-                observer: None,
-            },
-        })
-    }
-
-    #[track_caller]
-    pub fn create_computed<T, F>(
-        &self,
-        f: F,
-        _caller: &'static Location<'static>,
-    ) -> ValueId
-    where
-        T: 'static,
-        F: FnMut(Option<&T>) -> T + 'static,
-    {
-        self.add_value(StoredValue {
-            value: Rc::new(RefCell::new(None::<T>)),
-            kind: ValueKind::Computed {
-                f: Rc::new(RefCell::new(ComputedCallback {
+                f: Rc::new(RefCell::new(MemoCallback {
                     f,
                     ty: PhantomData,
+                    p: PhantomData,
                 })),
             },
             state: ValueState::Dirty,
@@ -296,14 +270,48 @@ impl Runtime {
         })
     }
 
-    pub fn create_memo_chain<T, F>(
+    #[track_caller]
+    pub fn create_computed<T, F, P>(
+        &self,
+        f: F,
+        _caller: &'static Location<'static>,
+    ) -> ValueId
+    where
+        T: 'static,
+        F: CallbackFn<T, P>,
+        P: 'static,
+    {
+        self.add_value(StoredValue {
+            value: Rc::new(RefCell::new(None::<T>)),
+            kind: ValueKind::Computed {
+                f: Rc::new(RefCell::new(ComputedCallback {
+                    f,
+                    ty: PhantomData,
+                    p: PhantomData,
+                })),
+            },
+            state: ValueState::Dirty,
+            #[cfg(feature = "debug-info")]
+            debug: ValueDebugInfo {
+                created_at: Some(_caller),
+                dirten: None,
+                borrowed: None,
+                borrowed_mut: None,
+                ty: Some(type_name::<F>()),
+                observer: None,
+            },
+        })
+    }
+
+    pub fn create_memo_chain<T, F, P>(
         &self,
         f: F,
         _caller: &'static Location<'static>,
     ) -> ValueId
     where
         T: PartialEq + 'static,
-        F: Fn(Option<&T>) -> T + 'static,
+        F: CallbackFn<T, P>,
+        P: 'static,
     {
         self.add_value(StoredValue {
             value: Rc::new(RefCell::new(None::<T>)),
@@ -311,6 +319,7 @@ impl Runtime {
                 memo: Rc::new(RefCell::new(MemoCallback {
                     f,
                     ty: PhantomData,
+                    p: PhantomData,
                 })),
                 first: Rc::new(RefCell::new(None)),
                 last: Rc::new(RefCell::new(None)),

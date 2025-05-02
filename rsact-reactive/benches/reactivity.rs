@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use rsact_reactive::{
     effect::create_effect, prelude::*, runtime::with_new_runtime,
 };

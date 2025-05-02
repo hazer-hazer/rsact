@@ -1,6 +1,6 @@
 use crate::{
     ReactiveValue,
-    callback::AnyCallback,
+    callback::{AnyCallback, CallbackFn},
     memo::{IntoMemo, Memo},
     prelude::create_memo,
     read::{ReadSignal, SignalMap, impl_read_signal_traits},
@@ -17,8 +17,8 @@ pub enum MemoChainErr {
 }
 
 #[track_caller]
-pub fn create_memo_chain<T: PartialEq + 'static>(
-    f: impl Fn(Option<&T>) -> T + 'static,
+pub fn create_memo_chain<T: PartialEq + 'static, P: 'static>(
+    f: impl CallbackFn<T, P>,
 ) -> MemoChain<T> {
     MemoChain::new(f)
 }
@@ -80,7 +80,7 @@ impl_read_signal_traits!(MemoChain<T>: PartialEq);
 
 impl<T: PartialEq + 'static> MemoChain<T> {
     #[track_caller]
-    pub fn new(f: impl Fn(Option<&T>) -> T + 'static) -> Self {
+    pub fn new<P: 'static>(f: impl CallbackFn<T, P>) -> Self {
         let caller = Location::caller();
         Self {
             id: with_current_runtime(|rt| rt.create_memo_chain(f, caller)),
@@ -136,7 +136,7 @@ impl<T: PartialEq + 'static> SignalMap<T> for MemoChain<T> {
         mut map: impl FnMut(&T) -> U + 'static,
     ) -> Self::Output<U> {
         let this = *self;
-        create_memo(move |_| this.with(&mut map))
+        create_memo(move || this.with(&mut map))
     }
 }
 
@@ -188,7 +188,7 @@ impl<T: PartialEq> IntoMemoChain<T> for MemoChain<T> {
 impl<T: PartialEq + Clone + 'static> IntoMemoChain<T> for T {
     #[track_caller]
     fn memo_chain(self) -> MemoChain<T> {
-        create_memo_chain(move |_| self.clone())
+        create_memo_chain(move || self.clone())
     }
 }
 
@@ -200,7 +200,7 @@ mod tests {
     fn math_precedence() {
         {
             // Must be (2 + 3) * 2, not 2 * 2 + 3
-            let memo = create_memo_chain(|_| 2)
+            let memo = create_memo_chain(|| 2)
                 .last(|value| value * 2)
                 .unwrap()
                 .first(|value| value + 3)
@@ -211,7 +211,7 @@ mod tests {
 
         {
             // Same expression but with order as it is
-            let memo = create_memo_chain(|_| 2)
+            let memo = create_memo_chain(|| 2)
                 .first(|value| value * 2)
                 .unwrap()
                 .last(|value| value + 3)

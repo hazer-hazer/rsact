@@ -1,6 +1,6 @@
 use crate::{
     ReactiveValue,
-    callback::AnyCallback,
+    callback::{AnyCallback, CallbackFn},
     read::{ReadSignal, SignalMap, impl_read_signal_traits},
     runtime::with_current_runtime,
     signal::{Signal, marker},
@@ -11,23 +11,26 @@ use core::{cell::RefCell, marker::PhantomData, ops::Deref, panic::Location};
 
 // TODO: FnMut in memos is a bad idea!
 #[track_caller]
-pub fn create_memo<T: PartialEq + 'static>(
-    f: impl FnMut(Option<&T>) -> T + 'static,
-) -> Memo<T> {
+pub fn create_memo<T, F, P: 'static>(mut f: F) -> Memo<T>
+where
+    T: PartialEq + 'static,
+    F: CallbackFn<T, P> + 'static,
+{
     Memo::new(f)
 }
 
-pub struct MemoCallback<T, F>
+pub(crate) struct MemoCallback<T, F, P>
 where
-    F: FnMut(Option<&T>) -> T,
+    F: CallbackFn<T, P>,
 {
-    pub(crate) f: F,
-    pub(crate) ty: PhantomData<T>,
+    pub f: F,
+    pub ty: PhantomData<T>,
+    pub p: PhantomData<P>,
 }
 
-impl<T, F> AnyCallback for MemoCallback<T, F>
+impl<T, F, P> AnyCallback for MemoCallback<T, F, P>
 where
-    F: FnMut(Option<&T>) -> T,
+    F: CallbackFn<T, P>,
     T: PartialEq + 'static,
 {
     #[track_caller]
@@ -36,7 +39,7 @@ where
             let value = value.borrow();
             let value = value.downcast_ref::<Option<T>>().unwrap().as_ref();
 
-            let new_value = (self.f)(value);
+            let new_value = self.f.run(value);
             let changed = Some(&new_value) != value;
             (new_value, changed)
         };
@@ -71,7 +74,10 @@ impl_read_signal_traits!(Memo<T>: PartialEq);
 
 impl<T: PartialEq + 'static> Memo<T> {
     #[track_caller]
-    pub fn new(f: impl FnMut(Option<&T>) -> T + 'static) -> Self {
+    pub fn new<F, P: 'static>(f: F) -> Self
+    where
+        F: CallbackFn<T, P> + 'static,
+    {
         let caller = Location::caller();
         Self::Memo {
             id: with_current_runtime(|rt| rt.create_memo(f, caller)),
@@ -90,7 +96,7 @@ impl<T: PartialEq + 'static> Memo<T> {
     // pub fn after_map(&mut self, f: impl FnMut(&T) -> T + 'static) -> Self {
     //     // Replace old callback with new one. Now, passed callback is called first. [`replace_callback`] removes all subs and sources
     //     // let old_callback = runtime.replace_callback(self.id, f);
-    //     // create_memo(move |_| )
+    //     // create_memo(move || )
     // }
 }
 
@@ -167,7 +173,7 @@ impl<T: PartialEq + 'static> SignalMap<T> for Memo<T> {
         mut map: impl FnMut(&T) -> U + 'static,
     ) -> Self::Output<U> {
         let this = *self;
-        create_memo(move |_| this.with(&mut map))
+        create_memo(move || this.with(&mut map))
     }
 }
 
@@ -196,7 +202,7 @@ where
 {
     #[track_caller]
     fn memo(self) -> Memo<T> {
-        create_memo(move |_| (self)())
+        create_memo(move || (self)())
     }
 }
 
@@ -209,10 +215,7 @@ pub struct MemoTree<T: PartialEq + 'static> {
 impl<T: PartialEq + Default + 'static> Default for MemoTree<T> {
     #[track_caller]
     fn default() -> Self {
-        Self {
-            data: create_memo(|_| T::default()),
-            children: create_memo(|_| Vec::new()),
-        }
+        Self { data: create_memo(T::default), children: create_memo(Vec::new) }
     }
 }
 
@@ -227,7 +230,7 @@ impl<T: PartialEq + 'static> Copy for MemoTree<T> {}
 impl<T: PartialEq + 'static> MemoTree<T> {
     #[track_caller]
     pub fn childless(data: impl IntoMemo<T>) -> Self {
-        Self { data: data.memo(), children: create_memo(|_| alloc::vec![]) }
+        Self { data: data.memo(), children: create_memo(Vec::new) }
     }
 
     // pub fn fold<A>(&self, acc: A, mut f: impl FnMut(A, &T) -> A) -> A {
@@ -306,7 +309,7 @@ mod tests {
     fn single_run() {
         let mut signal = create_signal(1);
 
-        let runs = create_memo(move |runs| {
+        let runs = create_memo(move |runs: Option<&i32>| {
             signal.get();
 
             runs.unwrap_or(&0) + 1
@@ -323,7 +326,7 @@ mod tests {
     fn exact_runs_count() {
         let mut signal = create_signal(1);
 
-        let runs = create_memo(move |runs| {
+        let runs = create_memo(move |runs: Option<&i32>| {
             signal.get();
 
             runs.unwrap_or(&0) + 1
@@ -362,7 +365,7 @@ mod tests {
     //     let var = 1;
     //     maybe_memo(var);
 
-    //     let memo = use_memo(move |_| 1);
+    //     let memo = use_memo(move || 1);
     //     maybe_memo(memo);
     // }
 }
