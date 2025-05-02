@@ -38,34 +38,35 @@ use core::{marker::PhantomData, panic::Location};
 
 use crate::{
     ReactiveValue,
-    callback::AnyCallback,
+    callback::{AnyCallback, CallbackFn},
     memo::{Memo, create_memo},
     read::{ReadSignal, SignalMap},
     runtime::with_current_runtime,
     storage::ValueId,
 };
 
-pub(crate) struct ComputedCallback<T, F>
+pub(crate) struct ComputedCallback<T, F, P>
 where
-    F: FnMut(Option<&T>) -> T,
+    F: CallbackFn<T, P>,
 {
     pub f: F,
     pub ty: PhantomData<T>,
+    pub p: PhantomData<P>,
 }
 
-impl<T: 'static, F> AnyCallback for ComputedCallback<T, F>
+impl<T: 'static, F, P> AnyCallback for ComputedCallback<T, F, P>
 where
-    F: FnMut(Option<&T>) -> T,
+    F: CallbackFn<T, P>,
 {
     fn run(
         &mut self,
         value: alloc::rc::Rc<core::cell::RefCell<dyn core::any::Any>>,
     ) -> bool {
-        let (new_value) = {
+        let new_value = {
             let value = value.borrow();
             let value = value.downcast_ref::<Option<T>>().unwrap().as_ref();
 
-            let new_value = (self.f)(value);
+            let new_value = self.f.run(value);
             new_value
         };
 
@@ -90,7 +91,7 @@ impl<T: PartialEq + 'static> SignalMap<T> for Computed<T> {
         mut map: impl FnMut(&T) -> U + 'static,
     ) -> Self::Output<U> {
         let this = *self;
-        create_memo(move |_| this.with(&mut map))
+        create_memo(move || this.with(&mut map))
     }
 }
 

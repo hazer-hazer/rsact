@@ -51,7 +51,7 @@ impl<T: 'static> ReactiveValue for Inert<T> {
 impl<T: PartialEq + Clone> IntoMemo<T> for Inert<T> {
     fn memo(self) -> Memo<T> {
         // TODO: Should not clone but box the value in `StoredValue`
-        create_memo(move |_| self.value.clone())
+        create_memo(move || self.value.clone())
     }
 }
 
@@ -364,7 +364,7 @@ impl<T: PartialEq + Clone> IntoMemo<T> for MaybeReactive<T> {
             MaybeReactive::MemoChain(memo_chain) => memo_chain.memo(),
             // MaybeReactive::Derived(derived) => {
             //     let derived = Rc::clone(&derived);
-            //     create_memo(move |_| derived.borrow_mut()())
+            //     create_memo(move || derived.borrow_mut()())
             // },
         }
     }
@@ -627,7 +627,7 @@ impl<T: 'static> SignalMapReactive<T> for MaybeSignal<T> {
         match self {
             MaybeSignal::Inert(inert) => {
                 let mapped = map(&inert.as_ref().unwrap());
-                create_memo(move |_| mapped.clone())
+                create_memo(move || mapped.clone())
             },
             MaybeSignal::Signal(signal) => signal.map(map),
         }
@@ -690,11 +690,11 @@ mod tests {
         // // Derived signal
         // accept_maybe_reactive(|| {});
         // Memo<()>
-        accept_maybe_reactive(create_memo(move |_| {}));
+        accept_maybe_reactive(create_memo(move || {}));
         // Signal<()>
         accept_maybe_reactive(create_signal(()));
         // MemoChain<()>
-        accept_maybe_reactive(create_memo_chain(move |_| {}));
+        accept_maybe_reactive(create_memo_chain(move || {}));
     }
 
     #[test]

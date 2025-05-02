@@ -246,7 +246,7 @@ impl<T: 'static, M: marker::CanRead> SignalMap<T> for Signal<T, M> {
         mut map: impl FnMut(&T) -> U + 'static,
     ) -> Memo<U> {
         let this = *self;
-        create_memo(move |_| this.with(&mut map))
+        create_memo(move || this.with(&mut map))
     }
 }
 
@@ -314,11 +314,11 @@ mod tests {
     //     let signal1 = use_signal(1);
     //     let signal2 = use_signal(2);
 
-    //     use_effect(move |_| {
+    //     use_effect(move || {
     //         signal1.update_untracked(move |signal1| *signal1 =
     // signal2.get());     });
 
-    //     use_effect(move |_| {
+    //     use_effect(move || {
     //         signal2.update_untracked(move |signal2| *signal2 =
     // signal1.get());     });
 
@@ -337,7 +337,7 @@ mod tests {
     fn one_level_memo() {
         let mut a = create_signal(5);
         let mut b_calls = create_signal(0);
-        let b = create_memo(move |_| {
+        let b = create_memo(move || {
             b_calls.update_untracked(|calls| *calls += 1);
 
             a.get() * 10
@@ -365,7 +365,7 @@ mod tests {
         let mut b = create_signal(1);
         let mut memo_calls = create_signal(0);
 
-        let c = create_memo(move |_| {
+        let c = create_memo(move || {
             memo_calls.update_untracked(|calls| *calls += 1);
             a.get() * b.get()
         });
@@ -402,14 +402,14 @@ mod tests {
         let b = create_signal(1);
 
         let mut c_memo_calls = create_signal(0);
-        let c = create_memo(move |_| {
+        let c = create_memo(move || {
             c_memo_calls.update_untracked(|calls| *calls += 1);
 
             a.get() * b.get()
         });
 
         let mut d_memo_calls = create_signal(0);
-        let d = create_memo(move |_| {
+        let d = create_memo(move || {
             d_memo_calls.update_untracked(|calls| *calls += 1);
             c.get() + 1
         });
@@ -436,7 +436,7 @@ mod tests {
     fn equality_check() {
         let mut memo_calls = create_signal(0);
         let mut a = create_signal(7);
-        let c = create_memo(move |_| {
+        let c = create_memo(move || {
             memo_calls.update_untracked(|calls| *calls += 1);
 
             a.get() + 10
@@ -465,18 +465,18 @@ mod tests {
         let mut m_b_calls = create_signal(0);
         let mut m_ab_calls = create_signal(0);
 
-        let m_a = create_memo(move |_| {
+        let m_a = create_memo(move || {
             m_a_calls.update_untracked(|calls| *calls += 1);
 
             a.get()
         });
 
-        let m_b = create_memo(move |_| {
+        let m_b = create_memo(move || {
             m_b_calls.update_untracked(|calls| *calls += 1);
             b.get()
         });
 
-        let m_ab = create_memo(move |_| {
+        let m_ab = create_memo(move || {
             m_ab_calls.update_untracked(|calls| *calls += 1);
             m_a.get().or_else(|| m_b.get())
         });
@@ -513,10 +513,10 @@ mod tests {
     #[test]
     fn bool_equality_check() {
         let mut a = create_signal(0);
-        let b = create_memo(move |_| a.get() > 0);
+        let b = create_memo(move || a.get() > 0);
 
         let mut c_calls = create_signal(0);
-        let c = create_memo(move |_| {
+        let c = create_memo(move || {
             c_calls.update_untracked(|calls| *calls += 1);
             if b.get() { 1 } else { 0 }
         });
@@ -536,9 +536,9 @@ mod tests {
     #[test]
     fn simple_diamond() {
         let a = create_signal(10);
-        let b = create_memo(move |_| a.get() * 10);
-        let c = create_memo(move |_| a.get() * 20);
-        let d = create_memo(move |_| b.get() + c.get());
+        let b = create_memo(move || a.get() * 10);
+        let c = create_memo(move || a.get() * 20);
+        let d = create_memo(move || b.get() + c.get());
 
         assert_eq!(d.get(), 300);
     }
@@ -555,12 +555,12 @@ mod tests {
     #[test]
     fn diamond() {
         let mut s = create_signal(1);
-        let a = create_memo(move |_| s.get());
-        let b = create_memo(move |_| a.get() * 2);
-        let c = create_memo(move |_| a.get() * 3);
+        let a = create_memo(move || s.get());
+        let b = create_memo(move || a.get() * 2);
+        let c = create_memo(move || a.get() * 3);
 
         let mut calls = create_signal(0);
-        let d = create_memo(move |_| {
+        let d = create_memo(move || {
             calls.update_untracked(|calls| *calls += 1);
             b.get() + c.get()
         });
@@ -585,8 +585,8 @@ mod tests {
     #[test]
     fn set_inside_memo() {
         let mut s = create_signal(1);
-        let a = create_memo(move |_| s.set(2));
-        let l = create_memo(move |_| s.get() + 100);
+        let a = create_memo(move || s.set(2));
+        let l = create_memo(move || s.get() + 100);
 
         a.get();
         assert_eq!(l.get(), 102);
@@ -604,7 +604,7 @@ mod tests {
         let mut b = create_signal(2);
         let mut calls = create_signal(0);
 
-        let c = create_memo(move |_| {
+        let c = create_memo(move || {
             calls.update_untracked(|calls| *calls += 1);
             a.get().then(|| b.get())
         });
@@ -637,13 +637,13 @@ mod tests {
     #[test]
     fn no_unnecessary_recompute() {
         let mut s = create_signal(2);
-        let a = create_memo(move |_| s.get() + 1);
+        let a = create_memo(move || s.get() + 1);
         let mut b_calls = create_signal(0);
-        let b = create_memo(move |_| {
+        let b = create_memo(move || {
             b_calls.update_untracked(|calls| *calls += 1);
             s.get() + 10
         });
-        let l = create_memo(move |_| {
+        let l = create_memo(move || {
             let mut result = a.get();
             if result % 2 == 1 {
                 result += b.get();
@@ -670,7 +670,7 @@ mod tests {
         let mut done = create_signal(false);
         let mut calls = create_signal(0);
 
-        let c = create_memo(move |_| {
+        let c = create_memo(move || {
             calls.update_untracked(|calls| *calls += 1);
 
             if done.get() {
@@ -708,12 +708,12 @@ mod tests {
         let mut x = create_signal(0);
 
         let mut y = create_signal(0);
-        let i = create_memo(move |_| {
+        let i = create_memo(move || {
             let a = y.get();
             z.get();
             if a == 0 { x.get() } else { a }
         });
-        let j = create_memo(move |_| {
+        let j = create_memo(move || {
             let a = i.get();
             z.get();
             if a == 0 { x.get() } else { a }
@@ -758,7 +758,7 @@ mod tests {
 
     //     let user = create_signal(ValueUser { value: create_signal(123) });
     //     let runs = create_signal(0);
-    //     use_effect(move |_| {
+    //     use_effect(move || {
     //         runs.update_untracked(|runs| *runs += 1);
 
     //         // Use value

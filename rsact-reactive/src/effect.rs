@@ -119,7 +119,7 @@ mod tests {
     fn no_unnecessary_rerun() {
         let mut calls = create_signal(0);
         let mut a = create_signal(0);
-        let a_is_even = create_memo(move |_| a.get() % 2 == 0);
+        let a_is_even = create_memo(move || a.get() % 2 == 0);
 
         // Run effect only for even `a` values
         create_effect(move |_| {

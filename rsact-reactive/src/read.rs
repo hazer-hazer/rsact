@@ -78,7 +78,7 @@ pub trait SignalMap<T: 'static> {
 //         map: impl FnMut(&(T,)) -> U + 'static,
 //     ) -> Self::Output<U> {
 //         let (T,) = *self;
-//         create_memo(move |_| with!(move |T,| ))
+//         create_memo(move || with!(move |T,| ))
 //     }
 // }
 
