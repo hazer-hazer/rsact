@@ -232,11 +232,16 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Widget<W> for Flex<W, Dir> {
         &mut self.layout
     }
 
-    fn render(
-        &self,
-        ctx: &mut crate::widget::DrawCtx<'_, W>,
-    ) -> crate::widget::DrawResult {
-        self.children.with(|children| ctx.render_children(children.iter()))
+    fn render(&self, ctx: RenderCtx<W>) -> Computed<()> {
+        // self.children.with(|children| ctx.render_children(children.iter()))
+
+        // ctx.render_children(self.children.read_only())
+
+        match &self.children {
+            MaybeSignal::Inert(children) => create_computed(|| {
+            }),
+            MaybeSignal::Signal(signal) => todo!(),
+        }
     }
 
     fn on_event(

@@ -242,7 +242,7 @@ where
 
     fn render(
         &self,
-        ctx: &mut crate::widget::DrawCtx<'_, W>,
+        ctx: &mut crate::widget::RenderCtx<'_, W>,
     ) -> crate::widget::DrawResult {
         let style = self.style.get();
 
@@ -322,7 +322,7 @@ where
         // outer == inner
         // // TODO: Should be clipping outer rect???!??!?
         ctx.renderer.clipped(ctx.layout.inner, |renderer| {
-            self.content.render(&mut DrawCtx {
+            self.content.render(&mut RenderCtx {
                 state: ctx.state,
                 renderer,
                 layout: child_layout

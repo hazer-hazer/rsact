@@ -121,19 +121,24 @@ where
         &mut self.layout
     }
 
-    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
-        let style = self.style.get();
+    fn render(&self, ctx: RenderCtx<W>) -> Computed<()> {
+        let style = self.style;
+        let block_model = self.layout.block_model();
 
-        Block::from_layout_style(
-            ctx.layout.outer,
-            self.layout.block_model(),
-            style.container,
-        )
-        .render(ctx.renderer)?;
+        ctx.render(move |renderer, layout| {
+            let style = style.get();
 
-        ctx.render_child(&self.content)?;
+            Block::from_layout_style(
+                ctx.layout.outer,
+                block_model.get(),
+                style.container,
+            )
+            .render(renderer);
 
-        ctx.render_focus_outline(self.id)
+            ctx.render_child(&self.content);
+
+            ctx.render_focus_outline(self.id)
+        })
     }
 
     fn on_event(

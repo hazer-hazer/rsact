@@ -172,7 +172,7 @@ where
         &mut self.layout
     }
 
-    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
+    fn render(&self, ctx: RenderCtx<W>) -> Computed<()> {
         ctx.render_focus_outline(self.id)?;
 
         let style = self.style.get();

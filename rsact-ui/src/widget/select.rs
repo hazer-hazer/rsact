@@ -274,7 +274,7 @@ where
         &mut self.layout
     }
 
-    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
+    fn render(&self, ctx: RenderCtx<W>) -> Computed<()> {
         let style = self.style.get();
         let state = self.state.get();
 
@@ -317,7 +317,7 @@ where
                     .zip(ctx.layout.children())
                     .enumerate()
                     .try_for_each(|(index, (option, option_layout))| {
-                        let mut ctx = DrawCtx {
+                        let mut ctx = RenderCtx {
                             state: ctx.state,
                             renderer,
                             layout: option_layout.translate(options_offset),

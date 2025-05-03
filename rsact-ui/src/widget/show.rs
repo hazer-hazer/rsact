@@ -44,7 +44,7 @@ impl<W: WidgetCtx> Widget<W> for Show<W> {
         self.el.layout_mut()
     }
 
-    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
+    fn render(&self, ctx: RenderCtx<W>) -> Computed<()> {
         if self.show.get() { self.el.render(ctx) } else { Ok(()) }
     }
 

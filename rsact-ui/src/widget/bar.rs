@@ -95,42 +95,45 @@ where
         &mut self.layout
     }
 
-    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
-        let style = self.style.get();
-
-        // let start = ctx.layout.area.anchor_point(
-        //     Dir::AXIS
-        //         .canon::<AxisAnchorPoint>(Anchor::Start, Anchor::Center)
-        //         .into(),
-        // );
-
-        // let end = start + Dir::AXIS.canon::<Point>(value_len as i32, 0);
-
-        // let bar_width = ctx.layout.area.size.cross(Dir::AXIS);
-
+    fn render(&self, ctx: RenderCtx<W>) -> Computed<()> {
+        let style = self.style;
+        let value = self.value;
         let block_model = self.layout.block_model();
-        Block::from_layout_style(
-            ctx.layout.outer,
-            block_model,
-            style.container,
-        )
-        .render(ctx.renderer)?;
 
-        let full_len = ctx.layout.inner.size.main(Dir::AXIS);
-        let value_len = self.value.get().point(full_len);
+        ctx.render(move |renderer, layout| {
+            let style = style.get();
 
-        let bar_area =
-            ctx.layout.inner.resized_axis(Dir::AXIS, value_len, Anchor::Start);
+            // let start = ctx.layout.area.anchor_point(
+            //     Dir::AXIS
+            //         .canon::<AxisAnchorPoint>(Anchor::Start, Anchor::Center)
+            //         .into(),
+            // );
 
-        RoundedRect::new(bar_area, style.container.border.radius)
-            .into_styled(style.bar_style())
-            .render(ctx.renderer)?;
+            // let end = start + Dir::AXIS.canon::<Point>(value_len as i32, 0);
 
-        // ctx.renderer.line(
-        //     Line::new(start, end).into_styled(style.line_style(bar_width)),
-        // )?;
+            // let bar_width = ctx.layout.area.size.cross(Dir::AXIS);
 
-        Ok(())
+            Block::from_layout_style(
+                layout.outer,
+                block_model.get(),
+                style.container,
+            )
+            .render(renderer);
+
+            let full_len = layout.inner.size.main(Dir::AXIS);
+            let value_len = value.get().point(full_len);
+
+            let bar_area =
+                layout.inner.resized_axis(Dir::AXIS, value_len, Anchor::Start);
+
+            RoundedRect::new(bar_area, style.container.border.radius)
+                .into_styled(style.bar_style())
+                .render(renderer);
+
+            // ctx.renderer.line(
+            //     Line::new(start, end).into_styled(style.line_style(bar_width)),
+            // )?;
+        })
     }
 
     fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {

@@ -98,7 +98,7 @@ where
 
     fn render(
         &self,
-        ctx: &mut crate::widget::DrawCtx<'_, W>,
+        ctx: &mut crate::widget::RenderCtx<'_, W>,
     ) -> crate::widget::DrawResult {
         let style = self.style.get();
 

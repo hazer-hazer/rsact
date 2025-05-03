@@ -77,7 +77,7 @@ where
         self.widget.layout_mut()
     }
 
-    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> crate::widget::DrawResult {
+    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> crate::widget::DrawResult {
         self.widget.render(ctx)
     }
 

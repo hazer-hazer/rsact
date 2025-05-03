@@ -13,7 +13,7 @@ use crate::{
     },
     style::TreeStyle,
     widget::{
-        Behavior, DrawCtx, EventCtx, MountCtx, PageState, Widget, WidgetCtx,
+        Behavior, EventCtx, MountCtx, PageState, RenderCtx, Widget, WidgetCtx,
     },
 };
 use alloc::{boxed::Box, vec::Vec};
@@ -58,7 +58,7 @@ struct PageMeta {
 pub struct Page<W: WidgetCtx> {
     // TODO: root is not used as a Signal but as boxed value, better add StoredValue to rsact_reactive for static storage
     // TODO: Same is about other not-really-reactive states in Page
-    root: Signal<El<W>>,
+    root: El<W>,
     meta: PageMeta,
     layout: Memo<LayoutModel>,
     state: Signal<PageState<W>>,
@@ -67,7 +67,7 @@ pub struct Page<W: WidgetCtx> {
     viewport: Memo<Size>,
     dev_tools: Signal<DevTools>,
     force_redraw: Signal<bool>,
-    drawing: Memo<(bool, usize)>,
+    drawing: Computed<()>,
     draw_calls: Signal<usize>,
 }
 
@@ -129,7 +129,6 @@ impl<W: WidgetCtx> Page<W> {
         //         // viewport,
         //     );
 
-
         let layout_model = model_layout(
             LayoutCtx { fonts, viewport },
             *layout_tree,
@@ -149,66 +148,72 @@ impl<W: WidgetCtx> Page<W> {
         let mut force_redraw = create_signal(false);
 
         // Now root is boxed //
-        let mut root = root.signal();
+        // let mut root = root.signal();
 
-        let drawing = create_memo(move |prev: Option<&(bool, usize)>| {
-            // TODO: force_redraw must be placed into ui context and be available in widgets so some widget can request redraw
-            if force_redraw.get() {
-                force_redraw.set_untracked(false);
-            }
+        // let drawing = create_memo(move |prev: Option<&(bool, usize)>| {
+        //     // TODO: force_redraw must be placed into ui context and be available in widgets so some widget can request redraw
+        //     if force_redraw.get() {
+        //         force_redraw.set_untracked(false);
+        //     }
 
-            with!(|state| {
-                renderer.update_untracked(|renderer| {
-                    // FIXME: Performance?
-                    // TODO: Not only performance, this is very wrong for Canvas widget, as this clear also clears all canvases which should be manually controlled and cleared. This needs to be solved (also check Canvas and animations after any change). I think that Widget Behavior can have some flag such as "auto_clear" which will clear its layout rect before redraw. But this complicates absolutely positioned elements a lot as we need to clear them too but then elements overlapped by it won't be cleared!
-                    style
-                        .with(|style| {
-                            if let Some(background_color) =
-                                style.background_color
-                            {
-                                renderer.clear(background_color)
-                            } else {
-                                Ok(())
-                            }
-                        })
-                        .ok()
-                        .unwrap();
+        //     renderer.update_untracked(|renderer| {
+        //         // FIXME: Performance?
+        //         // TODO: Not only performance, this is very wrong for Canvas widget, as this clear also clears all canvases which should be manually controlled and cleared. This needs to be solved (also check Canvas and animations after any change). I think that Widget Behavior can have some flag such as "auto_clear" which will clear its layout rect before redraw. But this complicates absolutely positioned elements a lot as we need to clear them too but then elements overlapped by it won't be cleared!
+        //         style
+        //             .with(|style| {
+        //                 if let Some(background_color) = style.background_color {
+        //                     renderer.clear(background_color)
+        //                 } else {
+        //                     Ok(())
+        //                 }
+        //             })
+        //             .ok()
+        //             .unwrap();
+        //     });
 
-                    // TODO: How to handle results?
-                    let _result = with!(|layout_model, fonts| {
-                        // FIXME: This might be wrong. User possibly want to create new reactive values. Better make it a debug feature.
-                        let _deny_new = new_deny_new_scope();
-                        root.update_untracked(|root| {
-                            root.render(&mut DrawCtx {
-                                state,
-                                renderer,
-                                layout: layout_model.tree_root(),
-                                tree_style: TreeStyle::base(),
-                                viewport,
-                                fonts,
-                            })
-                        })
-                    })
-                    .unwrap();
+        //     // TODO: How to handle results?
+        //     let _result = with!(move |layout_model| {
+        //         // FIXME: This might be wrong. User possibly want to create new reactive values. Better make it a debug feature.
+        //         let _deny_new = new_deny_new_scope();
+        //         root.update_untracked(|root| {
+        //             root.render(RenderCtx {
+        //                 state: state.memo(),
+        //                 renderer,
+        //                 layout: layout_model.tree_root(),
+        //                 tree_style: TreeStyle::base(),
+        //                 viewport,
+        //                 fonts: fonts.read_only(),
+        //             });
+        //         })
+        //     });
 
-                    with!(|dev_tools| {
-                        if dev_tools.enabled {
-                            if let Some(hovered) = &dev_tools.hovered {
-                                hovered.draw(renderer, viewport.get()).unwrap();
-                            }
-                        }
-                    });
-                })
-            });
+        //     with!(|dev_tools| {
+        //         renderer.update_untracked(|renderer| {
+        //             if dev_tools.enabled {
+        //                 if let Some(hovered) = &dev_tools.hovered {
+        //                     hovered.draw(renderer, viewport.get()).unwrap();
+        //                 }
+        //             }
+        //         });
+        //     });
 
-            // Draw tag is just count of draw calls
-            // TODO: Review if in case of `take_draw_calls` usage, the tag could overlap with previous one. But we only check for equality of current and previous `draw_calls` so it seem to never be equal as we place 0 into `draw_calls` when take it.
-            let tag = draw_calls.update(|draw_calls| {
-                *draw_calls = draw_calls.wrapping_add(&1);
-                *draw_calls
-            });
+        //     // Draw tag is just count of draw calls
+        //     // TODO: Review if in case of `take_draw_calls` usage, the tag could overlap with previous one. But we only check for equality of current and previous `draw_calls` so it seem to never be equal as we place 0 into `draw_calls` when take it.
+        //     let tag = draw_calls.update(|draw_calls| {
+        //         *draw_calls = draw_calls.wrapping_add(&1);
+        //         *draw_calls
+        //     });
 
-            (prev.map(|(_, prev_tag)| tag != *prev_tag).unwrap_or(true), tag)
+        //     (prev.map(|(_, prev_tag)| tag != *prev_tag).unwrap_or(true), tag)
+        // });
+
+        let drawing = root.render(RenderCtx {
+            state: state.read_only(),
+            renderer,
+            layout: layout_model.map(|layout_model| layout_model.tree_root()),
+            tree_style: TreeStyle::base(),
+            viewport,
+            fonts: fonts.read_only(),
         });
 
         Self {
@@ -339,13 +344,11 @@ impl<W: WidgetCtx> Page<W> {
         event: &Event<W::CustomEvent>,
     ) -> EventResponse {
         self.layout.with(|layout| {
-            let response = self.root.update_untracked(|root| {
-                root.on_event(&mut EventCtx {
-                    event,
-                    // TODO: Maybe state should not be changeable in on_event, pass it by reference
-                    page_state: self.state,
-                    layout: layout.tree_root(),
-                })
+            let response = self.root.on_event(&mut EventCtx {
+                event,
+                // TODO: Maybe state should not be changeable in on_event, pass it by reference
+                page_state: self.state,
+                layout: layout.tree_root(),
             });
 
             // TODO: notify root on event capture?
@@ -399,7 +402,7 @@ impl<W: WidgetCtx> Page<W> {
         &mut self,
         target: &mut impl DrawTarget<Color = W::Color>,
     ) -> bool {
-        if self.drawing.get().0 {
+        if self.drawing.get() {
             self.renderer.with(|renderer| renderer.draw(target)).ok().unwrap();
             true
         } else {
@@ -408,7 +411,7 @@ impl<W: WidgetCtx> Page<W> {
     }
 
     pub fn draw_with_renderer(&self, f: impl FnOnce(&W::Renderer)) -> bool {
-        if self.drawing.get().0 {
+        if self.drawing.get() {
             self.renderer.with(|renderer| {
                 f(renderer);
             });
@@ -445,7 +448,7 @@ mod tests {
     fn create_null_page(root: impl Into<El<NullWtf>>) -> Page<NullWtf> {
         Page::new(
             root,
-            create_memo(|_| Size::new_equal(1)),
+            create_memo(|| Size::new_equal(1)),
             NullStyler::default().inert().memo(),
             DevTools::default().signal(),
             NullRenderer::default().signal(),

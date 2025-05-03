@@ -561,10 +561,14 @@ impl Layout {
     }
 
     // TODO: Panic on invalid layout kind usage in these methods?
-    pub fn block_model(&self) -> BlockModel {
-        self.block_model_signal()
-            .map(|block_model| block_model.get())
-            .unwrap_or(BlockModel::zero())
+    // pub fn block_model(&self) -> BlockModel {
+    //     self.block_model_signal()
+    //         .map(|block_model| block_model.get())
+    //         .unwrap_or(BlockModel::zero())
+    // }
+
+    pub fn block_model(&self) -> Memo<BlockModel> {
+        self.block_model_signal().map(|block_model| block_model.memo()).unwrap()
     }
 
     pub fn block_model_signal(&self) -> Option<Signal<BlockModel>> {

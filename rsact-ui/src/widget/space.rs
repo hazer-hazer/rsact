@@ -8,7 +8,7 @@ use crate::{
         axis::{ColDir, Direction, RowDir},
         size::Length,
     },
-    widget::{DrawCtx, DrawResult, EventCtx, Widget, WidgetCtx},
+    widget::{RenderCtx, DrawResult, EventCtx, Widget, WidgetCtx},
 };
 use core::marker::PhantomData;
 
@@ -80,7 +80,7 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Space<W, Dir> {
 
     fn on_mount(&mut self, _ctx: crate::widget::MountCtx<W>) {}
 
-    fn render(&self, _ctx: &mut DrawCtx<'_, W>) -> DrawResult {
+    fn render(&self, _ctx: &mut RenderCtx<'_, W>) -> DrawResult {
         Ok(())
     }
 

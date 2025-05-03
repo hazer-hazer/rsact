@@ -28,7 +28,7 @@ use bitflags::bitflags;
 use core::{fmt::Debug, marker::PhantomData, panic::Location};
 use embedded_graphics::prelude::DrawTarget;
 use prelude::*;
-use rsact_reactive::maybe::IntoMaybeReactive;
+use rsact_reactive::{maybe::IntoMaybeReactive, signal::marker::ReadOnly};
 
 pub type DrawResult = Result<(), ()>;
 
@@ -160,6 +160,12 @@ pub struct PageState<W: WidgetCtx> {
     ctx: PhantomData<W>,
 }
 
+impl<W: WidgetCtx> PartialEq for PageState<W> {
+    fn eq(&self, other: &Self) -> bool {
+        self.focused == other.focused && self.ctx == other.ctx
+    }
+}
+
 impl<W: WidgetCtx> PageState<W> {
     pub fn new() -> Self {
         Self { focused: None, ctx: PhantomData }
@@ -171,72 +177,120 @@ impl<W: WidgetCtx> PageState<W> {
 }
 
 // TODO: Make DrawCtx a delegate to renderer so u can do `Primitive::(...).render(ctx)`
-pub struct DrawCtx<'a, W: WidgetCtx> {
-    pub state: &'a PageState<W>,
-    pub renderer: &'a mut W::Renderer,
-    pub layout: LayoutModelNode,
+pub struct RenderCtx<W: WidgetCtx> {
+    pub state: Signal<PageState<W>, ReadOnly>,
+    pub renderer: Signal<W::Renderer>,
+    pub layout: Memo<LayoutModelNode>,
     pub tree_style: TreeStyle<W::Color>,
     pub viewport: Memo<Size>,
-    pub fonts: &'a FontCtx,
+    pub fonts: Signal<FontCtx, ReadOnly>,
 }
 
-impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
-    #[must_use]
-    pub fn render_child(&mut self, child: &impl Widget<W>) -> DrawResult {
-        self.render_children(core::iter::once(child))
-    }
+impl<W: WidgetCtx> Copy for RenderCtx<W> {}
 
-    #[must_use]
-    pub fn render_children<
-        'c,
-        C: Iterator<Item = &'c (impl Widget<W> + 'c)> + 'c,
-    >(
-        &mut self,
-        children: C,
-    ) -> DrawResult {
-        self.draw_mapped_layouts(children, |layout| layout.clone())
-    }
-
-    #[must_use]
-    pub fn render_focus_outline(&mut self, id: ElId) -> DrawResult {
-        if self.state.is_focused(id) {
-            Block {
-                border: Border::zero()
-                    // TODO: Theme focus color
-                    .color(Some(<W::Color as Color>::accents()[1]))
-                    .width(1),
-                rect: self.layout.outer,
-                background: None,
-            }
-            .render(self.renderer)
-        } else {
-            Ok(())
+impl<W: WidgetCtx> Clone for RenderCtx<W> {
+    fn clone(&self) -> Self {
+        Self {
+            state: self.state.clone(),
+            renderer: self.renderer.clone(),
+            layout: self.layout.clone(),
+            tree_style: self.tree_style.clone(),
+            viewport: self.viewport.clone(),
+            fonts: self.fonts.clone(),
         }
     }
+}
+
+impl<W: WidgetCtx + 'static> RenderCtx<W> {
+    pub fn render(
+        &self,
+        mut f: impl FnMut(&mut W::Renderer, &LayoutModelNode) + 'static,
+    ) -> Computed<()> {
+        let mut renderer = self.renderer;
+        let layout = self.layout;
+
+        create_computed(move || {
+            renderer.update_untracked(|renderer| {
+                layout.with(|layout| f(renderer, layout))
+            })
+        })
+    }
 
     #[must_use]
-    pub fn draw_mapped_layouts<
-        'c,
-        C: Iterator<Item = &'c (impl Widget<W> + 'c)> + 'c,
-    >(
+    pub fn render_child(&mut self, child: &impl Widget<W>) -> Computed<()> {
+        // self.render_children(core::iter::once(child))
+
+        child.render(Self {
+            layout: self.layout.map(|layout| layout.children().remove(0)),
+            ..*self
+        })
+    }
+
+    #[must_use]
+    pub fn render_children(
         &mut self,
-        children: C,
-        map_layout: impl Fn(&LayoutModelNode) -> LayoutModelNode,
-    ) -> DrawResult {
-        // TODO: Debug assert zip equal lengths
-        children
-            .zip(self.layout.children().iter().map(map_layout))
-            .try_for_each(|(child, child_layout)| {
-                child.render(&mut DrawCtx {
-                    state: self.state,
-                    renderer: &mut self.renderer,
-                    layout: child_layout,
-                    tree_style: self.tree_style,
-                    viewport: self.viewport,
-                    fonts: &self.fonts,
+        children: Signal<Vec<El<W>>, ReadOnly>,
+    ) -> Computed<()> {
+        // let layout = self.layout;
+        let layout_children = self.layout.map(|layout| layout.children());
+        let this = *self;
+
+        create_computed(|| {
+            children.with(|children| {
+                children.iter().enumerate().for_each(|(index, child)| {
+                    child.render(RenderCtx {
+                        layout: layout_children.map(move |layout_children| {
+                            layout_children[index].clone()
+                        }),
+                        ..this
+                    });
                 })
             })
+        })
     }
+
+    #[must_use]
+    pub fn render_focus_outline(&mut self, id: ElId) {
+        self.layout.with(|layout| {
+            if self.state.with(|state| state.is_focused(id)) {
+                self.renderer.update(|renderer| {
+                    Block {
+                        border: Border::zero()
+                        // TODO: Theme focus color
+                        .color(Some(<W::Color as Color>::accents()[1]))
+                        .width(1),
+                        rect: layout.outer,
+                        background: None,
+                    }
+                    .render(renderer);
+                })
+            }
+        })
+    }
+
+    // #[must_use]
+    // pub fn render_mapped_layouts(
+    //     &mut self,
+    //     children: Signal<Vec<El<W>>, ReadOnly>,
+    //     map_layout: impl Fn(&LayoutModelNode) -> LayoutModelNode + 'static,
+    // ) -> Computed<()> {
+    //     // let layout = self.layout;
+    //     let layout_children = self.layout.map(|layout| layout.children());
+    //     let this = *self;
+
+    //     create_computed(|| {
+    //         children.with(|children| {
+    //             children.iter().enumerate().for_each(|(index, child)| {
+    //                 child.render(RenderCtx {
+    //                     layout: layout_children.map(move |layout_children| {
+    //                         map_layout(&layout_children[index])
+    //                     }),
+    //                     ..this
+    //                 });
+    //             })
+    //         })
+    //     })
+    // }
 }
 
 // TODO: Move to event mod?
@@ -461,7 +515,7 @@ where
     fn layout_mut(&mut self) -> &mut Layout;
 
     // Hot-loop called functions //
-    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult;
+    fn render(&self, ctx: RenderCtx<W>) -> Computed<()>;
     // TODO: Reactive event context? Is it possible?
     fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse;
 }
@@ -650,8 +704,8 @@ pub mod prelude {
         render::{Block, Border, Renderer, color::Color},
         style::{ColorStyle, WidgetStylist, block::*, declare_widget_style},
         widget::{
-            BlockModelWidget, DrawCtx, DrawResult, EventCtx, FontSettingWidget,
-            Meta, MetaTree, MountCtx, SizedWidget, Widget, WidgetCtx,
+            BlockModelWidget, DrawResult, EventCtx, FontSettingWidget, Meta,
+            MetaTree, MountCtx, RenderCtx, SizedWidget, Widget, WidgetCtx,
         },
     };
     pub use alloc::{boxed::Box, string::String, vec::Vec};
