@@ -1,23 +1,23 @@
 use crate::{
     render::Renderable,
-    widget::{prelude::*, BlockModelWidget, Meta, MetaTree, SizedWidget},
+    widget::{BlockModelWidget, Meta, MetaTree, SizedWidget, prelude::*},
 };
+use rsact_reactive::maybe::IntoMaybeReactive;
 
 pub struct Container<W: WidgetCtx> {
-    pub layout: Signal<Layout>,
+    pub layout: Layout,
     pub content: El<W>,
     pub style: MemoChain<BlockStyle<W::Color>>,
 }
 
 impl<W: WidgetCtx + 'static> Container<W> {
-    pub fn new(content: impl Widget<W> + 'static) -> Self {
-        let content = content.el();
+    pub fn new(content: impl Into<El<W>>) -> Self {
+        let content = content.into();
 
         Self {
             layout: Layout::shrink(LayoutKind::Container(
-                ContainerLayout::base(content.layout()),
-            ))
-            .signal(),
+                ContainerLayout::base(content.layout().clone().inert().memo()),
+            )),
             content,
             style: BlockStyle::base().memo_chain(),
         }
@@ -31,23 +31,29 @@ impl<W: WidgetCtx + 'static> Container<W> {
         self
     }
 
-    // TODO: Use MaybeReactive
-    pub fn vertical_align(mut self, vertical_align: impl Into<Align>) -> Self {
-        self.layout.update_untracked(|layout| {
-            layout.expect_container_mut().vertical_align =
-                vertical_align.into();
-        });
+    pub fn horizontal_align(
+        mut self,
+        horizontal_align: impl IntoMaybeReactive<Align>,
+    ) -> Self {
+        self.layout.expect_container_mut().align.setter(
+            horizontal_align.maybe_reactive(),
+            |align, ha| {
+                align.x = *ha;
+            },
+        );
         self
     }
 
-    pub fn horizontal_align(
+    pub fn vertical_align(
         mut self,
-        horizontal_align: impl Into<Align>,
+        vertical_align: impl IntoMaybeReactive<Align>,
     ) -> Self {
-        self.layout.update_untracked(|layout| {
-            layout.expect_container_mut().horizontal_align =
-                horizontal_align.into();
-        });
+        self.layout.expect_container_mut().align.setter(
+            vertical_align.maybe_reactive(),
+            |align, va| {
+                align.y = *va;
+            },
+        );
         self
     }
 
@@ -100,11 +106,15 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
         // ctx.accept_styles(self.style, ());
-        ctx.pass_to_child(self.layout, &mut self.content);
+        ctx.pass_to_child(&mut self.layout, &mut self.content);
     }
 
-    fn layout(&self) -> Signal<Layout> {
-        self.layout
+    fn layout(&self) -> &Layout {
+        &self.layout
+    }
+
+    fn layout_mut(&mut self) -> &mut Layout {
+        &mut self.layout
     }
 
     fn render(&self, ctx: &mut DrawCtx<'_, W>) -> crate::widget::DrawResult {
@@ -112,7 +122,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
 
         Block::from_layout_style(
             ctx.layout.outer,
-            self.layout.with(|layout| layout.block_model()),
+            self.layout.block_model(),
             style,
         )
         .render(ctx.renderer)?;

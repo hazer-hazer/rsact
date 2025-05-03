@@ -160,15 +160,12 @@ impl<C: Color> DrawQueue<C> {
 
 pub struct Canvas<W: WidgetCtx> {
     queue: DrawQueue<W::Color>,
-    layout: Signal<Layout>,
+    layout: Layout,
 }
 
 impl<W: WidgetCtx> Canvas<W> {
     pub fn new(queue: DrawQueue<W::Color>) -> Self {
-        Self {
-            queue,
-            layout: Layout::edge(Size::new_equal(Length::fill())).signal(),
-        }
+        Self { queue, layout: Layout::edge(Size::new_equal(Length::fill())) }
     }
 }
 
@@ -183,8 +180,12 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
         let _ = ctx;
     }
 
-    fn layout(&self) -> Signal<Layout> {
-        self.layout
+    fn layout(&self) -> &Layout {
+        &self.layout
+    }
+
+    fn layout_mut(&mut self) -> &mut Layout {
+        &mut self.layout
     }
 
     fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {

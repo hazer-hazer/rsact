@@ -32,7 +32,7 @@ use super::prelude::*;
 //         self.otherwise.on_mount(ctx);
 //     }
 
-//     fn layout(&self) -> Signal<Layout> {}
+//     fn layout(&self) -> Layout {}
 
 //     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
 //         todo!()
@@ -187,68 +187,66 @@ use super::prelude::*;
 //     }
 // }
 
-#[derive(Clone, Copy, PartialEq)]
-pub struct Unit;
+// #[derive(Clone, Copy, PartialEq)]
+// pub struct Unit;
 
-impl<W: WidgetCtx> Widget<W> for Unit {
-    fn meta(&self) -> MetaTree {
-        MetaTree::childless(Meta::none)
-    }
+// impl<W: WidgetCtx> Widget<W> for Unit {
+//     fn meta(&self) -> MetaTree {
+//         MetaTree::childless(Meta::none)
+//     }
 
-    fn on_mount(&mut self, ctx: super::MountCtx<W>) {
-        let _ = ctx;
-    }
+//     fn on_mount(&mut self, ctx: super::MountCtx<W>) {
+//         let _ = ctx;
+//     }
 
-    fn layout(&self) -> rsact_reactive::prelude::Signal<Layout> {
-        Layout::zero().signal()
-    }
+//     fn layout(&self) -> rsact_reactive::prelude::Signal<Layout> {
+//         self.layout::zero()()
+//     }
 
-    fn render(&self, ctx: &mut super::DrawCtx<'_, W>) -> super::DrawResult {
-        let _ = ctx;
-        Ok(())
-    }
+//     fn render(&self, ctx: &mut super::DrawCtx<'_, W>) -> super::DrawResult {
+//         let _ = ctx;
+//         Ok(())
+//     }
 
-    fn on_event(
-        &mut self,
-        ctx: &mut super::EventCtx<'_, W>,
-    ) -> super::EventResponse {
-        let _ = ctx;
-        ctx.ignore()
-    }
-}
+//     fn on_event(
+//         &mut self,
+//         ctx: &mut super::EventCtx<'_, W>,
+//     ) -> super::EventResponse {
+//         let _ = ctx;
+//         ctx.ignore()
+//     }
+// }
 
-impl<W: WidgetCtx, T: Widget<W> + 'static> Into<El<W>> for Option<T> {
-    fn into(self) -> El<W> {
-        self.map(El::new).unwrap_or(Unit.el())
-    }
-}
+// impl<W: WidgetCtx, T: Widget<W> + 'static> Into<El<W>> for Option<T> {
+//     fn into(self) -> El<W> {
+//         self.map(El::new).unwrap_or(Unit.el())
+//     }
+// }
 
-impl<W: WidgetCtx> Widget<W> for Option<El<W>> {
-    fn meta(&self) -> MetaTree {
-        self.as_ref()
-            .map(|widget| widget.meta())
-            .unwrap_or(MetaTree::childless(Meta::none))
-    }
+// impl<W: WidgetCtx> Widget<W> for Option<El<W>> {
+//     fn meta(&self) -> MetaTree {
+//         self.as_ref()
+//             .map(|widget| widget.meta())
+//             .unwrap_or(MetaTree::childless(Meta::none))
+//     }
 
-    fn on_mount(&mut self, ctx: super::MountCtx<W>) {
-        let layout = self.layout();
-        self.as_mut().map(|widget| ctx.pass_to_child(layout, widget));
-    }
+//     fn on_mount(&mut self, ctx: super::MountCtx<W>) {
+//         let layout = self.layout();
+//         self.as_mut().map(|widget| ctx.pass_to_child(layout, widget));
+//     }
 
-    fn layout(&self) -> rsact_reactive::prelude::Signal<super::Layout> {
-        self.as_ref()
-            .map(|widget| widget.layout())
-            .unwrap_or(Layout::zero().signal())
-    }
+//     fn layout(&self) -> rsact_reactive::prelude::Signal<super::Layout> {
+//         self.as_ref().map(|widget| widget.layout()).unwrap_or(layout::zero()())
+//     }
 
-    fn render(&self, ctx: &mut super::DrawCtx<'_, W>) -> super::DrawResult {
-        self.as_ref().map(|widget| widget.render(ctx)).unwrap_or(Ok(()))
-    }
+//     fn render(&self, ctx: &mut super::DrawCtx<'_, W>) -> super::DrawResult {
+//         self.as_ref().map(|widget| widget.render(ctx)).unwrap_or(Ok(()))
+//     }
 
-    fn on_event(
-        &mut self,
-        ctx: &mut super::EventCtx<'_, W>,
-    ) -> super::EventResponse {
-        self.as_mut().map(|widget| widget.on_event(ctx)).unwrap_or(ctx.ignore())
-    }
-}
+//     fn on_event(
+//         &mut self,
+//         ctx: &mut super::EventCtx<'_, W>,
+//     ) -> super::EventResponse {
+//         self.as_mut().map(|widget| widget.on_event(ctx)).unwrap_or(ctx.ignore())
+//     }
+// }

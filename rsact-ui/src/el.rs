@@ -69,8 +69,12 @@ where
         self.widget.meta()
     }
 
-    fn layout(&self) -> Signal<Layout> {
+    fn layout(&self) -> &Layout {
         self.widget.layout()
+    }
+
+    fn layout_mut(&mut self) -> &mut Layout {
+        self.widget.layout_mut()
     }
 
     fn render(&self, ctx: &mut DrawCtx<'_, W>) -> crate::widget::DrawResult {
@@ -81,3 +85,4 @@ where
         self.widget.on_event(ctx)
     }
 }
+

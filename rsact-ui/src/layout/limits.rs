@@ -95,7 +95,7 @@ impl Limits {
     fn resolve_axis(
         &self,
         axis: Axis,
-        container_size: Size<Length>,
+        container_size: &Size<Length>,
         content_size: Size,
     ) -> u32 {
         match container_size.main(axis) {
@@ -119,7 +119,7 @@ impl Limits {
 
     pub fn resolve_size(
         &self,
-        container_size: Size<Length>,
+        container_size: &Size<Length>,
         content_size: Size<u32>,
     ) -> Size<u32> {
         Size::new(

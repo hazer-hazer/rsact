@@ -1,4 +1,4 @@
-use crate::{prelude::*, render::Renderable};
+use crate::{layout::Align2, prelude::*, render::Renderable};
 
 #[derive(Clone, Copy)]
 pub struct ButtonState {
@@ -29,7 +29,8 @@ impl<C: Color> ButtonStyle<C> {
 
 pub struct Button<W: WidgetCtx> {
     id: ElId,
-    layout: Signal<Layout>,
+    layout: Layout,
+    // TODO: Should be text-only?
     content: El<W>,
     state: Signal<ButtonState>,
     style: MemoChain<ButtonStyle<W::Color>>,
@@ -41,21 +42,19 @@ impl<W: WidgetCtx + 'static> Button<W> {
         let content = content.into();
         let state = create_signal(ButtonState::none());
 
-        let layout = Layout::shrink(LayoutKind::Container(ContainerLayout {
-            block_model: BlockModel::zero().padding(2).border_width(1),
-            horizontal_align: Align::Center,
-            vertical_align: Align::Center,
-            content: content.layout().memo(),
-            font_props: Default::default(),
-        }))
-        .signal();
+        let layout = Layout::shrink(LayoutKind::Container(
+            // TODO: Is this inert memo right?
+            ContainerLayout::base(content.layout().clone().inert().memo())
+                .block_model(BlockModel::zero().padding(2).border_width(1))
+                .align(Align2::center()),
+        ));
 
         Self {
             id: ElId::unique(),
             layout,
             content,
             state,
-            style: create_memo_chain(|_| ButtonStyle::base()),
+            style: create_memo_chain(|| ButtonStyle::base()),
             on_click: None,
         }
     }
@@ -77,7 +76,7 @@ impl<W: WidgetCtx + 'static> Button<W> {
     pub fn style(
         self,
         styler: impl Fn(ButtonStyle<W::Color>, ButtonState) -> ButtonStyle<W::Color>
-            + 'static,
+        + 'static,
     ) -> Self {
         let state = self.state;
         self.style.last(move |base| styler(*base, state.get())).unwrap();
@@ -111,11 +110,15 @@ where
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
         ctx.accept_styles(self.style, self.state);
-        ctx.pass_to_child(self.layout, &mut self.content);
+        ctx.pass_to_child(&mut self.layout, &mut self.content);
     }
 
-    fn layout(&self) -> Signal<Layout> {
-        self.layout
+    fn layout(&self) -> &Layout {
+        &self.layout
+    }
+
+    fn layout_mut(&mut self) -> &mut Layout {
+        &mut self.layout
     }
 
     fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
@@ -123,7 +126,7 @@ where
 
         Block::from_layout_style(
             ctx.layout.outer,
-            self.layout.with(|layout| layout.block_model()),
+            self.layout.block_model(),
             style.container,
         )
         .render(ctx.renderer)?;

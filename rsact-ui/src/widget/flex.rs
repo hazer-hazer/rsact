@@ -64,7 +64,7 @@ pub struct Flex<W: WidgetCtx, Dir: Direction> {
     // TODO: Signal vector?
     // TODO: Can we do fixed size?
     children: MaybeSignal<Vec<El<W>>>,
-    layout: Signal<Layout>,
+    layout: Layout,
     dir: PhantomData<Dir>,
 }
 
@@ -87,8 +87,9 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Flex<W, Dir> {
     pub fn new(children: impl IntoChildren<W>) -> Self {
         let children = children.into_children();
 
+        // TODO: MaybeReactive children?
         let layout_children = children.map_reactive(|children| {
-            children.iter().map(|child| child.layout().memo()).collect()
+            children.iter().map(|child| child.layout().clone()).collect()
         });
 
         Self {
@@ -96,16 +97,16 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Flex<W, Dir> {
             layout: Layout::shrink(LayoutKind::Flex(FlexLayout::base(
                 Dir::AXIS,
                 layout_children,
-            )))
-            .signal(),
+            ))),
             dir: PhantomData,
         }
     }
 
     pub fn wrap(mut self, wrap: impl IntoMaybeReactive<bool>) -> Self {
-        self.layout.setter(wrap.maybe_reactive(), |layout, &wrap| {
-            layout.expect_flex_mut().wrap = wrap;
-        });
+        self.layout
+            .expect_flex_mut()
+            .wrap
+            .setter(wrap.maybe_reactive(), |wrap, &new| *wrap = new);
         self
     }
 
@@ -113,22 +114,10 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Flex<W, Dir> {
         mut self,
         gap: impl IntoMaybeReactive<G>,
     ) -> Self {
-        self.layout.setter(gap.maybe_reactive(), |layout, &gap| {
-            layout.expect_flex_mut().gap = gap.into();
-        });
-        self
-    }
-
-    pub fn vertical_align(
-        mut self,
-        vertical_align: impl IntoMaybeReactive<Align>,
-    ) -> Self {
-        self.layout.setter(
-            vertical_align.maybe_reactive(),
-            |layout, &vertical_align| {
-                layout.expect_flex_mut().vertical_align = vertical_align;
-            },
-        );
+        self.layout
+            .expect_flex_mut()
+            .gap
+            .setter(gap.maybe_reactive(), |gap, &new| *gap = new.into());
         self
     }
 
@@ -136,10 +125,23 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Flex<W, Dir> {
         mut self,
         horizontal_align: impl IntoMaybeReactive<Align>,
     ) -> Self {
-        self.layout.setter(
+        self.layout.expect_flex_mut().align.setter(
             horizontal_align.maybe_reactive(),
-            |layout, &horizontal_align| {
-                layout.expect_flex_mut().horizontal_align = horizontal_align;
+            |align, &ha| {
+                align.x = ha;
+            },
+        );
+        self
+    }
+
+    pub fn vertical_align(
+        mut self,
+        vertical_align: impl IntoMaybeReactive<Align>,
+    ) -> Self {
+        self.layout.expect_flex_mut().align.setter(
+            vertical_align.maybe_reactive(),
+            |align, &va| {
+                align.y = va;
             },
         );
         self
@@ -219,11 +221,15 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Widget<W> for Flex<W, Dir> {
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
         // ctx.pass_to_children(self.children);
-        ctx.pass_to_children(self.layout, &mut self.children);
+        ctx.pass_to_children(&mut self.layout, &mut self.children);
     }
 
-    fn layout(&self) -> Signal<Layout> {
-        self.layout
+    fn layout(&self) -> &Layout {
+        &self.layout
+    }
+
+    fn layout_mut(&mut self) -> &mut Layout {
+        &mut self.layout
     }
 
     fn render(

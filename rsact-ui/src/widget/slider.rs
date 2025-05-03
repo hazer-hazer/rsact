@@ -10,7 +10,7 @@ use crate::{
 use core::{marker::PhantomData, ops::RangeInclusive};
 use embedded_graphics::{
     prelude::{Point, Primitive},
-    primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, Styled},
+    primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle},
 };
 use rsact_reactive::{maybe::IntoMaybeReactive, memo_chain::IntoMemoChain};
 
@@ -91,7 +91,7 @@ pub struct Slider<W: WidgetCtx, Dir: Direction> {
     range: MaybeReactive<RangeInclusive<f32>>,
     step: Memo<f32>,
     state: Signal<SliderState>,
-    layout: Signal<Layout>,
+    layout: Layout,
     style: MemoChain<SliderStyle<W::Color>>,
     dir: PhantomData<Dir>,
 }
@@ -112,8 +112,7 @@ impl<W: WidgetCtx, Dir: Direction> Slider<W, Dir> {
             step,
             layout: Layout::edge(
                 Dir::AXIS.canon(Length::fill(), Length::Fixed(13)),
-            )
-            .signal(),
+            ),
             style: SliderStyle::base().memo_chain(),
             dir: PhantomData,
         }
@@ -158,15 +157,19 @@ where
     fn meta(&self) -> MetaTree {
         let id = self.id;
 
-        MetaTree::childless(create_memo(move |_| Meta::focusable(id)))
+        MetaTree::childless(create_memo(move || Meta::focusable(id)))
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
         ctx.accept_styles(self.style, self.state);
     }
 
-    fn layout(&self) -> Signal<Layout> {
-        self.layout
+    fn layout(&self) -> &Layout {
+        &self.layout
+    }
+
+    fn layout_mut(&mut self) -> &mut Layout {
+        &mut self.layout
     }
 
     fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {

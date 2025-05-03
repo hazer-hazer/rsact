@@ -1,8 +1,8 @@
 use crate::{
     declare_widget_style,
-    render::{primitives::line::Line, Renderable},
+    render::{Renderable, primitives::line::Line},
     style::{ColorStyle, WidgetStylist},
-    widget::{prelude::*, Meta, MetaTree, SizedWidget},
+    widget::{Meta, MetaTree, SizedWidget, prelude::*},
 };
 use core::marker::PhantomData;
 use embedded_graphics::{
@@ -97,7 +97,7 @@ pub struct Scrollable<W: WidgetCtx, Dir: Direction> {
     state: Signal<ScrollableState>,
     style: MemoChain<ScrollableStyle<W::Color>>,
     content: El<W>,
-    layout: Signal<Layout>,
+    layout: Layout,
     mode: ScrollableMode,
     dir: PhantomData<Dir>,
 }
@@ -120,13 +120,13 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
         let state = create_signal(ScrollableState::none());
 
         let layout =
-            Layout::scrollable::<Dir>(content.layout().memo()).signal();
+            Layout::scrollable::<Dir>(content.layout().clone().inert().memo());
 
         Self {
             id: ElId::unique(),
             content,
             state,
-            style: create_memo_chain(|_| ScrollableStyle::base()),
+            style: create_memo_chain(|| ScrollableStyle::base()),
             layout,
             mode: ScrollableMode::Interactive,
             dir: PhantomData,
@@ -141,10 +141,10 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
     pub fn style(
         self,
         styler: impl Fn(
-                ScrollableStyle<W::Color>,
-                ScrollableState,
-            ) -> ScrollableStyle<W::Color>
-            + 'static,
+            ScrollableStyle<W::Color>,
+            ScrollableState,
+        ) -> ScrollableStyle<W::Color>
+        + 'static,
     ) -> Self {
         let state = self.state;
         self.style
@@ -155,7 +155,7 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
 
     fn max_offset(&self, ctx: &EventCtx<'_, W>) -> u32 {
         let content_length =
-            ctx.layout.children().next().unwrap().inner.size.main(Dir::AXIS);
+            ctx.layout.children()[0].inner.size.main(Dir::AXIS);
 
         content_length.saturating_sub(ctx.layout.inner.size.main(Dir::AXIS))
     }
@@ -166,16 +166,19 @@ where
     W::Styler: WidgetStylist<ScrollableStyle<W::Color>>,
 {
     fn width<L: Into<Length> + PartialEq + Copy + 'static>(
-        self,
+        mut self,
         width: impl IntoMaybeReactive<L>,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout().setter(width.maybe_reactive(), |layout, &width| {
-            layout.size.width =
-                Length::InfiniteWindow(width.into().try_into().unwrap());
-        });
+        self.layout_mut().size.setter(
+            width.maybe_reactive(),
+            |size, &width| {
+                size.width =
+                    Length::InfiniteWindow(width.into().try_into().unwrap())
+            },
+        );
         self
     }
 }
@@ -186,16 +189,19 @@ where
     W::Styler: WidgetStylist<ScrollableStyle<W::Color>>,
 {
     fn height<L: Into<Length> + PartialEq + Copy + 'static>(
-        self,
+        mut self,
         height: impl IntoMaybeReactive<L> + 'static,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout().setter(height.maybe_reactive(), |layout, &height| {
-            layout.size.height =
-                Length::InfiniteWindow(height.into().try_into().unwrap());
-        });
+        self.layout_mut().size.setter(
+            height.maybe_reactive(),
+            |size, &height| {
+                size.height =
+                    Length::InfiniteWindow(height.into().try_into().unwrap())
+            },
+        );
         self
     }
 }
@@ -217,17 +223,21 @@ where
         let content_tree = self.content.meta();
         MetaTree {
             data: Meta::none.memo(),
-            children: create_memo(move |_| vec![content_tree]),
+            children: create_memo(move || vec![content_tree]),
         }
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
         ctx.accept_styles(self.style, self.state);
-        ctx.pass_to_child(self.layout, &mut self.content);
+        ctx.pass_to_child(&mut self.layout, &mut self.content);
     }
 
-    fn layout(&self) -> Signal<Layout> {
-        self.layout
+    fn layout(&self) -> &Layout {
+        &self.layout
+    }
+
+    fn layout_mut(&mut self) -> &mut Layout {
+        &mut self.layout
     }
 
     fn render(
@@ -238,13 +248,12 @@ where
 
         Block::from_layout_style(
             ctx.layout.outer,
-            self.layout.with(|layout| layout.block_model()),
+            self.layout.block_model(),
             style.container,
         )
         .render(ctx.renderer)?;
 
-        let child_layout = ctx.layout.children().next();
-        let child_layout = child_layout.as_ref().unwrap();
+        let child_layout = ctx.layout.children().remove(0);
 
         let mut content_length = child_layout.outer.size.main(Dir::AXIS);
         let scrollable_length = ctx.layout.inner.size.main(Dir::AXIS);
@@ -316,7 +325,7 @@ where
             self.content.render(&mut DrawCtx {
                 state: ctx.state,
                 renderer,
-                layout: &child_layout
+                layout: child_layout
                     .translate(Dir::AXIS.canon(-(offset as i32), 0)),
                 tree_style: ctx.tree_style,
                 viewport: ctx.viewport,

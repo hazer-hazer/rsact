@@ -1,20 +1,18 @@
 use crate::{
     render::Renderable,
-    widget::{prelude::*, Meta, MetaTree},
+    widget::{Meta, MetaTree, prelude::*},
 };
 use rsact_reactive::memo_chain::IntoMemoChain;
 
 pub struct Edge<W: WidgetCtx> {
-    pub layout: Signal<Layout>,
+    pub layout: Layout,
     style: MemoChain<BlockStyle<W::Color>>,
 }
 
 impl<W: WidgetCtx + 'static> Edge<W> {
     pub fn new() -> Self {
         Self {
-            layout: Layout::shrink(LayoutKind::Edge)
-                .size(Size::fill())
-                .signal(),
+            layout: Layout::shrink(LayoutKind::Edge).size(Size::fill()),
             style: BlockStyle::base().memo_chain(),
         }
     }
@@ -35,8 +33,12 @@ impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
         MetaTree::childless(Meta::none)
     }
 
-    fn layout(&self) -> Signal<Layout> {
-        self.layout
+    fn layout(&self) -> &Layout {
+        &self.layout
+    }
+
+    fn layout_mut(&mut self) -> &mut Layout {
+        &mut self.layout
     }
 
     fn on_mount(&mut self, _ctx: crate::widget::MountCtx<W>) {}
@@ -46,7 +48,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
 
         Block::from_layout_style(
             ctx.layout.outer,
-            self.layout.with(|layout| layout.block_model()),
+            self.layout.block_model(),
             style,
         )
         .render(ctx.renderer)

@@ -94,13 +94,9 @@ impl<W: WidgetCtx> Page<W> {
             },
         });
 
-        // TODO: `on_mount` dependency on viewport can be removed for text,
-        //  icon, etc. by adding special LayoutKind dependent on viewport and
-        //  pass viewport to model_layout. In such a way, layout becomes much
-        //  more straightforward and single-pass process.
         let meta = root.meta();
 
-        let focusable = create_memo(move |_| {
+        let focusable = create_memo(move || {
             meta.flat_collect()
                 .iter()
                 .filter_map(|el| {
@@ -118,26 +114,34 @@ impl<W: WidgetCtx> Page<W> {
                 .collect()
         });
 
-        // TODO: Should be `mapped`? Now, root is kind of partially-reactive
         let layout_tree = root.layout();
-        let layout_model = map!(move |viewport, fonts| {
-            let viewport = *viewport;
-            // println!("Relayout");
-            // TODO: Possible optimization is to use previous memo result, pass
-            // it to model_layout as tree and don't relayout parents if layouts
-            // inside Fixed-sized container changed, returning previous result
-            let layout = model_layout(
-                &LayoutCtx { fonts, viewport },
-                layout_tree.memo(),
-                Limits::only_max(viewport),
-                viewport.into(),
-                // viewport,
-            );
+        // let layout_model = map!(move |viewport, fonts| {
+        //     let viewport = *viewport;
+        //     // println!("Relayout");
+        //     // TODO: Possible optimization is to use previous memo result, pass
+        //     // it to model_layout as tree and don't relayout parents if layouts
+        //     // inside Fixed-sized container changed, returning previous result
+        //     let layout = model_layout(
+        //         &LayoutCtx { fonts, viewport },
+        //         layout_tree.memo(),
+        //         Limits::only_max(viewport),
+        //         viewport.into(),
+        //         // viewport,
+        //     );
 
-            // std::println!("Relayout {:#?}", layout.tree_root());
 
-            layout
-        });
+        let layout_model = model_layout(
+            LayoutCtx { fonts, viewport },
+            *layout_tree,
+            viewport.map(|viewport| Limits::only_max(*viewport)),
+            viewport.map(|viewport| (*viewport).into()),
+        );
+        // .map(|layout_model| layout_model.tree_root());
+
+        //     // std::println!("Relayout {:#?}", layout.tree_root());
+
+        //     layout
+        // });
 
         let style = PageStyle::base().signal();
 
@@ -147,7 +151,7 @@ impl<W: WidgetCtx> Page<W> {
         // Now root is boxed //
         let mut root = root.signal();
 
-        let drawing = create_memo(move |prev| {
+        let drawing = create_memo(move |prev: Option<&(bool, usize)>| {
             // TODO: force_redraw must be placed into ui context and be available in widgets so some widget can request redraw
             if force_redraw.get() {
                 force_redraw.set_untracked(false);
@@ -178,7 +182,7 @@ impl<W: WidgetCtx> Page<W> {
                             root.render(&mut DrawCtx {
                                 state,
                                 renderer,
-                                layout: &layout_model.tree_root(),
+                                layout: layout_model.tree_root(),
                                 tree_style: TreeStyle::base(),
                                 viewport,
                                 fonts,
@@ -340,7 +344,7 @@ impl<W: WidgetCtx> Page<W> {
                     event,
                     // TODO: Maybe state should not be changeable in on_event, pass it by reference
                     page_state: self.state,
-                    layout: &layout.tree_root(),
+                    layout: layout.tree_root(),
                 })
             });
 

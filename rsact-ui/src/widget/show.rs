@@ -15,13 +15,11 @@ pub struct Show<W: WidgetCtx> {
 impl<W: WidgetCtx> Show<W> {
     pub fn new(
         show: impl IntoMemo<bool>,
-        el: El<W>,
+        mut el: El<W>,
         // fallback: Option<El<W>>,
     ) -> Self {
         let show = show.memo();
-        el.layout().update(|layout| {
-            layout.set_show(show);
-        });
+        el.layout_mut().set_show(show);
         // fallback.layout().update(|layout| {
         //     layout.set_show(show.map(|show| !*show));
         // });
@@ -38,8 +36,12 @@ impl<W: WidgetCtx> Widget<W> for Show<W> {
         self.el.on_mount(ctx);
     }
 
-    fn layout(&self) -> Signal<Layout> {
+    fn layout(&self) -> &Layout {
         self.el.layout()
+    }
+
+    fn layout_mut(&mut self) -> &mut Layout {
+        self.el.layout_mut()
     }
 
     fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {

@@ -44,14 +44,19 @@ pub struct FontProps {
 impl FontProps {
     pub fn inherit(&mut self, parent: &FontProps) {
         if let font @ None = &mut self.font {
-            *font = parent.font.clone();
+            *font = parent.font;
         }
         if let font_size @ None = &mut self.font_size {
-            *font_size = parent.font_size.clone();
+            *font_size = parent.font_size;
         }
         if let font_style @ None = &mut self.font_style {
-            *font_style = parent.font_style.clone();
+            *font_style = parent.font_style;
         }
+    }
+
+    pub fn inherited(mut self, parent: &FontProps) -> Self {
+        self.inherit(parent);
+        self
     }
 
     pub fn resolve(&self, viewport: Size) -> AbsoluteFontProps {

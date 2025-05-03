@@ -30,7 +30,7 @@ impl<C: Color> TextStyle<C> {
 
 pub struct Text<W: WidgetCtx> {
     content: Memo<String>,
-    layout: Signal<Layout>,
+    layout: Layout,
     style: MemoChain<TextStyle<W::Color>>,
 }
 
@@ -47,8 +47,7 @@ impl<W: WidgetCtx> Text<W> {
 
         let layout = Layout::shrink(super::LayoutKind::Content(
             ContentLayout::text(content),
-        ))
-        .signal();
+        ));
 
         Self { content, layout, style }
     }
@@ -112,11 +111,15 @@ where
 
     fn on_mount(&mut self, ctx: MountCtx<W>) {
         ctx.accept_styles(self.style, ());
-        ctx.inherit_font_props(self.layout);
+        ctx.inherit_font_props(&mut self.layout);
     }
 
-    fn layout(&self) -> Signal<Layout> {
-        self.layout
+    fn layout(&self) -> &Layout {
+        &self.layout
+    }
+
+    fn layout_mut(&mut self) -> &mut Layout {
+        &mut self.layout
     }
 
     fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
@@ -150,6 +153,15 @@ where
 {
     fn into(self) -> El<W> {
         Text::new_inert(self).el()
+    }
+}
+
+impl<W: WidgetCtx> Into<El<W>> for Text<W>
+where
+    W::Styler: WidgetStylist<TextStyle<W::Color>>,
+{
+    fn into(self) -> El<W> {
+        self.el()
     }
 }
 

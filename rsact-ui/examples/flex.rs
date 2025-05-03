@@ -5,7 +5,7 @@ use embedded_graphics::{
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
-use rand::{Rng, random, thread_rng};
+use rand::{Rng, random, rng, thread_rng};
 use rsact_reactive::prelude::*;
 use rsact_ui::{
     el::El,
@@ -26,8 +26,8 @@ use u8g2_fonts::FontRenderer;
 
 fn random_size() -> Size<Length> {
     Size::new(
-        Length::Fixed(thread_rng().gen_range(25..=100)),
-        Length::Fixed(thread_rng().gen_range(25..=100)),
+        Length::Fixed(rng().random_range(25..=100)),
+        Length::Fixed(rng().random_range(25..=100)),
     )
 }
 
@@ -59,8 +59,8 @@ fn main() {
 
     // TODO: Reactive axis!?
 
-    let gap_x = create_signal(5u8);
-    let gap_y = create_signal(5u8);
+    let gap_x = create_signal(5f32);
+    let gap_y = create_signal(5f32);
     let wrap = create_signal(false);
     let horizontal_align = create_signal(Align::Start);
     let vertical_align = create_signal(Align::Start);
@@ -85,8 +85,8 @@ fn main() {
             .el(),
         Text::new(map!(move |gap_x, gap_y| format!("Gap: {gap_x}x{gap_y}")))
             .el(),
-        Slider::horizontal(gap_x, 0.0..=25.0).el(),
-        Slider::horizontal(gap_y, 0.0..=25.0).el(),
+        Slider::horizontal(gap_x, (0.0f32..=25.0).inert()).el(),
+        Slider::horizontal(gap_y, (0.0f32..=25.0).inert()).el(),
         Text::new(
             wrap.map(|&wrap| {
                 format!("{}", if wrap { "wrap" } else { "no wrap" })

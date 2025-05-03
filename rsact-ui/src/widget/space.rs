@@ -1,19 +1,19 @@
 use crate::layout::LayoutKind;
-use crate::widget::{prelude::*, Meta, MetaTree};
+use crate::widget::{Meta, MetaTree, prelude::*};
 use crate::{
     el::El,
     event::EventResponse,
     layout::{
+        Layout,
         axis::{ColDir, Direction, RowDir},
         size::Length,
-        Layout,
     },
     widget::{DrawCtx, DrawResult, EventCtx, Widget, WidgetCtx},
 };
 use core::marker::PhantomData;
 
 pub struct Space<W: WidgetCtx, Dir: Direction> {
-    layout: Signal<Layout>,
+    layout: Layout,
     ctx: PhantomData<W>,
     dir: PhantomData<Dir>,
 }
@@ -59,8 +59,7 @@ impl<W: WidgetCtx, Dir: Direction> Space<W, Dir> {
 
     pub fn new(length: impl Into<Length>) -> Self {
         let layout = Layout::shrink(LayoutKind::Edge)
-            .size(Dir::AXIS.canon(length.into(), Length::fill()))
-            .signal();
+            .size(Dir::AXIS.canon(length.into(), Length::fill()));
 
         Self { layout, ctx: PhantomData, dir: PhantomData }
     }
@@ -71,8 +70,12 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Space<W, Dir> {
         MetaTree::childless(Meta::none)
     }
 
-    fn layout(&self) -> Signal<Layout> {
-        self.layout
+    fn layout(&self) -> &Layout {
+        &self.layout
+    }
+
+    fn layout_mut(&mut self) -> &mut Layout {
+        &mut self.layout
     }
 
     fn on_mount(&mut self, _ctx: crate::widget::MountCtx<W>) {}

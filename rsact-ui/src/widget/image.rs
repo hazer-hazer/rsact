@@ -14,14 +14,14 @@ use rsact_reactive::signal::{IntoSignal, Signal};
 pub struct Image<'a, W: WidgetCtx, BO: ByteOrder> {
     // TODO: Reactive?
     data: ImageRaw<'a, W::Color, BO>,
-    layout: Signal<Layout>,
+    layout: Layout,
 }
 
 impl<'a, W: WidgetCtx, BO: ByteOrder> Image<'a, W, BO> {
     pub fn new(data: ImageRaw<'a, W::Color, BO>) -> Self {
         let size = data.size().into();
 
-        Self { data, layout: Layout::edge(size).signal() }
+        Self { data, layout: Layout::edge(size) }
     }
 }
 
@@ -38,8 +38,12 @@ where
         let _ = ctx;
     }
 
-    fn layout(&self) -> Signal<Layout> {
-        self.layout
+    fn layout(&self) -> &Layout {
+        &self.layout
+    }
+
+    fn layout_mut(&mut self) -> &mut Layout {
+        &mut self.layout
     }
 
     fn render(

@@ -19,12 +19,13 @@ pub mod text;
 use crate::{
     event::CaptureData,
     font::{Font, FontCtx, FontProps},
+    layout::{LayoutModel, LayoutModelNode},
     page::id::PageId,
     render::Renderable,
     style::{TreeStyle, WidgetStyle, WidgetStylist},
 };
 use bitflags::bitflags;
-use core::{fmt::Debug, marker::PhantomData};
+use core::{fmt::Debug, marker::PhantomData, panic::Location};
 use embedded_graphics::prelude::DrawTarget;
 use prelude::*;
 use rsact_reactive::maybe::IntoMaybeReactive;
@@ -173,7 +174,7 @@ impl<W: WidgetCtx> PageState<W> {
 pub struct DrawCtx<'a, W: WidgetCtx> {
     pub state: &'a PageState<W>,
     pub renderer: &'a mut W::Renderer,
-    pub layout: &'a LayoutModelNode<'a>,
+    pub layout: LayoutModelNode,
     pub tree_style: TreeStyle<W::Color>,
     pub viewport: Memo<Size>,
     pub fonts: &'a FontCtx,
@@ -193,7 +194,7 @@ impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
         &mut self,
         children: C,
     ) -> DrawResult {
-        self.draw_mapped_layouts(children, |layout| layout)
+        self.draw_mapped_layouts(children, |layout| layout.clone())
     }
 
     #[must_use]
@@ -220,21 +221,21 @@ impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
     >(
         &mut self,
         children: C,
-        map_layout: impl Fn(LayoutModelNode<'a>) -> LayoutModelNode<'a>,
+        map_layout: impl Fn(&LayoutModelNode) -> LayoutModelNode,
     ) -> DrawResult {
         // TODO: Debug assert zip equal lengths
-        children.zip(self.layout.children().map(map_layout)).try_for_each(
-            |(child, child_layout)| {
+        children
+            .zip(self.layout.children().iter().map(map_layout))
+            .try_for_each(|(child, child_layout)| {
                 child.render(&mut DrawCtx {
                     state: self.state,
                     renderer: &mut self.renderer,
-                    layout: &child_layout,
+                    layout: child_layout,
                     tree_style: self.tree_style,
                     viewport: self.viewport,
                     fonts: &self.fonts,
                 })
-            },
-        )
+            })
     }
 }
 
@@ -242,7 +243,7 @@ impl<'a, W: WidgetCtx + 'static> DrawCtx<'a, W> {
 pub struct EventCtx<'a, W: WidgetCtx> {
     pub event: &'a Event<W::CustomEvent>,
     pub page_state: Signal<PageState<W>>,
-    pub layout: &'a LayoutModelNode<'a>,
+    pub layout: LayoutModelNode,
     // TODO: Instant now, already can get it from queue!
 }
 
@@ -258,7 +259,7 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
             child.on_event(&mut EventCtx {
                 event: self.event,
                 page_state: self.page_state,
-                layout: &child_layout,
+                layout: child_layout,
             })?;
         }
         self.ignore()
@@ -345,17 +346,18 @@ impl<W: WidgetCtx> MountCtx<W> {
     }
 
     // Note: Setting inherited font is not a reactive process. If user didn't set the font, the inherited is set. But user cannot unset font, thus font never fallbacks to inherited.
-    pub fn inherit_font_props(self, mut layout: Signal<Layout>) -> Self {
-        // Set inherited font props in layout
-        layout.update_untracked(|layout| {
-            if let Some(font_props) = layout.font_props_mut() {
+    #[track_caller]
+    pub fn inherit_font_props(self, layout: &mut Layout) -> Self {
+        // Set inherited font props in layout, this will only set font properties which are undefined in this layout.
+        if let Some(mut font_props) = layout.font_props() {
+            font_props.update_untracked(|font_props| {
                 font_props.inherit(&self.inherit_font_props);
-            }
-        });
+            });
+        }
 
-        // Set new inherited font for use with children
-        if let Some(font_props) = layout.with(|layout| layout.font_props()) {
-            Self { inherit_font_props: font_props, ..self }
+        // Set new inherited font for use with children. Save our new decision, where new properties are set by this layout while keeping our inherited properties which are undefined in this layout.
+        if let Some(font_props) = layout.font_props() {
+            Self { inherit_font_props: font_props.get(), ..self }
         } else {
             self
         }
@@ -363,7 +365,7 @@ impl<W: WidgetCtx> MountCtx<W> {
 
     pub fn pass_to_child(
         self,
-        this_layout: Signal<Layout>,
+        this_layout: &mut Layout,
         child: &mut impl Widget<W>,
     ) {
         child.on_mount(self.inherit_font_props(this_layout));
@@ -371,7 +373,7 @@ impl<W: WidgetCtx> MountCtx<W> {
 
     pub fn pass_to_children(
         mut self,
-        this_layout: Signal<Layout>,
+        this_layout: &mut Layout,
         children: &mut MaybeSignal<Vec<El<W>>>,
     ) {
         self = self.inherit_font_props(this_layout);
@@ -455,7 +457,8 @@ where
 
     // These functions MUST be called only ones per widget //
     fn on_mount(&mut self, ctx: MountCtx<W>);
-    fn layout(&self) -> Signal<Layout>;
+    fn layout(&self) -> &Layout;
+    fn layout_mut(&mut self) -> &mut Layout;
 
     // Hot-loop called functions //
     fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult;
@@ -496,28 +499,32 @@ pub trait SizedWidget<W: WidgetCtx>: Widget<W> {
     }
 
     fn width<L: Into<Length> + PartialEq + Copy + 'static>(
-        self,
+        mut self,
         width: impl IntoMaybeReactive<L>,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout().setter(width.maybe_reactive(), |layout, &width| {
-            layout.size.width = width.into();
-        });
+        self.layout_mut()
+            .size
+            .setter(width.maybe_reactive(), |size, &width| {
+                size.width = width.into()
+            });
         self
     }
 
     fn height<L: Into<Length> + PartialEq + Copy + 'static>(
-        self,
+        mut self,
         height: impl IntoMaybeReactive<L> + 'static,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout().setter(height.maybe_reactive(), |layout, &height| {
-            layout.size.height = height.into();
-        });
+        self.layout_mut()
+            .size
+            .setter(height.maybe_reactive(), |size, &height| {
+                size.height = height.into()
+            });
         self
     }
 
@@ -531,30 +538,37 @@ pub trait SizedWidget<W: WidgetCtx>: Widget<W> {
 
 pub trait BlockModelWidget<W: WidgetCtx>: Widget<W> {
     fn border_width(
-        self,
+        mut self,
         border_width: impl IntoMaybeReactive<u32> + 'static,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout().setter(
-            border_width.maybe_reactive(),
-            |layout, &border_width| {
-                layout.set_border_width(border_width);
-            },
-        );
+        self.layout_mut().block_model_signal().map(|mut block_model| {
+            block_model.setter(
+                border_width.maybe_reactive(),
+                |block_model, &border_width| {
+                    block_model.border_width = border_width;
+                },
+            )
+        });
         self
     }
 
     fn padding<P: Into<Padding> + PartialEq + Copy + 'static>(
-        self,
+        mut self,
         padding: impl IntoMaybeReactive<P> + 'static,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout().setter(padding.maybe_reactive(), |layout, &padding| {
-            layout.set_padding(padding.into());
+        self.layout_mut().block_model_signal().map(|mut block_model| {
+            block_model.setter(
+                padding.maybe_reactive(),
+                |block_model, &padding| {
+                    block_model.padding = padding.into();
+                },
+            )
         });
         self
     }
@@ -562,12 +576,11 @@ pub trait BlockModelWidget<W: WidgetCtx>: Widget<W> {
 
 pub trait FontSettingWidget<W: WidgetCtx>: Widget<W> + Sized + 'static {
     fn font_props(&self) -> FontProps {
-        self.layout().with(|layout| layout.font_props().unwrap())
+        self.layout().font_props().unwrap().get()
     }
 
     fn update_font_props(&mut self, update: impl FnOnce(&mut FontProps)) {
-        self.layout()
-            .update_untracked(|layout| update(layout.font_props_mut().unwrap()))
+        self.layout_mut().font_props().unwrap().update(update)
     }
 
     // Constructors //
@@ -625,7 +638,7 @@ pub mod prelude {
         font::{FontSize, FontStyle},
         layout::{
             self, Align, ContainerLayout, FlexLayout, Layout, LayoutKind,
-            LayoutModelNode, Limits,
+            Limits,
             axis::{
                 Anchor, Axial as _, Axis, AxisAnchorPoint, ColDir, Direction,
                 RowDir,

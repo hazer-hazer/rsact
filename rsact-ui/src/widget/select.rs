@@ -7,7 +7,7 @@ use crate::{
     layout::LayoutKind,
     render::Renderable,
     style::{ColorStyle, WidgetStylist},
-    widget::{prelude::*, Meta, MetaTree},
+    widget::{Meta, MetaTree, prelude::*},
 };
 use alloc::string::ToString;
 use core::{cell::RefCell, fmt::Display, marker::PhantomData};
@@ -90,7 +90,7 @@ impl<W: WidgetCtx, K: PartialEq> PartialEq for SelectOption<W, K> {
 
 pub struct Select<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> {
     id: ElId,
-    layout: Signal<Layout>,
+    layout: Layout,
     state: Signal<SelectState>,
     style: MemoChain<SelectStyle<W::Color>>,
     // TODO: Can we do fixed size?
@@ -175,15 +175,14 @@ where
                     options.map(|options| {
                         options
                             .iter()
-                            .map(|opt| opt.el.borrow().layout().memo())
+                            .map(|opt| opt.el.borrow().layout().clone())
                             .collect()
                     }),
                 )
                 .gap(Dir::AXIS.canon(5, 0))
                 .align_main(Align::Center)
                 .align_cross(Align::Center),
-            ))
-            .signal(),
+            )),
             state,
             style: SelectStyle::base().memo_chain(),
             options,
@@ -254,29 +253,32 @@ where
 {
     fn meta(&self) -> MetaTree {
         let id = self.id;
-        MetaTree::childless(create_memo(move |_| Meta::focusable(id)))
+        MetaTree::childless(create_memo(move || Meta::focusable(id)))
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
         ctx.accept_styles(self.style, self.state);
 
-        let layout = self.layout;
         self.options.with(|options| {
-            options.iter().for_each(move |opt| {
-                ctx.pass_to_child(layout, &mut *opt.el.borrow_mut());
+            options.iter().for_each(|opt| {
+                ctx.pass_to_child(&mut self.layout, &mut *opt.el.borrow_mut());
             })
         });
     }
 
-    fn layout(&self) -> Signal<Layout> {
-        self.layout
+    fn layout(&self) -> &Layout {
+        &self.layout
+    }
+
+    fn layout_mut(&mut self) -> &mut Layout {
+        &mut self.layout
     }
 
     fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
         let style = self.style.get();
         let state = self.state.get();
 
-        let children_layouts = ctx.layout.children().collect::<Vec<_>>();
+        let children_layouts = ctx.layout.children();
 
         let options_offset = if let Some(selected) = state.selected {
             let selected_child_layout = children_layouts.get(selected).unwrap();
@@ -318,7 +320,7 @@ where
                         let mut ctx = DrawCtx {
                             state: ctx.state,
                             renderer,
-                            layout: &option_layout.translate(options_offset),
+                            layout: option_layout.translate(options_offset),
                             tree_style: ctx.tree_style.text_color(
                                 if Some(index) == state.selected {
                                     style.selected_text_color

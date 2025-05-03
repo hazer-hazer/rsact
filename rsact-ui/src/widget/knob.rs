@@ -58,7 +58,7 @@ impl<C: Color> KnobStyle<C> {
 
 pub struct Knob<W: WidgetCtx, V: RangeValue> {
     id: ElId,
-    layout: Signal<Layout>,
+    layout: Layout,
     value: Signal<V>,
     state: Signal<KnobState>,
     style: MemoChain<KnobStyle<W::Color>>,
@@ -68,7 +68,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
     pub fn new(value: Signal<V>) -> Self {
         Self {
             id: ElId::unique(),
-            layout: Layout::edge(Size::new_equal(Length::Fixed(25))).signal(),
+            layout: Layout::edge(Size::new_equal(Length::Fixed(25))),
             value,
             state: KnobState::none().signal(),
             style: KnobStyle::base().memo_chain(),
@@ -83,9 +83,9 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
     // }
 
     pub fn size(mut self, size: impl Into<u32>) -> Self {
-        self.layout.update_untracked(|layout| {
-            layout.size = Size::new_equal(Length::Fixed(size.into()));
-        });
+        self.layout
+            .size
+            .set_untracked(Size::new_equal(Length::Fixed(size.into())));
         self
     }
 }
@@ -96,15 +96,19 @@ where
 {
     fn meta(&self) -> MetaTree {
         let id = self.id;
-        MetaTree::childless(create_memo(move |_| Meta::focusable(id)))
+        MetaTree::childless(create_memo(move || Meta::focusable(id)))
     }
 
     fn on_mount(&mut self, ctx: super::MountCtx<W>) {
         ctx.accept_styles(self.style, self.state);
     }
 
-    fn layout(&self) -> Signal<Layout> {
-        self.layout
+    fn layout(&self) -> &Layout {
+        &self.layout
+    }
+
+    fn layout_mut(&mut self) -> &mut Layout {
+        &mut self.layout
     }
 
     fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {

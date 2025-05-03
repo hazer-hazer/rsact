@@ -380,7 +380,11 @@ impl Size<Length> {
     //     self.width.is_fill() && self.height.is_fill()
     // }
 
-    pub fn in_parent(self, parent: Self) -> Self {
+    pub fn zero_length() -> Self {
+        Self::new_equal(Length::Fixed(0))
+    }
+
+    pub fn in_parent(self, parent: &Self) -> Self {
         Self::new(
             self.width.in_parent(parent.width),
             self.height.in_parent(parent.height),

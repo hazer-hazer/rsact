@@ -1,6 +1,6 @@
 use super::{
-    icon::{Icon, IconStyle},
     ContainerLayout,
+    icon::{Icon, IconStyle},
 };
 use crate::{render::Renderable, widget::prelude::*};
 use rsact_icons::system::SystemIcon;
@@ -40,7 +40,7 @@ type IconKind = SystemIcon;
 pub struct Checkbox<W: WidgetCtx> {
     id: ElId,
     state: Signal<CheckboxState>,
-    layout: Signal<Layout>,
+    layout: Layout,
     // TODO: Reactive icon?
     icon: Icon<W, IconKind, IsReactive>,
     value: MaybeSignal<bool>,
@@ -58,10 +58,9 @@ where
             id: ElId::unique(),
             state: CheckboxState::none().signal(),
             layout: Layout::shrink(LayoutKind::Container(
-                ContainerLayout::base(icon.layout().memo())
+                ContainerLayout::base(icon.layout().clone().inert().memo())
                     .block_model(BlockModel::zero().border_width(1)),
-            ))
-            .signal(),
+            )),
             icon,
             value: value.into(),
             style: CheckboxStyle::base().memo_chain(),
@@ -86,11 +85,15 @@ where
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
         ctx.accept_styles(self.style, self.state);
-        ctx.pass_to_child(self.layout, &mut self.icon);
+        ctx.pass_to_child(&mut self.layout, &mut self.icon);
     }
 
-    fn layout(&self) -> Signal<Layout> {
-        self.layout
+    fn layout(&self) -> &Layout {
+        &self.layout
+    }
+
+    fn layout_mut(&mut self) -> &mut Layout {
+        &mut self.layout
     }
 
     fn render(
@@ -101,7 +104,7 @@ where
 
         Block::from_layout_style(
             ctx.layout.outer,
-            self.layout.with(|layout| layout.block_model()),
+            self.layout.block_model(),
             style.container,
         )
         .render(ctx.renderer)?;
