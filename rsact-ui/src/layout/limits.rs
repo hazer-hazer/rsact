@@ -74,6 +74,10 @@ impl Limits {
             // Length::Shrink => {
             //     self.with_max(axis.canon(min, self.min.cross(axis)))
             // },
+            Length::Pct(pct) => self.with_max(axis.canon(
+                (self.max.main(axis) as f32 * pct) as u32,
+                self.max.cross(axis),
+            )),
             Length::Fixed(fixed) => {
                 let new_length =
                     fixed.min(self.max.main(axis)).max(self.min.main(axis));
@@ -105,6 +109,10 @@ impl Limits {
                     .main(axis)
                     .min(self.max.main(axis))
                     .max(self.min.main(axis))
+            },
+            Length::Pct(pct) => {
+                // TODO: Review
+                (self.max.main(axis) as f32 * pct) as u32
             },
             Length::Div(_)
             | Length::InfiniteWindow(DeterministicLength::Div(_)) => {

@@ -229,7 +229,7 @@ impl Anim {
         let dir = self.direction;
         let cycles = self.cycles;
 
-        let value = create_memo(move |_| {
+        let value = create_memo(move || {
             // Note: If animation is not running (or start is not requested), don't depend on now_millis, so animation value code won't rerun on any now_millis change.
             match state.with(|state| state.stage) {
                 AnimStage::Ready => return dir.start_point(0),

@@ -218,7 +218,6 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Widget<W> for Flex<W, Dir> {
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
-        // ctx.pass_to_children(self.children);
         ctx.pass_to_children(self.layout, &mut self.children);
     }
 

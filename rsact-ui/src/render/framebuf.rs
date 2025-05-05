@@ -16,18 +16,8 @@ use num::Integer;
 pub trait PackedColor: Sized {
     type Storage: Clone + Send + Sync + 'static;
 
-    // fn none() -> Self::Storage;
+    /// Pixels-per-storage for a specific color (e.g. BinaryColor is one bit and 8 of it can be stored inside a single byte)
     fn pps() -> usize;
-    // fn into_storage(&self) -> Self::Storage;
-    // fn unpack(
-    //     packed: &Self::Storage,
-    // ) -> impl Iterator<Item = Option<Self::Color>>;
-    // fn as_color(packed: &Self::Storage, offset: usize) -> Option<Self>;
-    // fn set_color(
-    //     packed: &mut Self::Storage,
-    //     offset: usize,
-    //     color: Option<Self>,
-    // );
 
     fn into_storage(&self) -> Self::Storage;
 
@@ -35,14 +25,11 @@ pub trait PackedColor: Sized {
     fn set_color(packed: &mut Self::Storage, offset: usize, color: Self);
 }
 
-macro_rules! option_packed_color_impl {
+/// Rgb colors are not packed
+macro_rules! rgb_packed_color_impl {
     ($($ty: ty: $storage: ty),* $(,)?) => {$(
         impl PackedColor for $ty {
             type Storage = $storage;
-
-            // fn none() -> Self::Storage {
-            //     0x0
-            // }
 
             fn pps() -> usize {
                 1
@@ -54,11 +41,6 @@ macro_rules! option_packed_color_impl {
 
             fn as_color(packed: &Self::Storage, offset: usize) -> Self {
                 let _ = offset;
-                // if packed == &0x0 {
-                //     return None
-                // } else {
-                //     Some(<Self as embedded_graphics::pixelcolor::PixelColor>::Raw::from_u32(*packed as u32).into())
-                // }
 
                 <Self as embedded_graphics::pixelcolor::PixelColor>::Raw::from_u32(*packed as u32).into()
             }
@@ -76,7 +58,7 @@ macro_rules! option_packed_color_impl {
     };
 }
 
-option_packed_color_impl!(Rgb555: u16, Rgb565: u16, Rgb666: u32, Rgb888: u32);
+rgb_packed_color_impl!(Rgb555: u16, Rgb565: u16, Rgb666: u32, Rgb888: u32);
 
 impl PackedColor for BinaryColor {
     type Storage = u8;
@@ -169,7 +151,7 @@ pub trait Framebuf<C: Color>: Dimensions + DrawTarget {
     fn point_to_subpart(&self, point: Point) -> Option<(usize, usize)> {
         let size = self.bounding_box().size;
         if point.x < 0
-            || point.y >= size.width as i32
+            || point.x >= size.width as i32
             || point.y < 0
             || point.y >= size.height as i32
         {
@@ -226,7 +208,8 @@ impl<C: Color> Dimensions for PackedFramebuf<C> {
 }
 
 impl<C: Color> PackedFramebuf<C> {
-    pub fn new(size: Size, default_color: C) -> Self {
+    pub fn new(size: Size, initial_color: C) -> Self {
+        // TODO: Not really, unused space is possible, just choose least sufficient framebuf size
         assert!(
             size.area() as usize % C::pps() == 0,
             "PackedFramebuf area must be divisible by {} to store pixels packed",
@@ -234,7 +217,7 @@ impl<C: Color> PackedFramebuf<C> {
         );
 
         let pixels =
-            vec![default_color.into_storage(); size.area() as usize / C::pps()]
+            vec![initial_color.into_storage(); size.area() as usize / C::pps()]
                 .into_boxed_slice();
         Self { size, pixels }
     }
@@ -307,3 +290,63 @@ impl<C: Color> PackedFramebuf<C> {
 //         Self { size, pixels }
 //     }
 // }
+
+#[cfg(test)]
+mod tests {
+    use super::{Framebuf, PackedFramebuf};
+    use crate::prelude::Size;
+    use embedded_graphics::{
+        pixelcolor::{BinaryColor, Rgb888},
+        prelude::{Point, RgbColor},
+    };
+
+    #[test]
+    fn rgb_framebuf_indexing() {
+        // This should work as a straightforward framebuffer without packing, because Rgb888 stored in a single u32
+
+        const WIDTH: u32 = 120;
+        const HEIGHT: u32 = 180;
+
+        let mut framebuf =
+            PackedFramebuf::new(Size::new(WIDTH, HEIGHT), Rgb888::BLACK);
+
+        for x in 0..WIDTH as i32 {
+            for y in 0..HEIGHT as i32 {
+                assert!(
+                    framebuf.pixel(Point::new(x, y)).is_some(),
+                    "Framebuf of size {WIDTH}x{HEIGHT} must contain pixel ({x},{y})"
+                );
+            }
+        }
+
+        for x in 0..WIDTH as i32 {
+            for y in 0..HEIGHT as i32 {
+                framebuf.set_pixel(Point::new(x, y), Rgb888::WHITE);
+            }
+        }
+    }
+
+    #[test]
+    fn packed_framebuf_indexing() {
+        const WIDTH: u32 = 120;
+        const HEIGHT: u32 = 180;
+
+        let mut framebuf =
+            PackedFramebuf::new(Size::new(WIDTH, HEIGHT), BinaryColor::Off);
+
+        for x in 0..WIDTH as i32 {
+            for y in 0..HEIGHT as i32 {
+                assert!(
+                    framebuf.pixel(Point::new(x, y)).is_some(),
+                    "Framebuf of size {WIDTH}x{HEIGHT} must contain pixel ({x},{y})"
+                );
+            }
+        }
+
+        for x in 0..WIDTH as i32 {
+            for y in 0..HEIGHT as i32 {
+                framebuf.set_pixel(Point::new(x, y), BinaryColor::On);
+            }
+        }
+    }
+}

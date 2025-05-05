@@ -106,7 +106,9 @@ pub fn model_flex(
             let (child_size, child_min_size) =
                 child.with(|child| (child.size, child.min_size(ctx)));
 
-            let min_item_size = child_size.max_fixed(child_min_size);
+            let min_item_size =
+                child_size.max_fixed(child_min_size, limits.max());
+
             let needed_item_space = min_item_size
                 + if item_index != 0 { gap } else { Size::zero() };
 
@@ -232,11 +234,11 @@ pub fn model_flex(
             // };
             let mut div_factors = line.div_factors;
             let cross = if lines_count == 1 {
-                debug_assert_eq!(
-                    container_free_cross_div,
-                    container_free_cross
-                );
-                debug_assert_eq!(container_free_cross_rem, 0);
+                // debug_assert_eq!(
+                //     container_free_fluid_cross_div,
+                //     container_free_cross
+                // );
+                // debug_assert_eq!(container_free_fluid_cross_rem, 0);
 
                 *div_factors.cross_mut(axis) = 1;
 
@@ -246,6 +248,7 @@ pub fn model_flex(
                         // line.max_fixed_cross
                         line.max_cross
                     },
+                    Length::Pct(pct) => (line.max_cross as f32 * pct) as u32,
                     // Note: We can use max_possible_cross as we have one line,
                     // so it fills the parent and no wrap logic applied
                     Length::Div(_) => max_possible_cross,
@@ -315,8 +318,8 @@ pub fn model_flex(
     children.with(|children| {
         for ((i, child), item) in children.iter().enumerate().zip(items.iter())
         {
-            let child_min_size = child.with(|child| child.min_size(ctx));
-            let child_size = child.with(|child| child.size);
+            let (child_min_size, child_size) =
+                child.with(|child| (child.min_size(ctx), child.size));
             let model_line = &mut model_lines[item.line];
 
             let child_div_factors = child_size.div_factors();

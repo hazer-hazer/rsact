@@ -1,12 +1,12 @@
 use crate::layout::LayoutKind;
-use crate::widget::{prelude::*, Meta, MetaTree};
+use crate::widget::{Meta, MetaTree, prelude::*};
 use crate::{
     el::El,
     event::EventResponse,
     layout::{
+        Layout,
         axis::{ColDir, Direction, RowDir},
         size::Length,
-        Layout,
     },
     widget::{DrawCtx, DrawResult, EventCtx, Widget, WidgetCtx},
 };
@@ -57,6 +57,7 @@ impl<W: WidgetCtx, Dir: Direction> Space<W, Dir> {
     //     Self { layout, ctx: PhantomData, dir: PhantomData }
     // }
 
+    // TODO: Reactive length, MaybeReactive
     pub fn new(length: impl Into<Length>) -> Self {
         let layout = Layout::shrink(LayoutKind::Edge)
             .size(Dir::AXIS.canon(length.into(), Length::fill()))

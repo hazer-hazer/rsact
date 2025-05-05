@@ -24,7 +24,10 @@ use embedded_graphics::{
 };
 use num::traits::WrappingAdd as _;
 use rsact_reactive::{
-    maybe::IntoMaybeReactive, prelude::*, scope::new_deny_new_scope,
+    maybe::IntoMaybeReactive,
+    prelude::*,
+    runtime::{DeferEffectsGuard, defer_updates},
+    scope::new_deny_new_scope,
 };
 
 pub mod dev;
@@ -94,13 +97,9 @@ impl<W: WidgetCtx> Page<W> {
             },
         });
 
-        // TODO: `on_mount` dependency on viewport can be removed for text,
-        //  icon, etc. by adding special LayoutKind dependent on viewport and
-        //  pass viewport to model_layout. In such a way, layout becomes much
-        //  more straightforward and single-pass process.
         let meta = root.meta();
 
-        let focusable = create_memo(move |_| {
+        let focusable = create_memo(move || {
             meta.flat_collect()
                 .iter()
                 .filter_map(|el| {
@@ -147,54 +146,51 @@ impl<W: WidgetCtx> Page<W> {
         // Now root is boxed //
         let mut root = root.signal();
 
-        let drawing = create_memo(move |prev| {
+        let drawing = create_memo(move |prev: Option<&(bool, usize)>| {
             // TODO: force_redraw must be placed into ui context and be available in widgets so some widget can request redraw
             if force_redraw.get() {
                 force_redraw.set_untracked(false);
             }
 
-            with!(|state| {
-                renderer.update_untracked(|renderer| {
-                    // FIXME: Performance?
-                    // TODO: Not only performance, this is very wrong for Canvas widget, as this clear also clears all canvases which should be manually controlled and cleared. This needs to be solved (also check Canvas and animations after any change). I think that Widget Behavior can have some flag such as "auto_clear" which will clear its layout rect before redraw. But this complicates absolutely positioned elements a lot as we need to clear them too but then elements overlapped by it won't be cleared!
-                    style
-                        .with(|style| {
-                            if let Some(background_color) =
-                                style.background_color
-                            {
-                                renderer.clear(background_color)
-                            } else {
-                                Ok(())
-                            }
-                        })
-                        .ok()
-                        .unwrap();
-
-                    // TODO: How to handle results?
-                    let _result = with!(|layout_model, fonts| {
-                        // FIXME: This might be wrong. User possibly want to create new reactive values. Better make it a debug feature.
-                        let _deny_new = new_deny_new_scope();
-                        root.update_untracked(|root| {
-                            root.render(&mut DrawCtx {
-                                state,
-                                renderer,
-                                layout: &layout_model.tree_root(),
-                                tree_style: TreeStyle::base(),
-                                viewport,
-                                fonts,
-                            })
-                        })
+            // TODO: Renderer does not have to be a Signal, just a Box
+            renderer.update_untracked(|renderer| {
+                // FIXME: Performance?
+                // TODO: Not only performance, this is very wrong for Canvas widget, as this clear also clears all canvases which should be manually controlled and cleared. This needs to be solved (also check Canvas and animations after any change). I think that Widget Behavior can have some flag such as "auto_clear" which will clear its layout rect before redraw. But this complicates absolutely positioned elements a lot as we need to clear them too but then elements overlapped by it won't be cleared!
+                style
+                    .with(|style| {
+                        if let Some(background_color) = style.background_color {
+                            renderer.clear(background_color)
+                        } else {
+                            Ok(())
+                        }
                     })
+                    .ok()
                     .unwrap();
 
-                    with!(|dev_tools| {
-                        if dev_tools.enabled {
-                            if let Some(hovered) = &dev_tools.hovered {
-                                hovered.draw(renderer, viewport.get()).unwrap();
-                            }
-                        }
-                    });
+                // TODO: How to handle results?
+                let _result = with!(|state, layout_model, fonts| {
+                    // FIXME: This might be wrong. User possibly want to create new reactive values. Better make it a debug feature.
+                    let _deny_new = new_deny_new_scope();
+                    root.update_untracked(|root| {
+                        root.render(&mut DrawCtx {
+                            state,
+                            renderer,
+                            layout: &layout_model.tree_root(),
+                            tree_style: TreeStyle::base(),
+                            viewport,
+                            fonts,
+                        })
+                    })
                 })
+                .unwrap();
+
+                with!(|dev_tools| {
+                    if dev_tools.enabled {
+                        if let Some(hovered) = &dev_tools.hovered {
+                            hovered.draw(renderer, viewport.get()).unwrap();
+                        }
+                    }
+                });
             });
 
             // Draw tag is just count of draw calls
@@ -334,7 +330,11 @@ impl<W: WidgetCtx> Page<W> {
         &mut self,
         event: &Event<W::CustomEvent>,
     ) -> EventResponse {
-        self.layout.with(|layout| {
+        // Note: Need to have special deferred reactive updates zone. Because if some child node depends on value it's children set, then there will be a BorrowRefMut error because children are borrowed mutably for update on events. This happens for example if flex layout contains a checkbox toggling this flex layout wrap.
+
+        let defer_updates = defer_updates();
+
+        let res = self.layout.with(|layout| {
             let response = self.root.update_untracked(|root| {
                 root.on_event(&mut EventCtx {
                     event,
@@ -348,7 +348,11 @@ impl<W: WidgetCtx> Page<W> {
             //  - No, root is not used reactively, it is a signal only to be usable in reactive contexts. Need `StoredValue`
 
             response
-        })
+        });
+
+        defer_updates.run();
+
+        res
     }
 
     #[must_use]
@@ -441,7 +445,7 @@ mod tests {
     fn create_null_page(root: impl Into<El<NullWtf>>) -> Page<NullWtf> {
         Page::new(
             root,
-            create_memo(|_| Size::new_equal(1)),
+            create_memo(|| Size::new_equal(1)),
             NullStyler::default().inert().memo(),
             DevTools::default().signal(),
             NullRenderer::default().signal(),

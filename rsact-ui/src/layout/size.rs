@@ -1,5 +1,5 @@
 use super::{
-    Axis,
+    Axis, Limits,
     axis::{Anchor, Axial},
     padding::Padding,
 };
@@ -156,12 +156,14 @@ impl Rem<DivFactors> for Size {
 // #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 // pub struct InfiniteLength;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(::defmt::Format))]
 pub enum DeterministicLength {
     Shrink,
     Div(u16),
     Fixed(u32),
+    // TODO: Are percents deterministic?
+    // Pct(f32),
 }
 
 impl TryFrom<Length> for DeterministicLength {
@@ -172,7 +174,7 @@ impl TryFrom<Length> for DeterministicLength {
             Length::Shrink => Ok(Self::Shrink),
             Length::Div(div) => Ok(Self::Div(div)),
             Length::Fixed(fixed) => Ok(Self::Fixed(fixed)),
-            Length::InfiniteWindow(_) => Err(()),
+            Length::Pct(_) | Length::InfiniteWindow(_) => Err(()),
         }
     }
 }
@@ -189,13 +191,12 @@ impl Into<Length> for DeterministicLength {
             DeterministicLength::Shrink => Length::Shrink,
             DeterministicLength::Div(div) => Length::Div(div),
             DeterministicLength::Fixed(fixed) => Length::Fixed(fixed),
+            // DeterministicLength::Pct(pct) => Length::Pct(pct),
         }
     }
 }
 
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, IntoMaybeReactive,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, IntoMaybeReactive)]
 #[cfg_attr(feature = "defmt", derive(::defmt::Format))]
 pub enum Length {
     // /// Fills all the remaining space
@@ -209,6 +210,11 @@ pub enum Length {
     /// Fixed pixels count
     Fixed(u32),
 
+    // non_exhaustive to allow creation only through check constructor
+    #[non_exhaustive]
+    /// Percent of parent length
+    Pct(f32),
+
     /// Only available for special internal layouts such as Scrollable
     #[non_exhaustive]
     InfiniteWindow(DeterministicLength),
@@ -219,14 +225,15 @@ pub enum Length {
 impl Display for Length {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Length::Shrink => write!(f, "Shrink"),
-            Length::Div(div) if *div == 1 => write!(f, "Fill"),
-            Length::Div(div) => write!(f, "Div({div})"),
-            Length::Fixed(fixed) if *fixed == u32::MAX => {
+            Self::Shrink => write!(f, "Shrink"),
+            Self::Div(div) if *div == 1 => write!(f, "Fill"),
+            Self::Div(div) => write!(f, "Div({div})"),
+            Self::Fixed(fixed) if *fixed == u32::MAX => {
                 write!(f, "Inf")
             },
-            Length::Fixed(fixed) => write!(f, "{fixed}"),
-            Length::InfiniteWindow(length) => {
+            Self::Fixed(fixed) => write!(f, "{fixed}"),
+            Self::Pct(pct) => write!(f, "{pct}%"),
+            Self::InfiniteWindow(length) => {
                 write!(f, "InfiniteWindow({length:?})")
             },
             // Length::Scroll(fixed) => write!(f, "Length::Scroll({fixed})"),
@@ -239,11 +246,26 @@ impl Length {
         Self::Div(1)
     }
 
-    pub fn div_factor(&self) -> u16 {
+    /// Percent value in range 0..=1.0
+    pub fn pct(pct: f32) -> Self {
+        assert!(pct >= 0.0 && pct <= 1.0);
+
+        Self::Pct(pct)
+    }
+
+    // pub fn div_factor(&self) -> u16 {
+    //     match self {
+    //         Self::InfiniteWindow(length) => length.into_length().div_factor(),
+    //         Self::Fixed(_) | Self::Shrink | Self::Pct(_) => 0,
+    //         Self::Div(div) => *div,
+    //     }
+    // }
+
+    pub fn div_factor(&self) -> Option<u16> {
         match self {
-            Length::InfiniteWindow(length) => length.into_length().div_factor(),
-            Length::Fixed(_) | Length::Shrink => 0,
-            Length::Div(div) => *div,
+            Self::InfiniteWindow(length) => length.into_length().div_factor(),
+            Self::Fixed(_) | Self::Shrink | Self::Pct(_) => None,
+            Self::Div(div) => Some(*div),
         }
     }
 
@@ -269,8 +291,8 @@ impl Length {
 
     pub fn set_deterministic(&mut self, length: impl Into<Length>) {
         let length = length.into();
-        if let Length::InfiniteWindow(_) = self {
-            *self = Length::InfiniteWindow(
+        if let Self::InfiniteWindow(_) = self {
+            *self = Self::InfiniteWindow(
                 length
                     .try_into()
                     .expect("Setting Length::InfiniteWindow is not allowed"),
@@ -284,30 +306,37 @@ impl Length {
 
     pub fn is_grow(&self) -> bool {
         match self {
-            Length::InfiniteWindow(length) => length.into_length().is_grow(),
-            Length::Div(_) => true,
-            Length::Shrink | Length::Fixed(_) => false,
+            Self::InfiniteWindow(length) => length.into_length().is_grow(),
+            Self::Div(_) => true,
+            Self::Shrink | Self::Fixed(_) | Self::Pct(_) => false,
         }
     }
 
     pub fn into_fixed(&self, base_div: u32) -> u32 {
         match self {
-            Length::InfiniteWindow(length) => {
+            Self::InfiniteWindow(length) => {
                 length.into_length().into_fixed(base_div)
             },
-            Length::Shrink => base_div,
-            &Length::Div(div) => base_div * div as u32,
-            &Length::Fixed(fixed) => fixed,
+            // TODO: This might not be right
+            Self::Pct(pct) => (base_div as f32 * pct) as u32,
+            Self::Shrink => base_div,
+            &Self::Div(div) => base_div * div as u32,
+            &Self::Fixed(fixed) => fixed,
         }
     }
 
-    pub fn max_fixed(&self, fixed: u32) -> u32 {
+    pub fn div_into_fixed(div: u16, base_div: u32) -> u32 {
+        base_div * div as u32
+    }
+
+    pub fn max_fixed(&self, fixed: u32, max_size: u32) -> u32 {
         match self {
-            Length::InfiniteWindow(length) => {
-                length.into_length().max_fixed(fixed)
+            Self::InfiniteWindow(length) => {
+                length.into_length().max_fixed(fixed, max_size)
             },
-            Length::Shrink | Length::Div(_) => fixed,
-            &Length::Fixed(fixed) => fixed.max(fixed),
+            Self::Pct(pct) => (max_size as f32 * pct) as u32,
+            Self::Shrink | Self::Div(_) => fixed,
+            &Self::Fixed(fixed) => fixed.max(fixed),
         }
     }
 }
@@ -389,15 +418,15 @@ impl Size<Length> {
 
     pub fn div_factors(&self) -> DivFactors {
         DivFactors {
-            width: self.width.div_factor(),
-            height: self.height.div_factor(),
+            width: self.width.div_factor().unwrap_or(0),
+            height: self.height.div_factor().unwrap_or(0),
         }
     }
 
-    pub fn max_fixed(&self, fixed: Size) -> Size {
+    pub fn max_fixed(&self, fixed: Size, max_size: Size) -> Size {
         Size::new(
-            self.width.max_fixed(fixed.width),
-            self.height.max_fixed(fixed.height),
+            self.width.max_fixed(fixed.width, max_size.width),
+            self.height.max_fixed(fixed.height, max_size.height),
         )
     }
 

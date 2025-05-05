@@ -158,7 +158,7 @@ where
     fn meta(&self) -> MetaTree {
         let id = self.id;
 
-        MetaTree::childless(create_memo(move |_| Meta::focusable(id)))
+        MetaTree::childless(Meta::focusable(id).inert().memo())
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {

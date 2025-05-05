@@ -7,7 +7,7 @@ use crate::{
     layout::LayoutKind,
     render::Renderable,
     style::{ColorStyle, WidgetStylist},
-    widget::{prelude::*, Meta, MetaTree},
+    widget::{Meta, MetaTree, prelude::*},
 };
 use alloc::string::ToString;
 use core::{cell::RefCell, fmt::Display, marker::PhantomData};
@@ -254,7 +254,7 @@ where
 {
     fn meta(&self) -> MetaTree {
         let id = self.id;
-        MetaTree::childless(create_memo(move |_| Meta::focusable(id)))
+        MetaTree::childless(Meta::focusable(id).inert().memo())
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {

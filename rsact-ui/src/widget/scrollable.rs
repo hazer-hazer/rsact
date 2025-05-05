@@ -1,8 +1,8 @@
 use crate::{
     declare_widget_style,
-    render::{primitives::line::Line, Renderable},
+    render::{Renderable, primitives::line::Line},
     style::{ColorStyle, WidgetStylist},
-    widget::{prelude::*, Meta, MetaTree, SizedWidget},
+    widget::{Meta, MetaTree, SizedWidget, prelude::*},
 };
 use core::marker::PhantomData;
 use embedded_graphics::{
@@ -126,7 +126,7 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
             id: ElId::unique(),
             content,
             state,
-            style: create_memo_chain(|_| ScrollableStyle::base()),
+            style: ScrollableStyle::base().memo_chain(),
             layout,
             mode: ScrollableMode::Interactive,
             dir: PhantomData,
@@ -141,10 +141,10 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
     pub fn style(
         self,
         styler: impl Fn(
-                ScrollableStyle<W::Color>,
-                ScrollableState,
-            ) -> ScrollableStyle<W::Color>
-            + 'static,
+            ScrollableStyle<W::Color>,
+            ScrollableState,
+        ) -> ScrollableStyle<W::Color>
+        + 'static,
     ) -> Self {
         let state = self.state;
         self.style
@@ -217,7 +217,7 @@ where
         let content_tree = self.content.meta();
         MetaTree {
             data: Meta::none.memo(),
-            children: create_memo(move |_| vec![content_tree]),
+            children: vec![content_tree].inert().memo(),
         }
     }
 

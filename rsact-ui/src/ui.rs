@@ -133,7 +133,7 @@ where
             viewport,
             pages: BTreeMap::new(),
             on_exit: None,
-            styler: create_memo(move |_| styler),
+            styler: styler.inert().memo(),
             dev_tools,
             // TODO: Reactive viewport in Renderer
             renderer: renderer.signal(),

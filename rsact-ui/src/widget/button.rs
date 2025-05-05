@@ -55,7 +55,7 @@ impl<W: WidgetCtx + 'static> Button<W> {
             layout,
             content,
             state,
-            style: create_memo_chain(|_| ButtonStyle::base()),
+            style: ButtonStyle::base().memo_chain(),
             on_click: None,
         }
     }
@@ -77,7 +77,7 @@ impl<W: WidgetCtx + 'static> Button<W> {
     pub fn style(
         self,
         styler: impl Fn(ButtonStyle<W::Color>, ButtonState) -> ButtonStyle<W::Color>
-            + 'static,
+        + 'static,
     ) -> Self {
         let state = self.state;
         self.style.last(move |base| styler(*base, state.get())).unwrap();

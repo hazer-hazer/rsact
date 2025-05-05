@@ -378,10 +378,10 @@ impl<W: WidgetCtx> MountCtx<W> {
 
         if let Some(inert) = children.as_inert_mut() {
             inert.iter_mut().for_each(|child| child.on_mount(self));
-        } else if let Some(mut signal) = children.as_signal() {
+        } else if let Some(mut children) = children.as_signal() {
             create_effect(move |_| {
-                signal.track();
-                signal.update(|children| {
+                children.track();
+                children.update(|children| {
                     children.iter_mut().for_each(|child| child.on_mount(self));
                 });
             });
@@ -467,6 +467,7 @@ where
 /// Widget has layout without size or box model, it can be intentional to
 /// disallow user to set size or box model properties.
 pub trait SizedWidget<W: WidgetCtx>: Widget<W> {
+    // TODO: MaybeReactive!
     fn size(self, size: Size<Length>) -> Self
     where
         Self: Sized + 'static,
