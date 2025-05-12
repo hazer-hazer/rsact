@@ -1,4 +1,4 @@
-use crate::{el::ElId, widget::WidgetCtx};
+use crate::{el::ElId, widget::ctx::WidgetCtx};
 use core::{fmt::Debug, ops::ControlFlow};
 use embedded_graphics::prelude::Point;
 

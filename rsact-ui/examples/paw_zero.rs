@@ -1,6 +1,6 @@
 use embedded_graphics::{
-    mono_font::{MonoFont, ascii::FONT_4X6},
-    pixelcolor::{Rgb565, Rgb888},
+    mono_font::ascii::FONT_4X6,
+    pixelcolor::Rgb565,
     prelude::{Dimensions, RgbColor},
 };
 use embedded_graphics_simulator::{
@@ -19,7 +19,7 @@ use rsact_ui::{
     prelude::{Checkbox, IntoInert, Select, Slider, create_signal},
     render::{AntiAliasing, RendererOptions},
     row,
-    style::{NullStyler, accent::AccentStyler},
+    style::NullStyler,
     ui::UI,
     widget::{SizedWidget, Widget, flex::Flex},
 };

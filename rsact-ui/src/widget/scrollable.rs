@@ -232,99 +232,99 @@ where
 
     fn render(
         &self,
-        ctx: &mut crate::widget::DrawCtx<'_, W>,
-    ) -> crate::widget::DrawResult {
-        let style = self.style.get();
-
-        Block::from_layout_style(
-            ctx.layout.outer,
-            self.layout.with(|layout| layout.block_model()),
-            style.container,
-        )
-        .render(ctx.renderer)?;
-
-        let child_layout = ctx.layout.children().next();
-        let child_layout = child_layout.as_ref().unwrap();
-
-        let mut content_length = child_layout.outer.size.main(Dir::AXIS);
-        let scrollable_length = ctx.layout.inner.size.main(Dir::AXIS);
-
-        let draw_scrollbar = match style.show {
-            ScrollbarShow::Always => {
-                // Note: Draw thumb of full length of scrollbar in Always
-                // mode
-                content_length = content_length.max(scrollable_length);
-                true
-            },
-            ScrollbarShow::Never => false,
-            ScrollbarShow::Auto => content_length > scrollable_length,
-        };
-
-        let state = self.state.get();
-        let offset = state.offset;
-
-        if draw_scrollbar {
+        ctx: &mut crate::widget::RenderCtx<'_, W>,
+    ) -> crate::widget::RenderResult {
+        ctx.render(|ctx| {
             let style = self.style.get();
 
-            let track_start = match Dir::AXIS {
-                Axis::X => ctx.layout.inner.anchor_point(
-                    embedded_graphics::geometry::AnchorPoint::BottomLeft,
-                ),
-                Axis::Y => ctx.layout.inner.anchor_point(
-                    embedded_graphics::geometry::AnchorPoint::TopRight,
-                ),
-            };
-            let track_end = ctx
-                .layout
-                .inner
-                .bottom_right()
-                .unwrap_or(ctx.layout.inner.top_left);
-
-            let scrollbar_translation =
-                Dir::AXIS.canon(0, -(style.scrollbar_width as i32 / 2));
-
-            let track_line = Line::new(track_start, track_end)
-                .translate(scrollbar_translation);
-
-            // Draw track
-            track_line.into_styled(style.track_style()).render(ctx.renderer)?;
-
-            let thumb_len = (scrollable_length as f32
-                * (scrollable_length as f32 / content_length as f32))
-                as u32;
-            let thumb_len = thumb_len.max(1);
-            let thumb_offset = ((scrollable_length as f32
-                / content_length as f32)
-                * offset as f32) as u32;
-
-            let thumb_start =
-                track_start + Dir::AXIS.canon::<Point>(thumb_offset as i32, 0);
-
-            Line::new(
-                thumb_start,
-                thumb_start + Dir::AXIS.canon::<Point>(thumb_len as i32, 0),
+            Block::from_layout_style(
+                ctx.layout.outer,
+                self.layout.with(|layout| layout.block_model()),
+                style.container,
             )
-            .translate(scrollbar_translation)
-            .into_styled(style.thumb_style())
-            .render(ctx.renderer)?;
-        }
+            .render(ctx.renderer())?;
 
-        // Does not matter, Scrollable layout does not have padding, so
-        // outer == inner
-        // // TODO: Should be clipping outer rect???!??!?
-        ctx.renderer.clipped(ctx.layout.inner, |renderer| {
-            self.content.render(&mut DrawCtx {
-                state: ctx.state,
-                renderer,
-                layout: &child_layout
-                    .translate(Dir::AXIS.canon(-(offset as i32), 0)),
-                tree_style: ctx.tree_style,
-                viewport: ctx.viewport,
-                fonts: ctx.fonts,
-            })
-        })?;
+            let child_layout = ctx.layout.children().next();
+            let child_layout = child_layout.as_ref().unwrap();
 
-        ctx.render_focus_outline(self.id)
+            let mut content_length = child_layout.outer.size.main(Dir::AXIS);
+            let scrollable_length = ctx.layout.inner.size.main(Dir::AXIS);
+
+            let draw_scrollbar = match style.show {
+                ScrollbarShow::Always => {
+                    // Note: Draw thumb of full length of scrollbar in Always
+                    // mode
+                    content_length = content_length.max(scrollable_length);
+                    true
+                },
+                ScrollbarShow::Never => false,
+                ScrollbarShow::Auto => content_length > scrollable_length,
+            };
+
+            let state = self.state.get();
+            let offset = state.offset;
+
+            if draw_scrollbar {
+                let style = self.style.get();
+
+                let track_start = match Dir::AXIS {
+                    Axis::X => ctx.layout.inner.anchor_point(
+                        embedded_graphics::geometry::AnchorPoint::BottomLeft,
+                    ),
+                    Axis::Y => ctx.layout.inner.anchor_point(
+                        embedded_graphics::geometry::AnchorPoint::TopRight,
+                    ),
+                };
+                let track_end = ctx
+                    .layout
+                    .inner
+                    .bottom_right()
+                    .unwrap_or(ctx.layout.inner.top_left);
+
+                let scrollbar_translation =
+                    Dir::AXIS.canon(0, -(style.scrollbar_width as i32 / 2));
+
+                let track_line = Line::new(track_start, track_end)
+                    .translate(scrollbar_translation);
+
+                // Draw track
+                track_line
+                    .into_styled(style.track_style())
+                    .render(ctx.renderer())?;
+
+                let thumb_len = (scrollable_length as f32
+                    * (scrollable_length as f32 / content_length as f32))
+                    as u32;
+                let thumb_len = thumb_len.max(1);
+                let thumb_offset = ((scrollable_length as f32
+                    / content_length as f32)
+                    * offset as f32) as u32;
+
+                let thumb_start = track_start
+                    + Dir::AXIS.canon::<Point>(thumb_offset as i32, 0);
+
+                Line::new(
+                    thumb_start,
+                    thumb_start + Dir::AXIS.canon::<Point>(thumb_len as i32, 0),
+                )
+                .translate(scrollbar_translation)
+                .into_styled(style.thumb_style())
+                .render(ctx.renderer())?;
+            }
+
+            // Does not matter, Scrollable layout does not have padding, so
+            // outer == inner
+            // // TODO: Should be clipping outer rect???!??!?
+            ctx.render_clipped(ctx.layout.inner, |ctx| {
+                ctx.with_child_layout(
+                    &child_layout
+                        .translate(Dir::AXIS.canon(-(offset as i32), 0)),
+                    |ctx| self.content.render(ctx),
+                )
+            })?;
+
+            ctx.render_focus_outline(self.id)
+        })
     }
 
     fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {

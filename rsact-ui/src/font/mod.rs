@@ -1,6 +1,6 @@
 use crate::{
     layout::{Limits, size::Size},
-    widget::{DrawResult, WidgetCtx},
+    widget::{RenderResult, ctx::WidgetCtx},
 };
 use alloc::collections::btree_map::BTreeMap;
 use core::{
@@ -212,7 +212,7 @@ pub trait FontHandler {
         bounds: Rectangle,
         color: W::Color,
         renderer: &mut W::Renderer,
-    ) -> Option<DrawResult>;
+    ) -> Option<RenderResult>;
 }
 
 static FONT_UNIQUE_ID: AtomicUsize = AtomicUsize::new(0);
@@ -268,7 +268,7 @@ impl FontHandler for StoredFont {
         bounds: Rectangle,
         color: W::Color,
         renderer: &mut W::Renderer,
-    ) -> Option<DrawResult> {
+    ) -> Option<RenderResult> {
         match self {
             StoredFont::Fixed(fixed_font) => {
                 fixed_font.draw::<W>(content, props, bounds, color, renderer)
@@ -387,7 +387,7 @@ impl FontCtx {
         })
     }
 
-    pub fn draw<W: WidgetCtx>(
+    pub fn render<W: WidgetCtx>(
         &self,
         font: Font,
         content: &str,
@@ -395,7 +395,7 @@ impl FontCtx {
         bounds: Rectangle,
         color: W::Color,
         renderer: &mut W::Renderer,
-    ) -> DrawResult {
+    ) -> RenderResult {
         match font {
             Font::Auto => self
                 .auto_font()

@@ -10,7 +10,7 @@ use crate::{
 use core::{marker::PhantomData, ops::RangeInclusive};
 use embedded_graphics::{
     prelude::{Point, Primitive},
-    primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, Styled},
+    primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle},
 };
 use rsact_reactive::{maybe::IntoMaybeReactive, memo_chain::IntoMemoChain};
 
@@ -169,92 +169,97 @@ where
         self.layout
     }
 
-    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
-        ctx.render_focus_outline(self.id)?;
+    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
+        ctx.render(|ctx| {
+            ctx.render_focus_outline(self.id)?;
 
-        let style = self.style.get();
+            let style = self.style.get();
 
-        let track_len = ctx
-            .layout
-            .inner
-            .size
-            .main(Dir::AXIS)
-            .saturating_sub(style.thumb_size + 2);
+            let track_len = ctx
+                .layout
+                .inner
+                .size
+                .main(Dir::AXIS)
+                .saturating_sub(style.thumb_size + 2);
 
-        let half_thumb_size = style.thumb_size as i32 / 2;
+            let half_thumb_size = style.thumb_size as i32 / 2;
 
-        let start = ctx.layout.inner.top_left
-            + Dir::AXIS.canon::<Point>(
-                half_thumb_size + 1,
-                ctx.layout.inner.size.cross(Dir::AXIS) as i32 / 2,
-            );
+            let start = ctx.layout.inner.top_left
+                + Dir::AXIS.canon::<Point>(
+                    half_thumb_size + 1,
+                    ctx.layout.inner.size.cross(Dir::AXIS) as i32 / 2,
+                );
 
-        let end = start + Dir::AXIS.canon::<Point>(track_len as i32, 0);
+            let end = start + Dir::AXIS.canon::<Point>(track_len as i32, 0);
 
-        Line::new(start, end)
-            .into_styled(style.track_line_style())
-            .render(ctx.renderer)?;
+            Line::new(start, end)
+                .into_styled(style.track_line_style())
+                .render(ctx.renderer())?;
 
-        let range_len = self.range.with(|range| range.end() - range.start());
+            let range_len =
+                self.range.with(|range| range.end() - range.start());
 
-        let thumb_pos = start
-            + Dir::AXIS.canon::<Point>(
-                ((self.value.get() / range_len) * track_len as f32) as i32
-                    - half_thumb_size,
-                -half_thumb_size,
-            );
+            let thumb_pos = start
+                + Dir::AXIS.canon::<Point>(
+                    ((self.value.get() / range_len) * track_len as f32) as i32
+                        - half_thumb_size,
+                    -half_thumb_size,
+                );
 
-        let thumb_style = PrimitiveStyleBuilder::new()
-            .stroke_width(style.thumb_border_width)
-            .stroke_alignment(
-                embedded_graphics::primitives::StrokeAlignment::Inside,
-            );
+            let thumb_style = PrimitiveStyleBuilder::new()
+                .stroke_width(style.thumb_border_width)
+                .stroke_alignment(
+                    embedded_graphics::primitives::StrokeAlignment::Inside,
+                );
 
-        let thumb_style =
-            if let Some(thumb_color) = style.thumb.background_color.get() {
-                thumb_style.fill_color(thumb_color)
-            } else {
-                thumb_style
-            };
+            let thumb_style =
+                if let Some(thumb_color) = style.thumb.background_color.get() {
+                    thumb_style.fill_color(thumb_color)
+                } else {
+                    thumb_style
+                };
 
-        let thumb_style =
-            if let Some(border_color) = style.thumb.border.color.get() {
-                thumb_style.stroke_color(border_color)
-            } else {
-                thumb_style
-            };
+            let thumb_style =
+                if let Some(border_color) = style.thumb.border.color.get() {
+                    thumb_style.stroke_color(border_color)
+                } else {
+                    thumb_style
+                };
 
-        match style.thumb_shape {
-            SliderThumbShape::Dash => Line::new(
-                thumb_pos,
-                thumb_pos
-                    + Dir::AXIS.canon::<Point>(0, style.thumb_size as i32),
-            )
-            .into_styled(thumb_style.build())
-            .render(ctx.renderer),
-            SliderThumbShape::RoundedSquare => RoundedRect::new(
-                Rectangle::new(
+            match style.thumb_shape {
+                SliderThumbShape::Dash => Line::new(
+                    thumb_pos,
+                    thumb_pos
+                        + Dir::AXIS.canon::<Point>(0, style.thumb_size as i32),
+                )
+                .into_styled(thumb_style.build())
+                .render(ctx.renderer()),
+                SliderThumbShape::RoundedSquare => RoundedRect::new(
+                    Rectangle::new(
+                        thumb_pos,
+                        embedded_graphics::prelude::Size::new_equal(
+                            style.thumb_size,
+                        ),
+                    ),
+                    style.thumb.border.radius,
+                )
+                .into_styled(thumb_style.build())
+                .render(ctx.renderer()),
+                SliderThumbShape::Circle => {
+                    Circle::new(thumb_pos, style.thumb_size)
+                        .into_styled(thumb_style.build())
+                        .render(ctx.renderer())
+                },
+                SliderThumbShape::Square => Rectangle::new(
                     thumb_pos,
                     embedded_graphics::prelude::Size::new_equal(
                         style.thumb_size,
                     ),
-                ),
-                style.thumb.border.radius,
-            )
-            .into_styled(thumb_style.build())
-            .render(ctx.renderer),
-            SliderThumbShape::Circle => {
-                Circle::new(thumb_pos, style.thumb_size)
-                    .into_styled(thumb_style.build())
-                    .render(ctx.renderer)
-            },
-            SliderThumbShape::Square => Rectangle::new(
-                thumb_pos,
-                embedded_graphics::prelude::Size::new_equal(style.thumb_size),
-            )
-            .into_styled(thumb_style.build())
-            .render(ctx.renderer),
-        }
+                )
+                .into_styled(thumb_style.build())
+                .render(ctx.renderer()),
+            }
+        })
     }
 
     fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {

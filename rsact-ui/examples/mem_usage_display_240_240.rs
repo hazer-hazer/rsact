@@ -1,6 +1,6 @@
 use cap::Cap;
 use embedded_graphics::{
-    pixelcolor::{BinaryColor, Rgb565},
+    pixelcolor::Rgb565,
     prelude::{Dimensions, Point, RgbColor},
 };
 use embedded_graphics_simulator::{

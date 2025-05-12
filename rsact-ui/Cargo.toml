@@ -47,3 +47,6 @@ required-features = ["std", "simulator"]
 
 [lints]
 workspace = true
+
+[profile.dev]
+debug = "full"

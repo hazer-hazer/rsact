@@ -58,14 +58,14 @@ where
     }
 
     // TODO: on_mount should not subscribe to ctx, but return a callback to call when MountCtx changes
-    fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
+    fn on_mount(&mut self, ctx: MountCtx<W>) {
         if !self.mounted {
             self.widget.on_mount(ctx);
             self.mounted = true;
         }
     }
 
-    fn meta(&self) -> crate::widget::MetaTree {
+    fn meta(&self) -> MetaTree {
         self.widget.meta()
     }
 
@@ -73,7 +73,10 @@ where
         self.widget.layout()
     }
 
-    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> crate::widget::DrawResult {
+    fn render(
+        &self,
+        ctx: &mut RenderCtx<'_, W>,
+    ) -> crate::widget::RenderResult {
         self.widget.render(ctx)
     }
 

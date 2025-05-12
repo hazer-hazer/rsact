@@ -1,6 +1,6 @@
 use crate::{
     render::Renderable,
-    widget::{prelude::*, BlockModelWidget, Meta, MetaTree, SizedWidget},
+    widget::{BlockModelWidget, Meta, MetaTree, SizedWidget, prelude::*},
 };
 
 pub struct Container<W: WidgetCtx> {
@@ -107,18 +107,23 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
         self.layout
     }
 
-    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> crate::widget::DrawResult {
-        let style = self.style.get();
+    fn render(
+        &self,
+        ctx: &mut RenderCtx<'_, W>,
+    ) -> crate::widget::RenderResult {
+        ctx.render(|ctx| {
+            let style = self.style.get();
 
-        Block::from_layout_style(
-            ctx.layout.outer,
-            self.layout.with(|layout| layout.block_model()),
-            style,
-        )
-        .render(ctx.renderer)?;
+            Block::from_layout_style(
+                ctx.layout.outer,
+                self.layout.with(|layout| layout.block_model()),
+                style,
+            )
+            .render(ctx.renderer())?;
 
-        // self.content.with(|content| ctx.draw_child(content))
-        ctx.render_child(&self.content)
+            // self.content.with(|content| ctx.draw_child(content))
+            ctx.render_child(&self.content)
+        })
     }
 
     fn on_event(

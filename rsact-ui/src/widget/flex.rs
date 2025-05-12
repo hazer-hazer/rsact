@@ -227,9 +227,11 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Widget<W> for Flex<W, Dir> {
 
     fn render(
         &self,
-        ctx: &mut crate::widget::DrawCtx<'_, W>,
-    ) -> crate::widget::DrawResult {
-        self.children.with(|children| ctx.render_children(children.iter()))
+        ctx: &mut crate::widget::RenderCtx<'_, W>,
+    ) -> crate::widget::RenderResult {
+        ctx.render(|ctx| {
+            self.children.with(|children| ctx.render_children(children.iter()))
+        })
     }
 
     fn on_event(

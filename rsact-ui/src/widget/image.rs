@@ -44,13 +44,15 @@ where
 
     fn render(
         &self,
-        ctx: &mut crate::widget::DrawCtx<'_, W>,
-    ) -> crate::widget::DrawResult {
-        embedded_graphics::image::Image::new(
-            &self.data,
-            ctx.layout.inner.top_left,
-        )
-        .render(ctx.renderer)
+        ctx: &mut crate::widget::RenderCtx<'_, W>,
+    ) -> crate::widget::RenderResult {
+        ctx.render(|ctx| {
+            embedded_graphics::image::Image::new(
+                &self.data,
+                ctx.layout.inner.top_left,
+            )
+            .render(ctx.renderer())
+        })
     }
 
     fn on_event(

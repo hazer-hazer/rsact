@@ -17,14 +17,16 @@
           "std,simulator",
           "--features",
           "rsact-icons/common",
+          "--features",
+          "rsact-reactive/debug-info",
           "--profile",
           "example"
-        ],
+        ]
         // "filter": {
         //   "name": "${input:pickExample}",
         //   "kind": "example"
         // }
       }
-    },
-  ],
+    }
+  ]
 }

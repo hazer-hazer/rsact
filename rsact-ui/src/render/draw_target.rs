@@ -3,9 +3,9 @@ use super::{
     ViewportKind,
     alpha::AlphaDrawTarget,
     color::Color,
-    framebuf::{Framebuf as _, PackedColor, PackedFramebuf},
+    framebuf::{Framebuf as _, PackedFramebuf},
 };
-use crate::{layout::size::Size, widget::DrawResult};
+use crate::{layout::size::Size, widget::RenderResult};
 use alloc::{collections::BTreeMap, vec::Vec};
 use core::{
     convert::Infallible,
@@ -13,10 +13,9 @@ use core::{
 };
 use embedded_graphics::{
     Drawable, Pixel,
-    prelude::{Dimensions, DrawTarget, DrawTargetExt, Point},
+    prelude::{Dimensions, DrawTarget, Point},
     primitives::Rectangle,
 };
-use rsact_reactive::prelude::IntoMaybeReactive;
 
 // Note: Real alpha channel is not supported. Now, alpha channel is more like blending parameter for drawing on a single layer, so each layer is not transparent and alpha parameter only affects blending on current layer.
 // TODO: Real alpha-channel
@@ -57,8 +56,8 @@ impl<C: Color> LayerRenderer for LayeringRenderer<C> {
     fn on_layer(
         &mut self,
         index: usize,
-        f: impl FnOnce(&mut Self) -> DrawResult,
-    ) -> DrawResult {
+        f: impl FnOnce(&mut Self) -> RenderResult,
+    ) -> RenderResult {
         self.layers.insert(index, Layer::fullscreen(self.main_viewport.into()));
 
         self.viewport_stack
@@ -139,7 +138,7 @@ impl<C: Color> AlphaDrawTarget for LayeringRenderer<C> {
         &mut self,
         pixel: Pixel<Self::Color>,
         blend: f32,
-    ) -> DrawResult {
+    ) -> RenderResult {
         let viewport = self.viewport();
         let canvas = &mut self.layers.get_mut(&viewport.layer).unwrap().canvas;
 
@@ -172,8 +171,8 @@ where
     fn clipped(
         &mut self,
         area: Rectangle,
-        f: impl FnOnce(&mut Self) -> DrawResult,
-    ) -> DrawResult {
+        f: impl FnOnce(&mut Self) -> RenderResult,
+    ) -> RenderResult {
         self.viewport_stack
             .push(self.sub_viewport(ViewportKind::Clipped(area)));
         let result = f(self);
@@ -181,7 +180,7 @@ where
         result
     }
 
-    fn render(&mut self, renderable: &impl super::Renderable<C>) -> DrawResult {
+    fn render(&mut self, renderable: &impl super::Renderable<C>) -> RenderResult {
         if matches!(self.options.anti_aliasing, Some(AntiAliasing::Enabled)) {
             renderable.draw_alpha(self).ok().unwrap();
         } else {

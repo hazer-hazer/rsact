@@ -203,7 +203,7 @@ impl<W: WidgetCtx> Widget<W> for Unit {
         Layout::zero().signal()
     }
 
-    fn render(&self, ctx: &mut super::DrawCtx<'_, W>) -> super::DrawResult {
+    fn render(&self, ctx: &mut super::RenderCtx<'_, W>) -> super::RenderResult {
         let _ = ctx;
         Ok(())
     }
@@ -241,7 +241,7 @@ impl<W: WidgetCtx> Widget<W> for Option<El<W>> {
             .unwrap_or(Layout::zero().signal())
     }
 
-    fn render(&self, ctx: &mut super::DrawCtx<'_, W>) -> super::DrawResult {
+    fn render(&self, ctx: &mut super::RenderCtx<'_, W>) -> super::RenderResult {
         self.as_ref().map(|widget| widget.render(ctx)).unwrap_or(Ok(()))
     }
 

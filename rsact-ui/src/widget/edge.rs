@@ -1,6 +1,6 @@
 use crate::{
     render::Renderable,
-    widget::{prelude::*, Meta, MetaTree},
+    widget::{Meta, MetaTree, prelude::*},
 };
 use rsact_reactive::memo_chain::IntoMemoChain;
 
@@ -41,15 +41,17 @@ impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
 
     fn on_mount(&mut self, _ctx: crate::widget::MountCtx<W>) {}
 
-    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
-        let style = self.style.get();
+    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
+        ctx.render(|ctx| {
+            let style = self.style.get();
 
-        Block::from_layout_style(
-            ctx.layout.outer,
-            self.layout.with(|layout| layout.block_model()),
-            style,
-        )
-        .render(ctx.renderer)
+            Block::from_layout_style(
+                ctx.layout.outer,
+                self.layout.with(|layout| layout.block_model()),
+                style,
+            )
+            .render(ctx.renderer())
+        })
     }
 
     fn on_event(

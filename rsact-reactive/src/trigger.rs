@@ -1,5 +1,5 @@
 use crate::{
-    prelude::create_signal, read::ReadSignal, signal::Signal,
+    ReactiveValue, prelude::create_signal, read::ReadSignal, signal::Signal,
     write::WriteSignal,
 };
 
@@ -8,8 +8,25 @@ pub fn create_trigger() -> Trigger {
     Trigger::new()
 }
 
+#[derive(Clone, Copy)]
 pub struct Trigger {
     inner: Signal<()>,
+}
+
+impl ReactiveValue for Trigger {
+    type Value = ();
+
+    fn id(&self) -> Option<crate::storage::ValueId> {
+        Some(self.inner.id())
+    }
+
+    fn is_alive(&self) -> bool {
+        self.inner.is_alive()
+    }
+
+    unsafe fn dispose(self) {
+        self.inner.dispose();
+    }
 }
 
 impl Trigger {

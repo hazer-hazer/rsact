@@ -119,23 +119,24 @@ where
         self.layout
     }
 
-    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
-        let content = self.content;
-        let style = self.style.get();
-        let props = self.font_props();
+    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
+        ctx.render(|ctx| {
+            let content = self.content;
+            let style = self.style.get();
+            let props = self.font_props();
 
-        with!(move |content| {
-            let font = props.font();
-            let props = props.resolve(ctx.viewport.get());
+            with!(move |content| {
+                let font = props.font();
+                let props = props.resolve(ctx.viewport.get());
 
-            ctx.fonts.draw::<W>(
-                font,
-                content,
-                props,
-                ctx.layout.inner,
-                style.color.expect(),
-                ctx.renderer,
-            )
+                ctx.render_font(
+                    font,
+                    content,
+                    props,
+                    ctx.layout.inner,
+                    style.color.expect(),
+                )
+            })
         })
     }
 

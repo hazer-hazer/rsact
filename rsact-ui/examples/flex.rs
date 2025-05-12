@@ -20,7 +20,7 @@ use rsact_ui::{
     render::color::RgbExt,
     style::{NullStyler, WidgetStylist},
     ui::UI,
-    widget::{BlockModelWidget, SizedWidget, Widget, WidgetCtx},
+    widget::{BlockModelWidget, SizedWidget, Widget, ctx::*},
 };
 use u8g2_fonts::FontRenderer;
 

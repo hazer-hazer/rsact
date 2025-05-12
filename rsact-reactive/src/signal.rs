@@ -56,6 +56,10 @@ impl<T: 'static, M: marker::Any> Copy for Signal<T, M> {}
 impl<T: 'static> ReactiveValue for Signal<T> {
     type Value = T;
 
+    fn id(&self) -> Option<ValueId> {
+        Some(self.id)
+    }
+
     #[track_caller]
     fn is_alive(&self) -> bool {
         with_current_runtime(|rt| rt.is_alive(self.id))

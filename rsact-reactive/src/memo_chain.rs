@@ -118,6 +118,10 @@ impl<T: PartialEq + 'static> MemoChain<T> {
 impl<T: PartialEq + 'static> ReactiveValue for MemoChain<T> {
     type Value = T;
 
+    fn id(&self) -> Option<ValueId> {
+        Some(self.id)
+    }
+
     fn is_alive(&self) -> bool {
         with_current_runtime(|rt| rt.is_alive(self.id))
     }

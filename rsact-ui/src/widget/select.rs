@@ -272,66 +272,74 @@ where
         self.layout
     }
 
-    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
-        let style = self.style.get();
-        let state = self.state.get();
+    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
+        ctx.render(|ctx| {
+            let style = self.style.get();
+            let state = self.state.get();
 
-        let children_layouts = ctx.layout.children().collect::<Vec<_>>();
+            let children_layouts = ctx.layout.children().collect::<Vec<_>>();
 
-        let options_offset = if let Some(selected) = state.selected {
-            let selected_child_layout = children_layouts.get(selected).unwrap();
+            let options_offset = if let Some(selected) = state.selected {
+                let selected_child_layout =
+                    children_layouts.get(selected).unwrap();
 
-            let options_offset =
-                ctx.layout.inner.center_offset_of(selected_child_layout.inner);
-
-            Block::from_layout_style(
-                selected_child_layout
+                let options_offset = ctx
+                    .layout
                     .inner
-                    .translate(options_offset)
-                    .resized_axis(
-                        Dir::AXIS.inverted(),
-                        ctx.layout.inner.size.cross(Dir::AXIS),
-                        Anchor::Center,
-                    ),
-                BlockModel::zero().border_width(1),
-                style.selected,
-            )
-            .render(ctx.renderer)?;
+                    .center_offset_of(selected_child_layout.inner);
 
-            options_offset
-        } else if let Some(first_option) = children_layouts.first() {
-            ctx.layout.inner.center_offset_of(first_option.inner)
-        } else {
-            Point::zero()
-        };
+                Block::from_layout_style(
+                    selected_child_layout
+                        .inner
+                        .translate(options_offset)
+                        .resized_axis(
+                            Dir::AXIS.inverted(),
+                            ctx.layout.inner.size.cross(Dir::AXIS),
+                            Anchor::Center,
+                        ),
+                    BlockModel::zero().border_width(1),
+                    style.selected,
+                )
+                .render(ctx.renderer())?;
 
-        // TODO: Review if focus outline visible
-        ctx.render_focus_outline(self.id)?;
+                options_offset
+            } else if let Some(first_option) = children_layouts.first() {
+                ctx.layout.inner.center_offset_of(first_option.inner)
+            } else {
+                Point::zero()
+            };
 
-        self.options.with(move |options| {
-            ctx.renderer.clipped(ctx.layout.inner, |renderer| {
-                options
-                    .iter()
-                    .zip(ctx.layout.children())
-                    .enumerate()
-                    .try_for_each(|(index, (option, option_layout))| {
-                        let mut ctx = DrawCtx {
-                            state: ctx.state,
-                            renderer,
-                            layout: &option_layout.translate(options_offset),
-                            tree_style: ctx.tree_style.text_color(
-                                if Some(index) == state.selected {
-                                    style.selected_text_color
-                                } else {
-                                    style.text_color
-                                }
-                                .get(),
-                            ),
-                            viewport: ctx.viewport,
-                            fonts: ctx.fonts,
-                        };
-                        option.el.borrow().render(&mut ctx)
-                    })
+            // TODO: Review if focus outline visible
+            ctx.render_focus_outline(self.id)?;
+
+            self.options.with(move |options| {
+                ctx.render_clipped(ctx.layout.inner, |ctx| {
+                    options
+                        .iter()
+                        .zip(ctx.layout.children())
+                        .enumerate()
+                        .try_for_each(|(index, (option, option_layout))| {
+                            ctx.with_tree_style(
+                                |tree_style| {
+                                    tree_style.text_color(
+                                        if Some(index) == state.selected {
+                                            style.selected_text_color
+                                        } else {
+                                            style.text_color
+                                        }
+                                        .get(),
+                                    )
+                                },
+                                |ctx| {
+                                    ctx.with_child_layout(
+                                        &option_layout
+                                            .translate(options_offset),
+                                        |ctx| option.el.borrow().render(ctx),
+                                    )
+                                },
+                            )
+                        })
+                })
             })
         })
     }

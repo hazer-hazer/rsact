@@ -89,6 +89,10 @@ impl<T: PartialEq + 'static> SignalMap<T> for Computed<T> {
 impl<T: 'static> ReactiveValue for Computed<T> {
     type Value = T;
 
+    fn id(&self) -> Option<ValueId> {
+        Some(self.id)
+    }
+
     fn is_alive(&self) -> bool {
         with_current_runtime(|rt| rt.is_alive(self.id))
     }

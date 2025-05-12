@@ -9,7 +9,7 @@ use crate::{
     layout::DevHoveredLayout,
     prelude::{BlockModel, BlockStyle, BorderStyle, Size},
     render::{color::Color, Block, Border, Renderable, Renderer},
-    widget::DrawResult,
+    widget::RenderResult,
 };
 
 #[derive(Clone, Default)]
@@ -39,7 +39,7 @@ impl DevHoveredEl {
         &self,
         r: &mut impl Renderer<Color = C>,
         viewport: Size,
-    ) -> DrawResult {
+    ) -> RenderResult {
         let area = self.layout.area;
 
         let [text_color, inner_color, padding_color, ..] = C::accents();

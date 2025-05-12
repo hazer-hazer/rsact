@@ -1,7 +1,17 @@
 {
   "rust-analyzer.check.allTargets": true,
-  "rust-analyzer.check.features": ["simulator", "std", "rsact-icons/common"],
-  "rust-analyzer.cargo.features": ["simulator", "std", "rsact-icons/common"],
+  "rust-analyzer.check.features": [
+    "simulator",
+    "std",
+    "rsact-icons/common",
+    "rsact-reactive/debug-info"
+  ],
+  "rust-analyzer.cargo.features": [
+    "simulator",
+    "std",
+    "rsact-icons/common",
+    "rsact-reactive/debug-info"
+  ],
   "rust-analyzer.cargo.noDefaultFeatures": true,
   "cSpell.words": [
     "antialiasing",
@@ -19,5 +29,9 @@
     "textbox",
     "trunc",
     "Xiaolin"
-  ]
+  ],
+  "lldb.displayFormat": "auto",
+  "lldb.showDisassembly": "auto",
+  "lldb.dereferencePointers": true,
+  "lldb.consoleMode": "commands"
 }

@@ -11,7 +11,7 @@ use crate::{
         Renderer, buffer::BufferRenderer, color::Color,
         draw_target::LayeringRenderer,
     },
-    widget::{WidgetCtx, Wtf},
+    widget::ctx::*,
 };
 use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use core::{fmt::Debug, marker::PhantomData};
@@ -374,6 +374,6 @@ impl<W: WidgetCtx> UI<W, WithPages> {
     // }
 
     pub fn draw_with_renderer(&mut self, f: impl FnOnce(&W::Renderer)) -> bool {
-        self.current_page().draw_with_renderer(f)
+        self.current_page().use_renderer(f)
     }
 }

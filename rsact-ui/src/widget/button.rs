@@ -89,12 +89,10 @@ impl<W: WidgetCtx + 'static> SizedWidget<W> for Button<W> where
     W::Styler: WidgetStylist<ButtonStyle<W::Color>>
 {
 }
-
 impl<W: WidgetCtx + 'static> BlockModelWidget<W> for Button<W> where
     W::Styler: WidgetStylist<ButtonStyle<W::Color>>
 {
 }
-
 impl<W: WidgetCtx> FontSettingWidget<W> for Button<W> where
     W::Styler: WidgetStylist<ButtonStyle<W::Color>>
 {
@@ -118,19 +116,21 @@ where
         self.layout
     }
 
-    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
-        let style = self.style.get();
+    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
+        ctx.render(|ctx| {
+            let style = self.style.get();
 
-        Block::from_layout_style(
-            ctx.layout.outer,
-            self.layout.with(|layout| layout.block_model()),
-            style.container,
-        )
-        .render(ctx.renderer)?;
+            Block::from_layout_style(
+                ctx.layout.outer,
+                self.layout.with(|layout| layout.block_model()),
+                style.container,
+            )
+            .render(ctx.renderer())?;
 
-        ctx.render_child(&self.content)?;
+            ctx.render_child(&self.content)?;
 
-        ctx.render_focus_outline(self.id)
+            ctx.render_focus_outline(self.id)
+        })
     }
 
     fn on_event(

@@ -1,9 +1,8 @@
-use super::color::{Color, MapColor};
+use super::color::Color;
 use crate::prelude::Size;
 use alloc::boxed::Box;
-use core::convert::Infallible;
 use embedded_graphics::{
-    Drawable, Pixel,
+    Pixel,
     pixelcolor::{
         BinaryColor, Rgb555, Rgb565, Rgb666, Rgb888,
         raw::{RawData, RawU1},

@@ -36,6 +36,10 @@ impl<T> From<T> for Inert<T> {
 impl<T: 'static> ReactiveValue for Inert<T> {
     type Value = T;
 
+    fn id(&self) -> Option<crate::storage::ValueId> {
+        None
+    }
+
     /// [`Inert`] is always alive! Useless to call
     fn is_alive(&self) -> bool {
         true
@@ -139,6 +143,10 @@ impl<T: PartialEq + 'static> MaybeReactive<T> {
 
 impl<T: PartialEq + 'static> ReactiveValue for MaybeReactive<T> {
     type Value = T;
+
+    fn id(&self) -> Option<crate::storage::ValueId> {
+        None
+    }
 
     #[track_caller]
     fn is_alive(&self) -> bool {

@@ -187,36 +187,44 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
         self.layout
     }
 
-    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
-        self.queue.queue.track();
+    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
+        ctx.render(|ctx| {
+            self.queue.queue.track();
 
-        // TODO: Right DrawResult error
-        while let Some(command) = self.queue.pop() {
-            match command {
-                DrawCommand::Clear(color) => {
-                    ctx.renderer.clear(color).ok().unwrap()
-                },
-                DrawCommand::ClearRect(rect, color) => {
-                    ctx.renderer.fill_solid(&rect, color).ok().unwrap()
-                },
-                DrawCommand::Arc(arc) => arc.render(ctx.renderer)?,
-                DrawCommand::Circle(circle) => circle.render(ctx.renderer)?,
-                DrawCommand::Ellipse(ellipse) => {
-                    ellipse.render(ctx.renderer)?
-                },
-                DrawCommand::Line(line) => line.render(ctx.renderer)?,
-                DrawCommand::Polygon(polygon) => {
-                    polygon.render(ctx.renderer)?
-                },
-                DrawCommand::Rectangle(rect) => rect.render(ctx.renderer)?,
-                DrawCommand::RoundedRect(rounded_rect) => {
-                    rounded_rect.render(ctx.renderer)?
-                },
-                DrawCommand::Sector(sector) => sector.render(ctx.renderer)?,
+            // TODO: Right DrawResult error
+            while let Some(command) = self.queue.pop() {
+                match command {
+                    DrawCommand::Clear(color) => {
+                        ctx.renderer().clear(color).ok().unwrap()
+                    },
+                    DrawCommand::ClearRect(rect, color) => {
+                        ctx.renderer().fill_solid(&rect, color).ok().unwrap()
+                    },
+                    DrawCommand::Arc(arc) => arc.render(ctx.renderer())?,
+                    DrawCommand::Circle(circle) => {
+                        circle.render(ctx.renderer())?
+                    },
+                    DrawCommand::Ellipse(ellipse) => {
+                        ellipse.render(ctx.renderer())?
+                    },
+                    DrawCommand::Line(line) => line.render(ctx.renderer())?,
+                    DrawCommand::Polygon(polygon) => {
+                        polygon.render(ctx.renderer())?
+                    },
+                    DrawCommand::Rectangle(rect) => {
+                        rect.render(ctx.renderer())?
+                    },
+                    DrawCommand::RoundedRect(rounded_rect) => {
+                        rounded_rect.render(ctx.renderer())?
+                    },
+                    DrawCommand::Sector(sector) => {
+                        sector.render(ctx.renderer())?
+                    },
+                }
             }
-        }
 
-        Ok(())
+            Ok(())
+        })
     }
 
     fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {

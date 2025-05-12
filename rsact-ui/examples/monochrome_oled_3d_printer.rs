@@ -18,6 +18,7 @@ use rsact_ui::{
     prelude::{
         Button, Icon, IntoInert, ReadSignal, Scrollable, SignalMap, Text,
         UiMessage, WriteSignal, create_effect, create_signal,
+        with_current_runtime,
     },
     style::NullStyler,
     ui::UI,
@@ -379,6 +380,19 @@ fn main() {
         "Initialization mem use: {:0.3}KiB",
         (GLOBAL.allocated() - mem_init) as f32 / 1024.0
     );
+
+    ui.render(&mut display);
+    println!("{}", current_runtime_profile());
+
+    // std::fs::write(
+    //     "./graph.mmd",
+    //     format!(
+    //         // "```mermaid\n{}\n```",
+    //         "{}",
+    //         with_current_runtime(|rt| rt.global_mermaid_graph(1_000_000))
+    //     ),
+    // )
+    // .unwrap();
 
     let mut fps = 0;
     let mut last_time = Instant::now();

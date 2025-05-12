@@ -1,4 +1,7 @@
-use crate::{callback::AnyCallback, runtime::Runtime};
+use crate::{
+    callback::AnyCallback,
+    runtime::{Runtime, with_current_runtime},
+};
 use alloc::{boxed::Box, format, rc::Rc};
 use core::{
     any::{Any, type_name},
@@ -143,6 +146,15 @@ impl ValueId {
 
         with_current_runtime(|rt| rt.mermaid_graph(*self, max_depth))
     }
+
+    #[cfg(feature = "debug-info")]
+    pub fn set_name(&self, name: &'static str) {
+        with_current_runtime(|rt| {
+            rt.storage.set_debug_info(*self, |debug_info| {
+                debug_info.name = Some(name)
+            });
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -171,6 +183,7 @@ impl Display for ValueDebugInfoState {
 
 #[derive(Clone, Copy)]
 pub struct ValueDebugInfo {
+    pub name: Option<&'static str>,
     pub created_at: &'static Location<'static>,
     pub state: ValueDebugInfoState,
     pub borrowed_mut: Option<&'static Location<'static>>,
@@ -193,7 +206,11 @@ impl ValueDebugInfo {
 
 impl core::fmt::Display for ValueDebugInfo {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "Value of type `{}`. ", self.ty)?;
+        write!(f, "Value");
+        if let Some(name) = self.name {
+            write!(f, " '{name}'")?;
+        }
+        write!(f, " of type `{}`. ", self.ty)?;
         write!(f, "Created at {}. ", self.created_at)?;
         match self.state {
             ValueDebugInfoState::Clean(requester) => {
@@ -264,7 +281,7 @@ impl Display for ValueKind {
                 ValueKind::Effect { .. } => "effect",
                 ValueKind::Signal => "signal",
                 ValueKind::Memo { .. } => "memo",
-                ValueKind::MemoChain { .. } => "memo chain",
+                ValueKind::MemoChain { .. } => "memoChain",
                 ValueKind::Computed { .. } => "computed",
                 ValueKind::Observer => "observer",
             }

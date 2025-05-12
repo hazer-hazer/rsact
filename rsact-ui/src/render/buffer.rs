@@ -52,8 +52,8 @@ impl<C: Color> Renderer for BufferRenderer<C> {
     fn clipped(
         &mut self,
         area: embedded_graphics::primitives::Rectangle,
-        f: impl FnOnce(&mut Self) -> crate::prelude::DrawResult,
-    ) -> crate::prelude::DrawResult {
+        f: impl FnOnce(&mut Self) -> crate::prelude::RenderResult,
+    ) -> crate::prelude::RenderResult {
         self.viewport_stack.push(Viewport {
             layer: 0,
             kind: super::ViewportKind::Clipped(area),
@@ -66,7 +66,7 @@ impl<C: Color> Renderer for BufferRenderer<C> {
     fn render(
         &mut self,
         renderable: &impl super::Renderable<C>,
-    ) -> crate::prelude::DrawResult {
+    ) -> crate::prelude::RenderResult {
         if matches!(self.options.anti_aliasing, Some(AntiAliasing::Enabled)) {
             renderable.draw_alpha(self).ok().unwrap();
         } else {
@@ -102,7 +102,7 @@ impl<C: Color> AlphaDrawTarget for BufferRenderer<C> {
         &mut self,
         pixel: embedded_graphics::Pixel<Self::Color>,
         blend: f32,
-    ) -> crate::prelude::DrawResult {
+    ) -> crate::prelude::RenderResult {
         let color = self
             .buf
             .pixel(pixel.0)

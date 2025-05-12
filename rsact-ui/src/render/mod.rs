@@ -1,10 +1,10 @@
 use crate::{
-    layout::{block_model::BlockModel, padding::Padding, size::Size},
+    layout::{block_model::BlockModel, padding::Padding},
     style::block::{BlockStyle, BorderRadius, BorderStyle},
-    widget::DrawResult,
+    widget::RenderResult,
 };
 use alpha::{AlphaDrawTarget, AlphaDrawable};
-use color::{Color, MapColor};
+use color::Color;
 use embedded_graphics::{
     Drawable, Pixel,
     draw_target::DrawTargetExt,
@@ -15,7 +15,6 @@ use embedded_graphics::{
         StyledDrawable,
     },
 };
-use framebuf::PackedColor;
 use rsact_reactive::prelude::IntoMaybeReactive;
 
 pub mod alpha;
@@ -206,7 +205,7 @@ impl<C: Color> Drawable for Block<C> {
 impl<C: Color> AlphaDrawable for Block<C> {
     type Color = C;
 
-    fn draw_alpha<A>(&self, target: &mut A) -> DrawResult
+    fn draw_alpha<A>(&self, target: &mut A) -> RenderResult
     where
         A: AlphaDrawTarget<Color = Self::Color>,
     {
@@ -248,7 +247,7 @@ impl<C: Color + Copy> Block<C> {
 pub trait Renderable<C: Color>:
     Sized + Drawable<Color = C> + AlphaDrawable<Color = C>
 {
-    fn render(&self, renderer: &mut impl Renderer<Color = C>) -> DrawResult {
+    fn render(&self, renderer: &mut impl Renderer<Color = C>) -> RenderResult {
         renderer.render(self)
     }
 }
@@ -323,8 +322,8 @@ pub trait Renderer:
     fn clipped(
         &mut self,
         area: Rectangle,
-        f: impl FnOnce(&mut Self) -> DrawResult,
-    ) -> DrawResult;
+        f: impl FnOnce(&mut Self) -> RenderResult,
+    ) -> RenderResult;
     // fn on_layer(
     //     &mut self,
     //     index: usize,
@@ -346,7 +345,7 @@ pub trait Renderer:
     fn render(
         &mut self,
         renderable: &impl Renderable<<Self as Renderer>::Color>,
-    ) -> DrawResult;
+    ) -> RenderResult;
 
     // fn translucent_pixel_iter(
     //     &mut self,
@@ -435,19 +434,19 @@ impl Renderer for NullRenderer {
     fn clipped(
         &mut self,
         area: Rectangle,
-        f: impl FnOnce(&mut Self) -> DrawResult,
-    ) -> DrawResult {
+        f: impl FnOnce(&mut Self) -> RenderResult,
+    ) -> RenderResult {
         let _ = f(self);
         let _ = area;
-        DrawResult::Ok(())
+        RenderResult::Ok(())
     }
 
     fn render(
         &mut self,
         renderable: &impl Renderable<<Self as Renderer>::Color>,
-    ) -> DrawResult {
+    ) -> RenderResult {
         let _ = renderable;
-        DrawResult::Ok(())
+        RenderResult::Ok(())
     }
 }
 
@@ -455,6 +454,6 @@ pub trait LayerRenderer {
     fn on_layer(
         &mut self,
         index: usize,
-        f: impl FnOnce(&mut Self) -> DrawResult,
-    ) -> DrawResult;
+        f: impl FnOnce(&mut Self) -> RenderResult,
+    ) -> RenderResult;
 }

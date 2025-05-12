@@ -107,26 +107,28 @@ where
         self.layout
     }
 
-    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
-        let style = self.style.get();
+    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
+        ctx.render(|ctx| {
+            let style = self.style.get();
 
-        let value_real = self.value.get().real_point();
-        let range_degrees = style.angle;
-        let value_angle = Angle::from_degrees(
-            (value_real * range_degrees.to_degrees()).min(360.0),
-        );
+            let value_real = self.value.get().real_point();
+            let range_degrees = style.angle;
+            let value_angle = Angle::from_degrees(
+                (value_real * range_degrees.to_degrees()).min(360.0),
+            );
 
-        Sector::new(
-            ctx.layout.inner.top_left,
-            ctx.layout.inner.size.max_square().width,
-            style.angle_start,
-            value_angle,
-        )
-        .into_styled(style.sector_style())
-        .render(ctx.renderer)?;
+            Sector::new(
+                ctx.layout.inner.top_left,
+                ctx.layout.inner.size.max_square().width,
+                style.angle_start,
+                value_angle,
+            )
+            .into_styled(style.sector_style())
+            .render(ctx.renderer())?;
 
-        // TODO: Round focus outline
-        ctx.render_focus_outline(self.id)
+            // TODO: Round focus outline
+            ctx.render_focus_outline(self.id)
+        })
     }
 
     fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {

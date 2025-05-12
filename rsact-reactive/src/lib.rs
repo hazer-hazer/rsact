@@ -1,6 +1,8 @@
 // #![feature(thread_local)]
 #![cfg_attr(all(not(feature = "std"), test), no_std)]
 
+use storage::ValueId;
+
 extern crate alloc;
 extern crate rsact_macros;
 
@@ -15,6 +17,7 @@ pub mod effect;
 pub mod maybe;
 pub mod memo;
 pub mod memo_chain;
+pub mod observer;
 pub mod read;
 pub mod resource;
 pub mod runtime;
@@ -40,7 +43,10 @@ pub mod prelude {
         read::{ReadSignal, SignalMap, map, with},
         resource::create_resource,
         rsact_macros::IntoMaybeReactive,
-        runtime::{create_runtime, with_current_runtime, with_new_runtime},
+        runtime::{
+            create_runtime, observe, observe_or_default, with_current_runtime,
+            with_new_runtime,
+        },
         signal::{IntoSignal, RwSignal, Signal, create_signal},
         trigger::{Trigger, create_trigger},
         write::{SignalSetter, UpdateNotification, WriteSignal},
@@ -51,7 +57,19 @@ pub mod prelude {
 pub trait ReactiveValue: 'static {
     type Value;
 
+    fn id(&self) -> Option<ValueId>;
     fn is_alive(&self) -> bool;
     unsafe fn dispose(self);
+
+    fn name(self, name: &'static str) -> Self
+    where
+        Self: Sized,
+    {
+        #[cfg(feature = "debug-info")]
+        if let Some(id) = self.id() {
+            id.set_name(name);
+        }
+        self
+    }
     // TODO: try_dispose?
 }

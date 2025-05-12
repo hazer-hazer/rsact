@@ -110,6 +110,10 @@ impl<T: PartialEq + 'static> Copy for Memo<T> {}
 impl<T: PartialEq + 'static> ReactiveValue for Memo<T> {
     type Value = T;
 
+    fn id(&self) -> Option<ValueId> {
+        Some(Memo::id(&self))
+    }
+
     fn is_alive(&self) -> bool {
         match self {
             &Memo::Memo { id, ty: _ } => {

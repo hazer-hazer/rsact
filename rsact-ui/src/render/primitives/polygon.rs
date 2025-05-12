@@ -95,7 +95,7 @@ impl<C: Color> StyledAlphaDrawable<PrimitiveStyle<C>> for Polygon {
         &self,
         style: &PrimitiveStyle<C>,
         target: &mut D,
-    ) -> crate::prelude::DrawResult
+    ) -> crate::prelude::RenderResult
     where
         D: crate::render::alpha::AlphaDrawTarget<Color = Self::Color>,
     {

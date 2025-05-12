@@ -42,7 +42,8 @@ impl<W: WidgetCtx> Widget<W> for Show<W> {
         self.el.layout()
     }
 
-    fn render(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
+    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
+        // TODO: `observe`?
         if self.show.get() { self.el.render(ctx) } else { Ok(()) }
     }
 

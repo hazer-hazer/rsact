@@ -6,28 +6,18 @@ use crate::{
     },
     font::{Font, FontCtx, FontProps},
     layout::{LayoutCtx, LayoutModel, Limits, model_layout, size::Size},
-    render::{
-        Renderer,
-        color::{Color, MapColor},
-        framebuf::PackedColor,
-    },
+    render::color::Color,
     style::TreeStyle,
-    widget::{
-        Behavior, DrawCtx, EventCtx, MountCtx, PageState, Widget, WidgetCtx,
-    },
+    widget::{Behavior, Widget, ctx::*},
 };
-use alloc::{boxed::Box, vec::Vec};
+use alloc::vec::Vec;
 use dev::{DevHoveredEl, DevTools};
 use embedded_graphics::{
     Drawable as _,
     prelude::{DrawTarget, Point},
 };
-use num::traits::WrappingAdd as _;
 use rsact_reactive::{
-    maybe::IntoMaybeReactive,
-    prelude::*,
-    runtime::{DeferEffectsGuard, defer_updates},
-    scope::new_deny_new_scope,
+    ReactiveValue, maybe::IntoMaybeReactive, prelude::*, runtime::defer_effects,
 };
 
 pub mod dev;
@@ -61,7 +51,7 @@ struct PageMeta {
 pub struct Page<W: WidgetCtx> {
     // TODO: root is not used as a Signal but as boxed value, better add StoredValue to rsact_reactive for static storage
     // TODO: Same is about other not-really-reactive states in Page
-    root: Signal<El<W>>,
+    root: El<W>,
     meta: PageMeta,
     layout: Memo<LayoutModel>,
     state: Signal<PageState<W>>,
@@ -69,9 +59,9 @@ pub struct Page<W: WidgetCtx> {
     renderer: Signal<W::Renderer>,
     viewport: Memo<Size>,
     dev_tools: Signal<DevTools>,
-    force_redraw: Signal<bool>,
-    drawing: Memo<(bool, usize)>,
-    draw_calls: Signal<usize>,
+    force_redraw: Trigger,
+    render_calls: usize,
+    fonts: Signal<FontCtx>,
 }
 
 impl<W: WidgetCtx> Page<W> {
@@ -80,11 +70,11 @@ impl<W: WidgetCtx> Page<W> {
         viewport: Memo<Size>,
         styler: Memo<W::Styler>,
         dev_tools: Signal<DevTools>,
-        mut renderer: Signal<W::Renderer>,
+        renderer: Signal<W::Renderer>,
         fonts: Signal<FontCtx>,
     ) -> Self {
         let mut root: El<W> = root.into();
-        let state = PageState::new().signal();
+        let state = PageState::new().signal().name("Page state");
 
         // Raw root initialization //
         root.on_mount(MountCtx {
@@ -115,10 +105,11 @@ impl<W: WidgetCtx> Page<W> {
                     })
                 })
                 .collect()
-        });
+        })
+        .name("Focusable");
 
         // TODO: Should be `mapped`? Now, root is kind of partially-reactive
-        let layout_tree = root.layout();
+        let layout_tree = root.layout().name("Layout tree");
         let layout_model = map!(move |viewport, fonts| {
             let viewport = *viewport;
             // println!("Relayout");
@@ -136,72 +127,10 @@ impl<W: WidgetCtx> Page<W> {
             // std::println!("Relayout {:#?}", layout.tree_root());
 
             layout
-        });
+        })
+        .name("Layout model");
 
-        let style = PageStyle::base().signal();
-
-        let mut draw_calls = create_signal(0);
-        let mut force_redraw = create_signal(false);
-
-        // Now root is boxed //
-        let mut root = root.signal();
-
-        let drawing = create_memo(move |prev: Option<&(bool, usize)>| {
-            // TODO: force_redraw must be placed into ui context and be available in widgets so some widget can request redraw
-            if force_redraw.get() {
-                force_redraw.set_untracked(false);
-            }
-
-            // TODO: Renderer does not have to be a Signal, just a Box
-            renderer.update_untracked(|renderer| {
-                // FIXME: Performance?
-                // TODO: Not only performance, this is very wrong for Canvas widget, as this clear also clears all canvases which should be manually controlled and cleared. This needs to be solved (also check Canvas and animations after any change). I think that Widget Behavior can have some flag such as "auto_clear" which will clear its layout rect before redraw. But this complicates absolutely positioned elements a lot as we need to clear them too but then elements overlapped by it won't be cleared!
-                style
-                    .with(|style| {
-                        if let Some(background_color) = style.background_color {
-                            renderer.clear(background_color)
-                        } else {
-                            Ok(())
-                        }
-                    })
-                    .ok()
-                    .unwrap();
-
-                // TODO: How to handle results?
-                let _result = with!(|state, layout_model, fonts| {
-                    // FIXME: This might be wrong. User possibly want to create new reactive values. Better make it a debug feature.
-                    let _deny_new = new_deny_new_scope();
-                    root.update_untracked(|root| {
-                        root.render(&mut DrawCtx {
-                            state,
-                            renderer,
-                            layout: &layout_model.tree_root(),
-                            tree_style: TreeStyle::base(),
-                            viewport,
-                            fonts,
-                        })
-                    })
-                })
-                .unwrap();
-
-                with!(|dev_tools| {
-                    if dev_tools.enabled {
-                        if let Some(hovered) = &dev_tools.hovered {
-                            hovered.draw(renderer, viewport.get()).unwrap();
-                        }
-                    }
-                });
-            });
-
-            // Draw tag is just count of draw calls
-            // TODO: Review if in case of `take_draw_calls` usage, the tag could overlap with previous one. But we only check for equality of current and previous `draw_calls` so it seem to never be equal as we place 0 into `draw_calls` when take it.
-            let tag = draw_calls.update(|draw_calls| {
-                *draw_calls = draw_calls.wrapping_add(&1);
-                *draw_calls
-            });
-
-            (prev.map(|(_, prev_tag)| tag != *prev_tag).unwrap_or(true), tag)
-        });
+        let style = PageStyle::base().signal().name("Page style");
 
         Self {
             root,
@@ -211,22 +140,20 @@ impl<W: WidgetCtx> Page<W> {
             meta: PageMeta { focusable },
             // TODO: Signal viewport in Renderer
             renderer,
-            viewport,
+            viewport: viewport.name("Viewport"),
             dev_tools,
-            force_redraw,
-            drawing,
-            draw_calls,
+            force_redraw: create_trigger().name("Force redraw"),
+            render_calls: 0,
+            fonts,
         }
     }
 
     pub(crate) fn force_redraw(&mut self) {
-        self.force_redraw.set(true);
+        self.force_redraw.notify();
     }
 
     pub fn take_draw_calls(&mut self) -> usize {
-        let draw_calls = self.draw_calls.get();
-        self.draw_calls.set(0);
-        draw_calls
+        core::mem::replace(&mut self.render_calls, 0)
     }
 
     // TODO
@@ -242,10 +169,7 @@ impl<W: WidgetCtx> Page<W> {
 
     /// Focus first focusable element in page
     pub fn focus_first(&mut self) {
-        // Useless check, focus_el already checks
-        // if self.meta.focusable.with(|focusable| !focusable.is_empty()) {
         self.focus_el(0);
-        // }
     }
 
     /// Focus first focusable element in page if no element focused
@@ -332,16 +256,14 @@ impl<W: WidgetCtx> Page<W> {
     ) -> EventResponse {
         // Note: Need to have special deferred reactive updates zone. Because if some child node depends on value it's children set, then there will be a BorrowRefMut error because children are borrowed mutably for update on events. This happens for example if flex layout contains a checkbox toggling this flex layout wrap.
 
-        let defer_updates = defer_updates();
+        let defer_effects = defer_effects();
 
         let res = self.layout.with(|layout| {
-            let response = self.root.update_untracked(|root| {
-                root.on_event(&mut EventCtx {
-                    event,
-                    // TODO: Maybe state should not be changeable in on_event, pass it by reference
-                    page_state: self.state,
-                    layout: &layout.tree_root(),
-                })
+            let response = self.root.on_event(&mut EventCtx {
+                event,
+                // TODO: Maybe state should not be changeable in on_event, pass it by reference
+                page_state: self.state,
+                layout: &layout.tree_root(),
             });
 
             // TODO: notify root on event capture?
@@ -350,7 +272,7 @@ impl<W: WidgetCtx> Page<W> {
             response
         });
 
-        defer_updates.run();
+        defer_effects.run();
 
         res
     }
@@ -399,19 +321,43 @@ impl<W: WidgetCtx> Page<W> {
         &mut self,
         target: &mut impl DrawTarget<Color = W::Color>,
     ) -> bool {
-        if self.drawing.get().0 {
-            self.renderer.with(|renderer| renderer.draw(target)).ok().unwrap();
-            true
-        } else {
-            false
-        }
+        self.use_renderer(|renderer| {
+            renderer.draw(target).ok().unwrap();
+        })
     }
 
-    pub fn draw_with_renderer(&self, f: impl FnOnce(&W::Renderer)) -> bool {
-        if self.drawing.get().0 {
-            self.renderer.with(|renderer| {
-                f(renderer);
-            });
+    pub fn use_renderer(&mut self, f: impl FnOnce(&W::Renderer)) -> bool {
+        let mut renderer = self.renderer;
+        let drawn = observe(|| {
+            self.render_calls += 1;
+
+            renderer
+                .update_untracked(|renderer| {
+                    self.style.with(|style| {
+                        if let Some(bg) = style.background_color {
+                            renderer.clear(bg).ok().unwrap();
+                        }
+                    });
+                    // TODO: Reactive LayoutModel
+                    let layout = self.layout;
+                    with!(|layout| {
+                        self.root.render(&mut RenderCtx::new(
+                            self.state.read_only(),
+                            renderer,
+                            &layout.tree_root(),
+                            TreeStyle::base(),
+                            self.viewport,
+                            self.fonts.read_only(),
+                            self.force_redraw,
+                        ))
+                    })
+                })
+                .ok()
+                .unwrap();
+        });
+
+        if drawn {
+            self.renderer.with(|renderer| f(renderer));
 
             true
         } else {
@@ -426,16 +372,17 @@ mod tests {
     use crate::{
         el::El,
         font::FontCtx,
-        prelude::{Edge, Size, Text},
+        prelude::{Size, Text},
         render::{NullDrawTarget, NullRenderer},
         style::NullStyler,
-        widget::{Widget, WidgetCtx, Wtf},
+        widget::{Widget, ctx::*},
     };
     use alloc::string::String;
-    use embedded_graphics::pixelcolor::BinaryColor;
+
     use rsact_reactive::{
         maybe::IntoInert,
         memo::{IntoMemo, create_memo},
+        runtime::with_current_runtime,
         signal::IntoSignal,
         write::WriteSignal,
     };
@@ -473,5 +420,10 @@ mod tests {
         redraw_signal_data.update(|string| string.push_str("kek"));
         page.render(&mut NullDrawTarget::default());
         assert_eq!(page.take_draw_calls(), 1);
+
+        page.render(&mut NullDrawTarget::default());
+        assert_eq!(page.take_draw_calls(), 0);
+        page.render(&mut NullDrawTarget::default());
+        assert_eq!(page.take_draw_calls(), 0);
     }
 }

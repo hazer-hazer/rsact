@@ -21,9 +21,8 @@ use core::{
     fmt::Display,
     marker::PhantomData,
     panic::Location,
-    task::Context,
 };
-use slotmap::{KeyData, SecondaryMap, SlotMap};
+use slotmap::{SecondaryMap, SlotMap};
 
 slotmap::new_key_type! {
     pub struct RuntimeId;
@@ -121,11 +120,20 @@ impl Drop for DeferEffectsGuard {
     }
 }
 
-/// This called is identified by location in code and reruns only if reactive values from previous call are changed.
+// TODO: ObserverGuard to flatten callbacks into `start_observe` and `end_observe` (auto on drop)
+
+/// This call is identified by location in code and reruns only if reactive values from previous call are changed.
 #[track_caller]
 pub fn observe(f: impl FnOnce()) -> bool {
     let location = Location::caller();
-    with_current_runtime(|rt| rt.use_observer(location, f))
+    with_current_runtime(|rt| rt.use_observer(location, f, ()).0)
+}
+
+/// This call is identified by location in code and reruns only if reactive values from previous call are changed.
+#[track_caller]
+pub fn observe_or_default<R>(default: R, f: impl FnOnce() -> R) -> R {
+    let location = Location::caller();
+    with_current_runtime(|rt| rt.use_observer(location, f, default).1)
 }
 
 // TODO: Debug call-stack. Value get -> value get -> ... -> value get
@@ -197,7 +205,6 @@ impl Runtime {
         ScopeHandle::new(id)
     }
 
-    #[track_caller]
     fn add_value<T: 'static, DT: 'static>(
         &self,
         value: T,
@@ -218,6 +225,7 @@ impl Runtime {
             state: initial_state,
             #[cfg(feature = "debug-info")]
             debug: ValueDebugInfo {
+                name: None,
                 created_at: _caller,
                 state: match initial_state {
                     ValueState::Clean => ValueDebugInfoState::Clean(None),
@@ -255,7 +263,6 @@ impl Runtime {
         id
     }
 
-    #[track_caller]
     pub fn create_signal<T: 'static>(
         &self,
         value: T,
@@ -269,7 +276,6 @@ impl Runtime {
         )
     }
 
-    #[track_caller]
     pub fn create_effect<T, F>(
         &self,
         f: F,
@@ -289,7 +295,6 @@ impl Runtime {
         )
     }
 
-    #[track_caller]
     pub fn create_memo<T, F, P: 'static>(
         &self,
         f: F,
@@ -313,7 +318,6 @@ impl Runtime {
         )
     }
 
-    #[track_caller]
     pub fn create_computed<T, F, P>(
         &self,
         f: F,
@@ -364,11 +368,12 @@ impl Runtime {
         )
     }
 
-    fn use_observer(
+    fn use_observer<R>(
         &self,
         location: &'static Location<'static>,
-        f: impl FnOnce(),
-    ) -> bool {
+        f: impl FnOnce() -> R,
+        default: R,
+    ) -> (bool, R) {
         let id =
             *self.static_observers.borrow_mut().entry(location).or_insert_with(
                 || {
@@ -384,20 +389,29 @@ impl Runtime {
         self.subscribe(id);
         self.maybe_update(id, Some(id), location);
 
-        let dirty = self.storage.get(id).unwrap();
-        let mut dirty = dirty.value.borrow_mut();
-        let dirty = dirty.downcast_mut::<bool>().unwrap();
+        let dirty = {
+            let dirty = self.storage.get(id).unwrap();
+            let dirty = dirty.value.borrow_mut();
+            *dirty.downcast_ref::<bool>().unwrap()
+        };
 
-        if *dirty {
-            self.with_observer(id, |rt| {
+        if dirty {
+            let result = self.with_observer(id, |rt| {
                 rt.cleanup(id);
                 f()
             });
             self.mark_clean(id, Some(id), location);
-            *dirty = false;
-            true
+
+            {
+                let dirty = self.storage.get(id).unwrap();
+                let mut dirty = dirty.value.borrow_mut();
+                let dirty = dirty.downcast_mut::<bool>().unwrap();
+                *dirty = false;
+            }
+
+            (true, result)
         } else {
-            false
+            (false, default)
         }
     }
 
@@ -429,7 +443,6 @@ impl Runtime {
         });
     }
 
-    #[track_caller]
     pub(crate) fn with_observer<T>(
         &self,
         observer: ValueId,
@@ -450,6 +463,12 @@ impl Runtime {
         use alloc::borrow::BorrowMut as _;
 
         if let Some(observer) = self.observer.get() {
+            if observer == id {
+                panic!(
+                    "Recursive subscription. Tried to subscribe observer to itself"
+                );
+            }
+
             let mut sources = self.sources.borrow_mut();
             if let Some(sources) = sources.entry(observer) {
                 sources.or_default().borrow_mut().insert(id);
@@ -510,7 +529,7 @@ impl Runtime {
         }
 
         // // TODO: Isn't marked clean twice?
-        // self.mark_clean(id);
+        // self.mark_clean(id, requester, caller);
     }
 
     pub(crate) fn update(
@@ -589,7 +608,6 @@ impl Runtime {
         }
     }
 
-    #[track_caller]
     pub(crate) fn mark_clean(
         &self,
         id: ValueId,
@@ -599,7 +617,6 @@ impl Runtime {
         self.storage.mark(id, ValueState::Clean, requester, caller);
     }
 
-    #[track_caller]
     pub(crate) fn mark_dirty(
         &self,
         id: ValueId,
@@ -622,13 +639,11 @@ impl Runtime {
     ) {
         if let Some(subs) = subscribers.get(id) {
             for sub in subs {
-                deps.push(*sub);
                 Self::get_deep_deps(subscribers, deps, *sub);
             }
         }
     }
 
-    #[track_caller]
     fn mark_node(
         &self,
         id: ValueId,
@@ -687,7 +702,30 @@ impl Runtime {
         // }
     }
 
+    /// Generate mermaid graph containing all values in runtime.
+    /// Be careful, this might be very expensive, use it only for debug purposes.
+    #[cfg(feature = "debug-info")]
+    pub fn global_mermaid_graph(
+        &self,
+        max_depth: usize,
+    ) -> alloc::string::String {
+        use alloc::{format, string::String};
+
+        let mut visited = BTreeSet::new();
+        let graph = { self.storage.values.borrow().keys().collect::<Vec<_>>() }
+            .iter()
+            .fold(String::new(), |graph, &id| {
+                format!(
+                    "{graph}\n{}",
+                    self.mermaid_subgraph(id, 0, max_depth, &mut visited).1
+                )
+            });
+
+        format!("graph TD\n{graph}")
+    }
+
     /// Generate mermaid graph around the value.
+    /// The center value node has a red border
     #[cfg(feature = "debug-info")]
     pub fn mermaid_graph(
         &self,
@@ -736,7 +774,12 @@ impl Runtime {
                 (
                     name.clone(),
                     format!(
-                        "{name}{lp}\"{}{} ({})\"{rp}",
+                        "{name}{lp}\"{} {}{} ({})\"{rp}",
+                        if let Some(name) = value.debug.name {
+                            format!(" \'{name}\'")
+                        } else {
+                            "".to_string()
+                        },
                         value.kind,
                         if print_ty {
                             format!(": {}", value.debug.ty)
@@ -784,8 +827,9 @@ impl Runtime {
                     max_depth,
                     visited,
                 );
+                let arrow = if requester == id { "--" } else { "===" };
                 format!(
-                    "{req_graph}\n{req_name} == {} ==> {name}",
+                    "{req_graph}\n{req_name} {arrow}> |{}|{name}",
                     debug_info.state
                 )
             } else {
@@ -804,7 +848,7 @@ impl Runtime {
         let subs = subs.into_iter().fold(String::new(), |subs, sub| {
             let (sub_name, sub_graph) =
                 self.mermaid_subgraph(sub, depth + 1, max_depth, visited);
-            format!("{subs}\n{sub_name} == sub ==o {name}\n{sub_graph}")
+            format!("{subs}\n{sub_name} ===o |sub|{name}\n{sub_graph}")
         });
 
         let sources = {
@@ -825,7 +869,7 @@ impl Runtime {
                     visited,
                 );
 
-                format!("{sources}\n{source_name} == source ==o {name}\n{source_graph}")
+                format!("{sources}\n{source_name} ===o |source|{name}\n{source_graph}")
             });
 
         (name, format!("{decl}\n{subs}\n{sources}\n{state_change}\n"))
@@ -864,7 +908,6 @@ impl Runtime {
         DeferEffectsGuard
     }
 
-    #[track_caller]
     pub(crate) fn run_effects(
         &self,
         requester: Option<ValueId>,

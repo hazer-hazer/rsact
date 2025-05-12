@@ -1,5 +1,5 @@
 use super::{
-    Axis, Limits,
+    Axis,
     axis::{Anchor, Axial},
     padding::Padding,
 };

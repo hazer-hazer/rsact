@@ -7,7 +7,7 @@ use crate::{
     layout::Limits,
     prelude::Size,
     render::Renderable as _,
-    widget::{DrawResult, WidgetCtx},
+    widget::{RenderResult, ctx::WidgetCtx},
 };
 
 use super::{AbsoluteFontProps, FontHandler, FontStyle};
@@ -82,7 +82,7 @@ impl FontHandler for FixedFont {
         bounds: Rectangle,
         color: W::Color,
         renderer: &mut W::Renderer,
-    ) -> Option<DrawResult> {
+    ) -> Option<RenderResult> {
         match self {
             FixedFont::EGMonoFont(mono_font) => Some(
                 embedded_text::TextBox::new(
@@ -158,7 +158,7 @@ impl FontHandler for FixedFontCollection {
         bounds: Rectangle,
         color: W::Color,
         renderer: &mut W::Renderer,
-    ) -> Option<DrawResult> {
+    ) -> Option<RenderResult> {
         self.with(props, |font| {
             font.draw::<W>(content, props, bounds, color, renderer)
         })

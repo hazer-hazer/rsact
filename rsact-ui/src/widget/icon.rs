@@ -118,31 +118,30 @@ where
         self.layout
     }
 
-    fn render(
-        &self,
-        ctx: &mut crate::widget::DrawCtx<'_, W>,
-    ) -> crate::widget::DrawResult {
-        let viewport = ctx.viewport;
-        let style = self.style.get();
+    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
+        ctx.render(|ctx| {
+            let viewport = ctx.viewport;
+            let style = self.style.get();
 
-        let icon_raw = match &self.value {
-            &IconValue::Fixed(icon_raw) => icon_raw,
-            IconValue::Relative(size, kind) => {
-                with!(move |size, kind, viewport| kind
-                    .size(size.resolve(*viewport)))
-            },
-        };
+            let icon_raw = match &self.value {
+                &IconValue::Fixed(icon_raw) => icon_raw,
+                IconValue::Relative(size, kind) => {
+                    with!(move |size, kind, viewport| kind
+                        .size(size.resolve(*viewport)))
+                },
+            };
 
-        let icon = rsact_icons::Icon::new(
-            icon_raw,
-            ctx.layout.inner.top_left,
-            style.background.get(),
-            style.color.get(),
-        );
+            let icon = rsact_icons::Icon::new(
+                icon_raw,
+                ctx.layout.inner.top_left,
+                style.background.get(),
+                style.color.get(),
+            );
 
-        ctx.renderer.draw_iter(icon.iter()).ok().unwrap();
+            ctx.renderer().draw_iter(icon.iter()).ok().unwrap();
 
-        Ok(())
+            Ok(())
+        })
     }
 
     fn on_event(

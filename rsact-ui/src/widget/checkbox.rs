@@ -1,6 +1,6 @@
 use super::{
-    icon::{Icon, IconStyle},
     ContainerLayout,
+    icon::{Icon, IconStyle},
 };
 use crate::{render::Renderable, widget::prelude::*};
 use rsact_icons::system::SystemIcon;
@@ -95,24 +95,26 @@ where
 
     fn render(
         &self,
-        ctx: &mut crate::widget::DrawCtx<'_, W>,
-    ) -> crate::widget::DrawResult {
-        let style = self.style.get();
+        ctx: &mut crate::widget::RenderCtx<'_, W>,
+    ) -> crate::widget::RenderResult {
+        ctx.render(|ctx| {
+            let style = self.style.get();
 
-        Block::from_layout_style(
-            ctx.layout.outer,
-            self.layout.with(|layout| layout.block_model()),
-            style.container,
-        )
-        .render(ctx.renderer)?;
+            Block::from_layout_style(
+                ctx.layout.outer,
+                self.layout.with(|layout| layout.block_model()),
+                style.container,
+            )
+            .render(ctx.renderer())?;
 
-        ctx.render_focus_outline(self.id)?;
+            ctx.render_focus_outline(self.id)?;
 
-        if self.value.get() {
-            ctx.render_child(&self.icon)?;
-        }
+            if self.value.get() {
+                ctx.render_child(&self.icon)?;
+            }
 
-        Ok(())
+            Ok(())
+        })
     }
 
     fn on_event(
