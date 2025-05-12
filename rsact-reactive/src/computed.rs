@@ -5,37 +5,6 @@
  * By getting computed, signal data is retrieved and possibly mapped.
  */
 
-// TODO: Static setter/getter?
-
-// pub enum SignalGetter<G: PartialEq> {
-//     Signal(Signal<G>),
-//     Memo(Memo<G>),
-//     Derived(Box<dyn Fn()>),
-// }
-
-// pub enum SignalSetter<S> {
-//     Signal(Signal<S>),
-//     // TODO: Use StoredValue
-//     Map(Box<dyn Fn(S)>),
-// }
-
-// impl<S: 'static> SignalSetter<S> {
-//     pub fn signal(signal: Signal<S>) -> Self {
-//         Self::Signal(signal)
-//     }
-
-//     pub fn map(f: impl Fn(S) + 'static) -> Self {
-//         Self::Map(Box::new(f))
-//     }
-// }
-
-// pub struct Computed<G: PartialEq, S> {
-//     getter: SignalGetter<G>,
-//     setter: SignalSetter<S>,
-// }
-
-use core::{marker::PhantomData, panic::Location};
-
 use crate::{
     ReactiveValue,
     callback::{AnyCallback, CallbackFn},
@@ -44,6 +13,13 @@ use crate::{
     runtime::with_current_runtime,
     storage::ValueId,
 };
+use core::{marker::PhantomData, panic::Location};
+
+pub fn create_computed<T: 'static, P: 'static>(
+    f: impl CallbackFn<T, P> + 'static,
+) -> Computed<T> {
+    Computed::new(f)
+}
 
 pub(crate) struct ComputedCallback<T, F, P>
 where
@@ -52,6 +28,21 @@ where
     pub f: F,
     pub ty: PhantomData<T>,
     pub p: PhantomData<P>,
+}
+
+impl<T: 'static> Computed<T> {
+    #[track_caller]
+    pub fn new<P: 'static>(f: impl CallbackFn<T, P>) -> Self {
+        let caller = Location::caller();
+        Self {
+            id: with_current_runtime(|rt| rt.create_computed(f, caller)),
+            ty: PhantomData,
+        }
+    }
+
+    pub fn id(&self) -> ValueId {
+        self.id
+    }
 }
 
 impl<T: 'static, F, P> AnyCallback for ComputedCallback<T, F, P>
@@ -104,21 +95,6 @@ impl<T: 'static> ReactiveValue for Computed<T> {
 
     unsafe fn dispose(self) {
         with_current_runtime(|rt| rt.dispose(self.id))
-    }
-}
-
-impl<T: 'static> Computed<T> {
-    #[track_caller]
-    pub fn new(f: impl FnMut(Option<&T>) -> T + 'static) -> Self {
-        let caller = Location::caller();
-        Self {
-            id: with_current_runtime(|rt| rt.create_computed(f, caller)),
-            ty: PhantomData,
-        }
-    }
-
-    pub fn id(&self) -> ValueId {
-        self.id
     }
 }
 

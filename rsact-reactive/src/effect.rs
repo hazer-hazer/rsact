@@ -4,14 +4,18 @@ use crate::{
 use alloc::rc::Rc;
 use core::{any::Any, cell::RefCell, marker::PhantomData, panic::Location};
 
+#[track_caller]
 pub fn create_effect<T, F>(f: F) -> Effect<T>
 where
     T: 'static,
     F: FnMut(Option<T>) -> T + 'static,
 {
+    let caller = Location::caller();
     let effect = Effect::new(f);
 
-    with_current_runtime(|rt| rt.maybe_update(effect.id));
+    with_current_runtime(|rt| {
+        rt.maybe_update(effect.id, Some(effect.id), caller)
+    });
 
     effect
 }

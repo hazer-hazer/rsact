@@ -1,9 +1,11 @@
 // #![feature(thread_local)]
-#![cfg_attr(not(feature = "std"), no_std)]
-
-extern crate rsact_macros;
+#![cfg_attr(all(not(feature = "std"), test), no_std)]
 
 extern crate alloc;
+extern crate rsact_macros;
+
+#[cfg(any(feature = "std", test))]
+extern crate std;
 
 mod callback;
 pub mod computed;
@@ -21,11 +23,12 @@ pub mod signal;
 pub mod storage;
 mod thread_local;
 pub mod trigger;
+pub mod versioned;
 pub mod write;
 
 pub mod prelude {
     pub use super::{
-        computed::Computed,
+        computed::{Computed, create_computed},
         // cow::CowSignal,
         effect::{Effect, create_effect},
         maybe::{

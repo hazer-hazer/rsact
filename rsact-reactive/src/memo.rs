@@ -3,7 +3,7 @@ use crate::{
     callback::{AnyCallback, CallbackFn},
     read::{ReadSignal, SignalMap, impl_read_signal_traits},
     runtime::with_current_runtime,
-    signal::{Signal, marker},
+    signal::Signal,
     storage::ValueId,
 };
 use alloc::{rc::Rc, vec::Vec};
@@ -11,10 +11,9 @@ use core::{cell::RefCell, marker::PhantomData, ops::Deref, panic::Location};
 
 // TODO: FnMut in memos is a bad idea!
 #[track_caller]
-pub fn create_memo<T, F, P: 'static>(mut f: F) -> Memo<T>
+pub fn create_memo<T, P: 'static>(f: impl CallbackFn<T, P> + 'static) -> Memo<T>
 where
     T: PartialEq + 'static,
-    F: CallbackFn<T, P> + 'static,
 {
     Memo::new(f)
 }
@@ -74,10 +73,7 @@ impl_read_signal_traits!(Memo<T>: PartialEq);
 
 impl<T: PartialEq + 'static> Memo<T> {
     #[track_caller]
-    pub fn new<F, P: 'static>(f: F) -> Self
-    where
-        F: CallbackFn<T, P> + 'static,
-    {
+    pub fn new<P: 'static>(f: impl CallbackFn<T, P> + 'static) -> Self {
         let caller = Location::caller();
         Self::Memo {
             id: with_current_runtime(|rt| rt.create_memo(f, caller)),
@@ -87,7 +83,7 @@ impl<T: PartialEq + 'static> Memo<T> {
 
     pub fn id(&self) -> ValueId {
         match self {
-            Memo::Memo { id, ty } => *id,
+            Memo::Memo { id, ty: _ } => *id,
             Memo::Signal(signal) => signal.id(),
         }
     }
@@ -241,7 +237,6 @@ impl<T: PartialEq + 'static> MemoTree<T> {
     //     })
     // }
 
-    #[track_caller]
     pub fn flat_collect(&self) -> Vec<Memo<T>> {
         self.children.with(|children| {
             core::iter::once(self.data)

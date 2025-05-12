@@ -55,6 +55,13 @@ pub trait SignalMap<T: 'static> {
     }
 }
 
+// /// Used to access deep signal values, such as `Memo<Memo<Memo<T>>>`. Be careful with this, only use if `signal.with(|signal| signal.with(|signal| signal.with(f)))` is the behavior you need.
+// pub trait WithDeep<T: 'static>: ReadSignal<T> {
+//     #[track_caller]
+//     fn deep_with<U>(&self, f: impl FnOnce(&T) -> U) -> U;
+// }
+
+
 // TODO: Implement SignalMap for tuple of signals or map! macro is enough?
 // macro_rules! impl_signal_map_tuple {
 //     () => {};

@@ -19,7 +19,9 @@ pub trait RwSignal<T: 'static>: ReadSignal<T> + WriteSignal<T> {}
 impl<S, T: 'static> RwSignal<T> for S where S: ReadSignal<T> + WriteSignal<T> {}
 
 pub mod marker {
+    #[derive(Clone, Copy)]
     pub struct ReadOnly;
+    #[derive(Clone, Copy)]
     pub struct WriteOnly;
     pub struct Rw;
 

@@ -3,13 +3,13 @@ use crate::{
     memo::{self, IntoMemo, Memo, create_memo},
     prelude::MemoChain,
     read::{ReadSignal, SignalMap, impl_read_signal_traits},
-    signal::{IntoSignal, Signal, create_signal},
+    signal::{IntoSignal, Signal, create_signal, marker},
     write::{SignalSetter, WriteSignal},
 };
 use alloc::{boxed::Box, vec::Vec};
 use core::{
     marker::PhantomData,
-    ops::{Deref, DerefMut},
+    ops::{Deref, DerefMut, RangeInclusive},
 };
 
 #[repr(transparent)]
@@ -370,14 +370,24 @@ impl<T: PartialEq + Clone> IntoMemo<T> for MaybeReactive<T> {
     }
 }
 
-#[derive(Clone, Copy)]
-pub enum MaybeSignal<T: 'static> {
+pub enum MaybeSignal<T: 'static, M: marker::Any = marker::Rw> {
     /// Option needed to deal with conversion from [`Inert`] into [`Signal`]
     /// Optimize: Can be replaced with MaybeUninit for performance
-    #[non_exhaustive]
+    // #[non_exhaustive]
     Inert(Option<T>),
-    #[non_exhaustive]
-    Signal(Signal<T>),
+    // #[non_exhaustive]
+    Signal(Signal<T, M>),
+}
+
+impl<T: Copy + 'static, M: marker::Any> Copy for MaybeSignal<T, M> {}
+
+impl<T: Clone + 'static, M: marker::Any> Clone for MaybeSignal<T, M> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Inert(arg0) => Self::Inert(arg0.clone()),
+            Self::Signal(arg0) => Self::Signal(arg0.clone()),
+        }
+    }
 }
 
 pub trait IntoMaybeSignal<T> {
