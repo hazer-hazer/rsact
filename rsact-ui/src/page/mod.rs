@@ -76,6 +76,8 @@ impl<W: WidgetCtx> Page<W> {
         let mut root: El<W> = root.into();
         let state = PageState::new().signal().name("Page state");
 
+        let force_redraw = create_trigger().name("Force redraw");
+
         // Raw root initialization //
         root.on_mount(MountCtx {
             viewport,
@@ -126,6 +128,8 @@ impl<W: WidgetCtx> Page<W> {
 
             // std::println!("Relayout {:#?}", layout.tree_root());
 
+            force_redraw.notify();
+
             layout
         })
         .name("Layout model");
@@ -142,7 +146,7 @@ impl<W: WidgetCtx> Page<W> {
             renderer,
             viewport: viewport.name("Viewport"),
             dev_tools,
-            force_redraw: create_trigger().name("Force redraw"),
+            force_redraw,
             render_calls: 0,
             fonts,
         }
@@ -338,6 +342,7 @@ impl<W: WidgetCtx> Page<W> {
                             renderer.clear(bg).ok().unwrap();
                         }
                     });
+
                     // TODO: Reactive LayoutModel
                     let layout = self.layout;
                     with!(|layout| {
