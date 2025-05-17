@@ -131,8 +131,6 @@ impl<W: WidgetCtx> Page<W> {
 
             force_redraw.notify();
 
-            println!("Relayout");
-
             layout
         })
         .name("Layout model");
