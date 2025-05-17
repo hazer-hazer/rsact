@@ -1,6 +1,6 @@
-
 [dependencies]
 embedded-graphics = {workspace = true}
+rsact-reactive = {workspace = true}
 
 [build-dependencies]
 bitvec = "1.0.1"

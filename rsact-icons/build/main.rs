@@ -365,7 +365,7 @@ fn gen_set<S: IconSet>() {
         )*
 
         #[doc = #info]
-        #[derive(Clone, Copy, Debug, PartialEq)]
+        #[derive(Clone, Copy, Debug, PartialEq, rsact_reactive::prelude::IntoMaybeReactive)]
         pub enum #set_name {
             #(#icon_names1,)*
             #(#aliases)*
