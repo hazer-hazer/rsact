@@ -5,6 +5,7 @@ replace_with = {workspace = true}
 rsact-macros = {workspace = true}
 slotmap = {workspace = true}
 tinyvec.workspace = true
+ahash = "0.8.12"
 
 [dev-dependencies]
 criterion = "0.5.1"

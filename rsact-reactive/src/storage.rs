@@ -79,7 +79,7 @@ impl ValueId {
         result
     }
 
-    pub(crate) fn notify(
+    pub fn notify(
         &self,
         rt: &Runtime,
         caller: &'static Location<'static>,
@@ -153,6 +153,14 @@ impl ValueId {
             rt.storage.set_debug_info(*self, |debug_info| {
                 debug_info.name = Some(name)
             });
+        })
+    }
+
+    #[track_caller]
+    pub fn dirten(&self) {
+        let caller = Location::caller();
+        with_current_runtime(|rt| {
+            rt.mark_dirty(*self, Some(*self), caller);
         })
     }
 }

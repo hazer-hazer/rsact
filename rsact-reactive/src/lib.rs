@@ -44,7 +44,7 @@ pub mod prelude {
         resource::create_resource,
         rsact_macros::IntoMaybeReactive,
         runtime::{
-            create_runtime, observe, observe_or_default, with_current_runtime,
+            create_runtime, observe, observe_by_location, with_current_runtime,
             with_new_runtime,
         },
         signal::{IntoSignal, RwSignal, Signal, create_signal},

@@ -10,6 +10,7 @@ use crate::{
         ValueKind, ValueState,
     },
 };
+use ahash::RandomState;
 use alloc::{
     boxed::Box,
     collections::{btree_map::BTreeMap, btree_set::BTreeSet},
@@ -19,6 +20,7 @@ use alloc::{
 use core::{
     cell::{Cell, RefCell},
     fmt::Display,
+    hash::Hash,
     marker::PhantomData,
     panic::Location,
 };
@@ -124,16 +126,28 @@ impl Drop for DeferEffectsGuard {
 
 /// This call is identified by location in code and reruns only if reactive values from previous call are changed.
 #[track_caller]
-pub fn observe(f: impl FnOnce()) -> bool {
+pub fn observe_by_location<R>(f: impl FnOnce() -> R) -> Option<R> {
     let location = Location::caller();
-    with_current_runtime(|rt| rt.use_observer(location, f, ()).0)
+
+    with_current_runtime(|rt| {
+        rt.use_observe(rt.hasher.hash_one(location), location, f)
+    })
 }
 
 /// This call is identified by location in code and reruns only if reactive values from previous call are changed.
+/// For this to work you must ensure your `observe` call is unique using `#[track_caller]`
 #[track_caller]
-pub fn observe_or_default<R>(default: R, f: impl FnOnce() -> R) -> R {
+pub fn observe<H: Hash, R>(id: H, f: impl FnOnce() -> R) -> Option<R> {
     let location = Location::caller();
-    with_current_runtime(|rt| rt.use_observer(location, f, default).1)
+    with_current_runtime(|rt| {
+        rt.use_observe(rt.hasher.hash_one(id), location, f)
+    })
+}
+
+pub fn get_observer<H: Hash>(id: H) -> Option<ValueId> {
+    with_current_runtime(|rt| {
+        rt.static_observers.borrow().get(&rt.hasher.hash_one(id)).copied()
+    })
 }
 
 // TODO: Debug call-stack. Value get -> value get -> ... -> value get
@@ -154,7 +168,8 @@ pub struct Runtime {
     pub(crate) pending_effects: RefCell<BTreeSet<ValueId>>,
     pub(crate) defer_effects: Cell<bool>,
     /// Mapping from [`observe`] call location to its value id. Calling the same [`observe`] twice gives the same [`ValueId`]
-    static_observers: RefCell<BTreeMap<&'static Location<'static>, ValueId>>,
+    static_observers: RefCell<BTreeMap<u64, ValueId>>,
+    hasher: RandomState,
 }
 
 impl Runtime {
@@ -170,6 +185,7 @@ impl Runtime {
             pending_effects: Default::default(),
             defer_effects: Cell::new(false),
             static_observers: Default::default(),
+            hasher: RandomState::new(),
         }
     }
 
@@ -368,14 +384,14 @@ impl Runtime {
         )
     }
 
-    fn use_observer<R>(
+    fn use_observe<R>(
         &self,
+        hash: u64,
         location: &'static Location<'static>,
         f: impl FnOnce() -> R,
-        default: R,
-    ) -> (bool, R) {
+    ) -> Option<R> {
         let id =
-            *self.static_observers.borrow_mut().entry(location).or_insert_with(
+            *self.static_observers.borrow_mut().entry(hash).or_insert_with(
                 || {
                     self.add_value::<_, bool>(
                         true,
@@ -389,29 +405,29 @@ impl Runtime {
         self.subscribe(id);
         self.maybe_update(id, Some(id), location);
 
-        let dirty = {
-            let dirty = self.storage.get(id).unwrap();
-            let dirty = dirty.value.borrow_mut();
-            *dirty.downcast_ref::<bool>().unwrap()
-        };
+        // let dirty = {
+        //     let dirty = self.storage.get(id).unwrap();
+        //     let dirty = dirty.value.borrow_mut();
+        //     *dirty.downcast_ref::<bool>().unwrap()
+        // };
 
-        if dirty {
+        if self.is(id, ValueState::Dirty) {
             let result = self.with_observer(id, |rt| {
                 rt.cleanup(id);
                 f()
             });
             self.mark_clean(id, Some(id), location);
 
-            {
-                let dirty = self.storage.get(id).unwrap();
-                let mut dirty = dirty.value.borrow_mut();
-                let dirty = dirty.downcast_mut::<bool>().unwrap();
-                *dirty = false;
-            }
+            // {
+            //     let dirty = self.storage.get(id).unwrap();
+            //     let mut dirty = dirty.value.borrow_mut();
+            //     let dirty = dirty.downcast_mut::<bool>().unwrap();
+            //     *dirty = false;
+            // }
 
-            (true, result)
+            Some(result)
         } else {
-            (false, default)
+            None
         }
     }
 
@@ -548,7 +564,7 @@ impl Runtime {
                 return;
             }
 
-            let changed = match value.kind {
+            let changed = match &value.kind {
                 ValueKind::MemoChain { memo, first, last } => {
                     let value = value.value;
 
@@ -582,13 +598,7 @@ impl Runtime {
                     })
                 },
                 ValueKind::Signal { .. } => true,
-                ValueKind::Observer => {
-                    let mut value = value.value.borrow_mut();
-                    let value = value.downcast_mut::<bool>().unwrap();
-                    let changed = !*value;
-                    *value = true;
-                    changed
-                },
+                ValueKind::Observer => true,
             };
 
             if changed {
@@ -604,7 +614,9 @@ impl Runtime {
                 }
             }
 
-            self.mark_clean(id, requester, caller);
+            if !matches!(value.kind, ValueKind::Observer) {
+                self.mark_clean(id, requester, caller);
+            }
         }
     }
 
@@ -625,7 +637,8 @@ impl Runtime {
     ) {
         self.mark_node(id, ValueState::Dirty, requester, caller);
 
-        let mut deps = Vec::new();
+        // TODO: Find other way to deal with recursive dependencies than BTreeSet?
+        let mut deps = BTreeSet::new();
         Self::get_deep_deps(&self.subscribers.borrow(), &mut deps, id);
         for dep in deps {
             self.mark_node(dep, ValueState::Check, requester, caller);
@@ -634,12 +647,15 @@ impl Runtime {
 
     fn get_deep_deps(
         subscribers: &SecondaryMap<ValueId, BTreeSet<ValueId>>,
-        deps: &mut Vec<ValueId>,
+        deps: &mut BTreeSet<ValueId>,
         id: ValueId,
     ) {
         if let Some(subs) = subscribers.get(id) {
             for sub in subs {
-                Self::get_deep_deps(subscribers, deps, *sub);
+                if !deps.contains(sub) {
+                    deps.insert(*sub);
+                    Self::get_deep_deps(subscribers, deps, *sub);
+                }
             }
         }
     }
@@ -1110,12 +1126,12 @@ impl Display for Profile {
 
         #[cfg(feature = "debug-info")]
         if let Some((top_by_subs, count)) = self.top_by_subs {
-            writeln!(f, "  by subscribers: {top_by_subs} ({count})")?;
+            writeln!(f, " by subscribers: {top_by_subs} ({count})")?;
         }
 
         #[cfg(feature = "debug-info")]
         if let Some((top_by_sources, count)) = self.top_by_sources {
-            writeln!(f, "  by sources: {top_by_sources} ({count})")?;
+            writeln!(f, " by sources: {top_by_sources} ({count})")?;
         }
 
         Ok(())
@@ -1124,11 +1140,11 @@ impl Display for Profile {
 
 #[cfg(test)]
 mod tests {
-    use super::{CURRENT_RUNTIME, observe};
+    use super::CURRENT_RUNTIME;
     use crate::{
         memo::create_memo,
         read::ReadSignal,
-        runtime::{RUNTIMES, with_new_runtime},
+        runtime::{RUNTIMES, observe_by_location},
         signal::create_signal,
         write::WriteSignal,
     };
@@ -1152,21 +1168,21 @@ mod tests {
 
         let runs = runs_count.clone();
         let run = move || {
-            observe(|| {
+            observe_by_location(|| {
                 signal.get();
                 runs.set(runs.get() + 1);
             })
         };
 
-        assert_eq!(run(), true);
+        assert_eq!(run(), Some(()));
 
         signal.set(2);
 
-        assert_eq!(run(), true);
-        assert_eq!(run(), false);
-        assert_eq!(run(), false);
-        assert_eq!(run(), false);
-        assert_eq!(run(), false);
+        assert_eq!(run(), Some(()));
+        assert_eq!(run(), None);
+        assert_eq!(run(), None);
+        assert_eq!(run(), None);
+        assert_eq!(run(), None);
 
         assert_eq!(runs_count.get(), 2);
     }
@@ -1179,26 +1195,26 @@ mod tests {
 
         // Run observe only for even `a` values
         let mut run = move || {
-            observe(|| {
+            observe_by_location(|| {
                 calls.update_untracked(|calls| *calls += 1);
                 a_is_even.get();
             })
         };
 
-        assert_eq!(run(), true, "observe didn't runs first time");
+        assert_eq!(run(), Some(()), "observe didn't runs first time");
         assert_eq!(a_is_even.get(), true);
         assert_eq!(calls.get(), 1);
-        assert_eq!(run(), false);
+        assert_eq!(run(), None);
 
         a.set(3);
-        assert_eq!(run(), true, "observe didn't run on value change");
+        assert_eq!(run(), Some(()), "observe didn't run on value change");
         assert_eq!(a_is_even.get(), false);
         assert_eq!(calls.get(), 2);
-        assert_eq!(run(), false);
+        assert_eq!(run(), None);
 
         // `a` is still odd, so observe shouldn't rerun
         a.set(5);
-        assert_eq!(run(), false, "observe rerun on unchanged memo");
+        assert_eq!(run(), None, "observe rerun on unchanged memo");
         assert_eq!(a_is_even.get(), false);
         assert_eq!(calls.get(), 2);
     }
@@ -1208,16 +1224,16 @@ mod tests {
         let mut signal = create_signal(123);
 
         let mut run = move || {
-            observe(|| {
+            observe_by_location(|| {
                 signal.get();
                 signal.set(69);
             })
         };
 
-        assert_eq!(run(), true);
+        assert_eq!(run(), Some(()));
         signal.set(0);
-        assert_eq!(run(), true);
-        assert_eq!(run(), false);
+        assert_eq!(run(), Some(()));
+        assert_eq!(run(), None);
     }
 
     #[test]
@@ -1225,17 +1241,19 @@ mod tests {
         let mut signal = create_signal(123);
 
         let run = move || {
-            observe(move || {
-                observe(|| {
-                    signal.get();
-                    signal.set(69);
+            observe_by_location(move || {
+                observe_by_location(|| {
+                    observe_by_location(|| {
+                        signal.get();
+                        signal.set(69);
+                    });
                 });
             })
         };
 
-        assert_eq!(run(), true);
+        assert_eq!(run(), Some(()));
         signal.set(0);
-        assert_eq!(run(), true);
-        assert_eq!(run(), false);
+        assert_eq!(run(), Some(()));
+        assert_eq!(run(), None);
     }
 }
