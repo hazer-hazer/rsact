@@ -11,7 +11,11 @@ use crate::{
 };
 use alloc::string::ToString;
 use core::{cell::RefCell, fmt::Display, marker::PhantomData};
-use embedded_graphics::prelude::{Point, Transform};
+use embedded_graphics::{
+    prelude::{Point, Transform},
+    primitives::Rectangle,
+};
+use itertools::Itertools as _;
 use layout::{axis::Anchor, size::RectangleExt};
 use rsact_reactive::{maybe::IntoMaybeReactive, memo_chain::IntoMemoChain};
 
@@ -25,6 +29,25 @@ pub struct SelectState {
 impl SelectState {
     pub fn initial(selected: Option<usize>) -> Self {
         Self { pressed: false, active: false, selected }
+    }
+
+    fn options_offset(
+        &self,
+        inner: Rectangle,
+        children_layouts: &[LayoutModelNode<'_>],
+    ) -> Result<(Point, usize), Point> {
+        if let Some(selected) = self.selected {
+            let selected_child_layout = children_layouts.get(selected).unwrap();
+
+            let options_offset =
+                inner.center_offset_of(selected_child_layout.inner);
+
+            Ok((options_offset, selected))
+        } else if let Some(first_option) = children_layouts.first() {
+            Err(inner.center_offset_of(first_option.inner))
+        } else {
+            Err(Point::zero())
+        }
     }
 }
 
@@ -89,7 +112,6 @@ impl<W: WidgetCtx, K: PartialEq> PartialEq for SelectOption<W, K> {
 }
 
 pub struct Select<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> {
-    id: ElId,
     layout: Signal<Layout>,
     state: Signal<SelectState>,
     style: MemoChain<SelectStyle<W::Color>>,
@@ -168,7 +190,6 @@ where
         );
 
         Self {
-            id: ElId::unique(),
             layout: Layout::shrink(LayoutKind::Flex(
                 FlexLayout::base(
                     Dir::AXIS,
@@ -252,8 +273,7 @@ impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> Widget<W>
 where
     W::Styler: WidgetStylist<SelectStyle<W::Color>>,
 {
-    fn meta(&self) -> MetaTree {
-        let id = self.id;
+    fn meta(&self, id: ElId) -> MetaTree {
         MetaTree::childless(Meta::focusable(id).inert().memo())
     }
 
@@ -272,69 +292,73 @@ where
         self.layout
     }
 
+    #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
-        ctx.render(|ctx| {
+        let children_layouts = ctx.layout.children().collect::<Vec<_>>();
+
+        ctx.render_self(|ctx| {
             let style = self.style.get();
             let state = self.state.get();
 
-            let children_layouts = ctx.layout.children().collect::<Vec<_>>();
+            match state.options_offset(ctx.layout.inner, &children_layouts) {
+                Ok((options_offset, selected)) => {
+                    let selected_child_layout =
+                        children_layouts.get(selected).unwrap();
 
-            let options_offset = if let Some(selected) = state.selected {
-                let selected_child_layout =
-                    children_layouts.get(selected).unwrap();
-
-                let options_offset = ctx
-                    .layout
-                    .inner
-                    .center_offset_of(selected_child_layout.inner);
-
-                Block::from_layout_style(
-                    selected_child_layout
-                        .inner
-                        .translate(options_offset)
-                        .resized_axis(
-                            Dir::AXIS.inverted(),
-                            ctx.layout.inner.size.cross(Dir::AXIS),
-                            Anchor::Center,
-                        ),
-                    BlockModel::zero().border_width(1),
-                    style.selected,
-                )
-                .render(ctx.renderer())?;
-
-                options_offset
-            } else if let Some(first_option) = children_layouts.first() {
-                ctx.layout.inner.center_offset_of(first_option.inner)
-            } else {
-                Point::zero()
-            };
+                    Block::from_layout_style(
+                        selected_child_layout
+                            .inner
+                            .translate(options_offset)
+                            .resized_axis(
+                                Dir::AXIS.inverted(),
+                                ctx.layout.inner.size.cross(Dir::AXIS),
+                                Anchor::Center,
+                            ),
+                        BlockModel::zero().border_width(1),
+                        style.selected,
+                    )
+                    .render(ctx.renderer())?;
+                },
+                Err(_) => {},
+            }
 
             // TODO: Review if focus outline visible
-            ctx.render_focus_outline(self.id)?;
+            ctx.render_focus_outline(ctx.id)
+        })?;
+
+        ctx.render_part("options", |ctx| {
+            let state = self.state.get();
+            let style = self.style.get();
+            let options_offset = state
+                .options_offset(ctx.layout.inner, &children_layouts)
+                .map(|(offset, _)| offset)
+                .unwrap_or_else(|offset| offset);
 
             self.options.with(move |options| {
-                ctx.render_clipped(ctx.layout.inner, |ctx| {
+                ctx.clip_inner(|ctx| {
                     options
                         .iter()
-                        .zip(ctx.layout.children())
+                        .zip_eq(children_layouts.iter())
                         .enumerate()
                         .try_for_each(|(index, (option, option_layout))| {
                             ctx.with_tree_style(
                                 |tree_style| {
                                     tree_style.text_color(
-                                        if Some(index) == state.selected {
+                                        (if Some(index) == state.selected {
                                             style.selected_text_color
                                         } else {
                                             style.text_color
-                                        }
+                                        })
                                         .get(),
                                     )
                                 },
                                 |ctx| {
-                                    ctx.with_child_layout(
+                                    let option = option.el.borrow();
+                                    ctx.for_child(
+                                        option.id(),
                                         &option_layout
                                             .translate(options_offset),
-                                        |ctx| option.el.borrow().render(ctx),
+                                        |ctx| option.render(ctx),
                                     )
                                 },
                             )
@@ -344,10 +368,10 @@ where
         })
     }
 
-    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {
+    fn on_event(&mut self, mut ctx: EventCtx<'_, W>) -> EventResponse {
         let state = self.state.get();
 
-        if state.active && ctx.is_focused(self.id) {
+        if state.active && ctx.is_focused() {
             // TODO: Right select interpretation
             if let Some(mut offset) = ctx.event.interpret_as_rotation() {
                 let current = state.selected;
@@ -362,7 +386,7 @@ where
                         }
                     })
                     .map(|current| {
-                        (current as i32 + offset).clamp(
+                        ((current as i32) + offset).clamp(
                             0,
                             self.options
                                 .with(|options| options.len().saturating_sub(1))
@@ -371,14 +395,16 @@ where
                     });
 
                 if current != new {
-                    self.state.update(|state| state.selected = new);
+                    self.state.update(|state| {
+                        state.selected = new;
+                    });
                 }
 
                 return ctx.capture();
             }
         }
 
-        ctx.handle_focusable(self.id, |ctx, pressed| {
+        ctx.handle_focusable(|ctx, pressed| {
             // TODO: Generalize
             if state.pressed != pressed {
                 let toggle_active = !state.pressed && pressed;

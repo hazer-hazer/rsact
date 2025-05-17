@@ -29,12 +29,35 @@ impl From<&'static str> for ElId {
     }
 }
 
+/// Value bound with [`ElId`], used for hashing purposes
+#[derive(Debug, Clone, Copy, Hash)]
+pub struct WithElId<T> {
+    id: ElId,
+    value: T,
+}
+
+impl<T> WithElId<T> {
+    pub fn new(id: ElId, value: T) -> Self {
+        Self { id, value }
+    }
+}
+
 pub struct El<W>
 where
     W: WidgetCtx,
 {
     widget: Box<dyn Widget<W>>,
     mounted: bool,
+    id: ElId,
+}
+
+impl<W> El<W>
+where
+    W: WidgetCtx,
+{
+    pub fn id(&self) -> ElId {
+        self.id
+    }
 }
 
 impl<W> El<W>
@@ -42,7 +65,7 @@ where
     W: WidgetCtx,
 {
     pub(crate) fn new(widget: impl Widget<W> + 'static) -> Self {
-        Self { widget: Box::new(widget), mounted: false }
+        Self { widget: Box::new(widget), mounted: false, id: ElId::unique() }
     }
 }
 
@@ -65,14 +88,15 @@ where
         }
     }
 
-    fn meta(&self) -> MetaTree {
-        self.widget.meta()
+    fn meta(&self, _parent_id: ElId) -> MetaTree {
+        self.widget.meta(self.id)
     }
 
     fn layout(&self) -> Signal<Layout> {
         self.widget.layout()
     }
 
+    #[track_caller]
     fn render(
         &self,
         ctx: &mut RenderCtx<'_, W>,
@@ -80,7 +104,8 @@ where
         self.widget.render(ctx)
     }
 
-    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {
+    fn on_event(&mut self, mut ctx: EventCtx<'_, W>) -> EventResponse {
+        ctx.id = self.id;
         self.widget.on_event(ctx)
     }
 }

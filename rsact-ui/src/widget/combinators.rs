@@ -38,7 +38,7 @@ use super::prelude::*;
 //         todo!()
 //     }
 
-//     fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {
+//     fn on_event(&mut self, ctx: EventCtx<'_, W>) -> EventResponse {
 //         todo!()
 //     }
 // }
@@ -191,7 +191,7 @@ use super::prelude::*;
 pub struct Unit;
 
 impl<W: WidgetCtx> Widget<W> for Unit {
-    fn meta(&self) -> MetaTree {
+    fn meta(&self, id: ElId) -> MetaTree {
         MetaTree::childless(Meta::none)
     }
 
@@ -203,15 +203,13 @@ impl<W: WidgetCtx> Widget<W> for Unit {
         Layout::zero().signal()
     }
 
+    #[track_caller]
     fn render(&self, ctx: &mut super::RenderCtx<'_, W>) -> super::RenderResult {
         let _ = ctx;
         Ok(())
     }
 
-    fn on_event(
-        &mut self,
-        ctx: &mut super::EventCtx<'_, W>,
-    ) -> super::EventResponse {
+    fn on_event(&mut self, ctx: EventCtx<'_, W>) -> super::EventResponse {
         let _ = ctx;
         ctx.ignore()
     }
@@ -224,9 +222,9 @@ impl<W: WidgetCtx, T: Widget<W> + 'static> Into<El<W>> for Option<T> {
 }
 
 impl<W: WidgetCtx> Widget<W> for Option<El<W>> {
-    fn meta(&self) -> MetaTree {
+    fn meta(&self, id: ElId) -> MetaTree {
         self.as_ref()
-            .map(|widget| widget.meta())
+            .map(|widget| widget.meta(id))
             .unwrap_or(MetaTree::childless(Meta::none))
     }
 
@@ -241,14 +239,12 @@ impl<W: WidgetCtx> Widget<W> for Option<El<W>> {
             .unwrap_or(Layout::zero().signal())
     }
 
+    #[track_caller]
     fn render(&self, ctx: &mut super::RenderCtx<'_, W>) -> super::RenderResult {
         self.as_ref().map(|widget| widget.render(ctx)).unwrap_or(Ok(()))
     }
 
-    fn on_event(
-        &mut self,
-        ctx: &mut super::EventCtx<'_, W>,
-    ) -> super::EventResponse {
+    fn on_event(&mut self, ctx: EventCtx<'_, W>) -> super::EventResponse {
         self.as_mut().map(|widget| widget.on_event(ctx)).unwrap_or(ctx.ignore())
     }
 }

@@ -106,7 +106,7 @@ impl<W: WidgetCtx> Widget<W> for Text<W>
 where
     W::Styler: WidgetStylist<TextStyle<W::Color>>,
 {
-    fn meta(&self) -> MetaTree {
+    fn meta(&self, _: ElId) -> MetaTree {
         MetaTree::childless(Meta::none)
     }
 
@@ -119,8 +119,9 @@ where
         self.layout
     }
 
+    #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
-        ctx.render(|ctx| {
+        ctx.render_self(|ctx| {
             let content = self.content;
             let style = self.style.get();
             let props = self.font_props();
@@ -140,7 +141,7 @@ where
         })
     }
 
-    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {
+    fn on_event(&mut self, ctx: EventCtx<'_, W>) -> EventResponse {
         ctx.ignore()
     }
 }

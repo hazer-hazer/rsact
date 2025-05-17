@@ -208,16 +208,16 @@ impl<W: WidgetCtx + 'static, Dir: Direction + 'static> FontSettingWidget<W>
 }
 
 impl<W: WidgetCtx + 'static, Dir: Direction> Widget<W> for Flex<W, Dir> {
-    fn meta(&self) -> MetaTree {
+    fn meta(&self, id: ElId) -> MetaTree {
         MetaTree {
             data: Meta::none.memo(),
-            children: self.children.map_reactive(|children| {
-                children.iter().map(Widget::meta).collect()
+            children: self.children.map_reactive(move |children| {
+                children.iter().map(|child| child.meta(id)).collect()
             }),
         }
     }
 
-    fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
+    fn on_mount(&mut self, ctx: MountCtx<W>) {
         ctx.pass_to_children(self.layout, &mut self.children);
     }
 
@@ -227,19 +227,14 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Widget<W> for Flex<W, Dir> {
 
     fn render(
         &self,
-        ctx: &mut crate::widget::RenderCtx<'_, W>,
+        ctx: &mut RenderCtx<'_, W>,
     ) -> crate::widget::RenderResult {
-        ctx.render(|ctx| {
-            self.children.with(|children| ctx.render_children(children.iter()))
-        })
+        ctx.render_children(&self.children)
     }
 
-    fn on_event(
-        &mut self,
-        ctx: &mut crate::widget::EventCtx<'_, W>,
-    ) -> EventResponse {
+    fn on_event(&mut self, mut ctx: EventCtx<'_, W>) -> EventResponse {
         self.children
-            .update_untracked(|children| ctx.pass_to_children(children))
+            .update_untracked(move |children| ctx.pass_to_children(children))
     }
 }
 

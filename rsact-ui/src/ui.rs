@@ -67,6 +67,7 @@ where
         default_background: C,
     ) -> Self {
         let viewport = viewport.memo().map(|&viewport| viewport.into());
+
         Self::new(
             viewport,
             styler,
@@ -220,6 +221,7 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
                 .insert(
                     id,
                     Page::new(
+                        id,
                         page_root,
                         self.viewport,
                         self.styler,
@@ -261,7 +263,7 @@ impl<W: WidgetCtx> UI<W, WithPages> {
 
     /// Run some logic on page change
     fn on_page_change(&mut self) {
-        self.current_page().force_redraw();
+        self.current_page().clear().force_redraw();
 
         if self.options.auto_focus {
             self.current_page().apply_auto_focus();

@@ -1,4 +1,5 @@
 use crate::{
+    el::ElId,
     event::EventResponse,
     layout::Layout,
     render::Renderable,
@@ -9,6 +10,8 @@ use embedded_graphics::{
     prelude::*,
 };
 use rsact_reactive::signal::{IntoSignal, Signal};
+
+use super::ctx::EventCtx;
 
 /// Static Image
 pub struct Image<'a, W: WidgetCtx, BO: ByteOrder> {
@@ -30,7 +33,7 @@ where
     RawDataSlice<'a, <W::Color as PixelColor>::Raw, BO>:
         IntoIterator<Item = <W::Color as PixelColor>::Raw>,
 {
-    fn meta(&self) -> MetaTree {
+    fn meta(&self, _: ElId) -> MetaTree {
         MetaTree::childless(Meta::none)
     }
 
@@ -46,7 +49,7 @@ where
         &self,
         ctx: &mut crate::widget::RenderCtx<'_, W>,
     ) -> crate::widget::RenderResult {
-        ctx.render(|ctx| {
+        ctx.render_self(|ctx| {
             embedded_graphics::image::Image::new(
                 &self.data,
                 ctx.layout.inner.top_left,
@@ -55,10 +58,7 @@ where
         })
     }
 
-    fn on_event(
-        &mut self,
-        ctx: &mut crate::widget::EventCtx<'_, W>,
-    ) -> EventResponse {
+    fn on_event(&mut self, ctx: EventCtx<'_, W>) -> EventResponse {
         ctx.ignore()
     }
 }

@@ -86,7 +86,6 @@ impl SliderState {
 // TODO: Floating label?
 // TODO: Exponential
 pub struct Slider<W: WidgetCtx, Dir: Direction> {
-    id: ElId,
     value: Signal<f32>,
     range: MaybeReactive<RangeInclusive<f32>>,
     step: Memo<f32>,
@@ -105,7 +104,6 @@ impl<W: WidgetCtx, Dir: Direction> Slider<W, Dir> {
         let step = range.map_reactive(|range| Self::step_from_range(range));
 
         Self {
-            id: ElId::unique(),
             state: SliderState::none().signal(),
             value: value.signal(),
             range,
@@ -155,9 +153,7 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Slider<W, Dir>
 where
     W::Styler: WidgetStylist<SliderStyle<W::Color>>,
 {
-    fn meta(&self) -> MetaTree {
-        let id = self.id;
-
+    fn meta(&self, id: ElId) -> MetaTree {
         MetaTree::childless(Meta::focusable(id).inert().memo())
     }
 
@@ -169,9 +165,10 @@ where
         self.layout
     }
 
+    #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
-        ctx.render(|ctx| {
-            ctx.render_focus_outline(self.id)?;
+        ctx.render_self(|ctx| {
+            ctx.render_focus_outline(ctx.id)?;
 
             let style = self.style.get();
 
@@ -262,10 +259,10 @@ where
         })
     }
 
-    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {
+    fn on_event(&mut self, mut ctx: EventCtx<'_, W>) -> EventResponse {
         let current_state = self.state.get();
 
-        if current_state.active && ctx.is_focused(self.id) {
+        if current_state.active && ctx.is_focused() {
             // TODO: Right slider event interpretation
             if let Some(offset) = ctx.event.interpret_as_rotation() {
                 let current = self.value.get();
@@ -281,7 +278,7 @@ where
             }
         }
 
-        ctx.handle_focusable(self.id, |ctx, pressed| {
+        ctx.handle_focusable(|ctx, pressed| {
             if current_state.pressed != pressed {
                 let toggle_active = if !current_state.pressed && pressed {
                     true

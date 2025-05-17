@@ -25,7 +25,7 @@ pub mod id;
 
 pub struct PageStyle<C: Color> {
     // TODO: Use ColorStyle
-    background_color: Option<C>,
+    pub background_color: Option<C>,
 }
 
 impl<C: Color> PageStyle<C> {
@@ -51,6 +51,7 @@ struct PageMeta {
 pub struct Page<W: WidgetCtx> {
     // TODO: root is not used as a Signal but as boxed value, better add StoredValue to rsact_reactive for static storage
     // TODO: Same is about other not-really-reactive states in Page
+    id: W::PageId,
     root: El<W>,
     meta: PageMeta,
     layout: Memo<LayoutModel>,
@@ -66,6 +67,7 @@ pub struct Page<W: WidgetCtx> {
 
 impl<W: WidgetCtx> Page<W> {
     pub(crate) fn new(
+        id: W::PageId,
         root: impl Into<El<W>>,
         viewport: Memo<Size>,
         styler: Memo<W::Styler>,
@@ -89,7 +91,7 @@ impl<W: WidgetCtx> Page<W> {
             },
         });
 
-        let meta = root.meta();
+        let meta = root.meta(root.id());
 
         let focusable = create_memo(move || {
             meta.flat_collect()
@@ -110,7 +112,6 @@ impl<W: WidgetCtx> Page<W> {
         })
         .name("Focusable");
 
-        // TODO: Should be `mapped`? Now, root is kind of partially-reactive
         let layout_tree = root.layout().name("Layout tree");
         let layout_model = map!(move |viewport, fonts| {
             let viewport = *viewport;
@@ -130,6 +131,8 @@ impl<W: WidgetCtx> Page<W> {
 
             force_redraw.notify();
 
+            println!("Relayout");
+
             layout
         })
         .name("Layout model");
@@ -137,6 +140,7 @@ impl<W: WidgetCtx> Page<W> {
         let style = PageStyle::base().signal().name("Page style");
 
         Self {
+            id,
             root,
             layout: layout_model,
             state,
@@ -152,8 +156,9 @@ impl<W: WidgetCtx> Page<W> {
         }
     }
 
-    pub(crate) fn force_redraw(&mut self) {
+    pub(crate) fn force_redraw(&mut self) -> &mut Self {
         self.force_redraw.notify();
+        self
     }
 
     pub fn take_draw_calls(&mut self) -> usize {
@@ -168,6 +173,16 @@ impl<W: WidgetCtx> Page<W> {
     //     self.style = style.signal();
     //     self
     // }
+
+    pub fn clear(&mut self) -> &mut Self {
+        self.style.with(|style| {
+            // TODO: Will not work without background, must always have a background
+            if let Some(bg) = style.background_color {
+                self.renderer.update_untracked(|r| r.clear(bg)).ok().unwrap();
+            }
+        });
+        self
+    }
 
     // Focus //
 
@@ -263,7 +278,8 @@ impl<W: WidgetCtx> Page<W> {
         let defer_effects = defer_effects();
 
         let res = self.layout.with(|layout| {
-            let response = self.root.on_event(&mut EventCtx {
+            let response = self.root.on_event(EventCtx {
+                id: self.root.id(),
                 event,
                 // TODO: Maybe state should not be changeable in on_event, pass it by reference
                 page_state: self.state,
@@ -332,14 +348,18 @@ impl<W: WidgetCtx> Page<W> {
 
     pub fn use_renderer(&mut self, f: impl FnOnce(&W::Renderer)) -> bool {
         let mut renderer = self.renderer;
-        let drawn = observe(|| {
+        let drawn = observe(("render_page", self.id), || {
             self.render_calls += 1;
 
             renderer
                 .update_untracked(|renderer| {
-                    self.style.with(|style| {
-                        if let Some(bg) = style.background_color {
-                            renderer.clear(bg).ok().unwrap();
+                    self.dev_tools.with(|dev_tools| {
+                        if dev_tools.enabled {
+                            if let Some(hovered) = &dev_tools.hovered {
+                                hovered
+                                    .draw(renderer, self.viewport.get())
+                                    .unwrap();
+                            }
                         }
                     });
 
@@ -347,10 +367,12 @@ impl<W: WidgetCtx> Page<W> {
                     let layout = self.layout;
                     with!(|layout| {
                         self.root.render(&mut RenderCtx::new(
+                            self.root.id(),
                             self.state.read_only(),
                             renderer,
                             &layout.tree_root(),
                             TreeStyle::base(),
+                            self.style.read_only(),
                             self.viewport,
                             self.fonts.read_only(),
                             self.force_redraw,
@@ -361,7 +383,7 @@ impl<W: WidgetCtx> Page<W> {
                 .unwrap();
         });
 
-        if drawn {
+        if drawn.is_some() {
             self.renderer.with(|renderer| f(renderer));
 
             true
@@ -383,11 +405,9 @@ mod tests {
         widget::{Widget, ctx::*},
     };
     use alloc::string::String;
-
     use rsact_reactive::{
         maybe::IntoInert,
         memo::{IntoMemo, create_memo},
-        runtime::with_current_runtime,
         signal::IntoSignal,
         write::WriteSignal,
     };
@@ -396,6 +416,7 @@ mod tests {
 
     fn create_null_page(root: impl Into<El<NullWtf>>) -> Page<NullWtf> {
         Page::new(
+            (),
             root,
             create_memo(|| Size::new_equal(1)),
             NullStyler::default().inert().memo(),

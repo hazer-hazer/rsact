@@ -28,7 +28,6 @@ impl<C: Color> ButtonStyle<C> {
 }
 
 pub struct Button<W: WidgetCtx> {
-    id: ElId,
     layout: Signal<Layout>,
     content: El<W>,
     state: Signal<ButtonState>,
@@ -51,7 +50,6 @@ impl<W: WidgetCtx + 'static> Button<W> {
         .signal();
 
         Self {
-            id: ElId::unique(),
             layout,
             content,
             state,
@@ -102,8 +100,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Button<W>
 where
     W::Styler: WidgetStylist<ButtonStyle<W::Color>>,
 {
-    fn meta(&self) -> MetaTree {
-        let id = self.id;
+    fn meta(&self, id: ElId) -> MetaTree {
         MetaTree::childless(move || Meta::focusable(id))
     }
 
@@ -116,8 +113,9 @@ where
         self.layout
     }
 
+    #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
-        ctx.render(|ctx| {
+        ctx.render_self(|ctx| {
             let style = self.style.get();
 
             Block::from_layout_style(
@@ -127,17 +125,14 @@ where
             )
             .render(ctx.renderer())?;
 
-            ctx.render_child(&self.content)?;
+            ctx.render_focus_outline(ctx.id)
+        })?;
 
-            ctx.render_focus_outline(self.id)
-        })
+        ctx.render_child(&self.content)
     }
 
-    fn on_event(
-        &mut self,
-        ctx: &mut crate::widget::EventCtx<'_, W>,
-    ) -> EventResponse {
-        ctx.handle_focusable(self.id, |ctx, pressed| {
+    fn on_event(&mut self, mut ctx: EventCtx<'_, W>) -> EventResponse {
+        ctx.handle_focusable(|ctx, pressed| {
             let current_state = self.state.get();
 
             if current_state.pressed != pressed {

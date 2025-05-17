@@ -28,7 +28,7 @@ pub enum IconValue<I: IconSet> {
     // Static icon of fixed size
     Fixed(IconRaw<BigEndian>),
     // Dynamically sized icon with dynamic icon kind
-    Relative(Signal<FontSize>, MaybeSignal<I>),
+    Relative(Signal<FontSize>, MaybeReactive<I>),
 }
 
 pub struct Icon<W: WidgetCtx, I: IconSet, R: ReactivityMarker> {
@@ -55,8 +55,8 @@ impl<W: WidgetCtx> Icon<W, EmptyIconSet, IsInert> {
 }
 
 impl<W: WidgetCtx, I: IconSet + 'static> Icon<W, I, IsReactive> {
-    pub fn new(icon: impl IntoMaybeSignal<I>) -> Self {
-        let icon = icon.maybe_signal();
+    pub fn new(icon: impl IntoMaybeReactive<I>) -> Self {
+        let icon = icon.maybe_reactive();
         let size = FontSize::Relative(1.0).signal();
         let value = IconValue::Relative(size, icon);
         let layout = Layout::shrink(LayoutKind::Content(ContentLayout::Icon(
@@ -72,15 +72,15 @@ impl<W: WidgetCtx, I: IconSet + 'static> Icon<W, I, IsReactive> {
         }
     }
 
-    /// Inert icon kind setter
-    pub fn set(&mut self, new_icon: I) {
-        match &mut self.value {
-            IconValue::Fixed(_) => {
-                // TODO: Warn or panic?
-            },
-            IconValue::Relative(_, icon) => icon.set(new_icon),
-        }
-    }
+    // /// Inert icon kind setter
+    // pub fn set(&mut self, new_icon: I) {
+    //     match &mut self.value {
+    //         IconValue::Fixed(_) => {
+    //             // TODO: Warn or panic?
+    //         },
+    //         IconValue::Relative(_, icon) => icon.set(new_icon),
+    //     }
+    // }
 
     pub fn size<S: Into<FontSize> + Clone + PartialEq + 'static>(
         mut self,
@@ -106,7 +106,7 @@ impl<W: WidgetCtx, I: IconSet + 'static, R: ReactivityMarker> Widget<W>
 where
     W::Styler: WidgetStylist<IconStyle<W::Color>>,
 {
-    fn meta(&self) -> MetaTree {
+    fn meta(&self, _: ElId) -> MetaTree {
         MetaTree::childless(Meta::none)
     }
 
@@ -118,8 +118,9 @@ where
         self.layout
     }
 
+    #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
-        ctx.render(|ctx| {
+        ctx.render_self(|ctx| {
             let viewport = ctx.viewport;
             let style = self.style.get();
 
@@ -144,10 +145,7 @@ where
         })
     }
 
-    fn on_event(
-        &mut self,
-        ctx: &mut crate::widget::EventCtx<'_, W>,
-    ) -> EventResponse {
+    fn on_event(&mut self, ctx: EventCtx<'_, W>) -> EventResponse {
         let _ = ctx;
 
         ctx.ignore()

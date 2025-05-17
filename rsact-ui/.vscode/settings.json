@@ -18,6 +18,7 @@
     "Bezier",
     "Bresenham",
     "consts",
+    "dirten",
     "flexbox",
     "fract",
     "fullscreen",

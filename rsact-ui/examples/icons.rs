@@ -1,5 +1,4 @@
 use std::env;
-
 use embedded_graphics::{pixelcolor::Rgb888, prelude::{Dimensions, RgbColor}};
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,

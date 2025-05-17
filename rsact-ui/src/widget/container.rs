@@ -25,7 +25,7 @@ impl<W: WidgetCtx + 'static> Container<W> {
 
     pub fn style(
         self,
-        style: impl Fn(BlockStyle<W::Color>) -> BlockStyle<W::Color> + 'static,
+        style: impl (Fn(BlockStyle<W::Color>) -> BlockStyle<W::Color>) + 'static,
     ) -> Self {
         self.style.last(move |prev_style| style(*prev_style)).unwrap();
         self
@@ -89,8 +89,8 @@ impl<W: WidgetCtx + 'static> BlockModelWidget<W> for Container<W> {}
 impl<W: WidgetCtx> FontSettingWidget<W> for Container<W> {}
 
 impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
-    fn meta(&self) -> MetaTree {
-        let content_tree = self.content.meta();
+    fn meta(&self, id: ElId) -> MetaTree {
+        let content_tree = self.content.meta(id);
 
         MetaTree {
             data: Meta::none.memo(),
@@ -111,7 +111,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
         &self,
         ctx: &mut RenderCtx<'_, W>,
     ) -> crate::widget::RenderResult {
-        ctx.render(|ctx| {
+        ctx.render_self(|ctx| {
             let style = self.style.get();
 
             Block::from_layout_style(
@@ -119,17 +119,13 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
                 self.layout.with(|layout| layout.block_model()),
                 style,
             )
-            .render(ctx.renderer())?;
+            .render(ctx.renderer())
+        })?;
 
-            // self.content.with(|content| ctx.draw_child(content))
-            ctx.render_child(&self.content)
-        })
+        ctx.render_child(&self.content)
     }
 
-    fn on_event(
-        &mut self,
-        ctx: &mut crate::widget::EventCtx<'_, W>,
-    ) -> EventResponse {
+    fn on_event(&mut self, mut ctx: EventCtx<'_, W>) -> EventResponse {
         // self.content.control_flow(|content| ctx.pass_to_child(content))
         ctx.pass_to_child(&mut self.content)
     }

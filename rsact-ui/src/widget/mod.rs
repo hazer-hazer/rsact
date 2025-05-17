@@ -52,6 +52,11 @@ impl Meta {
     pub fn focusable(id: ElId) -> Self {
         Self { behavior: Behavior::FOCUSABLE, id: Some(id) }
     }
+
+    // pub fn with_id(mut self, id: ElId) -> Self {
+    //     self.id = Some(id);
+    //     self
+    // }
 }
 
 // TODO: Custom MemoTree with SmallVec<T, 1>
@@ -86,7 +91,7 @@ where
 
     // TODO: Use MaybeReactive tree
     // TODO: Can rewrite so that meta is called once?
-    fn meta(&self) -> MetaTree;
+    fn meta(&self, id: ElId) -> MetaTree;
 
     // These functions MUST be called only ones per widget //
     fn on_mount(&mut self, ctx: MountCtx<W>);
@@ -95,7 +100,7 @@ where
     // Hot-loop called functions //
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult;
     // TODO: Reactive event context? Is it possible?
-    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse;
+    fn on_event(&mut self, ctx: EventCtx<'_, W>) -> EventResponse;
 }
 
 /// Not implementing [`SizedWidget`] and [`BlockModelWidget`] does not mean that

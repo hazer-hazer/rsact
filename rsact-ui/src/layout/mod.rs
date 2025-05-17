@@ -339,7 +339,7 @@ impl Display for DevLayoutKind {
                     },
                 // lines: _,
             }) => {
-                write!(f, "Flex {} ", axis.dir_name())?;
+                write!(f, "Flex {} ", axis.flex_name())?;
 
                 if *wrap {
                     f.write_str("wrap ")?;
@@ -353,7 +353,7 @@ impl Display for DevLayoutKind {
                     f,
                     "align:h{}v{}",
                     horizontal_align.display_code(Axis::X),
-                    vertical_align.display_code(Axis::Y),
+                    vertical_align.display_code(Axis::Y)
                 )
             },
             DevLayoutKind::Scrollable(ScrollableLayout {
@@ -440,8 +440,9 @@ impl Layout {
 
         if content_layout_length.is_grow() {
             panic!(
-                "Don't use growing Length (Div/fill) for content {} inside Scrollable!",
-                Dir::AXIS.length_name()
+                "Don't use growing Length (Div/fill) for content {} inside {} Scrollable!",
+                Dir::AXIS.length_name(),
+                Dir::AXIS.dir_name()
             );
         }
 
@@ -518,7 +519,7 @@ impl Layout {
         match &mut self.kind {
             LayoutKind::Container(ContainerLayout { block_model, .. })
             | LayoutKind::Flex(FlexLayout { block_model, .. }) => {
-                block_model.border_width = border_width
+                block_model.border_width = border_width;
             },
             _ => {},
         }
@@ -528,7 +529,7 @@ impl Layout {
         match &mut self.kind {
             LayoutKind::Container(ContainerLayout { block_model, .. })
             | LayoutKind::Flex(FlexLayout { block_model, .. }) => {
-                block_model.padding = padding
+                block_model.padding = padding;
             },
             _ => {},
         }
@@ -723,14 +724,14 @@ impl LayoutModel {
     ) -> &mut Self {
         let x = match horizontal {
             Align::Start => 0,
-            Align::Center => free_space.width as i32 / 2,
+            Align::Center => (free_space.width as i32) / 2,
             Align::End => free_space.width as i32,
         };
 
         let y = match vertical {
             Align::Start => 0,
             Align::Center => {
-                free_space.height as i32 / 2
+                (free_space.height as i32) / 2
                 // - self.relative_area.size.height as i32 / 2;
             },
             Align::End => {
@@ -766,8 +767,7 @@ pub fn model_layout(
     ctx: &LayoutCtx,
     layout: Memo<Layout>,
     parent_limits: Limits,
-    parent_size: Size<Length>,
-    // viewport: Memo<Size>,
+    parent_size: Size<Length>, // viewport: Memo<Size>,
 ) -> LayoutModel {
     layout.with(|layout| {
         if !layout.show.map(|show| show.get()).unwrap_or(true) {
@@ -786,23 +786,21 @@ pub fn model_layout(
                 LayoutModel::new(
                     limits.resolve_size(size, Size::zero()),
                     vec![],
-                    #[cfg(feature = "debug-info")]
-                    DevLayout::new(size, DevLayoutKind::Edge),
+                    #[cfg(feature = "debug-info")] DevLayout::new(size, DevLayoutKind::Edge)
                 )
-            },
+            }
             LayoutKind::Content(content_layout) => {
                 let min_content = content_layout.min_size(ctx);
 
                 LayoutModel::new(
                     parent_limits.resolve_size(size, min_content),
                     vec![],
-                    #[cfg(feature = "debug-info")]
-                    DevLayout::new(
+                    #[cfg(feature = "debug-info")] DevLayout::new(
                         size,
-                        DevLayoutKind::Content(content_layout.clone()),
-                    ),
+                        DevLayoutKind::Content(content_layout.clone())
+                    )
                 )
-            },
+            }
             LayoutKind::Container(container_layout) => {
                 let ContainerLayout {
                     block_model,
@@ -823,70 +821,64 @@ pub fn model_layout(
                 // child
 
                 let content_layout = model_layout(
-                    ctx, *content, limits, size,
+                    ctx,
+                    *content,
+                    limits,
+                    size
                     // viewport,
                 );
 
                 let content_size = content_layout.outer_size();
                 let real_size = limits.resolve_size(size, content_size);
                 let content_layout = content_layout
-                // .moved(full_padding.top_left())
-                .aligned(
-                    *horizontal_align,
-                    *vertical_align,
-                    real_size - content_size,
-                );
+                    // .moved(full_padding.top_left())
+                    .aligned(*horizontal_align, *vertical_align, real_size - content_size);
 
                 LayoutModel::new(
                     // TODO: Generalize logic with real_size.expand/shrink and
                     // full_padding
                     real_size,
                     vec![content_layout],
-                    #[cfg(feature = "debug-info")]
-                    DevLayout::new(
+                    #[cfg(feature = "debug-info")] DevLayout::new(
                         size,
-                        DevLayoutKind::Container(container_layout.clone()),
-                    ),
-                )
-                .with_full_padding(full_padding)
-            },
+                        DevLayoutKind::Container(container_layout.clone())
+                    )
+                ).with_full_padding(full_padding)
+            }
             LayoutKind::Scrollable(scrollable_layout) => {
                 // TODO: Useless?
-                let ScrollableLayout { content, font_props: _ } =
-                    scrollable_layout;
+                let ScrollableLayout { content, font_props: _ } = scrollable_layout;
 
                 let limits = parent_limits.limit_by(size);
 
                 let content_layout = model_layout(
-                    ctx, *content, limits, size,
+                    ctx,
+                    *content,
+                    limits,
+                    size
                     // viewport,
                 );
 
                 // Note: For [`LayoutKind::Scrollable`], parent_limits are used as
                 // content limits are unlimited on one axis
-                let real_size = parent_limits
-                    .resolve_size(size, content_layout.outer_size());
+                let real_size = parent_limits.resolve_size(size, content_layout.outer_size());
 
                 LayoutModel::new(
                     real_size,
                     vec![content_layout],
-                    #[cfg(feature = "debug-info")]
-                    DevLayout::new(
+                    #[cfg(feature = "debug-info")] DevLayout::new(
                         size,
-                        DevLayoutKind::Scrollable(scrollable_layout.clone()),
-                    ),
+                        DevLayoutKind::Scrollable(scrollable_layout.clone())
+                    )
                 )
-            },
-            LayoutKind::Flex(flex_layout) => {
-                model_flex(ctx, parent_limits, flex_layout, size)
-            },
+            }
+            LayoutKind::Flex(flex_layout) => { model_flex(ctx, parent_limits, flex_layout, size) }
         }
     })
 }
 
 #[cfg(test)]
 mod tests {
-
     // #[test]
     // fn flex_row() {
     //     let flex_layout = MemoTree {

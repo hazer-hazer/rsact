@@ -57,7 +57,6 @@ impl<C: Color> KnobStyle<C> {
 }
 
 pub struct Knob<W: WidgetCtx, V: RangeValue> {
-    id: ElId,
     layout: Signal<Layout>,
     value: Signal<V>,
     state: Signal<KnobState>,
@@ -67,7 +66,6 @@ pub struct Knob<W: WidgetCtx, V: RangeValue> {
 impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
     pub fn new(value: Signal<V>) -> Self {
         Self {
-            id: ElId::unique(),
             layout: Layout::edge(Size::new_equal(Length::Fixed(25))).signal(),
             value,
             state: KnobState::none().signal(),
@@ -94,8 +92,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Widget<W> for Knob<W, V>
 where
     W::Styler: WidgetStylist<KnobStyle<W::Color>>,
 {
-    fn meta(&self) -> MetaTree {
-        let id = self.id;
+    fn meta(&self, id: ElId) -> MetaTree {
         MetaTree::childless(Meta::focusable(id).inert().memo())
     }
 
@@ -107,8 +104,9 @@ where
         self.layout
     }
 
+    #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
-        ctx.render(|ctx| {
+        ctx.render_self(|ctx| {
             let style = self.style.get();
 
             let value_real = self.value.get().real_point();
@@ -127,14 +125,14 @@ where
             .render(ctx.renderer())?;
 
             // TODO: Round focus outline
-            ctx.render_focus_outline(self.id)
+            ctx.render_focus_outline(ctx.id)
         })
     }
 
-    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {
+    fn on_event(&mut self, mut ctx: EventCtx<'_, W>) -> EventResponse {
         let current_state = self.state.get();
 
-        if current_state.active && ctx.is_focused(self.id) {
+        if current_state.active && ctx.is_focused() {
             if let Some(offset) = ctx.event.interpret_as_rotation() {
                 let current = self.value.get();
 
@@ -148,7 +146,7 @@ where
             }
         }
 
-        ctx.handle_focusable(self.id, |ctx, pressed| {
+        ctx.handle_focusable(|ctx, pressed| {
             if current_state.pressed != pressed {
                 let toggle_active = if !current_state.pressed && pressed {
                     true

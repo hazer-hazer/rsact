@@ -1,5 +1,6 @@
 use crate::{
     declare_widget_style,
+    el::WithElId,
     render::{Renderable, primitives::line::Line},
     style::{ColorStyle, WidgetStylist},
     widget::{Meta, MetaTree, SizedWidget, prelude::*},
@@ -71,11 +72,11 @@ impl<C: Color> ScrollableStyle<C> {
         let style =
             PrimitiveStyleBuilder::new().stroke_width(self.scrollbar_width);
 
-        if let Some(track_color) = self.track_color.get() {
+        (if let Some(track_color) = self.track_color.get() {
             style.stroke_color(track_color)
         } else {
             style
-        }
+        })
         .build()
     }
 
@@ -83,17 +84,16 @@ impl<C: Color> ScrollableStyle<C> {
         let style =
             PrimitiveStyleBuilder::new().stroke_width(self.scrollbar_width);
 
-        if let Some(thumb_color) = self.thumb_color.get() {
+        (if let Some(thumb_color) = self.thumb_color.get() {
             style.stroke_color(thumb_color)
         } else {
             style
-        }
+        })
         .build()
     }
 }
 
 pub struct Scrollable<W: WidgetCtx, Dir: Direction> {
-    id: ElId,
     state: Signal<ScrollableState>,
     style: MemoChain<ScrollableStyle<W::Color>>,
     content: El<W>,
@@ -123,7 +123,6 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
             Layout::scrollable::<Dir>(content.layout().memo()).signal();
 
         Self {
-            id: ElId::unique(),
             content,
             state,
             style: ScrollableStyle::base().memo_chain(),
@@ -140,10 +139,10 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
 
     pub fn style(
         self,
-        styler: impl Fn(
+        styler: impl (Fn(
             ScrollableStyle<W::Color>,
             ScrollableState,
-        ) -> ScrollableStyle<W::Color>
+        ) -> ScrollableStyle<W::Color>)
         + 'static,
     ) -> Self {
         let state = self.state;
@@ -213,8 +212,8 @@ where
     Dir: Direction,
     W::Styler: WidgetStylist<ScrollableStyle<W::Color>>,
 {
-    fn meta(&self) -> crate::widget::MetaTree {
-        let content_tree = self.content.meta();
+    fn meta(&self, id: ElId) -> crate::widget::MetaTree {
+        let content_tree = self.content.meta(id);
         MetaTree {
             data: Meta::none.memo(),
             children: vec![content_tree].inert().memo(),
@@ -234,7 +233,11 @@ where
         &self,
         ctx: &mut crate::widget::RenderCtx<'_, W>,
     ) -> crate::widget::RenderResult {
-        ctx.render(|ctx| {
+        // Note: Layouts can be untracked because relayout is full-redraw
+        let child_layout = ctx.layout.children().next();
+        let child_layout = child_layout.as_ref().unwrap();
+
+        ctx.render_self(|ctx| {
             let style = self.style.get();
 
             Block::from_layout_style(
@@ -243,9 +246,6 @@ where
                 style.container,
             )
             .render(ctx.renderer())?;
-
-            let child_layout = ctx.layout.children().next();
-            let child_layout = child_layout.as_ref().unwrap();
 
             let mut content_length = child_layout.outer.size.main(Dir::AXIS);
             let scrollable_length = ctx.layout.inner.size.main(Dir::AXIS);
@@ -275,6 +275,7 @@ where
                         embedded_graphics::geometry::AnchorPoint::TopRight,
                     ),
                 };
+
                 let track_end = ctx
                     .layout
                     .inner
@@ -282,7 +283,7 @@ where
                     .unwrap_or(ctx.layout.inner.top_left);
 
                 let scrollbar_translation =
-                    Dir::AXIS.canon(0, -(style.scrollbar_width as i32 / 2));
+                    Dir::AXIS.canon(0, -((style.scrollbar_width as i32) / 2));
 
                 let track_line = Line::new(track_start, track_end)
                     .translate(scrollbar_translation);
@@ -292,13 +293,13 @@ where
                     .into_styled(style.track_style())
                     .render(ctx.renderer())?;
 
-                let thumb_len = (scrollable_length as f32
-                    * (scrollable_length as f32 / content_length as f32))
+                let thumb_len = ((scrollable_length as f32)
+                    * ((scrollable_length as f32) / (content_length as f32)))
                     as u32;
                 let thumb_len = thumb_len.max(1);
-                let thumb_offset = ((scrollable_length as f32
-                    / content_length as f32)
-                    * offset as f32) as u32;
+                let thumb_offset =
+                    (((scrollable_length as f32) / (content_length as f32))
+                        * (offset as f32)) as u32;
 
                 let thumb_start = track_start
                     + Dir::AXIS.canon::<Point>(thumb_offset as i32, 0);
@@ -312,48 +313,51 @@ where
                 .render(ctx.renderer())?;
             }
 
-            // Does not matter, Scrollable layout does not have padding, so
-            // outer == inner
+            ctx.render_focus_outline(ctx.id)
+        })?;
+
+        ctx.render_part("scroll", |ctx| {
+            let state = self.state.get();
             // // TODO: Should be clipping outer rect???!??!?
-            ctx.render_clipped(ctx.layout.inner, |ctx| {
-                ctx.with_child_layout(
+            ctx.clip_inner(|ctx| {
+                ctx.for_child(
+                    self.content.id(),
                     &child_layout
-                        .translate(Dir::AXIS.canon(-(offset as i32), 0)),
+                        .translate(Dir::AXIS.canon(-(state.offset as i32), 0)),
                     |ctx| self.content.render(ctx),
                 )
-            })?;
-
-            ctx.render_focus_outline(self.id)
+            })
         })
     }
 
-    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {
+    fn on_event(&mut self, mut ctx: EventCtx<'_, W>) -> EventResponse {
         let current_state = self.state.get();
 
         match self.mode {
             ScrollableMode::Interactive => {
                 // FocusEvent can be treated as ScrollEvent thus handle it
                 // before focus move
-                if current_state.active && ctx.is_focused(self.id) {
+                if current_state.active && ctx.is_focused() {
                     // TODO: Right scrolling handling
                     if let Some(offset) = ctx.event.interpret_as_rotation() {
-                        let max_offset = self.max_offset(ctx);
+                        let max_offset = self.max_offset(&ctx);
 
-                        let new_offset = (current_state.offset as i64
-                            + offset as i64)
+                        let new_offset = ((current_state.offset as i64)
+                            + (offset as i64))
                             .clamp(0, max_offset as i64)
                             as u32;
 
                         if new_offset != current_state.offset {
-                            self.state
-                                .update(|state| state.offset = new_offset);
+                            self.state.update(|state| {
+                                state.offset = new_offset;
+                            });
                         }
 
                         return ctx.capture();
                     }
                 }
 
-                ctx.handle_focusable(self.id, |ctx, pressed| {
+                ctx.handle_focusable(|ctx, pressed| {
                     let current_state = self.state.get();
 
                     if current_state.focus_pressed != pressed {
@@ -395,12 +399,12 @@ where
                         .saturating_sub(
                             ctx.layout.inner.top_left.main(Dir::AXIS),
                         ) as u32;
-                    let new_offset = new_offset.clamp(0, self.max_offset(ctx));
+                    let new_offset = new_offset.clamp(0, self.max_offset(&ctx));
 
                     if current_state.offset != new_offset {
                         self.state.update(|state| {
                             state.offset = new_offset;
-                        })
+                        });
                     }
                 }
 

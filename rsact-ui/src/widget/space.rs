@@ -8,7 +8,7 @@ use crate::{
         axis::{ColDir, Direction, RowDir},
         size::Length,
     },
-    widget::{RenderCtx, RenderResult, EventCtx, Widget, WidgetCtx},
+    widget::{EventCtx, RenderCtx, RenderResult, Widget, WidgetCtx},
 };
 use core::marker::PhantomData;
 
@@ -68,7 +68,7 @@ impl<W: WidgetCtx, Dir: Direction> Space<W, Dir> {
 }
 
 impl<W: WidgetCtx, Dir: Direction> Widget<W> for Space<W, Dir> {
-    fn meta(&self) -> MetaTree {
+    fn meta(&self, _: ElId) -> MetaTree {
         MetaTree::childless(Meta::none)
     }
 
@@ -82,7 +82,7 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Space<W, Dir> {
         Ok(())
     }
 
-    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {
+    fn on_event(&mut self, ctx: EventCtx<'_, W>) -> EventResponse {
         ctx.ignore()
     }
 }

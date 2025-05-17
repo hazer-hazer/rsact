@@ -186,11 +186,11 @@ impl_rgb_colors!(Rgb555, Rgb565, Rgb666, Rgb888);
 
 impl Color for BinaryColor {
     fn default_foreground() -> Self {
-        Self::Off
+        Self::On
     }
 
     fn default_background() -> Self {
-        Self::On
+        Self::Off
     }
 
     fn accents() -> [Self; 6] {

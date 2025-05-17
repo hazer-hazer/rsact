@@ -30,6 +30,13 @@ impl Axis {
 
     pub const fn dir_name(&self) -> &str {
         match self {
+            Axis::X => "horizontal",
+            Axis::Y => "vertical",
+        }
+    }
+
+    pub const fn flex_name(&self) -> &str {
+        match self {
             Axis::X => "row",
             Axis::Y => "col",
         }

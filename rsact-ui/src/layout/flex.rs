@@ -10,6 +10,7 @@ use crate::layout::{
 };
 use alloc::vec::Vec;
 use embedded_graphics::prelude::Point;
+use itertools::Itertools as _;
 use rsact_reactive::prelude::*;
 
 // TODO: Wrap and gap are not taken into account
@@ -63,8 +64,7 @@ pub fn model_flex(
     // TODO: Replace with parent max size as parent_limits.min is not used at all.
     parent_limits: Limits,
     flex_layout: &FlexLayout,
-    size: Size<Length>,
-    // viewport: Memo<Size>,
+    size: Size<Length>, // viewport: Memo<Size>,
 ) -> LayoutModel {
     let &FlexLayout {
         wrap,
@@ -110,7 +110,7 @@ pub fn model_flex(
                 child_size.max_fixed(child_min_size, limits.max());
 
             let needed_item_space = min_item_size
-                + if item_index != 0 { gap } else { Size::zero() };
+                + (if item_index != 0 { gap } else { Size::zero() });
 
             {
                 // Wrapping //
@@ -157,8 +157,7 @@ pub fn model_flex(
                         // child_min_size,
                         axis.canon(line.free_main, container_free_cross),
                     ),
-                    size,
-                    // viewport,
+                    size, // viewport,
                 );
 
                 // TODO: Not working properly
@@ -248,7 +247,7 @@ pub fn model_flex(
                         // line.max_fixed_cross
                         line.max_cross
                     },
-                    Length::Pct(pct) => (line.max_cross as f32 * pct) as u32,
+                    Length::Pct(pct) => ((line.max_cross as f32) * pct) as u32,
                     // Note: We can use max_possible_cross as we have one line,
                     // so it fills the parent and no wrap logic applied
                     Length::Div(_) => max_possible_cross,
@@ -259,17 +258,17 @@ pub fn model_flex(
                 }
             } else {
                 line.max_cross
-                    + if size.cross(axis).is_grow() {
+                    + (if size.cross(axis).is_grow() {
                         container_free_cross_div
-                            + if container_free_cross_rem > 0 {
+                            + (if container_free_cross_rem > 0 {
                                 container_free_cross_rem -= 1;
                                 1
                             } else {
                                 0
-                            }
+                            })
                     } else {
                         0
-                    }
+                    })
             };
 
             let fluid_space = axis.canon::<Size>(line.free_main, cross);
@@ -316,7 +315,8 @@ pub fn model_flex(
     // TODO: Should flex item be at least of min content size?
 
     children.with(|children| {
-        for ((i, child), item) in children.iter().enumerate().zip(items.iter())
+        for ((i, child), item) in
+            children.iter().enumerate().zip_eq(items.iter())
         {
             let (child_min_size, child_size) =
                 child.with(|child| (child.min_size(ctx), child.size));
@@ -337,8 +337,7 @@ pub fn model_flex(
                     ctx,
                     *child,
                     Limits::new(child_min_size, child_max_size),
-                    size,
-                    // viewport,
+                    size, // viewport,
                 );
             }
 
@@ -364,11 +363,11 @@ pub fn model_flex(
                 longest_line = longest_line.max(model_line.used_main);
 
                 used_cross += model_line.cross
-                    + if item.line < model_lines.len() - 1 {
+                    + (if item.line < model_lines.len() - 1 {
                         gap_cross
                     } else {
                         0
-                    };
+                    });
 
                 *next_pos.main_mut(axis) = 0;
                 *next_pos.cross_mut(axis) = used_cross as i32;

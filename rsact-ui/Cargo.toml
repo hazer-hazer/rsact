@@ -12,6 +12,7 @@ embedded-graphics-core = {workspace = true}
 embedded-graphics-simulator = {workspace = true, optional = true}
 embedded-text = {workspace = true}
 embedded-time = {workspace = true}
+itertools = {version = "0.14.0", default-features = false}
 log = {workspace = true}
 micromath = {workspace = true}
 num = {workspace = true}

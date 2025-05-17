@@ -3,8 +3,8 @@ use super::{
     icon::{Icon, IconStyle},
 };
 use crate::{render::Renderable, widget::prelude::*};
-use rsact_icons::system::SystemIcon;
-use rsact_reactive::maybe::IsReactive;
+use rsact_icons::{IconSet, system::SystemIcon};
+use rsact_reactive::maybe::{IntoMaybeReactive, IsReactive};
 
 #[derive(Clone, Copy)]
 pub struct CheckboxState {
@@ -38,11 +38,10 @@ impl<C: Color> CheckboxStyle<C> {
 type IconKind = SystemIcon;
 
 pub struct Checkbox<W: WidgetCtx> {
-    id: ElId,
     state: Signal<CheckboxState>,
     layout: Signal<Layout>,
     // TODO: Reactive icon?
-    icon: Icon<W, IconKind, IsReactive>,
+    icon: El<W>,
     value: MaybeSignal<bool>,
     style: MemoChain<CheckboxStyle<W::Color>>,
 }
@@ -52,10 +51,17 @@ where
     W::Styler: WidgetStylist<IconStyle<W::Color>>,
 {
     pub fn new(value: impl Into<MaybeSignal<bool>>) -> Self {
-        let icon = Icon::new(SystemIcon::Check);
+        Self::new_with_icon(value, SystemIcon::Check.inert())
+    }
+
+    // TODO: Any IconSet?
+    pub fn new_with_icon(
+        value: impl Into<MaybeSignal<bool>>,
+        icon: impl IntoMaybeReactive<SystemIcon>,
+    ) -> Self {
+        let icon = Icon::new(icon).el();
 
         Self {
-            id: ElId::unique(),
             state: CheckboxState::none().signal(),
             layout: Layout::shrink(LayoutKind::Container(
                 ContainerLayout::base(icon.layout().memo())
@@ -68,10 +74,10 @@ where
         }
     }
 
-    pub fn check_icon(mut self, icon: IconKind) -> Self {
-        self.icon.set(icon);
-        self
-    }
+    // pub fn check_icon(mut self, icon: IconKind) -> Self {
+    //     self.icon.set(icon);
+    //     self
+    // }
 }
 
 impl<W: WidgetCtx> Widget<W> for Checkbox<W>
@@ -79,8 +85,7 @@ where
     W::Styler: WidgetStylist<CheckboxStyle<W::Color>>
         + WidgetStylist<IconStyle<W::Color>>,
 {
-    fn meta(&self) -> MetaTree {
-        let id = self.id;
+    fn meta(&self, id: ElId) -> MetaTree {
         MetaTree::childless(move || Meta::focusable(id))
     }
 
@@ -97,7 +102,7 @@ where
         &self,
         ctx: &mut crate::widget::RenderCtx<'_, W>,
     ) -> crate::widget::RenderResult {
-        ctx.render(|ctx| {
+        ctx.render_self(|ctx| {
             let style = self.style.get();
 
             Block::from_layout_style(
@@ -107,21 +112,18 @@ where
             )
             .render(ctx.renderer())?;
 
-            ctx.render_focus_outline(self.id)?;
+            ctx.render_focus_outline(ctx.id)
+        })?;
 
-            if self.value.get() {
-                ctx.render_child(&self.icon)?;
-            }
+        if self.value.get() {
+            ctx.render_child(&self.icon)?;
+        }
 
-            Ok(())
-        })
+        Ok(())
     }
 
-    fn on_event(
-        &mut self,
-        ctx: &mut crate::widget::EventCtx<'_, W>,
-    ) -> EventResponse {
-        ctx.handle_focusable(self.id, |ctx, pressed| {
+    fn on_event(&mut self, mut ctx: EventCtx<'_, W>) -> EventResponse {
+        ctx.handle_focusable(|ctx, pressed| {
             let current_state = self.state.get();
 
             if current_state.pressed != pressed {

@@ -21,7 +21,7 @@ impl<W: WidgetCtx + 'static> Edge<W> {
 
     pub fn style(
         self,
-        styler: impl Fn(BlockStyle<W::Color>) -> BlockStyle<W::Color> + 'static,
+        styler: impl (Fn(BlockStyle<W::Color>) -> BlockStyle<W::Color>) + 'static,
     ) -> Self {
         self.style.last(move |prev_style| styler(*prev_style)).unwrap();
         self
@@ -31,7 +31,7 @@ impl<W: WidgetCtx + 'static> Edge<W> {
 impl<W: WidgetCtx + 'static> SizedWidget<W> for Edge<W> {}
 
 impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
-    fn meta(&self) -> crate::widget::MetaTree {
+    fn meta(&self, _: ElId) -> crate::widget::MetaTree {
         MetaTree::childless(Meta::none)
     }
 
@@ -41,8 +41,9 @@ impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
 
     fn on_mount(&mut self, _ctx: crate::widget::MountCtx<W>) {}
 
+    #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
-        ctx.render(|ctx| {
+        ctx.render_self(|ctx| {
             let style = self.style.get();
 
             Block::from_layout_style(
@@ -54,10 +55,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
         })
     }
 
-    fn on_event(
-        &mut self,
-        ctx: &mut crate::widget::EventCtx<'_, W>,
-    ) -> EventResponse {
+    fn on_event(&mut self, ctx: EventCtx<'_, W>) -> EventResponse {
         ctx.ignore()
     }
 }

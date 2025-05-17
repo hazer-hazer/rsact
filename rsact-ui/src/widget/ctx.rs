@@ -3,20 +3,23 @@ use super::{
     prelude::{Color, Size},
 };
 use crate::{
-    el::{El, ElId},
+    el::{El, ElId, WithElId},
     event::{
         Capture, CaptureData, Event, EventResponse, FocusEvent, Propagate,
     },
     font::{AbsoluteFontProps, Font, FontCtx, FontProps},
     layout::{Layout, LayoutModelNode},
-    page::id::PageId,
+    page::{PageStyle, id::PageId},
     render::{Block, Border, Renderable as _, Renderer},
     style::{TreeStyle, WidgetStyle, WidgetStylist},
 };
 use alloc::vec::Vec;
-use core::{fmt::Debug, marker::PhantomData};
+use core::{fmt::Debug, hash::Hash, marker::PhantomData};
 use embedded_graphics::{prelude::DrawTarget, primitives::Rectangle};
-use rsact_reactive::{prelude::*, signal::marker::ReadOnly};
+use itertools::Itertools as _;
+use rsact_reactive::{
+    prelude::*, runtime::get_observer, signal::marker::ReadOnly,
+};
 
 // TODO: Not an actual context, rename to something like `WidgetTypeFamily`
 pub trait WidgetCtx: Sized + Clone + 'static {
@@ -110,128 +113,30 @@ impl<W: WidgetCtx> PageState<W> {
 pub struct CtxReady;
 pub struct CtxUnready;
 
-pub trait CtxState {}
-
-impl CtxState for CtxReady {}
-impl CtxState for CtxUnready {}
+pub struct RenderSelf;
 
 // TODO: Make RenderCtx a delegate to renderer so u can do `Primitive::(...).render(ctx)`
-pub struct RenderCtx<'a, W: WidgetCtx, S: CtxState = CtxUnready> {
+pub struct RenderCtx<'a, W: WidgetCtx, S = CtxUnready> {
+    pub id: ElId,
     pub state: Signal<PageState<W>, ReadOnly>,
     renderer: &'a mut W::Renderer,
     pub layout: &'a LayoutModelNode<'a>,
     pub tree_style: TreeStyle<W::Color>,
+    pub page_style: Signal<PageStyle<W::Color>, ReadOnly>,
     pub viewport: Memo<Size>,
     pub fonts: Signal<FontCtx, ReadOnly>,
     force_redraw: Trigger,
+    parent_dirty: bool,
 
     ctx_state: PhantomData<S>,
 }
 
-impl<'a, W: WidgetCtx, S: CtxState> RenderCtx<'a, W, S> {
-    pub fn with_child_layout<R>(
-        &mut self,
-        layout: &LayoutModelNode,
-        f: impl FnOnce(&mut RenderCtx<'_, W, CtxUnready>) -> R,
-    ) -> R {
-        f(&mut RenderCtx {
-            state: self.state,
-            renderer: self.renderer,
-            layout,
-            tree_style: self.tree_style,
-            viewport: self.viewport,
-            fonts: self.fonts,
-            force_redraw: self.force_redraw,
-            ctx_state: PhantomData,
-        })
-    }
-
-    pub fn with_tree_style<R>(
-        &mut self,
-        tree_style: impl FnOnce(TreeStyle<W::Color>) -> TreeStyle<W::Color>,
-        f: impl FnOnce(&mut RenderCtx<'_, W, CtxUnready>) -> R,
-    ) -> R {
-        f(&mut RenderCtx {
-            state: self.state,
-            renderer: self.renderer,
-            layout: self.layout,
-            tree_style: tree_style(self.tree_style),
-            viewport: self.viewport,
-            fonts: self.fonts,
-            force_redraw: self.force_redraw,
-            ctx_state: PhantomData,
-        })
-    }
-}
-
-impl<'a, W: WidgetCtx + 'static> RenderCtx<'a, W> {
-    pub fn new(
-        state: Signal<PageState<W>, ReadOnly>,
-        renderer: &'a mut W::Renderer,
-        layout: &'a LayoutModelNode<'a>,
-        tree_style: TreeStyle<W::Color>,
-        viewport: Memo<Size>,
-        fonts: Signal<FontCtx, ReadOnly>,
-        force_redraw: Trigger,
-    ) -> Self {
-        Self {
-            state,
-            renderer,
-            layout,
-            tree_style,
-            viewport,
-            fonts,
-            force_redraw,
-            ctx_state: PhantomData,
-        }
-    }
-
-    #[track_caller]
-    pub fn render(
-        &mut self,
-        f: impl FnOnce(&mut RenderCtx<'_, W, CtxReady>) -> RenderResult,
-    ) -> RenderResult {
-        observe_or_default(RenderResult::Ok(()), || {
-            self.force_redraw.track();
-
-            f(&mut RenderCtx {
-                state: self.state,
-                renderer: self.renderer,
-                layout: self.layout,
-                tree_style: self.tree_style,
-                viewport: self.viewport,
-                fonts: self.fonts,
-                force_redraw: self.force_redraw,
-                ctx_state: PhantomData,
-            })
-        })
-    }
-}
-
-impl<'a, W: WidgetCtx + 'static> RenderCtx<'a, W, CtxReady> {
+impl<'a, W: WidgetCtx> RenderCtx<'a, W, RenderSelf> {
     pub fn renderer(&mut self) -> &mut W::Renderer {
         self.renderer
     }
 
-    pub fn render_clipped(
-        &mut self,
-        area: Rectangle,
-        f: impl FnOnce(&mut RenderCtx<'_, W, CtxReady>) -> RenderResult,
-    ) -> RenderResult {
-        self.renderer.clipped(area, |renderer| {
-            f(&mut RenderCtx {
-                state: self.state,
-                renderer,
-                layout: self.layout,
-                tree_style: self.tree_style,
-                viewport: self.viewport,
-                fonts: self.fonts,
-                force_redraw: self.force_redraw,
-                ctx_state: PhantomData,
-            })
-        })
-    }
-
+    #[must_use]
     pub fn render_font(
         &mut self,
         font: Font,
@@ -253,83 +158,246 @@ impl<'a, W: WidgetCtx + 'static> RenderCtx<'a, W, CtxReady> {
     }
 
     #[must_use]
-    pub fn render_child(&mut self, child: &impl Widget<W>) -> RenderResult {
-        self.render_children(core::iter::once(child))
-    }
-
-    #[must_use]
-    pub fn render_children<
-        'c,
-        C: Iterator<Item = &'c (impl Widget<W> + 'c)> + 'c,
-    >(
-        &mut self,
-        children: C,
-    ) -> RenderResult {
-        self.render_mapped_layouts(children, |layout| layout)
-    }
-
-    #[must_use]
     pub fn render_focus_outline(&mut self, id: ElId) -> RenderResult {
         if self.state.with(|state| state.is_focused(id)) {
-            Block {
+            (Block {
                 border: Border::zero()
                     // TODO: Theme focus color
                     .color(Some(<W::Color as Color>::accents()[1]))
                     .width(1),
                 rect: self.layout.outer,
                 background: None,
-            }
+            })
             .render(self.renderer)
         } else {
             Ok(())
         }
     }
+}
+
+impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
+    #[must_use]
+    pub fn for_child<R>(
+        &mut self,
+        id: ElId,
+        child_layout: &LayoutModelNode,
+        f: impl FnOnce(&mut RenderCtx<'_, W, CtxUnready>) -> R,
+    ) -> R {
+        f(&mut (RenderCtx {
+            id,
+            state: self.state,
+            renderer: self.renderer,
+            layout: child_layout,
+            tree_style: self.tree_style,
+            page_style: self.page_style,
+            viewport: self.viewport,
+            fonts: self.fonts,
+            force_redraw: self.force_redraw,
+            parent_dirty: self.parent_dirty,
+            ctx_state: PhantomData,
+        }))
+    }
 
     #[must_use]
-    pub fn render_mapped_layouts<
-        'c,
-        C: Iterator<Item = &'c (impl Widget<W> + 'c)> + 'c,
-    >(
+    pub fn with_tree_style<R>(
+        &mut self,
+        tree_style: impl FnOnce(TreeStyle<W::Color>) -> TreeStyle<W::Color>,
+        f: impl FnOnce(&mut RenderCtx<'_, W, S>) -> R,
+    ) -> R {
+        f(&mut (RenderCtx {
+            id: self.id,
+            state: self.state,
+            renderer: self.renderer,
+            layout: self.layout,
+            tree_style: tree_style(self.tree_style),
+            page_style: self.page_style,
+            viewport: self.viewport,
+            fonts: self.fonts,
+            force_redraw: self.force_redraw,
+            parent_dirty: self.parent_dirty,
+            ctx_state: PhantomData,
+        }))
+    }
+
+    pub fn clip_inner(
+        &mut self,
+        f: impl FnOnce(&mut RenderCtx<'_, W, S>) -> RenderResult,
+    ) -> RenderResult {
+        self.renderer.clipped(self.layout.inner, |renderer| {
+            f(&mut (RenderCtx {
+                id: self.id,
+                state: self.state,
+                renderer,
+                layout: self.layout,
+                tree_style: self.tree_style,
+                page_style: self.page_style,
+                viewport: self.viewport,
+                fonts: self.fonts,
+                force_redraw: self.force_redraw,
+                parent_dirty: self.parent_dirty,
+                ctx_state: PhantomData,
+            }))
+        })
+    }
+}
+
+impl<'a, W: WidgetCtx + 'static> RenderCtx<'a, W, CtxUnready> {
+    pub fn new(
+        id: ElId,
+        state: Signal<PageState<W>, ReadOnly>,
+        renderer: &'a mut W::Renderer,
+        layout: &'a LayoutModelNode<'a>,
+        tree_style: TreeStyle<W::Color>,
+        page_style: Signal<PageStyle<W::Color>, ReadOnly>,
+        viewport: Memo<Size>,
+        fonts: Signal<FontCtx, ReadOnly>,
+        force_redraw: Trigger,
+    ) -> Self {
+        Self {
+            id,
+            state,
+            renderer,
+            layout,
+            tree_style,
+            page_style,
+            viewport,
+            fonts,
+            force_redraw,
+            parent_dirty: false,
+            ctx_state: PhantomData,
+        }
+    }
+
+    pub fn render_part<H: Hash + Copy>(
+        &mut self,
+        hash: H,
+        f: impl FnOnce(&mut RenderCtx<'_, W, RenderSelf>) -> RenderResult,
+    ) -> RenderResult {
+        let render_id = WithElId::new(self.id, hash);
+
+        if self.parent_dirty {
+            get_observer(render_id).map(|observer| observer.dirten());
+        }
+
+        observe(render_id, || {
+            if !self.parent_dirty {
+                self.clear_outer()?;
+            }
+
+            self.parent_dirty = true;
+            self.force_redraw.track();
+
+            f(&mut (RenderCtx {
+                id: self.id,
+                state: self.state,
+                renderer: self.renderer,
+                layout: self.layout,
+                tree_style: self.tree_style,
+                page_style: self.page_style,
+                viewport: self.viewport,
+                fonts: self.fonts,
+                force_redraw: self.force_redraw,
+                parent_dirty: self.parent_dirty,
+                ctx_state: PhantomData,
+            }))
+        })
+        .unwrap_or(RenderResult::Ok(()))
+    }
+
+    #[must_use]
+    pub fn render_self(
+        &mut self,
+        f: impl FnOnce(&mut RenderCtx<'_, W, RenderSelf>) -> RenderResult,
+    ) -> RenderResult {
+        self.render_part("render", f)
+    }
+
+    #[must_use]
+    pub fn render_child(&mut self, child: &El<W>) -> RenderResult {
+        self.render_children_inner(core::iter::once(child))
+    }
+
+    #[must_use]
+    fn render_children_inner<'c, C: Iterator<Item = &'c El<W>> + 'c>(
         &mut self,
         children: C,
-        map_layout: impl Fn(LayoutModelNode<'a>) -> LayoutModelNode<'a>,
     ) -> RenderResult {
-        // TODO: Debug assert zip equal lengths
-        children.zip(self.layout.children().map(map_layout)).try_for_each(
+        let prev_dirty = self.parent_dirty;
+        let result = children.zip_eq(self.layout.children()).try_for_each(
             |(child, child_layout)| {
-                child.render(&mut RenderCtx {
-                    state: self.state,
-                    renderer: &mut self.renderer,
-                    layout: &child_layout,
-                    tree_style: self.tree_style,
-                    viewport: self.viewport,
-                    fonts: self.fonts,
-                    force_redraw: self.force_redraw,
-                    ctx_state: PhantomData,
+                self.for_child(child.id(), &child_layout, |ctx| {
+                    child.render(ctx)
                 })
             },
-        )
+        );
+        self.parent_dirty = prev_dirty;
+        result
+    }
+
+    #[must_use]
+    pub fn render_children<'c>(
+        &mut self,
+        children: &MaybeSignal<Vec<El<W>>>,
+    ) -> RenderResult {
+        observe(WithElId::new(self.id, "render_children"), || {
+            children.with(|children| {
+                children.iter().zip_eq(self.layout.children()).try_for_each(
+                    |(child, child_layout)| {
+                        self.for_child(child.id(), &child_layout, |ctx| {
+                            child.render(ctx)
+                        })
+                    },
+                )
+            })
+        })
+        .unwrap_or(RenderResult::Ok(()))
+    }
+
+    #[must_use]
+    fn clear_outer(&mut self) -> RenderResult {
+        self.page_style.with(|style| {
+            if let Some(bg) = style.background_color {
+                self.renderer.fill_solid(&self.layout.outer, bg).map_err(|_| ())
+            } else {
+                Ok(())
+            }
+        })
     }
 }
 
 // TODO: Move to event mod?
 pub struct EventCtx<'a, W: WidgetCtx> {
+    pub id: ElId,
     pub event: &'a Event<W::CustomEvent>,
     pub page_state: Signal<PageState<W>>,
     pub layout: &'a LayoutModelNode<'a>,
     // TODO: Instant now, already can get it from queue!
 }
 
+impl<'a, W: WidgetCtx> Copy for EventCtx<'a, W> {}
+
+impl<'a, W: WidgetCtx> Clone for EventCtx<'a, W> {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id.clone(),
+            event: self.event,
+            page_state: self.page_state.clone(),
+            layout: self.layout,
+        }
+    }
+}
+
 impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
     #[must_use]
     pub fn pass_to_children(
         &mut self,
-        children: &mut [impl Widget<W>],
+        children: &mut [El<W>],
     ) -> EventResponse {
         for (child, child_layout) in
-            children.iter_mut().zip(self.layout.children())
+            children.iter_mut().zip_eq(self.layout.children())
         {
-            child.on_event(&mut EventCtx {
+            child.on_event(EventCtx {
+                id: child.id(),
                 event: self.event,
                 page_state: self.page_state,
                 layout: &child_layout,
@@ -338,30 +406,27 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
         self.ignore()
     }
 
-    pub fn pass_to_child(
-        &mut self,
-        child: &mut impl Widget<W>,
-    ) -> EventResponse {
+    pub fn pass_to_child(&mut self, child: &mut El<W>) -> EventResponse {
         self.pass_to_children(core::slice::from_mut(child))
     }
 
-    pub fn is_focused(&self, id: ElId) -> bool {
-        self.page_state.with(|page_state| page_state.is_focused(id))
+    // TODO: Do not receive id, we already have it, same for `handle_focusable`
+    pub fn is_focused(&self) -> bool {
+        self.page_state.with(|page_state| page_state.is_focused(self.id))
     }
 
     #[must_use]
     pub fn handle_focusable(
         &mut self,
-        id: ElId,
         press: impl FnOnce(&mut Self, bool) -> EventResponse,
     ) -> EventResponse {
         if let &Event::Focus(FocusEvent::Focus(new_focus)) = self.event {
-            if new_focus == id {
+            if new_focus == self.id {
                 return self.capture();
             }
         }
 
-        if self.is_focused(id) {
+        if self.is_focused() {
             match self.event {
                 Event::Press(press_event) => {
                     let pressed = match press_event {
@@ -411,10 +476,8 @@ impl<W: WidgetCtx> MountCtx<W> {
         let styler = self.styler;
         let inputs = inputs.into();
         style
-            .first(move |base| {
-                styler.get().style()(base.clone(), inputs.get_cloned())
-            })
-            // TODO: Don't panic, better overwrite `first` but emit a warning 
+            .first(move |base| { styler.get().style()(base.clone(), inputs.get_cloned()) })
+            // TODO: Don't panic, better overwrite `first` but emit a warning
             .unwrap();
     }
 

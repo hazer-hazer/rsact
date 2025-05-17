@@ -30,8 +30,8 @@ impl<W: WidgetCtx> Show<W> {
 }
 
 impl<W: WidgetCtx> Widget<W> for Show<W> {
-    fn meta(&self) -> MetaTree {
-        self.el.meta()
+    fn meta(&self, id: ElId) -> MetaTree {
+        self.el.meta(id)
     }
 
     fn on_mount(&mut self, ctx: MountCtx<W>) {
@@ -42,12 +42,13 @@ impl<W: WidgetCtx> Widget<W> for Show<W> {
         self.el.layout()
     }
 
+    #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
         // TODO: `observe`?
         if self.show.get() { self.el.render(ctx) } else { Ok(()) }
     }
 
-    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {
+    fn on_event(&mut self, ctx: EventCtx<'_, W>) -> EventResponse {
         if self.show.get() { self.el.on_event(ctx) } else { ctx.ignore() }
     }
 }

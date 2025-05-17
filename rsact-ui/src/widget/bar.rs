@@ -32,11 +32,11 @@ impl<C: Color> BarStyle<C> {
     fn bar_style(&self) -> PrimitiveStyle<C> {
         let base = PrimitiveStyleBuilder::new();
 
-        if let Some(color) = self.color.get() {
+        (if let Some(color) = self.color.get() {
             base.fill_color(color)
         } else {
             base
-        }
+        })
         .build()
     }
 }
@@ -80,7 +80,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction> Widget<W>
 where
     W::Styler: WidgetStylist<BarStyle<W::Color>>,
 {
-    fn meta(&self) -> super::MetaTree {
+    fn meta(&self, _: ElId) -> MetaTree {
         MetaTree::childless(Meta::none)
     }
 
@@ -92,8 +92,9 @@ where
         self.layout
     }
 
+    #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
-        ctx.render(|ctx| {
+        ctx.render_self(|ctx| {
             let style = self.style.get();
 
             // let start = ctx.layout.area.anchor_point(
@@ -135,7 +136,7 @@ where
         })
     }
 
-    fn on_event(&mut self, ctx: &mut EventCtx<'_, W>) -> EventResponse {
+    fn on_event(&mut self, ctx: EventCtx<'_, W>) -> EventResponse {
         let _ = ctx;
         ctx.ignore()
     }
