@@ -110,7 +110,7 @@ pub fn model_flex(
                 child_size.max_fixed(child_min_size, limits.max());
 
             let needed_item_space = min_item_size
-                + (if item_index != 0 { gap } else { Size::zero() });
+                + if item_index != 0 { gap } else { Size::zero() };
 
             {
                 // Wrapping //
@@ -258,17 +258,17 @@ pub fn model_flex(
                 }
             } else {
                 line.max_cross
-                    + (if size.cross(axis).is_grow() {
+                    + if size.cross(axis).is_grow() {
                         container_free_cross_div
-                            + (if container_free_cross_rem > 0 {
+                            + if container_free_cross_rem > 0 {
                                 container_free_cross_rem -= 1;
                                 1
                             } else {
                                 0
-                            })
+                            }
                     } else {
                         0
-                    })
+                    }
             };
 
             let fluid_space = axis.canon::<Size>(line.free_main, cross);
@@ -363,11 +363,11 @@ pub fn model_flex(
                 longest_line = longest_line.max(model_line.used_main);
 
                 used_cross += model_line.cross
-                    + (if item.line < model_lines.len() - 1 {
+                    + if item.line < model_lines.len() - 1 {
                         gap_cross
                     } else {
                         0
-                    });
+                    };
 
                 *next_pos.main_mut(axis) = 0;
                 *next_pos.cross_mut(axis) = used_cross as i32;
