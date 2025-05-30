@@ -27,7 +27,7 @@ impl<C: Color> CheckboxStyle<C> {
     pub fn base() -> Self {
         Self {
             container: BlockStyle::base().border(
-                BorderStyle::base().color(C::default_foreground()).radius(5),
+                BorderStyle::base().color(C::default_foreground()).radius(2),
             ),
         }
     }
@@ -40,7 +40,6 @@ type IconKind = SystemIcon;
 pub struct Checkbox<W: WidgetCtx> {
     state: Signal<CheckboxState>,
     layout: Signal<Layout>,
-    // TODO: Reactive icon?
     icon: El<W>,
     value: MaybeSignal<bool>,
     style: MemoChain<CheckboxStyle<W::Color>>,
@@ -59,7 +58,8 @@ where
         value: impl Into<MaybeSignal<bool>>,
         icon: impl IntoMaybeReactive<SystemIcon>,
     ) -> Self {
-        let icon = Icon::new(icon).el();
+        let value = value.into();
+        let icon = Icon::new(icon).visible(value.map(|value| *value)).el();
 
         Self {
             state: CheckboxState::none().signal(),
@@ -69,15 +69,10 @@ where
             ))
             .signal(),
             icon,
-            value: value.into(),
+            value,
             style: CheckboxStyle::base().memo_chain(),
         }
     }
-
-    // pub fn check_icon(mut self, icon: IconKind) -> Self {
-    //     self.icon.set(icon);
-    //     self
-    // }
 }
 
 impl<W: WidgetCtx> Widget<W> for Checkbox<W>
@@ -115,9 +110,7 @@ where
             ctx.render_focus_outline(ctx.id)
         })?;
 
-        if self.value.get() {
-            ctx.render_child(&self.icon)?;
-        }
+        ctx.render_child(&self.icon)?;
 
         Ok(())
     }

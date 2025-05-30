@@ -1,14 +1,14 @@
 use embedded_graphics::{
-    mono_font::{ascii::FONT_8X13, MonoTextStyleBuilder},
+    mono_font::{MonoTextStyleBuilder, ascii::FONT_8X13},
     prelude::Point,
     primitives::Rectangle,
 };
-use embedded_text::{style::TextBoxStyleBuilder, TextBox};
+use embedded_text::{TextBox, style::TextBoxStyleBuilder};
 
 use crate::{
     layout::DevHoveredLayout,
     prelude::{BlockModel, BlockStyle, BorderStyle, Size},
-    render::{color::Color, Block, Border, Renderable, Renderer},
+    render::{Block, Border, Renderable, Renderer, color::Color},
     widget::RenderResult,
 };
 
@@ -48,6 +48,9 @@ impl DevHoveredEl {
         if let Some(padding) = self.layout.padding() {
             Self::model(area - padding, inner_color).render(r)?;
         }
+
+        extern crate std;
+        println!("{}", self.layout);
 
         // Ignore error, TextBox sometimes fails
         TextBox::with_textbox_style(

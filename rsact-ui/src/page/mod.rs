@@ -307,6 +307,8 @@ impl<W: WidgetCtx> Page<W> {
                 self.dev_tools.update(|dev_tools| {
                     dev_tools.hovered = hovered_el;
                 });
+                // TODO: Get rid of force redrawing the whole page when using dev_tools but use dirty rectangles
+                self.force_redraw.notify();
                 return None;
             }
         }
@@ -347,20 +349,12 @@ impl<W: WidgetCtx> Page<W> {
     pub fn use_renderer(&mut self, f: impl FnOnce(&W::Renderer)) -> bool {
         let mut renderer = self.renderer;
         let drawn = observe(("render_page", self.id), || {
+            self.force_redraw.track();
+
             self.render_calls += 1;
 
             renderer
                 .update_untracked(|renderer| {
-                    self.dev_tools.with(|dev_tools| {
-                        if dev_tools.enabled {
-                            if let Some(hovered) = &dev_tools.hovered {
-                                hovered
-                                    .draw(renderer, self.viewport.get())
-                                    .unwrap();
-                            }
-                        }
-                    });
-
                     // TODO: Reactive LayoutModel
                     let layout = self.layout;
                     with!(|layout| {
@@ -375,6 +369,16 @@ impl<W: WidgetCtx> Page<W> {
                             self.fonts.read_only(),
                             self.force_redraw,
                         ))
+                    })?;
+
+                    self.dev_tools.with(|dev_tools| {
+                        if dev_tools.enabled {
+                            if let Some(hovered) = &dev_tools.hovered {
+                                return hovered
+                                    .draw(renderer, self.viewport.get());
+                            }
+                        }
+                        Ok(())
                     })
                 })
                 .ok()

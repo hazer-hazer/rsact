@@ -79,7 +79,7 @@ pub fn model_flex(
 
     let full_padding = block_model.full_padding();
 
-    let limits = parent_limits.limit_by(size).shrink(full_padding);
+    let limits = parent_limits.child_limits(size).shrink(full_padding);
     let (max_possible_main, max_possible_cross) = limits.max().destruct(axis);
 
     let children_count = children.with(Vec::len);
@@ -381,13 +381,14 @@ pub fn model_flex(
     });
 
     let layout_size =
-        limits.resolve_size(size, axis.canon(longest_line, used_cross));
+        parent_limits.resolve_size(size, axis.canon(longest_line, used_cross));
 
     // TODO: Review alignments
     if !matches!(
         (horizontal_align, vertical_align),
         (Align::Start, Align::Start)
     ) {
+        // TODO: Optimize, each line free main axis space recomputed for each item in line
         for (child_layout, item) in children_layouts.iter_mut().zip(items) {
             let line = model_lines[item.line];
 
@@ -409,9 +410,9 @@ pub fn model_flex(
         layout_size,
         children_layouts,
         #[cfg(feature = "debug-info")]
-        DevLayout::new(
+        crate::layout::DevLayout::new(
             size,
-            crate::layout::DevLayoutKind::Flex(DevFlexLayout {
+            crate::layout::DevLayoutKind::Flex(crate::layout::DevFlexLayout {
                 // TODO: Implement dev representation of lines such as browsers does.
                 // lines: model_lines.iter().fold((Vec::new(),
                 // Point::zero()),|line| {

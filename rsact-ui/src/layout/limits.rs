@@ -56,16 +56,29 @@ impl Limits {
         Self::new(self.min, max)
     }
 
-    pub fn limit_by(self, size: impl Into<Size<Length>>) -> Self {
+    pub fn child_limits(self, size: impl Into<Size<Length>>) -> Self {
         let size = size.into();
 
-        self.limit_axis(Axis::X, size.width).limit_axis(Axis::Y, size.height)
+        self.limit_axis(Axis::X, size.width, true).limit_axis(
+            Axis::Y,
+            size.height,
+            true,
+        )
     }
 
-    pub fn limit_axis(self, axis: Axis, length: impl Into<Length>) -> Self {
+    pub fn limit_axis(
+        self,
+        axis: Axis,
+        length: impl Into<Length>,
+        child_limits: bool,
+    ) -> Self {
         match length.into() {
-            Length::InfiniteWindow(_) => {
-                self.with_max(axis.canon(u32::MAX, self.max.cross(axis)))
+            Length::InfiniteWindow(dl) => {
+                if child_limits {
+                    self.with_max(axis.canon(u32::MAX, self.max.cross(axis)))
+                } else {
+                    self.limit_axis(axis, dl, child_limits)
+                }
             },
             Length::Div(_) | Length::Shrink => {
                 // self.with_min(axis.canon(min, self.min.cross(axis)))
@@ -83,11 +96,20 @@ impl Limits {
                     fixed.min(self.max.main(axis)).max(self.min.main(axis));
 
                 Self::new(
-                    axis.canon(new_length, self.min.cross(axis)),
-                    axis.canon(new_length, self.max.cross(axis)),
+                    self.min.with_main(axis, new_length),
+                    self.max.with_main(axis, new_length),
                 )
             },
         }
+    }
+
+    /// Unlike `child_limits` won't produce "infinite" limit for `InfiniteWindow` length
+    pub fn self_limits(self, size: Size<Length>) -> Self {
+        self.limit_axis(Axis::X, size.width, false).limit_axis(
+            Axis::Y,
+            size.height,
+            false,
+        )
     }
 
     pub fn shrink(self, by: impl Into<Size>) -> Self {
@@ -127,12 +149,13 @@ impl Limits {
 
     pub fn resolve_size(
         &self,
-        container_size: Size<Length>,
+        size: Size<Length>,
         content_size: Size<u32>,
     ) -> Size<u32> {
+        let self_limits = self.self_limits(size);
         Size::new(
-            self.resolve_axis(Axis::X, container_size, content_size),
-            self.resolve_axis(Axis::Y, container_size, content_size),
+            self_limits.resolve_axis(Axis::X, size, content_size),
+            self_limits.resolve_axis(Axis::Y, size, content_size),
         )
     }
 

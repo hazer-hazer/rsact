@@ -35,18 +35,18 @@ impl SelectState {
         &self,
         inner: Rectangle,
         children_layouts: &[LayoutModelNode<'_>],
-    ) -> Result<(Point, usize), Point> {
+    ) -> (Point, Option<usize>) {
         if let Some(selected) = self.selected {
             let selected_child_layout = children_layouts.get(selected).unwrap();
 
             let options_offset =
                 inner.center_offset_of(selected_child_layout.inner);
 
-            Ok((options_offset, selected))
+            (options_offset, Some(selected))
         } else if let Some(first_option) = children_layouts.first() {
-            Err(inner.center_offset_of(first_option.inner))
+            (inner.center_offset_of(first_option.inner), None)
         } else {
-            Err(Point::zero())
+            (Point::zero(), None)
         }
     }
 }
@@ -190,20 +190,26 @@ where
         );
 
         Self {
-            layout: Layout::shrink(LayoutKind::Flex(
-                FlexLayout::base(
-                    Dir::AXIS,
-                    options.map(|options| {
-                        options
-                            .iter()
-                            .map(|opt| opt.el.borrow().layout().memo())
-                            .collect()
-                    }),
-                )
-                .gap(Dir::AXIS.canon(5, 0))
-                .align_main(Align::Center)
-                .align_cross(Align::Center),
-            ))
+            layout: Layout::new(
+                LayoutKind::Flex(
+                    FlexLayout::base(
+                        Dir::AXIS,
+                        options.map(|options| {
+                            options
+                                .iter()
+                                .map(|opt| opt.el.borrow().layout().memo())
+                                .collect()
+                        }),
+                    )
+                    .gap(Dir::AXIS.canon(5, 0))
+                    .align_main(Align::Center)
+                    .align_cross(Align::Center),
+                ),
+                Dir::AXIS.canon(
+                    Length::InfiniteWindow(Length::Shrink.try_into().unwrap()),
+                    Length::Shrink,
+                ),
+            )
             .signal(),
             state,
             style: SelectStyle::base().memo_chain(),
@@ -300,26 +306,25 @@ where
             let style = self.style.get();
             let state = self.state.get();
 
-            match state.options_offset(ctx.layout.inner, &children_layouts) {
-                Ok((options_offset, selected)) => {
-                    let selected_child_layout =
-                        children_layouts.get(selected).unwrap();
+            if let (options_offset, Some(selected)) =
+                state.options_offset(ctx.layout.inner, &children_layouts)
+            {
+                let selected_child_layout =
+                    children_layouts.get(selected).unwrap();
 
-                    Block::from_layout_style(
-                        selected_child_layout
-                            .inner
-                            .translate(options_offset)
-                            .resized_axis(
-                                Dir::AXIS.inverted(),
-                                ctx.layout.inner.size.cross(Dir::AXIS),
-                                Anchor::Center,
-                            ),
-                        BlockModel::zero().border_width(1),
-                        style.selected,
-                    )
-                    .render(ctx.renderer())?;
-                },
-                Err(_) => {},
+                Block::from_layout_style(
+                    selected_child_layout
+                        .outer
+                        .translate(options_offset)
+                        .resized_axis(
+                            Dir::AXIS.inverted(),
+                            ctx.layout.inner.size.cross(Dir::AXIS),
+                            Anchor::Center,
+                        ),
+                    BlockModel::zero().border_width(1),
+                    style.selected,
+                )
+                .render(ctx.renderer())?;
             }
 
             // TODO: Review if focus outline visible
@@ -329,10 +334,8 @@ where
         ctx.render_part("options", |ctx| {
             let state = self.state.get();
             let style = self.style.get();
-            let options_offset = state
-                .options_offset(ctx.layout.inner, &children_layouts)
-                .map(|(offset, _)| offset)
-                .unwrap_or_else(|offset| offset);
+            let (options_offset, _) =
+                state.options_offset(ctx.layout.inner, &children_layouts);
 
             self.options.with(move |options| {
                 ctx.clip_inner(|ctx| {

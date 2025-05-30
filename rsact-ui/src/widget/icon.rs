@@ -36,10 +36,18 @@ pub struct Icon<W: WidgetCtx, I: IconSet, R: ReactivityMarker> {
     layout: Signal<Layout>,
     style: MemoChain<IconStyle<W::Color>>,
     is_reactive: PhantomData<R>,
+    visible: MaybeReactive<bool>,
+}
+
+impl<W: WidgetCtx, I: IconSet, R: ReactivityMarker> Icon<W, I, R> {
+    pub fn visible(mut self, visible: impl IntoMaybeReactive<bool>) -> Self {
+        self.visible = visible.maybe_reactive();
+        self
+    }
 }
 
 impl<W: WidgetCtx> Icon<W, EmptyIconSet, IsInert> {
-    pub fn fixed(icon: IconRaw<BigEndian>) -> Self {
+    pub fn inert(icon: IconRaw<BigEndian>) -> Self {
         let layout = Layout::shrink(LayoutKind::Content(ContentLayout::fixed(
             Size::new_equal(icon.size),
         )))
@@ -50,6 +58,7 @@ impl<W: WidgetCtx> Icon<W, EmptyIconSet, IsInert> {
             layout,
             style: IconStyle::base().memo_chain(),
             is_reactive: PhantomData,
+            visible: true.inert().maybe_reactive(),
         }
     }
 }
@@ -69,6 +78,7 @@ impl<W: WidgetCtx, I: IconSet + 'static> Icon<W, I, IsReactive> {
             layout,
             style: IconStyle::base().memo_chain(),
             is_reactive: PhantomData,
+            visible: true.inert().maybe_reactive(),
         }
     }
 
@@ -121,6 +131,10 @@ where
     #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
         ctx.render_self(|ctx| {
+            if !self.visible.get() {
+                return Ok(());
+            }
+
             let viewport = ctx.viewport;
             let style = self.style.get();
 

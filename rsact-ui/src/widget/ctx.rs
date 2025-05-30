@@ -340,6 +340,8 @@ impl<'a, W: WidgetCtx + 'static> RenderCtx<'a, W, CtxUnready> {
         children: &MaybeSignal<Vec<El<W>>>,
     ) -> RenderResult {
         observe(WithElId::new(self.id, "render_children"), || {
+            self.force_redraw.track();
+
             children.with(|children| {
                 children.iter().zip_eq(self.layout.children()).try_for_each(
                     |(child, child_layout)| {

@@ -421,16 +421,20 @@ pub struct Layout {
 }
 
 impl Layout {
+    pub fn new(kind: LayoutKind, size: Size<Length>) -> Self {
+        Self { kind, size, show: None }
+    }
+
     pub fn zero() -> Self {
-        Self { kind: LayoutKind::Zero, size: Size::zero().into(), show: None }
+        Self::new(LayoutKind::Zero, Size::zero().into())
     }
 
     pub fn shrink(kind: LayoutKind) -> Self {
-        Self { kind, size: Size::shrink(), show: None }
+        Self::new(kind, Size::shrink())
     }
 
     pub fn edge(size: Size<Length>) -> Self {
-        Self { kind: LayoutKind::Edge, size, show: None }
+        Self::new(LayoutKind::Edge, size)
     }
 
     /// Construct base scrollable layout where main axis will be shrinking and cross axis will fill. Also checks if content layout is with growing length on main axis which is disallowed.
@@ -781,10 +785,8 @@ pub fn model_layout(
             // TODO: Panic or not?
             LayoutKind::Zero => LayoutModel::zero(),
             LayoutKind::Edge => {
-                let limits = parent_limits.limit_by(size);
-
                 LayoutModel::new(
-                    limits.resolve_size(size, Size::zero()),
+                    parent_limits.resolve_size(size, Size::zero()),
                     vec![],
                     #[cfg(feature = "debug-info")] DevLayout::new(size, DevLayoutKind::Edge)
                 )
@@ -815,21 +817,19 @@ pub fn model_layout(
 
                 let full_padding = block_model.full_padding();
 
-                let limits = parent_limits.limit_by(size).shrink(full_padding);
-
                 // TODO: Panic or warn in case when there're more than a single
                 // child
 
                 let content_layout = model_layout(
                     ctx,
                     *content,
-                    limits,
+                    parent_limits.child_limits(size).shrink(full_padding),
                     size
                     // viewport,
                 );
 
                 let content_size = content_layout.outer_size();
-                let real_size = limits.resolve_size(size, content_size);
+                let real_size = parent_limits.resolve_size(size, content_size);
                 let content_layout = content_layout
                     // .moved(full_padding.top_left())
                     .aligned(*horizontal_align, *vertical_align, real_size - content_size);
@@ -849,19 +849,21 @@ pub fn model_layout(
                 // TODO: Useless?
                 let ScrollableLayout { content, font_props: _ } = scrollable_layout;
 
-                let limits = parent_limits.limit_by(size);
-
                 let content_layout = model_layout(
                     ctx,
                     *content,
-                    limits,
+                    parent_limits.child_limits(size),
                     size
                     // viewport,
                 );
 
                 // Note: For [`LayoutKind::Scrollable`], parent_limits are used as
                 // content limits are unlimited on one axis
+                // TODO: This is wrong? I changed to use its limits
                 let real_size = parent_limits.resolve_size(size, content_layout.outer_size());
+
+                // extern crate std;
+                // println!("parent limits: {parent_limits}, self limits: {}, child_limits: {limits}, content_size: {}", parent_limits.self_limits(size), content_layout.outer.size);
 
                 LayoutModel::new(
                     real_size,

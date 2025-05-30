@@ -4,13 +4,15 @@
     "simulator",
     "std",
     "rsact-icons/common",
-    "rsact-reactive/debug-info"
+    "rsact-reactive/debug-info",
+    "debug-info"
   ],
   "rust-analyzer.cargo.features": [
     "simulator",
     "std",
     "rsact-icons/common",
-    "rsact-reactive/debug-info"
+    "rsact-reactive/debug-info",
+    "debug-info"
   ],
   "rust-analyzer.cargo.noDefaultFeatures": true,
   "cSpell.words": [
