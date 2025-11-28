@@ -1,5 +1,5 @@
 // #![feature(thread_local)]
-#![cfg_attr(all(not(feature = "std"), test), no_std)]
+#![cfg_attr(any(not(feature = "std"), test), no_std)]
 
 use storage::ValueId;
 

@@ -1,3 +1,5 @@
+#![no_std]
+
 use core::marker::PhantomData;
 use embedded_graphics::{
     Drawable, Pixel,

@@ -7,14 +7,14 @@ version.workspace = true
 [dependencies]
 # rsact-reactive = {path = "./rsact-reactive", features = ["single-thread"]}
 # rsact-encoder = {path = "./rsact-encoder"}
-rsact-ui = {path = "./rsact-ui"}
+rsact-ui = { path = "./rsact-ui" }
 
 [workspace]
 exclude = ["examples"]
 members = [
   "rsact-ui",
   "rsact-reactive", # "rsact-encoder",
-  "rsact-icons", # "rsact-widgets",
+  "rsact-icons",    # "rsact-widgets",
   "rsact-macros",
 ]
 resolver = "3"
@@ -28,35 +28,35 @@ version = "0.1.0"
 
 [workspace.dependencies]
 # rsact-encoder = {path = "./rsact-encoder", }
-rsact-icons = {path = "./rsact-icons"}
-rsact-macros = {path = "./rsact-macros"}
-rsact-reactive = {path = "./rsact-reactive"}
-rsact-ui = {path = "./rsact-ui"}
+rsact-icons = { path = "./rsact-icons" }
+rsact-macros = { path = "./rsact-macros" }
+rsact-reactive = { path = "./rsact-reactive" }
+rsact-ui = { path = "./rsact-ui" }
 # rsact-widgets = {path = "./rsact-widgets", }
 
-bitflags = {version = "2.9.0"}
+bitflags = { version = "2.9.0" }
 cap = "0.1.2"
-defmt = {version = "0.3.8"}
-derivative = {version = "2.2.0", default-features = false, features = [
+defmt = { version = "0.3.8" }
+derivative = { version = "2.2.0", default-features = false, features = [
   "use_core",
-]}
-embedded-graphics = {version = "0.8.1", features = ["defmt"]}
-embedded-graphics-core = {version = "0.4.0", features = ["defmt"]}
-embedded-graphics-simulator = {version = "0.7.0"}
+] }
+embedded-graphics = { version = "0.8.1", features = ["defmt"] }
+embedded-graphics-core = { version = "0.4.0", features = ["defmt"] }
+embedded-graphics-simulator = { version = "0.7.0" }
 embedded-text = "0.7.2"
-embedded-time = {version = "0.12.1"}
-log = {version = "0.4.22", default-features = false, features = [
+embedded-time = { version = "0.12.1" }
+log = { version = "0.4.22", default-features = false, features = [
   "max_level_off",
-]}
-micromath = {version = "2.1.0", features = ["num-traits"]}
-num = {version = "0.4.3", default-features = false, features = ["libm"]}
-once_cell = {version = "1.19.0", default-features = false, features = [
+] }
+micromath = { version = "2.1.0", features = ["num-traits"] }
+num = { version = "0.4.3", default-features = false, features = ["libm"] }
+once_cell = { version = "1.19.0", default-features = false, features = [
   "critical-section",
-]}
-replace_with = {version = "0.1.7", default-features = false}
-slotmap = {version = "1.0.7", default-features = false}
-smallvec = {version = "1.13.2"}
-tinyvec = {version = "1.9.0", features = ["alloc"]}
+] }
+replace_with = { version = "0.1.7", default-features = false }
+slotmap = { version = "1.0.7", default-features = false }
+smallvec = { version = "1.13.2" }
+tinyvec = { version = "1.9.0", features = ["alloc"] }
 u8g2-fonts = "0.6.0"
 
 [workspace.lints]
