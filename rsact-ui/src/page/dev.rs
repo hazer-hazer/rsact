@@ -49,9 +49,6 @@ impl DevHoveredEl {
             Self::model(area - padding, inner_color).render(r)?;
         }
 
-        extern crate std;
-        println!("{}", self.layout);
-
         // Ignore error, TextBox sometimes fails
         TextBox::with_textbox_style(
             &format!("{}", self.layout),

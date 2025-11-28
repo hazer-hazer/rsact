@@ -1,5 +1,6 @@
 use super::{
     axis::{Axial, Axis},
+    padding::Padding,
     size::{DeterministicLength, Length, Size},
 };
 use core::{fmt::Display, u32};
@@ -151,8 +152,14 @@ impl Limits {
         &self,
         size: Size<Length>,
         content_size: Size<u32>,
+        full_padding: Option<Padding>,
     ) -> Size<u32> {
         let self_limits = self.self_limits(size);
+        let self_limits = if let Some(full_padding) = full_padding {
+            self_limits.shrink(full_padding)
+        } else {
+            self_limits
+        };
         Size::new(
             self_limits.resolve_axis(Axis::X, size, content_size),
             self_limits.resolve_axis(Axis::Y, size, content_size),

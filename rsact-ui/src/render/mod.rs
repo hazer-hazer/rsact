@@ -3,7 +3,7 @@ use crate::{
     style::block::{BlockStyle, BorderRadius, BorderStyle},
     widget::RenderResult,
 };
-use alpha::{AlphaDrawTarget, AlphaDrawable};
+use alpha::{AlphaDrawTarget, AlphaDrawable, StyledAlphaDrawable};
 use color::Color;
 use embedded_graphics::{
     Drawable, Pixel,
@@ -15,6 +15,7 @@ use embedded_graphics::{
         StyledDrawable,
     },
 };
+use primitives::rounded_rect::RoundedRect;
 use rsact_reactive::prelude::IntoMaybeReactive;
 
 pub mod alpha;
@@ -209,9 +210,8 @@ impl<C: Color> AlphaDrawable for Block<C> {
     where
         A: AlphaDrawTarget<Color = Self::Color>,
     {
-        // TODO: RoundedRectangle AA
-        self.draw(target).ok().unwrap();
-        Ok(())
+        RoundedRect::new(self.rect, self.border.radius)
+            .draw_styled_alpha(&self.style(), target)
     }
 }
 

@@ -56,6 +56,8 @@ fn main() {
                     .inert()
             ),
         ]
+        .center()
+        .gap(5u32)
         .fill()
     ]
     .center()

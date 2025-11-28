@@ -201,6 +201,7 @@ where
                                 .collect()
                         }),
                     )
+                    .block_model(BlockModel::zero().padding(1u32))
                     .gap(Dir::AXIS.canon(5, 0))
                     .align_main(Align::Center)
                     .align_cross(Align::Center),

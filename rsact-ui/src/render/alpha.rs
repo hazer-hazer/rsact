@@ -62,6 +62,7 @@ impl<P: StyledAlphaDrawable<S>, S> AlphaDrawable for Styled<P, S> {
     }
 }
 
+// Note: Rectangle has nothing to anti-alias, it has perfect 90° angles
 impl<C: Color> AlphaDrawable for Styled<Rectangle, PrimitiveStyle<C>> {
     type Color = C;
 

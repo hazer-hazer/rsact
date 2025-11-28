@@ -26,24 +26,14 @@ pub use embedded_text;
 
 pub mod prelude {
     pub use crate::{
-        style::{ WidgetStylist, declare_widget_style, NullStyler },
-        page::id::{ PageId, SinglePage },
-        ui::UI,
         font::FontImport,
+        page::id::{PageId, SinglePage},
+        style::{NullStyler, WidgetStylist, declare_widget_style},
+        ui::UI,
         widget::{
-            button::*,
-            checkbox::*,
-            container::*,
-            edge::*,
-            flex::*,
-            icon::*,
-            image::*,
-            prelude::*,
-            scrollable::*,
-            select::*,
-            slider::*,
-            space::*,
-            text::*,
+            button::*, checkbox::*, container::*, edge::*, flex::*, icon::*,
+            image::*, prelude::*, scrollable::*, select::*, slider::*,
+            space::*, text::*,
         },
     };
 }

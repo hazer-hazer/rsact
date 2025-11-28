@@ -46,7 +46,7 @@ fn main() {
         // .theme(embedded_graphics_simulator::BinaryColorTheme::OledWhite)
         .build();
 
-    let mut window = Window::new("SANDBOX", &output_settings);
+    let mut window = Window::new("3D Printers", &output_settings);
 
     let mut display = SimulatorDisplay::<BinaryColor>::new(Size::new(128, 64).into());
 

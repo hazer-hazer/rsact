@@ -133,18 +133,20 @@ impl<C: Color> StyledAlphaDrawable<PrimitiveStyle<C>> for Circle {
                                 r_inner - dist,
                             )?;
                         }
-                    } else if dist < r_outer
+                    } else if dist <= r_outer
                         && (style.stroke_width == 0
                             || style.stroke_color.is_none())
                     {
                         // TODO
-                        // if dist > radius as f32 {
-                        //     let alpha = (r_outer - dist).min(1.0).max(0.0);
-                        //     draw_pixel(point, fill_color, alpha);
-                        // } else {
-                        //     let alpha = (dist - radius as f32).min(1.0).max(0.0);
-                        //     draw_pixel(point, fill_color, alpha);
-                        // }
+                        if dist > radius as f32 {
+                            let alpha = (r_outer - dist).clamp(0.0, 1.0);
+                            target
+                                .pixel_alpha(Pixel(point, fill_color), alpha)?;
+                        } else {
+                            let alpha = (dist - radius as f32).clamp(0.0, 1.0);
+                            target
+                                .pixel_alpha(Pixel(point, fill_color), alpha)?;
+                        }
                     }
                 }
             }

@@ -380,8 +380,11 @@ pub fn model_flex(
         }
     });
 
-    let layout_size =
-        parent_limits.resolve_size(size, axis.canon(longest_line, used_cross));
+    let layout_size = parent_limits.resolve_size(
+        size,
+        axis.canon(longest_line, used_cross),
+        Some(full_padding),
+    );
 
     // TODO: Review alignments
     if !matches!(

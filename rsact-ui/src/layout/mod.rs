@@ -786,7 +786,7 @@ pub fn model_layout(
             LayoutKind::Zero => LayoutModel::zero(),
             LayoutKind::Edge => {
                 LayoutModel::new(
-                    parent_limits.resolve_size(size, Size::zero()),
+                    parent_limits.resolve_size(size, Size::zero(),None),
                     vec![],
                     #[cfg(feature = "debug-info")] DevLayout::new(size, DevLayoutKind::Edge)
                 )
@@ -795,7 +795,7 @@ pub fn model_layout(
                 let min_content = content_layout.min_size(ctx);
 
                 LayoutModel::new(
-                    parent_limits.resolve_size(size, min_content),
+                    parent_limits.resolve_size(size, min_content, None),
                     vec![],
                     #[cfg(feature = "debug-info")] DevLayout::new(
                         size,
@@ -829,7 +829,7 @@ pub fn model_layout(
                 );
 
                 let content_size = content_layout.outer_size();
-                let real_size = parent_limits.resolve_size(size, content_size);
+                let real_size = parent_limits.resolve_size(size, content_size, Some(full_padding));
                 let content_layout = content_layout
                     // .moved(full_padding.top_left())
                     .aligned(*horizontal_align, *vertical_align, real_size - content_size);
@@ -860,7 +860,7 @@ pub fn model_layout(
                 // Note: For [`LayoutKind::Scrollable`], parent_limits are used as
                 // content limits are unlimited on one axis
                 // TODO: This is wrong? I changed to use its limits
-                let real_size = parent_limits.resolve_size(size, content_layout.outer_size());
+                let real_size = parent_limits.resolve_size(size, content_layout.outer_size(), None);
 
                 // extern crate std;
                 // println!("parent limits: {parent_limits}, self limits: {}, child_limits: {limits}, content_size: {}", parent_limits.self_limits(size), content_layout.outer.size);
