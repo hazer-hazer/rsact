@@ -355,6 +355,19 @@ impl<W: WidgetCtx> Page<W> {
 
             renderer
                 .update_untracked(|renderer| {
+                    self.style
+                        .with(|style| {
+                            if let Some(background_color) =
+                                style.background_color
+                            {
+                                renderer.clear(background_color)
+                            } else {
+                                Ok(())
+                            }
+                        })
+                        .ok()
+                        .unwrap();
+
                     // TODO: Reactive LayoutModel
                     let layout = self.layout;
                     with!(|layout| {
