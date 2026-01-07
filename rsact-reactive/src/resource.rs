@@ -20,7 +20,6 @@ pub fn create_resource<T: 'static>(
 
     create_effect(move |_| {
         signal.with(|value| set(value));
-        // set(signal.get_cloned());
     });
 
     signal
