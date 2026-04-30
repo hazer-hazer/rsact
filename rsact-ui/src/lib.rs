@@ -36,4 +36,6 @@ pub mod prelude {
             space::*, text::*,
         },
     };
+
+    pub use rsact_icons::{IconRaw, IconSet};
 }

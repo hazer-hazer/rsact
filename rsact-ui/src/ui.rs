@@ -16,6 +16,7 @@ use crate::{
 use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use core::{fmt::Debug, marker::PhantomData};
 use embedded_graphics::prelude::DrawTarget;
+use log::info;
 use rsact_reactive::{maybe::IntoMaybeReactive, prelude::*};
 use tinyvec::TinyVec;
 
@@ -253,7 +254,9 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
 impl<W: WidgetCtx> UI<W, WithPages> {
     /// Get mutable reference to currently active [`Page`]. You likely don't need to get pages.
     pub fn current_page(&mut self) -> &mut Page<W> {
-        self.pages.get_mut(&self.page_history.last().unwrap()).unwrap()
+        self.pages
+            .get_mut(&self.page_history.last().unwrap())
+            .expect("Page not found, likely you forget to add page to UI")
     }
 
     // TODO: Unused
@@ -263,6 +266,7 @@ impl<W: WidgetCtx> UI<W, WithPages> {
 
     /// Run some logic on page change
     fn on_page_change(&mut self) {
+        info!("UI: Page changed");
         self.current_page().clear().force_redraw();
 
         if self.options.auto_focus {

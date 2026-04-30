@@ -8,7 +8,7 @@ use rsact_reactive::maybe::IntoMaybeReactive;
 // pub type Row<C> = Flex<C, RowDir>;
 // pub type Col<C> = Flex<C, ColDir>;
 
-// TODO: Do we need flex style?
+// TODO: Do we need flex style? Yes, using Container as combinator to have box style in flex is not handy at all
 // declare_widget_style! {
 //     FlexStyle () {
 //         container: container,

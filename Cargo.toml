@@ -72,6 +72,7 @@ opt-level = 3
 
 [features]
 default = []
+defmt = ["rsact-ui/defmt"]
 simulator = ["rsact-ui/simulator"]
 single-thread = ["rsact-ui/single-thread"]
 std = ["rsact-ui/std"]
