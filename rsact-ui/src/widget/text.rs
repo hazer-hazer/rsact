@@ -37,7 +37,6 @@ pub struct Text<W: WidgetCtx> {
 impl<W: WidgetCtx> Text<W> {
     pub fn new_inert(content: impl ToString) -> Self {
         // TODO: Is it possible to make real MaybeReactive text content?
-        // The problem is that ContentLayout needs to know the content. One possible solution is to create
         Self::new(content.to_string().inert())
     }
 

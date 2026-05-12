@@ -13,12 +13,15 @@ mod callback;
 pub mod computed;
 // pub mod cow;
 // pub mod eco;
+#[cfg(feature = "async")]
+pub mod async_rt;
 pub mod effect;
 pub mod maybe;
 pub mod memo;
 pub mod memo_chain;
 pub mod observer;
 pub mod read;
+#[cfg(feature = "async")]
 pub mod resource;
 pub mod runtime;
 pub mod scope;
@@ -35,25 +38,45 @@ pub mod prelude {
         // cow::CowSignal,
         effect::{Effect, create_effect},
         maybe::{
-            Inert, IntoInert, IntoMaybeSignal, MaybeReactive, MaybeSignal,
-            SignalMapReactive,
+            Inert, IntoInert, IntoMaybeReactive, IntoMaybeSignal,
+            MaybeReactive, MaybeSignal, SignalMapReactive,
         },
         memo::{IntoMemo, Memo, MemoTree, create_memo},
         memo_chain::{IntoMemoChain, MemoChain, create_memo_chain},
-        read::{ReadSignal, SignalMap, map, with},
-        resource::create_resource,
+        read::{ReadSignal, SignalMap, SignalWithSlice, map, with},
         rsact_macros::IntoMaybeReactive,
         runtime::{
-            create_runtime, observe, observe_by_location, with_current_runtime,
-            with_new_runtime,
+            batch, create_runtime, defer_effects, observe, observe_by_location,
+            untrack, with_current_runtime, with_new_runtime,
         },
         signal::{IntoSignal, RwSignal, Signal, create_signal},
         trigger::{Trigger, create_trigger},
         write::{SignalSetter, UpdateNotification, WriteSignal},
     };
+
+    #[cfg(feature = "async")]
+    pub use super::async_rt::AsyncState;
+
+    #[cfg(feature = "async")]
+    pub use super::resource::{Resource, create_resource};
 }
 
-/// SignalValue is used as HKT abstraction over reactive (or not) types such as Signal<T> (Value = T), Memo<T>, MaybeReactive<T>, etc.
+/// Core trait implemented by every reactive (and inert) value in the runtime.
+///
+/// [`ReactiveValue`] provides a uniform interface for identity, liveness
+/// queries, and disposal. The associated type `Value` is the plain Rust type
+/// stored inside the reactive node (e.g. `T` for `Signal<T>`).
+///
+/// All high-level types — [`signal::Signal`], [`memo::Memo`], [`memo_chain::MemoChain`], [`effect::Effect`],
+/// [`trigger::Trigger`], [`maybe::Inert`], [`maybe::MaybeReactive`], [`maybe::MaybeSignal`] — implement
+/// this trait.
+///
+/// # Safety
+///
+/// [`ReactiveValue::dispose`] is `unsafe` because calling it while the value
+/// is still referenced by a live effect or memo causes use-after-free in the
+/// dependency graph. Prefer letting the owning [`scope::ScopeHandle`] manage
+/// lifetimes automatically.
 pub trait ReactiveValue: 'static {
     type Value;
 

@@ -9,15 +9,48 @@ use crate::{
 };
 use core::{marker::PhantomData, panic::Location};
 
+/// Create a new [`Signal<T>`] in the current runtime scope.
+///
+/// This is the primary constructor for writable reactive state. The signal
+/// is owned by the innermost active [`crate::scope::ScopeHandle`]; when the scope is
+/// dropped all of its signals (and their dependent effects/memos) are
+/// disposed automatically.
+///
+/// # Example
+///
+/// ```rust
+/// # use rsact_reactive::prelude::*;
+/// # use rsact_reactive::runtime::with_new_runtime;
+/// # with_new_runtime(|_| {
+/// let mut count = create_signal(0u32);
+/// assert_eq!(count.get(), 0);
+/// count.set(1);
+/// assert_eq!(count.get(), 1);
+/// # });
+/// ```
 #[track_caller]
 pub fn create_signal<T: 'static>(value: T) -> Signal<T> {
     Signal::new(value)
 }
 
+/// Blanket trait for types that implement both [`ReadSignal<T>`] and
+/// [`WriteSignal<T>`]. Useful as a bound when a function needs
+/// full read-write access without caring about the concrete type.
 pub trait RwSignal<T: 'static>: ReadSignal<T> + WriteSignal<T> {}
 
 impl<S, T: 'static> RwSignal<T> for S where S: ReadSignal<T> + WriteSignal<T> {}
 
+/// Marker types that encode signal access permissions at the type level.
+///
+/// The [`Signal<T, M>`] struct carries `M` as a phantom type parameter.  
+/// Three concrete markers exist:
+/// - [`marker::Rw`] (default) — read **and** write access.
+/// - [`marker::ReadOnly`] — read access only; produced by splitting an `Rw` signal.
+/// - [`marker::WriteOnly`] — write access only.
+///
+/// The [`marker::CanRead`] and [`marker::CanWrite`] sub-traits gate the [`crate::read::ReadSignal`] and
+/// [`crate::write::WriteSignal`] trait impls respectively, so passing a read-only signal
+/// where a write is required is a compile-time error.
 pub mod marker {
     #[derive(Clone, Copy)]
     pub struct ReadOnly;
@@ -39,6 +72,34 @@ pub mod marker {
     impl CanWrite for WriteOnly {}
 }
 
+/// A reactive, read-write cell managed by the runtime.
+///
+/// `Signal<T>` stores a single `T` inside the runtime's slot-map. Any
+/// reactive context (effect or memo) that calls `.get()` / `.with()` on the
+/// signal is automatically registered as a subscriber; when the signal is
+/// written those subscribers are re-evaluated.
+///
+/// The marker parameter `M` restricts access:
+/// - `Signal<T>` (i.e. `Signal<T, marker::Rw>`) — read and write.
+/// - `Signal<T, marker::ReadOnly>` — read only.
+/// - `Signal<T, marker::WriteOnly>` — write only.
+///
+/// Signals are `Copy` because they are just a `ValueId` handle into the
+/// runtime; they do not own the stored value.
+///
+/// # Example
+///
+/// ```rust
+/// # use rsact_reactive::prelude::*;
+/// # use rsact_reactive::runtime::with_new_runtime;
+/// # with_new_runtime(|_| {
+/// let mut sig = create_signal("hello");
+/// let doubled = create_memo(move || sig.get().len() * 2);
+/// assert_eq!(doubled.get(), 10);
+/// sig.set("hi");
+/// assert_eq!(doubled.get(), 4);
+/// # });
+/// ```
 pub struct Signal<T, M: marker::Any = marker::Rw> {
     id: ValueId,
     ty: PhantomData<T>,
@@ -53,7 +114,7 @@ impl<T: 'static, M: marker::Any> Clone for Signal<T, M> {
 
 impl<T: 'static, M: marker::Any> Copy for Signal<T, M> {}
 
-impl<T: 'static> ReactiveValue for Signal<T> {
+impl<T: 'static, M: marker::Any> ReactiveValue for Signal<T, M> {
     type Value = T;
 
     fn id(&self) -> Option<ValueId> {
@@ -268,6 +329,24 @@ impl<T: 'static, M: marker::CanWrite> Signal<T, M> {
     }
 }
 
+/// Convert a value into a [`Signal`], or pass an existing signal through unchanged.
+///
+/// Implemented for:
+/// - `T` → creates a new [`Signal<T>`] in the current scope.
+/// - `Signal<T>` → identity (no allocation).
+///
+/// Accept `impl IntoSignal<T>` in APIs that need writable reactive state
+/// but should also accept a plain value for convenience:
+///
+/// ```rust
+/// # use rsact_reactive::prelude::*;
+/// # use rsact_reactive::runtime::with_new_runtime;
+/// # with_new_runtime(|_| {
+/// fn needs_signal(v: impl IntoSignal<u32>) -> Signal<u32> { v.signal() }
+/// let _from_value = needs_signal(42u32);
+/// let _from_signal = needs_signal(create_signal(42u32));
+/// # });
+/// ```
 /// Helper trait which converts anything except [`Signal`] into signal, and leaves [`Signal`] as it is.
 pub trait IntoSignal<T: 'static> {
     fn signal(self) -> Signal<T>;

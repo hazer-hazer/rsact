@@ -1,8 +1,14 @@
-/*!
- * Computed is a lens to a Signal.
- * It is needed to avoid making every part of a structure stored in signal to be reactive.
- * By setting computed, some signal is updated by passed parameters (or without any).
- * By getting computed, signal data is retrieved and possibly mapped.
+/*!  
+ * A `Computed<T>` is a reactive lens into a [`crate::signal::Signal`].
+ *
+ * It is similar to a [`Memo`] but does **not** perform equality comparison:
+ * every time its closure runs the result is stored and downstream subscribers
+ * are always notified. Use `Computed` for values where equality testing is
+ * expensive or meaningless (e.g. collections that are always rebuilt from
+ * scratch).
+ *
+ * Prefer [`Memo`] when `T: PartialEq` and you want the runtime to skip
+ * re-notifications when the value did not actually change.
  */
 
 use crate::{
@@ -15,6 +21,11 @@ use crate::{
 };
 use core::{marker::PhantomData, panic::Location};
 
+/// Create a new [`Computed<T>`] in the current runtime scope.
+///
+/// Similar to [`crate::memo::Memo`] but without equality-gated notification:
+/// downstream subscribers are re-evaluated on every update regardless of
+/// whether `T` changed. Prefer [`create_memo`] when `T: PartialEq`.
 pub fn create_computed<T: 'static, P: 'static>(
     f: impl CallbackFn<T, P> + 'static,
 ) -> Computed<T> {
@@ -69,6 +80,11 @@ where
     }
 }
 
+/// A reactive derived value that always notifies subscribers when its
+/// source changes, without equality checking.
+///
+/// See the [module-level documentation](self) for a comparison with [`crate::memo::Memo`].
+/// Construct with [`create_computed`].
 pub struct Computed<T> {
     id: ValueId,
     ty: PhantomData<T>,

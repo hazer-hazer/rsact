@@ -1,4 +1,4 @@
-#![cfg_attr(not(feature = "std"), no_std)]
+// #![cfg_attr(not(feature = "std"), no_std)]
 
 use maybe_reactive::impl_into_maybe_reactive;
 use proc_macro::TokenStream;

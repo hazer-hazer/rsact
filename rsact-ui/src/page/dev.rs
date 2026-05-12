@@ -12,13 +12,12 @@ use crate::{
     widget::RenderResult,
 };
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub struct DevTools {
     pub enabled: bool,
     pub hovered: Option<DevHoveredEl>,
 }
 
-#[derive(Clone)]
 pub struct DevHoveredEl {
     pub layout: DevHoveredLayout,
 }

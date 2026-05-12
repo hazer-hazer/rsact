@@ -324,6 +324,9 @@ pub struct StoredValue {
     pub value: Rc<RefCell<dyn Any>>,
     pub kind: ValueKind,
     pub state: ValueState,
+    /// Topological height in the reactive graph (0 = source signal, n+1 = subscriber of height-n node).
+    /// Used to run pending effects in topological order, preventing glitches.
+    pub height: u32,
     #[cfg(feature = "debug-info")]
     pub debug: ValueDebugInfo,
 }
@@ -348,6 +351,17 @@ impl Storage {
         self.values.borrow().get(id).cloned()
     }
 
+    pub(crate) fn get_height(&self, id: ValueId) -> u32 {
+        self.values.borrow().get(id).map(|v| v.height).unwrap_or(0)
+    }
+
+    pub(crate) fn set_height(&self, id: ValueId, height: u32) {
+        let mut values = self.values.borrow_mut();
+        if let Some(value) = values.get_mut(id) {
+            value.height = height;
+        }
+    }
+
     #[cfg(feature = "debug-info")]
     pub(crate) fn debug_info(&self, id: ValueId) -> Option<ValueDebugInfo> {
         self.values.borrow().get(id).map(|value| value.debug)
@@ -360,23 +374,23 @@ impl Storage {
         requester: Option<ValueId>,
         caller: &'static Location<'static>,
     ) {
-        #[cfg(feature = "debug-info")]
-        self.set_debug_info(id, |debug_info| match state {
-            ValueState::Clean => {
-                debug_info.state = ValueDebugInfoState::Clean(requester);
-            },
-            ValueState::Check => {
-                debug_info.state =
-                    ValueDebugInfoState::CheckRequested(caller, requester);
-            },
-            ValueState::Dirty => {
-                debug_info.state =
-                    ValueDebugInfoState::Dirten(caller, requester)
-            },
-        });
-
         let mut values = self.values.borrow_mut();
-        let value = values.get_mut(id).unwrap();
+        // Silently skip marking a value that has already been disposed.
+        let Some(value) = values.get_mut(id) else { return };
+
+        #[cfg(feature = "debug-info")]
+        {
+            value.debug.state = match state {
+                ValueState::Clean => ValueDebugInfoState::Clean(requester),
+                ValueState::Check => {
+                    ValueDebugInfoState::CheckRequested(caller, requester)
+                },
+                ValueState::Dirty => {
+                    ValueDebugInfoState::Dirten(caller, requester)
+                },
+            };
+        }
+
         value.mark(state);
     }
 

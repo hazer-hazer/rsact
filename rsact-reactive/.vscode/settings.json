@@ -1,9 +1,8 @@
 {
   "rust-analyzer.check.allTargets": true,
-  "rust-analyzer.cargo.allTargets": false,
-  "editor.formatOnSave": true,
-  "rust-analyzer.check.features": ["single-thread", "debug-info"],
-  "rust-analyzer.cargo.features": ["single-thread", "debug-info"],
+  "rust-analyzer.cargo.allTargets": true,
+  "rust-analyzer.check.features": ["single-thread", "debug-info", "async"],
+  "rust-analyzer.cargo.features": ["single-thread", "debug-info", "async"],
   "rust-analyzer.testExplorer": true,
   "rustTestExplorer.rootCargoManifestFilePath": "${workspaceFolder}/Cargo.toml",
   "rust-analyzer.runnables.extraTestBinaryArgs": ["--test-threads=1"],

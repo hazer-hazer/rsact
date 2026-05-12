@@ -3,11 +3,40 @@ use crate::{
     write::WriteSignal,
 };
 
+/// Create a new [`Trigger`] in the current runtime scope.
+///
+/// Sugar for [`Trigger::new`].
 #[track_caller]
 pub fn create_trigger() -> Trigger {
     Trigger::new()
 }
 
+/// A unit-valued reactive cell used purely to manually invalidate subscribers.
+///
+/// `Trigger` wraps a `Signal<()>` and exposes only `track` and `notify`.
+/// It is ideal for signalling that *something* changed without carrying any
+/// value — for example, invalidating a cache or requesting a UI redraw.
+///
+/// # Example
+///
+/// ```rust
+/// # use rsact_reactive::prelude::*;
+/// # use rsact_reactive::runtime::with_new_runtime;
+/// # with_new_runtime(|_| {
+/// let trigger = create_trigger();
+/// let mut run_count = create_signal(0u32);
+///
+/// let t = trigger;
+/// create_effect(move |_| {
+///     t.track();
+///     run_count.update_untracked(|c| *c += 1);
+/// });
+///
+/// assert_eq!(run_count.get_untracked(), 1);
+/// trigger.notify();
+/// assert_eq!(run_count.get_untracked(), 2);
+/// # });
+/// ```
 #[derive(Clone, Copy)]
 pub struct Trigger {
     inner: Signal<()>,

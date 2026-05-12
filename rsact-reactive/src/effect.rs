@@ -4,6 +4,35 @@ use crate::{
 use alloc::rc::Rc;
 use core::{any::Any, cell::RefCell, marker::PhantomData, panic::Location};
 
+/// Create a new reactive side-effect in the current runtime scope.
+///
+/// The closure `f` is run immediately, and re-run whenever any reactive
+/// value it accessed (tracked) during the previous run changes.
+///
+/// `f` receives `Option<T>` — the return value from the *previous*
+/// invocation, or `None` on the first run. This lets effects carry
+/// state across runs without external signals.
+///
+/// Unlike memos, effects are not memoized: `f` always re-runs when any
+/// source changes, regardless of whether the returned `T` changes.
+///
+/// # Example
+///
+/// ```rust
+/// # use rsact_reactive::prelude::*;
+/// # use rsact_reactive::runtime::with_new_runtime;
+/// # with_new_runtime(|_| {
+/// let mut sig = create_signal(0u32);
+/// let mut last_seen = create_signal(0u32);
+///
+/// create_effect(move |_| {
+///     last_seen.set(sig.get()); // re-runs every time sig changes
+/// });
+///
+/// sig.set(42);
+/// assert_eq!(last_seen.get(), 42);
+/// # });
+/// ```
 #[track_caller]
 pub fn create_effect<T, F>(f: F) -> Effect<T>
 where
@@ -20,6 +49,13 @@ where
     effect
 }
 
+/// Handle to a reactive side-effect.
+///
+/// Returned by [`create_effect`]. The effect is tied to the innermost active
+/// [`crate::scope::ScopeHandle`] and is disposed (stopped) when the scope drops.
+///
+/// `Effect<T>` can be used to query liveness via [`Effect::is_alive`], but
+/// normally you do not need to interact with it directly after creation.
 pub struct Effect<T> {
     id: ValueId,
     ty: PhantomData<T>,

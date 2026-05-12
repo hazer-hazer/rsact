@@ -17,7 +17,9 @@ use embedded_graphics::{
 };
 use itertools::Itertools as _;
 use layout::{axis::Anchor, size::RectangleExt};
-use rsact_reactive::{maybe::IntoMaybeReactive, memo_chain::IntoMemoChain};
+use rsact_reactive::{
+    maybe::IntoMaybeReactive, memo_chain::IntoMemoChain, read::SignalMapSlice,
+};
 
 #[derive(Clone, Copy)]
 pub struct SelectState {
@@ -116,7 +118,7 @@ pub struct Select<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> {
     state: Signal<SelectState>,
     style: MemoChain<SelectStyle<W::Color>>,
     // TODO: Can we do fixed size?
-    options: Memo<Vec<SelectOption<W, K>>>,
+    options: MaybeReactive<Vec<SelectOption<W, K>>>,
     dir: PhantomData<Dir>,
 }
 
@@ -128,7 +130,12 @@ where
 {
     pub fn vertical(
         selected: impl IntoMaybeSignal<K>,
-        options: impl IntoMemo<Vec<K>>,
+        options: impl SignalMapSlice<
+            K,
+            Output<Vec<SelectOption<W, K>>> = MaybeReactive<
+                Vec<SelectOption<W, K>>,
+            >,
+        > + PartialEq,
     ) -> Self {
         Self::new(selected, options)
     }
@@ -142,7 +149,12 @@ where
 {
     pub fn horizontal(
         selected: impl IntoMaybeSignal<K>,
-        options: impl IntoMemo<Vec<K>>,
+        options: impl SignalMapSlice<
+            K,
+            Output<Vec<SelectOption<W, K>>> = MaybeReactive<
+                Vec<SelectOption<W, K>>,
+            >,
+        > + PartialEq,
     ) -> Self {
         Self::new(selected, options)
     }
@@ -155,51 +167,54 @@ where
     W::Styler: WidgetStylist<TextStyle<W::Color>>,
     Dir: Direction,
 {
-    // TODO: Static options?
+    // TODO: Inert options?
     // TODO: MaybeReactive options
     pub fn new(
         selected: impl IntoMaybeSignal<K>,
-        options: impl IntoMemo<Vec<K>>,
+        options: impl SignalMapSlice<K> + PartialEq,
     ) -> Self {
-        let options: Memo<Vec<_>> = options.memo().map(|options| {
-            options
-                .into_iter()
-                .cloned()
-                .map(|opt| SelectOption::new(opt))
-                .collect()
-        });
+        let options: MaybeReactive<Vec<SelectOption<W, K>>> = options
+            .map_slice_reactive(|options| {
+                options
+                    .into_iter()
+                    .cloned()
+                    .map(|opt| SelectOption::new(opt))
+                    .collect::<Vec<_>>()
+            });
 
         let mut selected = selected.maybe_signal();
 
+        // TODO: This maybe reactive optimization not working, as when selected is inert, it is then converted into a signal inside `selected.setter`, but this signal is unavailable outside, user still holds they Inert value and selected signal doesn't need to be tracked. So we either do runtime check like `if selected.is_inert() { ... }` or we just require selected to always be a signal. Or we can do two constructors: one for inert selected and one for reactive selected.
         let state = SelectState::initial(with!(move |selected, options| {
             options.iter().position(|opt| &opt.key == selected)
         }))
         .signal();
 
-        selected.setter(
-            state.map(|state| state.selected).maybe_reactive(),
-            move |selected, position| {
-                if let Some(option) = position.and_then(|pos| {
-                    options.with(|options| {
-                        options.get(pos).map(|opt| opt.key.clone())
-                    })
-                }) {
-                    *selected = option;
-                }
-            },
-        );
+        // TODO: If-reactive setter
+        // selected.setter(
+        //     state.map(|state| state.selected).maybe_reactive(),
+        //     move |selected, position| {
+        //         if let Some(option) = position.and_then(|pos| {
+        //             options.with(|options| {
+        //                 options.get(pos).map(|opt| opt.key.clone())
+        //             })
+        //         }) {
+        //             *selected = option;
+        //         }
+        //     },
+        // );
 
         Self {
             layout: Layout::new(
                 LayoutKind::Flex(
                     FlexLayout::base(
                         Dir::AXIS,
-                        options.map(|options| {
-                            options
-                                .iter()
-                                .map(|opt| opt.el.borrow().layout().memo())
-                                .collect()
-                        }),
+                        todo!(), // options.map(|options| {
+                                 //     options
+                                 //         .iter()
+                                 //         .map(|opt| opt.el.borrow().layout().memo())
+                                 //         .collect()
+                                 // }),
                     )
                     .block_model(BlockModel::zero().padding(1u32))
                     .gap(Dir::AXIS.canon(5, 0))

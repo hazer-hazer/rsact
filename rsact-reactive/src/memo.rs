@@ -9,7 +9,26 @@ use crate::{
 use alloc::{rc::Rc, vec::Vec};
 use core::{cell::RefCell, marker::PhantomData, ops::Deref, panic::Location};
 
-// TODO: FnMut in memos is a bad idea!
+/// Create a new [`Memo<T>`] in the current runtime scope.
+///
+/// The closure `f` is run immediately and then re-run whenever any reactive
+/// value accessed inside it changes. The new value is compared with the
+/// previous one using `PartialEq`; if equal, downstream subscribers are
+/// **not** notified (memoization / glitch-free propagation).
+///
+/// # Example
+///
+/// ```rust
+/// # use rsact_reactive::prelude::*;
+/// # use rsact_reactive::runtime::with_new_runtime;
+/// # with_new_runtime(|_| {
+/// let mut sig = create_signal(2u32);
+/// let squared = create_memo(move || sig.get() * sig.get());
+/// assert_eq!(squared.get(), 4);
+/// sig.set(3);
+/// assert_eq!(squared.get(), 9);
+/// # });
+/// ```
 #[track_caller]
 pub fn create_memo<T, P: 'static>(f: impl CallbackFn<T, P> + 'static) -> Memo<T>
 where
@@ -53,13 +72,25 @@ where
     }
 }
 
-/**
- * TODO: Possible optimization is to make Memo an enum of a real memo and signal identity map.
- * Sometimes, Memo is used as read-only signal lens, but it creates additional memo, which is just `signal.map(|value| value)`, i.e. `create_memo(|_| signal.get_cloned())`. Memo isn't required here, just store the signal as read-only value!
- *
- * Or better introduce `ReadSignal` (not a trait) which is an enum of readable signals, but this is very similar to `MaybeReactive`...
- */
-
+/// A derived reactive value that caches its result until its dependencies change.
+///
+/// A `Memo<T>` is either:
+/// - `Memo::Memo` — a proper memoized computation created by [`create_memo`].
+/// - `Memo::Signal` — a read-only view of a [`Signal<T>`] stored without an
+///   extra runtime node (zero-overhead identity wrap via [`IntoMemo`]).
+///
+/// `Memo` re-runs its closure only when a source signal or memo it reads
+/// has changed.  The result is compared with `PartialEq`; if unchanged,
+/// subscribers of the memo are not notified, cutting off unnecessary
+/// re-computation downstream.
+///
+/// `Memo<T>` is `Copy` (it is a handle, not an owner).
+///
+/// # Glitch-freedom
+///
+/// The runtime topologically sorts pending memos before flushing effects, so
+/// a memo is always recomputed at most once per reactive update cycle and
+/// effects never observe a stale intermediate value.
 pub enum Memo<T: PartialEq> {
     Memo {
         id: ValueId,
@@ -177,6 +208,15 @@ impl<T: PartialEq + 'static> SignalMap<T> for Memo<T> {
     }
 }
 
+/// Convert a value into a [`Memo<T>`].
+///
+/// Implemented for:
+/// - `Memo<T>` — identity.
+/// - `Signal<T>` — zero-cost wrap as `Memo::Signal` (no new node allocated).
+/// - `Fn() -> T` — wraps the closure in [`create_memo`].
+/// - `Inert<T: Clone>` — wraps in a constant memo (allocates one node).
+/// - `MaybeReactive<T: Clone>` — converts each variant appropriately.
+/// - `MemoChain<T: Clone>` — maps via identity clone.
 pub trait IntoMemo<T: PartialEq> {
     fn memo(self) -> Memo<T>;
 }
@@ -206,6 +246,16 @@ where
     }
 }
 
+/// A tree of reactive values where both the node data and children list are
+/// memoized.
+///
+/// Used by `rsact-ui` to represent widget layout trees: the `data` memo
+/// holds the node's value and `children` holds the reactive child list.  
+/// Reads on any part of the tree are tracked normally; the tree only
+/// re-evaluates subtrees whose sources changed.
+///
+/// Construct leaf nodes with [`MemoTree::childless`]. The `data` and
+/// `children` fields are public so you can build arbitrary tree shapes.
 #[derive(PartialEq)]
 pub struct MemoTree<T: PartialEq + 'static> {
     pub data: Memo<T>,

@@ -56,7 +56,7 @@ impl Align {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ContentLayout {
     Text { font_props: FontProps, content: Memo<String> },
     Icon(Memo<FontSize>),
@@ -139,7 +139,7 @@ impl ContainerLayout {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FlexLayout {
     pub wrap: bool,
     pub block_model: BlockModel,
@@ -254,14 +254,14 @@ impl ScrollableLayout {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DevFlexLayout {
     // lines: Vec<Rectangle>,
     real: FlexLayout,
 }
 
 /// DevLayout preserves some initial layout properties that are not required in LayoutModel.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DevLayout {
     pub size: Size<Length>,
     pub kind: DevLayoutKind,
@@ -277,7 +277,7 @@ impl DevLayout {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DevLayoutKind {
     Zero,
     Edge,
@@ -368,7 +368,7 @@ impl Display for DevLayoutKind {
 
 // TODO: Full box model in dev tools
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct DevHoveredLayout {
     #[cfg(feature = "debug-info")]
     pub layout: DevLayout,
@@ -403,7 +403,7 @@ impl Display for DevHoveredLayout {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum LayoutKind {
     Zero,
     Edge,
@@ -413,7 +413,7 @@ pub enum LayoutKind {
     Scrollable(ScrollableLayout),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct Layout {
     kind: LayoutKind,
     pub(crate) size: Size<Length>,
@@ -583,7 +583,6 @@ impl Layout {
 }
 
 /// Layout tree representation with real position in viewport
-#[derive(Clone, Copy)]
 pub struct LayoutModelNode<'a> {
     pub outer: Rectangle,
     pub inner: Rectangle,
@@ -634,7 +633,7 @@ impl<'a> LayoutModelNode<'a> {
 }
 
 /// Layout tree representation with relative positions
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct LayoutModel {
     outer: Rectangle,
     inner: Rectangle,

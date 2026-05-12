@@ -1,5 +1,5 @@
 use proc_macro2::TokenStream;
-use syn::{spanned::Spanned as _, DeriveInput, Error, Result};
+use syn::{DeriveInput, Result};
 
 pub(crate) fn impl_into_maybe_reactive(
     ast: &DeriveInput,

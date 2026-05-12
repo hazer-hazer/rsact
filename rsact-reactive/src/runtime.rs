@@ -50,6 +50,11 @@ impl RuntimeId {
     }
 }
 
+/// Run `f` with the **current** runtime and return its result.
+///
+/// Panics if no runtime is active on the current thread. This is the standard
+/// way runtime-internal code accesses the singleton without holding a
+/// long-lived borrow.
 #[inline(always)]
 #[track_caller]
 pub fn with_current_runtime<T>(f: impl FnOnce(&Runtime) -> T) -> T {
@@ -61,6 +66,20 @@ pub fn with_current_runtime<T>(f: impl FnOnce(&Runtime) -> T) -> T {
     })
 }
 
+/// Create a **fresh** runtime, make it current, run `f`, then destroy it
+/// and restore the previous runtime.
+///
+/// Primarily used in tests and benchmarks to get a clean isolated runtime
+/// for each run without leaking state between calls.
+///
+/// ```rust
+/// # use rsact_reactive::runtime::with_new_runtime;
+/// # use rsact_reactive::prelude::*;
+/// with_new_runtime(|_| {
+///     let s = create_signal(42u32);
+///     assert_eq!(s.get(), 42);
+/// });
+/// ```
 #[inline(always)]
 pub fn with_new_runtime<T>(f: impl FnOnce(&Runtime) -> T) -> T {
     let rt = create_runtime();
@@ -77,6 +96,11 @@ pub fn with_new_runtime<T>(f: impl FnOnce(&Runtime) -> T) -> T {
     result
 }
 
+/// Create a new runtime and register it as the current runtime on this thread.
+///
+/// Returns a [`RuntimeId`] handle. Call [`RuntimeId::leave`] to destroy the
+/// runtime and restore the previous one.  Prefer [`with_new_runtime`] for a
+/// scoped version that restores the previous runtime automatically.
 #[must_use]
 #[inline(always)]
 pub fn create_runtime() -> RuntimeId {
@@ -96,6 +120,13 @@ crate::thread_local::thread_local_impl! {
     };
 }
 
+/// Defers effect flushing until the guard is dropped (or [`DeferEffectsGuard::run`] is called).
+///
+/// Obtained from [`defer_effects`]. Equivalent to a single nesting level of
+/// [`batch`]: effects are only flushed when the outermost
+/// `DeferEffectsGuard` is dropped.
+///
+/// Dropping the guard is equivalent to calling [`run`](DeferEffectsGuard::run).
 #[non_exhaustive]
 pub struct DeferEffectsGuard;
 
@@ -105,6 +136,10 @@ impl DeferEffectsGuard {
     }
 }
 
+/// Obtain a [`DeferEffectsGuard`] that postpones effect flushing until dropped.
+///
+/// Prefer [`batch`] for the common case — `defer_effects` is the lower-level
+/// primitive that `batch` is built on.
 pub fn defer_effects() -> DeferEffectsGuard {
     with_current_runtime(|rt| rt.defer_effects())
 }
@@ -115,16 +150,23 @@ impl Drop for DeferEffectsGuard {
         let caller = Location::caller();
 
         with_current_runtime(|rt| {
-            rt.defer_effects.set(false);
-            // TODO: Not an Option but Requester enum with DeferEffectsGuard?
-            rt.run_effects(None, caller);
+            let count = rt.defer_effects.get().saturating_sub(1);
+            rt.defer_effects.set(count);
+            // Only flush when the outermost batch ends
+            if count == 0 {
+                // TODO: Not an Option but Requester enum with DeferEffectsGuard?
+                rt.run_effects(None, caller);
+            }
         })
     }
 }
 
 // TODO: ObserverGuard to flatten callbacks into `start_observe` and `end_observe` (auto on drop)
 
-/// This call is identified by location in code and reruns only if reactive values from previous call are changed.
+/// Like [`observe`] but identifies the call-site by its source location
+/// rather than an explicit key.  
+/// Annotate the calling function with `#[track_caller]` to ensure each
+/// distinct call-site is treated as a separate observer.
 #[track_caller]
 pub fn observe_by_location<R>(f: impl FnOnce() -> R) -> Option<R> {
     let location = Location::caller();
@@ -134,8 +176,14 @@ pub fn observe_by_location<R>(f: impl FnOnce() -> R) -> Option<R> {
     })
 }
 
-/// This call is identified by location in code and reruns only if reactive values from previous call are changed.
-/// For this to work you must ensure your `observe` call is unique using `#[track_caller]`
+/// Run `f` identified by an arbitrary hashable key; re-runs only if reactive
+/// dependencies from the previous call changed.
+///
+/// Returns `Some(result)` when `f` was executed this call, or `None` if
+/// nothing changed since the last call with the same `id`.
+///
+/// Useful for code paths (e.g. render loops) that may be called many times
+/// per frame and should only do work when their reactive inputs changed.
 #[track_caller]
 pub fn observe<H: Hash, R>(id: H, f: impl FnOnce() -> R) -> Option<R> {
     let location = Location::caller();
@@ -150,7 +198,56 @@ pub fn get_observer<H: Hash>(id: H) -> Option<ValueId> {
     })
 }
 
+/// Run `f` without registering any reactive reads inside it as dependencies.
+///
+/// Signal/memo accesses inside `f` return their current value normally but
+/// do not subscribe the active observer. Use this to read reactive state for
+/// a side-effect without creating a dependency that would re-trigger it.
+///
+/// ```rust
+/// # use rsact_reactive::prelude::*;
+/// # use rsact_reactive::runtime::with_new_runtime;
+/// # with_new_runtime(|_| {
+/// let sig = create_signal(1u32);
+/// let val = untrack(|| sig.get()); // read without tracking
+/// assert_eq!(val, 1);
+/// # });
+/// ```
+pub fn untrack<T>(f: impl FnOnce() -> T) -> T {
+    let prev = with_current_runtime(|rt| rt.observer.take());
+    let result = f();
+    with_current_runtime(|rt| rt.observer.set(prev));
+    result
+}
+
+/// Group all signal writes inside `f` into a single batch: effects are deferred
+/// until `f` returns, then flushed exactly once.  Batches may be nested.
+#[track_caller]
+pub fn batch<T>(f: impl FnOnce() -> T) -> T {
+    let _guard = defer_effects();
+    f()
+}
+
 // TODO: Debug call-stack. Value get -> value get -> ... -> value get
+/// The central reactive runtime that owns the dependency graph.
+///
+/// A `Runtime` holds all signals, memos, effects, scopes, and the
+/// pending-effect queue.  You rarely interact with it directly;
+/// free functions like [`with_current_runtime`], [`create_runtime`], and
+/// [`batch`] reach into the current thread-local runtime for you.
+///
+/// The dependency graph is a directed bipartite graph:
+/// - *sources* — signals/memos that produce values.
+/// - *subscribers* — memos/effects that consume values.
+///
+/// When a source is written, all of its subscribers are marked dirty and
+/// queued as pending effects.  Effects are flushed in topological order at
+/// the end of the current batch (or immediately if no batch is active).
+///
+/// ```text
+/// let memo = create_memo(move |_| signal.get())
+/// ```
+/// Here `signal` is a *source* of `memo`, and `memo` is a *subscriber* of `signal`.
 #[derive(Default)]
 pub struct Runtime {
     pub(crate) storage: Storage,
@@ -162,11 +259,13 @@ pub struct Runtime {
     pub(crate) observer: Cell<Option<ValueId>>,
     /// Signals subscribers.
     pub(crate) subscribers: RefCell<SecondaryMap<ValueId, BTreeSet<ValueId>>>,
-    /// Sources of signal changes. Signals that change this signal.
+    /// Sources of signal changes. Signals that affect this observer (memo, effect, etc.).
     pub(crate) sources: RefCell<SecondaryMap<ValueId, BTreeSet<ValueId>>>,
+    // TODO: Maybe use Vec or BTreeMap<Vec<>> so values are pre-sorted in topological order, so we don't need to sort them on every update?
     /// Effects to run after value changed or after [`DeferEffectsGuard`] runs/drops if defer_effects is enabled.
     pub(crate) pending_effects: RefCell<BTreeSet<ValueId>>,
-    pub(crate) defer_effects: Cell<bool>,
+    /// Nesting depth of active `batch()`/`defer_effects()` guards. Effects are deferred while > 0.
+    pub(crate) defer_effects: Cell<u32>,
     /// Mapping from [`observe`] call location to its value id. Calling the same [`observe`] twice gives the same [`ValueId`]
     static_observers: RefCell<BTreeMap<u64, ValueId>>,
     hasher: RandomState,
@@ -183,7 +282,7 @@ impl Runtime {
             sources: Default::default(),
             observer: Default::default(),
             pending_effects: Default::default(),
-            defer_effects: Cell::new(false),
+            defer_effects: Cell::new(0),
             static_observers: Default::default(),
             hasher: RandomState::new(),
         }
@@ -239,6 +338,7 @@ impl Runtime {
             value: Rc::new(RefCell::new(value)),
             kind,
             state: initial_state,
+            height: 0,
             #[cfg(feature = "debug-info")]
             debug: ValueDebugInfo {
                 name: None,
@@ -270,9 +370,11 @@ impl Runtime {
         }
 
         if let Some(observer) = self.observer.get() {
-            let mut owned = self.owned.borrow_mut();
-            if let Some(owned) = owned.get_mut(observer) {
-                owned.insert(id);
+            // Use entry API so the owned set is created on first use,
+            // enabling proper owned-value tracking for effects/memos.
+            // SecondaryMap::entry() returns Option<Entry<...>>.
+            if let Some(entry) = self.owned.borrow_mut().entry(observer) {
+                entry.or_insert_with(BTreeSet::new).insert(id);
             }
         }
 
@@ -432,31 +534,67 @@ impl Runtime {
     }
 
     pub fn dispose(&self, id: ValueId) {
-        let mut values = self.storage.values.borrow_mut();
-        let mut sources = self.sources.borrow_mut();
-        let mut subscribers = self.subscribers.borrow_mut();
-        let mut pending_effects = self.pending_effects.borrow_mut();
+        // Collect owned children first so the borrow on `owned` is fully
+        // released before any recursive dispose() call re-borrows it.
+        let owned_children: Vec<ValueId> =
+            self.owned.borrow_mut().remove(id).into_iter().flatten().collect();
 
-        sources.remove(id);
-        subscribers.remove(id);
+        // Remove id from the subscriber set of every source it tracked.
+        // Without this, disposed effects leave ghost entries that cause
+        // mark_dirty to try to mark a dead value, panicking in storage.mark.
+        {
+            let mut subs = self.subscribers.borrow_mut();
+            let sources = self.sources.borrow();
+            for source in sources.get(id).into_iter().flatten().copied() {
+                if let Some(set) = subs.get_mut(source) {
+                    set.remove(&id);
+                }
+            }
+        }
+
+        // Remove id from the source set of every downstream node,
+        // so stale sources don't linger in their cleanup lists.
+        {
+            let mut srcs = self.sources.borrow_mut();
+            let subs = self.subscribers.borrow();
+            for sub in subs.get(id).into_iter().flatten().copied() {
+                if let Some(set) = srcs.get_mut(sub) {
+                    set.remove(&id);
+                }
+            }
+        }
+
+        self.sources.borrow_mut().remove(id);
+        self.subscribers.borrow_mut().remove(id);
         // TODO: Is it okay to remove from pending_effects?
-        pending_effects.remove(&id);
-        values.remove(id).expect("Removing non-existent scope value");
+        self.pending_effects.borrow_mut().remove(&id);
+        self.storage
+            .values
+            .borrow_mut()
+            .remove(id)
+            .expect("Removing non-existent scope value");
 
-        self.owned.borrow_mut().get(id).map(|owned| {
-            owned.iter().copied().for_each(|owned| self.dispose(owned));
-        });
+        // Recursively dispose owned children now that all borrows are released.
+        for child in owned_children {
+            if self.is_alive(child) {
+                self.dispose(child);
+            }
+        }
     }
 
     pub(crate) fn drop_scope(&self, scope_id: ScopeId) {
-        let mut scopes = self.scopes.borrow_mut();
-        let scope_data = scopes.remove(scope_id).unwrap();
+        // Release the borrow immediately so dispose() can run without conflicts.
+        let scope_data = self.scopes.borrow_mut().remove(scope_id).unwrap();
 
         // TODO: Children scopes drop
 
-        scope_data.values.iter().copied().for_each(|id| {
-            self.dispose(id);
-        });
+        for id in scope_data.values {
+            // Guard against double-dispose: a value may already have been
+            // disposed as an owned child of another value in this scope.
+            if self.is_alive(id) {
+                self.dispose(id);
+            }
+        }
     }
 
     pub(crate) fn with_observer<T>(
@@ -485,15 +623,21 @@ impl Runtime {
                 );
             }
 
-            let mut sources = self.sources.borrow_mut();
-            if let Some(sources) = sources.entry(observer) {
-                sources.or_default().borrow_mut().insert(id);
+            {
+                let mut sources = self.sources.borrow_mut();
+                if let Some(sources) = sources.entry(observer) {
+                    sources.or_default().borrow_mut().insert(id);
+                }
             }
 
-            let mut subs = self.subscribers.borrow_mut();
-            if let Some(subs) = subs.entry(id) {
-                subs.or_default().borrow_mut().insert(observer);
+            {
+                let mut subs = self.subscribers.borrow_mut();
+                if let Some(subs) = subs.entry(id) {
+                    subs.or_default().borrow_mut().insert(observer);
+                }
             }
+
+            self.update_height(observer);
         }
         // match self.observer.get() {
         //     Observer::None => panic!(
@@ -557,7 +701,7 @@ impl Runtime {
         let value = self.storage.get(id);
 
         if let Some(value) = value {
-            if self.defer_effects.get()
+            if self.defer_effects.get() > 0
                 && matches!(value.kind, ValueKind::Effect { .. })
             {
                 self.pending_effects.borrow_mut().insert(id);
@@ -892,35 +1036,49 @@ impl Runtime {
     }
 
     fn cleanup(&self, id: ValueId) {
-        let sources = self.sources.borrow();
-
-        // TODO: Is it better not to cleanup the subs but only changes? Store new temporary subs and remove only not used in new run
-        if let Some(sources) = sources.get(id) {
-            let mut subs = self.subscribers.borrow_mut();
-            for source in sources.iter() {
-                if let Some(sources) = subs.get_mut(*source) {
-                    sources.remove(&id);
+        // `sources` and `subscribers` are separate RefCell fields, so we can
+        // hold a shared borrow of `sources` while mutably borrowing `subscribers`.
+        {
+            let sources = self.sources.borrow();
+            if let Some(srcs) = sources.get(id) {
+                // Remove `id` from the subscriber set of every source it previously tracked.
+                let mut subs = self.subscribers.borrow_mut();
+                for source in srcs {
+                    if let Some(set) = subs.get_mut(*source) {
+                        set.remove(&id);
+                    }
                 }
             }
         }
 
+        // Clear the source list so heights are recomputed on next re-subscription.
+        if let Some(srcs) = self.sources.borrow_mut().get_mut(id) {
+            srcs.clear();
+        }
+
         // FIXME: I am deleting the values created in this observer, but they could be leaked outside.
-        if let Some(owned) = self.owned.borrow_mut().get_mut(id) {
-            owned.iter().copied().for_each(|owned| {
-                // if let Some(value) = self.storage.get(owned) {
-                //     if let ValueKind::Observer = value.kind {
-                //         return;
-                //     }
-                // }
-                self.dispose(owned);
-            });
-            owned.clear();
+        // Collect and clear owned list before calling dispose to avoid a double
+        // borrow of `owned` (dispose() also calls owned.borrow_mut()).
+        let owned_snapshot: Vec<ValueId> = self
+            .owned
+            .borrow_mut()
+            .get_mut(id)
+            .map(|owned| {
+                let v: Vec<_> = owned.iter().copied().collect();
+                owned.clear();
+                v
+            })
+            .unwrap_or_default();
+
+        for child in owned_snapshot {
+            if self.is_alive(child) {
+                self.dispose(child);
+            }
         }
     }
 
     pub(crate) fn defer_effects(&self) -> DeferEffectsGuard {
-        // TODO: Panic if already true?
-        self.defer_effects.set(true);
+        self.defer_effects.set(self.defer_effects.get() + 1);
         DeferEffectsGuard
     }
 
@@ -929,10 +1087,49 @@ impl Runtime {
         requester: Option<ValueId>,
         caller: &'static Location<'static>,
     ) {
-        if !self.defer_effects.get() {
-            self.pending_effects.take().iter().copied().for_each(|effect| {
+        if self.defer_effects.get() > 0 {
+            return;
+        }
+
+        // Loop until stable: running effects may write signals that queue more effects.
+        loop {
+            let pending = self.pending_effects.take();
+            if pending.is_empty() {
+                break;
+            }
+
+            // Sort by topological height so effects closer to source signals run first,
+            // preventing glitches (an observer never sees a stale intermediate value).
+            let mut sorted: Vec<ValueId> = pending.into_iter().collect();
+            sorted.sort_unstable_by_key(|&id| self.storage.get_height(id));
+
+            for effect in sorted {
                 self.maybe_update(effect, requester, caller);
-            });
+            }
+        }
+    }
+
+    /// Recompute the topological height of `id` from its current sources and update storage.
+    /// Height = max(height of sources) + 1.  Signals start at 0 (no sources).
+    /// Called after every new subscription so pending effects are always sorted correctly.
+    fn update_height(&self, id: ValueId) {
+        let new_height = {
+            let sources = self.sources.borrow();
+            sources
+                .get(id)
+                .map(|srcs| {
+                    srcs.iter()
+                        .map(|s| self.storage.get_height(*s))
+                        .max()
+                        .map(|h| h + 1)
+                        .unwrap_or(0)
+                })
+                .unwrap_or(0)
+        };
+
+        let old_height = self.storage.get_height(id);
+        if new_height != old_height {
+            self.storage.set_height(id, new_height);
         }
     }
 
@@ -1142,9 +1339,14 @@ impl Display for Profile {
 mod tests {
     use super::CURRENT_RUNTIME;
     use crate::{
+        effect::create_effect,
         memo::create_memo,
         read::ReadSignal,
-        runtime::{RUNTIMES, observe_by_location},
+        runtime::{
+            RUNTIMES, observe_by_location, with_current_runtime,
+            with_new_runtime,
+        },
+        scope::new_scope,
         signal::create_signal,
         write::WriteSignal,
     };
@@ -1255,5 +1457,105 @@ mod tests {
         signal.set(0);
         assert_eq!(run(), Some(()));
         assert_eq!(run(), None);
+    }
+
+    /// dispose() must remove the effect from the source signal's subscriber
+    /// set so that subsequent signal writes don't try to notify a dead effect.
+    #[test]
+    fn dispose_cleans_up_subscribers_in_source() {
+        with_new_runtime(|rt| {
+            let mut sig = create_signal(0i32);
+            {
+                let _scope = new_scope();
+                let s = sig;
+                create_effect(move |_: Option<()>| {
+                    s.get();
+                });
+            }
+            // Effect disposed. The signal's subscribers map must be empty —
+            // confirmed by checking that no subscribers remain.
+            let sig_id = sig.id();
+            let subs_count = rt
+                .subscribers
+                .borrow()
+                .get(sig_id)
+                .map(|s| s.len())
+                .unwrap_or(0);
+            assert_eq!(subs_count, 0, "ghost subscriber left after dispose");
+        });
+    }
+
+    /// dispose() must not add the effect to pending_effects after it is gone.
+    #[test]
+    fn dispose_removes_from_pending_effects() {
+        with_new_runtime(|rt| {
+            let mut sig = create_signal(0i32);
+            let _scope = {
+                let scope = new_scope();
+                let s = sig;
+                create_effect(move |_: Option<()>| {
+                    s.get();
+                });
+                scope
+                // keep scope alive so we can drop it explicitly below
+            };
+            drop(_scope); // dispose the effect
+
+            // No dead ids should linger in pending_effects.
+            sig.set(1); // triggers mark_dirty, which would queue effects
+            let pending = rt.pending_effects.borrow();
+            for &id in pending.iter() {
+                assert!(
+                    rt.is_alive(id),
+                    "dead ValueId {id:?} in pending_effects after dispose"
+                );
+            }
+        });
+    }
+
+    /// After an effect re-runs, stale subscriptions from its previous run
+    /// should be removed from the source signals' subscriber sets (cleanup).
+    #[test]
+    fn cleanup_removes_stale_subscriptions() {
+        with_new_runtime(|rt| {
+            let mut condition = create_signal(true);
+            let mut a = create_signal(1i32);
+            let mut b = create_signal(2i32);
+            let reads = Rc::new(Cell::new(0u32));
+
+            let reads_eff = reads.clone();
+            create_effect(move |_: Option<()>| {
+                reads_eff.set(reads_eff.get() + 1);
+                if condition.get() {
+                    a.get();
+                } else {
+                    b.get();
+                }
+            });
+
+            assert_eq!(reads.get(), 1);
+
+            // Switch condition: effect now reads b instead of a.
+            condition.set(false);
+            assert_eq!(reads.get(), 2);
+
+            // `a` should have no subscribers now (cleanup removed the stale sub).
+            let a_id = a.id();
+            let a_subs =
+                rt.subscribers.borrow().get(a_id).map(|s| s.len()).unwrap_or(0);
+            assert_eq!(
+                a_subs, 0,
+                "stale subscription to `a` not removed after cleanup"
+            );
+
+            // Writing `a` must not trigger the effect (it no longer depends on it).
+            let before = reads.get();
+            a.set(99);
+            assert_eq!(
+                reads.get(),
+                before,
+                "effect re-ran on stale dependency `a`"
+            );
+        });
     }
 }

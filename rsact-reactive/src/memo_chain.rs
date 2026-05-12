@@ -10,12 +10,32 @@ use crate::{
 use alloc::rc::Rc;
 use core::{any::Any, cell::RefCell, marker::PhantomData, panic::Location};
 
+/// Error returned when [`MemoChain::first`] or [`MemoChain::last`] is called
+/// on a chain that already has that slot filled.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MemoChainErr {
     FirstRedefined,
     LastRedefined,
 }
 
+/// Create a new [`MemoChain<T>`] in the current runtime scope.
+///
+/// The supplied closure `f` becomes the *base* computation. Additional
+/// transformations can be inserted before it ([`MemoChain::first`]) or
+/// after it ([`MemoChain::last`]) to form an ordered pipeline.
+///
+/// # Example
+///
+/// ```rust
+/// # use rsact_reactive::prelude::*;
+/// # use rsact_reactive::runtime::with_new_runtime;
+/// # with_new_runtime(|_| {
+/// let mut base = create_signal(10u32);
+/// let chain = create_memo_chain(move || base.get())
+///     .last(|v| v + 1).unwrap();
+/// assert_eq!(chain.get(), 11);
+/// # });
+/// ```
 #[track_caller]
 pub fn create_memo_chain<T: PartialEq + 'static, P: 'static>(
     f: impl CallbackFn<T, P>,
@@ -71,6 +91,30 @@ where
     }
 }
 
+/// A memo with an ordered pipeline of transformations.
+///
+/// A `MemoChain<T>` starts with a base computation (like a [`Memo`]) and
+/// allows attaching a single *first* transformation (applied before the base)
+/// and a single *last* transformation (applied after the base).  This is
+/// useful in styling systems where a component provides a base style and
+/// callers can inject a pre-pass or post-pass without replacing the whole
+/// computation.
+///
+/// # Construction
+///
+/// ```rust
+/// # use rsact_reactive::prelude::*;
+/// # use rsact_reactive::runtime::with_new_runtime;
+/// # with_new_runtime(|_| {
+/// let chain = create_memo_chain(move || 0u32)
+///     .first(|v| v + 100).unwrap()  // runs first
+///     .last(|v| v * 2).unwrap();    // runs last
+/// assert_eq!(chain.get(), (0 + 100) * 2);
+/// # });
+/// ```
+///
+/// Use [`IntoMemoChain::memo_chain`] to convert a plain value or existing
+/// `MemoChain` without calling the constructor directly.
 pub struct MemoChain<T: PartialEq> {
     id: ValueId,
     ty: PhantomData<T>,
@@ -179,6 +223,11 @@ impl<T: PartialEq + Clone + 'static> IntoMemo<T> for MemoChain<T> {
     }
 }
 
+/// Convert a value into a [`MemoChain<T>`].
+///
+/// Implemented for:
+/// - `MemoChain<T>` — identity.
+/// - `T: Clone` — wraps the value in a constant base closure.
 pub trait IntoMemoChain<T: PartialEq> {
     fn memo_chain(self) -> MemoChain<T>;
 }

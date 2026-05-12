@@ -10,18 +10,29 @@ use rsact_ui::{
     event::simulator::simulator_single_encoder,
     layout::size::Size,
     page::id::SinglePage,
-    prelude::{create_signal, IntoInert, Select, SignalMap},
+    prelude::{IntoInert, Select, SignalMap, create_signal},
     render::{AntiAliasing, RendererOptions},
     row,
     style::accent::AccentStyler,
     ui::UI,
-    widget::{flex::Flex, SizedWidget, Widget},
+    widget::{SizedWidget, Widget, flex::Flex},
 };
-use std::time::{Duration, Instant};
+use std::{
+    fmt::Display,
+    time::{Duration, Instant},
+};
 
-#[derive(Debug, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 enum WidgetTab {
     Button,
+}
+
+impl Display for WidgetTab {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WidgetTab::Button => write!(f, "Button"),
+        }
+    }
 }
 
 fn main() {
@@ -37,11 +48,9 @@ fn main() {
     let widget = create_signal(WidgetTab::Button);
     let select_widget = Select::vertical(widget, vec![].inert());
 
-    let widget_view = widget.map(|widget| {
+    let widget_view = widget.map(|widget| {});
 
-    });
-
-    let page = row![col![select_widget, ]].center().fill();
+    let page = row![col![select_widget,]].center().fill();
 
     let mut ui = UI::new_with_buffer_renderer(
         display.bounding_box().size.inert(),

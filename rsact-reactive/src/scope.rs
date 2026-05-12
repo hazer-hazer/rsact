@@ -16,7 +16,7 @@ pub fn new_scope() -> ScopeHandle {
     })
 }
 
-// TODO: Rename to something tautology like `new_void_scope` or `new_childless_scope`
+// TODO: Rename to something tautology like `new_void_scope` or `new_childless_scope` or `new_inert_scope`
 /// Creates new scope where creation of new reactive values is disallowed and will cause a panic. Useful mostly only for debugging.
 #[track_caller]
 pub fn new_deny_new_scope() -> ScopeHandle {
@@ -82,6 +82,14 @@ impl ScopeData {
     }
 }
 
+/// A RAII guard that owns a reactive scope.
+///
+/// When `ScopeHandle` is dropped all reactive values (signals, memos, effects)
+/// that were created while this scope was active are disposed. Scopes can be
+/// nested: child scopes are dropped before their parent.
+///
+/// Obtain a handle from [`new_scope`] or [`new_deny_new_scope`].
+#[must_use]
 pub struct ScopeHandle {
     scope_id: ScopeId,
 }
@@ -102,7 +110,12 @@ impl Drop for ScopeHandle {
 
 #[cfg(test)]
 mod tests {
-    use crate::{prelude::create_signal, scope::new_scope};
+    use crate::{
+        effect::create_effect, prelude::create_signal, read::ReadSignal,
+        runtime::with_new_runtime, scope::new_scope, write::WriteSignal,
+    };
+    use alloc::rc::Rc;
+    use core::cell::Cell;
 
     #[test]
     fn scoping() {
@@ -147,5 +160,115 @@ mod tests {
         };
 
         assert!(signal.is_alive());
+    }
+
+    /// After a scope containing an effect is dropped, writing to a signal that
+    /// the effect subscribed to must not panic (ghost subscriptions removed).
+    #[test]
+    fn dispose_removes_ghost_subscriptions() {
+        with_new_runtime(|_| {
+            let mut sig = create_signal(0i32);
+            {
+                let _scope = new_scope();
+                let s = sig;
+                create_effect(move |_: Option<()>| {
+                    s.get();
+                });
+            }
+            // Scope dropped → effect disposed.
+            // Writing the signal must not panic even though the effect previously
+            // subscribed to it. (ghost entry would cause a mark on a dead ValueId)
+            sig.set(1);
+            sig.set(2);
+        });
+    }
+
+    /// After a scope is dropped, effects inside it must no longer run when
+    /// their source signals change.
+    #[test]
+    fn dispose_stops_effect_from_running() {
+        with_new_runtime(|_| {
+            let run_count = Rc::new(Cell::new(0u32));
+            let mut sig = create_signal(0i32);
+
+            {
+                let _scope = new_scope();
+                let count = run_count.clone();
+                let s = sig;
+                create_effect(move |_: Option<()>| {
+                    s.get();
+                    count.set(count.get() + 1);
+                });
+            }
+
+            let after_scope = run_count.get(); // ran once on creation
+
+            // Signal write after scope drop must not re-run the disposed effect.
+            sig.set(99);
+            assert_eq!(
+                run_count.get(),
+                after_scope,
+                "disposed effect still ran"
+            );
+        });
+    }
+
+    /// Values created *inside* an effect body (owned values) should be
+    /// disposed together with the effect when its scope is dropped.
+    #[test]
+    fn dispose_cascades_to_owned_values() {
+        use crate::signal::Signal;
+        use alloc::rc::Rc;
+        use core::cell::RefCell;
+
+        with_new_runtime(|_| {
+            // Signal<T> is Copy, so we share via Rc<RefCell<>> to capture a
+            // reference across the closure boundary.
+            let inner_sig: Rc<RefCell<Option<Signal<i32>>>> =
+                Rc::new(RefCell::new(None));
+            let captured = inner_sig.clone();
+
+            {
+                let _scope = new_scope();
+                create_effect(move |_: Option<()>| {
+                    // Create a signal inside the effect body — it becomes an
+                    // owned child of this effect.
+                    *captured.borrow_mut() = Some(create_signal(42i32));
+                });
+            }
+
+            // Scope dropped → effect disposed → owned inner signal disposed.
+            let guard = inner_sig.borrow();
+            let still_alive = guard.as_ref().map_or(false, |s| s.is_alive());
+            assert!(
+                !still_alive,
+                "owned inner signal still alive after scope drop"
+            );
+        });
+    }
+
+    /// Dropping a scope that contains both an effect and a signal should not
+    /// double-dispose the signal if it is also an owned child of the effect.
+    #[test]
+    fn no_double_dispose_when_scope_and_owned_overlap() {
+        with_new_runtime(|_| {
+            // Create a scope so the signal is tracked by the scope AND can
+            // be an owned child of the effect inside the same scope.
+            let scope = new_scope();
+            let mut outer = create_signal(0i32);
+            let inner_ref = Rc::new(Cell::new(false));
+            let flag = inner_ref.clone();
+            create_effect(move |_: Option<()>| {
+                outer.get();
+                // Create an inner signal as an owned child of this effect.
+                let _inner = create_signal(0i32);
+                flag.set(true);
+            });
+            // Dropping scope here disposes both the effect and the signal.
+            // The inner signal is already disposed by the effect's cleanup;
+            // the scope must not panic when it sees it is already gone.
+            drop(scope);
+            assert!(inner_ref.get());
+        });
     }
 }

@@ -1,20 +1,50 @@
 use crate::{
     ReactiveValue,
-    memo::{self, IntoMemo, Memo, create_memo},
+    memo::{IntoMemo, Memo, create_memo},
     prelude::MemoChain,
     read::{ReadSignal, SignalMap, impl_read_signal_traits},
     signal::{IntoSignal, Signal, create_signal, marker},
     write::{SignalSetter, WriteSignal},
 };
-use alloc::{boxed::Box, vec::Vec};
+use alloc::boxed::Box;
+use alloc::vec::Vec;
 use core::{
     marker::PhantomData,
-    ops::{Deref, DerefMut, RangeInclusive},
+    ops::{Deref, DerefMut},
 };
 
+/// A transparent, non-reactive wrapper around a value.
+///
+/// `Inert<T>` presents the same [`ReadSignal`] / [`SignalMap`] API as [`Memo`]
+/// and [`Signal`], but it **never tracks** accesses and **never notifies**
+/// subscribers. This makes it a zero-overhead stand-in wherever a reactive
+/// value is expected but the value will never change at runtime.
+///
+/// Unlike heap-allocated reactive primitives, `Inert<T>` is `Copy` when
+/// `T: Copy` and stores its value inline (the struct is `#[repr(transparent)]`).
+///
+/// Use [`IntoInert::inert`] to construct one from any value, or
+/// [`Inert::new`] directly.
+///
+/// # Example
+///
+/// ```rust
+/// # use rsact_reactive::prelude::*;
+/// # use rsact_reactive::maybe::{IntoInert, IntoMaybeReactive};
+/// // Wrap a static value in the reactive API surface.
+/// let val = 42u32.inert();
+/// assert_eq!(val.get(), 42);
+///
+/// // Convert to MaybeReactive when an API requires it.
+/// let maybe: MaybeReactive<u32> = val.maybe_reactive();
+/// assert_eq!(maybe.get(), 42);
+///
+/// // Deref gives direct access to the inner value.
+/// let inert = "hello".inert();
+/// assert_eq!(*inert, "hello");
+/// ```
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-/// Plain data, basically a wrapper around T which you can treat as a real reactive value but it isn't reactive: not tracked and not trackable. Important: Unlike other reactive values, [`Inert`] is not copy-type!
 pub struct Inert<T: 'static> {
     value: T,
 }
@@ -110,6 +140,19 @@ impl<T> DerefMut for Inert<T> {
     }
 }
 
+/// Extension trait that adds `.inert()` to every `T`.
+///
+/// Sugar for [`Inert::new`]. The idiom is the standard way to pass a
+/// compile-time constant into any API that accepts
+/// `impl IntoMaybeReactive<T>` or `impl IntoMaybeSignal<T>`:
+///
+/// ```rust
+/// # use rsact_reactive::prelude::*;
+/// # use rsact_reactive::maybe::{IntoInert, IntoMaybeReactive};
+/// // Pass a literal directly — no signal allocation.
+/// let label: MaybeReactive<&'static str> = "hello".inert().maybe_reactive();
+/// let visible: MaybeReactive<bool> = true.inert().maybe_reactive();
+/// ```
 pub trait IntoInert<T> {
     fn inert(self) -> Inert<T>;
 }
@@ -120,8 +163,41 @@ impl<T> IntoInert<T> for T {
     }
 }
 
-/// Maybe reactive read-only value, i.e. anything from static values to writable signals.
-/// For RW version of [`MaybeReactive`] see [`MaybeSignal`]
+/// An optionally reactive, **read-only** value.
+///
+/// Unifies three read sources under one type:
+/// - [`MaybeReactive::Inert`] — a static value; reads are never tracked and
+///   do not register the caller as a subscriber.
+/// - [`MaybeReactive::Memo`] — a derived reactive value; reads inside a
+///   reactive context register a dependency.
+/// - [`MaybeReactive::MemoChain`] — a chainable memo; same tracking
+///   semantics as [`Memo`].
+///
+/// # Common pattern
+///
+/// Declare a function or widget field as `impl IntoMaybeReactive<T>`;
+/// callers can pass either a plain constant or a live reactive value without
+/// changing the field type:
+///
+/// ```rust
+/// # use rsact_reactive::prelude::*;
+/// # use rsact_reactive::maybe::{IntoInert, IntoMaybeReactive, MaybeReactive};
+/// fn slider(range: impl IntoMaybeReactive<core::ops::RangeInclusive<f32>>) {
+///     let range: MaybeReactive<core::ops::RangeInclusive<f32>> =
+///         range.maybe_reactive();
+///     // Static caller:   slider(0.0..=100.0)
+///     // Reactive caller: slider(range_signal.maybe_reactive())
+/// }
+/// ```
+///
+/// # Mapping
+///
+/// [`SignalMap::map`] preserves reactivity: an [`Inert`] source produces
+/// another [`Inert`] output (no allocation); a [`Memo`] or [`MemoChain`]
+/// source produces a new [`Memo`] whose closure re-evaluates whenever the
+/// source changes.
+///
+/// For a **read-write** optionally reactive value see [`MaybeSignal`].
 pub enum MaybeReactive<T: PartialEq + 'static> {
     Inert(Inert<T>),
     Memo(Memo<T>),
@@ -130,6 +206,19 @@ pub enum MaybeReactive<T: PartialEq + 'static> {
 }
 
 impl_read_signal_traits!(MaybeReactive<T>: PartialEq);
+
+impl<T: PartialEq + Clone + 'static> Clone for MaybeReactive<T> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Inert(arg0) => Self::Inert(arg0.clone()),
+            Self::Memo(arg0) => Self::Memo(arg0.clone()),
+            Self::MemoChain(arg0) => Self::MemoChain(arg0.clone()),
+            // Self::Derived(arg0) => Self::Derived(arg0.clone()),
+        }
+    }
+}
+
+impl<T: PartialEq + Copy + 'static> Copy for MaybeReactive<T> {}
 
 impl<T: PartialEq + 'static> MaybeReactive<T> {
     pub fn new_inert(value: T) -> Self {
@@ -145,7 +234,11 @@ impl<T: PartialEq + 'static> ReactiveValue for MaybeReactive<T> {
     type Value = T;
 
     fn id(&self) -> Option<crate::storage::ValueId> {
-        None
+        match self {
+            MaybeReactive::Inert(inert) => inert.id(),
+            MaybeReactive::Memo(memo) => ReactiveValue::id(memo),
+            MaybeReactive::MemoChain(memo_chain) => memo_chain.id(),
+        }
     }
 
     #[track_caller]
@@ -197,7 +290,6 @@ impl<T: PartialEq + 'static> ReadSignal<T> for MaybeReactive<T> {
     }
 }
 
-// TODO: This is inconsistent with MaybeSignal SignalMapper implementation for [`Inert`]. Here it requires `Clone` and allows reactivity, but in MaybeSignal mapper is not reactive.
 impl<T: PartialEq + 'static> SignalMap<T> for MaybeReactive<T> {
     type Output<U: PartialEq + 'static> = MaybeReactive<U>;
 
@@ -227,6 +319,27 @@ impl<T: PartialEq + 'static> SignalMap<T> for MaybeReactive<T> {
     }
 }
 
+/// Conversion into [`MaybeReactive<T>`].
+///
+/// Implemented for:
+/// - [`MaybeReactive<T>`] — identity.
+/// - [`Signal<T>`] — wraps in a thin [`Memo`] (zero-overhead delegation).
+/// - [`Memo<T>`] — identity.
+/// - [`MemoChain<T>`] — identity.
+/// - [`Inert<T>`] — wraps as [`MaybeReactive::Inert`].
+/// - Primitive types (`u8`–`u128`, `i8`–`i128`, `f32`, `f64`, `bool`,
+///   `char`, `()`, `String`, tuples up to 12 elements, `Option<T>`,
+///   `Result<T,E>`, `Vec<T>`, `&'static [T]`) — automatically wrapped as
+///   inert.
+///
+/// A derive macro is available for user-defined copy types in rsact-macros:
+///
+/// ```rust,ignore
+/// #[derive(Clone, Copy, Debug, PartialEq, IntoMaybeReactive)]
+/// pub enum FontSize { Small, Medium, Large }
+/// ```
+///
+/// Call `.maybe_reactive()` to perform the conversion.
 pub trait IntoMaybeReactive<T: PartialEq> {
     fn maybe_reactive(self) -> MaybeReactive<T>;
 }
@@ -268,19 +381,6 @@ impl<T: PartialEq + 'static> IntoMaybeReactive<T> for Inert<T> {
         MaybeReactive::Inert(self)
     }
 }
-
-impl<T: PartialEq + Clone + 'static> Clone for MaybeReactive<T> {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Inert(arg0) => Self::Inert(arg0.clone()),
-            Self::Memo(arg0) => Self::Memo(arg0.clone()),
-            Self::MemoChain(arg0) => Self::MemoChain(arg0.clone()),
-            // Self::Derived(arg0) => Self::Derived(arg0.clone()),
-        }
-    }
-}
-
-impl<T: PartialEq + Copy + 'static> Copy for MaybeReactive<T> {}
 
 macro_rules! impl_inert_into_maybe_reactive {
     ($($ty: ty),* $(,)?) => {
@@ -378,6 +478,47 @@ impl<T: PartialEq + Clone> IntoMemo<T> for MaybeReactive<T> {
     }
 }
 
+/// An optionally reactive, **read-write** value.
+///
+/// Unifies a static inline value and a reactive [`Signal`] under one type:
+/// - `Inert(Option<T>)` — value stored inline in the enum. Reads are not
+///   tracked; writes mutate the value but have no subscribers to notify.
+///   The `Option` is `None` only transiently during lazy promotion to a
+///   `Signal` inside `now_reactive` — externally it is always
+///   `Some`.
+/// - `Signal(Signal<T>)` — full reactive signal with tracked reads and
+///   notified writes.
+///
+/// # Lazy promotion
+///
+/// The inert variant is promoted to a signal automatically via
+/// `now_reactive`, which is called automatically by
+/// [`SignalSetter::setter`] when a reactive source is bound. This means a
+/// widget field can start as a plain value and only allocate a runtime node
+/// when it is first bound to reactive data:
+///
+/// ```rust
+/// # use rsact_reactive::prelude::*;
+/// # use rsact_reactive::maybe::{MaybeSignal, IntoMaybeReactive};
+/// # use rsact_reactive::write::{WriteSignal, SignalSetter};
+/// let mut state: MaybeSignal<u32> = MaybeSignal::new_inert(0);
+/// assert!(state.as_inert().is_some()); // currently plain data
+///
+/// let source = create_signal(42u32);
+/// state.set_from(source.maybe_reactive()); // promotes to Signal
+/// assert!(state.as_signal().is_some());
+/// ```
+///
+/// # Mapping
+///
+/// [`SignalMap::map`] on `MaybeSignal` is **snapshot-only for inert**:
+/// mapping an inert value evaluates the closure once and returns an inert
+/// [`MaybeReactive`]; future writes to the `MaybeSignal` do not update the
+/// result. Mapping a `Signal` variant produces a tracked [`Memo`].
+/// Use [`SignalMapReactive::map_reactive`] when you always need a live
+/// [`Memo<U>`] regardless of whether the source is inert or reactive.
+///
+/// For a **read-only** optionally reactive value see [`MaybeReactive`].
 pub enum MaybeSignal<T: 'static, M: marker::Any = marker::Rw> {
     /// Option needed to deal with conversion from [`Inert`] into [`Signal`]
     /// Optimize: Can be replaced with MaybeUninit for performance
@@ -398,6 +539,50 @@ impl<T: Clone + 'static, M: marker::Any> Clone for MaybeSignal<T, M> {
     }
 }
 
+impl<T: 'static, M: marker::Any> ReactiveValue for MaybeSignal<T, M> {
+    type Value = T;
+
+    fn id(&self) -> Option<crate::storage::ValueId> {
+        match self {
+            MaybeSignal::Inert(_) => None,
+            MaybeSignal::Signal(signal) => Some(signal.id()),
+        }
+    }
+
+    fn is_alive(&self) -> bool {
+        match self {
+            MaybeSignal::Inert(_) => true,
+            MaybeSignal::Signal(signal) => signal.is_alive(),
+        }
+    }
+
+    unsafe fn dispose(self) {
+        match self {
+            MaybeSignal::Inert(_) => core::mem::drop(self),
+            MaybeSignal::Signal(signal) => signal.dispose(),
+        }
+    }
+}
+
+/// Conversion into [`MaybeSignal<T>`].
+///
+/// Implemented for:
+/// - `T` → [`MaybeSignal::Inert`] (value stored inline, no runtime node).
+/// - [`Signal<T>`] → [`MaybeSignal::Signal`] (existing reactive node).
+///
+/// Prefer accepting `impl Into<MaybeSignal<T>>` or
+/// `impl IntoMaybeSignal<T>` in APIs that may receive either a static
+/// value or a live signal:
+///
+/// ```rust
+/// # use rsact_reactive::prelude::*;
+/// # use rsact_reactive::maybe::{MaybeSignal, IntoMaybeSignal};
+/// fn checkbox(value: impl Into<MaybeSignal<bool>>) {
+///     let value: MaybeSignal<bool> = value.into();
+///     // Static: checkbox(false)
+///     // Reactive: checkbox(create_signal(false))
+/// }
+/// ```
 pub trait IntoMaybeSignal<T> {
     fn maybe_signal(self) -> MaybeSignal<T>;
 }
@@ -405,12 +590,6 @@ pub trait IntoMaybeSignal<T> {
 impl<T: 'static> IntoMaybeSignal<T> for Signal<T> {
     fn maybe_signal(self) -> MaybeSignal<T> {
         MaybeSignal::Signal(self)
-    }
-}
-
-impl<T: 'static> IntoMaybeSignal<T> for T {
-    fn maybe_signal(self) -> MaybeSignal<T> {
-        MaybeSignal::new_inert(self)
     }
 }
 
@@ -522,7 +701,28 @@ impl<T: 'static> SignalMap<T> for MaybeSignal<T> {
 }
 
 // TODO: Implement `SignalSetter` for `MaybeSignal` for any source `impl IntoMaybeReactive<U>`
-/// Here's interesting part. SignalSetter on MaybeSignal turns this MaybeSignal into Signal in case when reactive setter passed
+/// [`SignalSetter`] implementation for [`MaybeSignal`] that accepts any
+/// [`MaybeReactive<U>`] as a source.
+///
+/// Behaviour depends on the source variant:
+/// - **`MaybeReactive::Inert`** — applies `set_map` once as a one-shot
+///   update. No ongoing binding is created; if the source value changes
+///   later the target is not updated.
+/// - **`MaybeReactive::Memo`** / **`MaybeReactive::MemoChain`** — promotes
+///   `self` to a [`Signal`] via `now_reactive` and creates
+///   a reactive effect that keeps the signal in sync with the source memo.
+///   After this call `self` is always [`MaybeSignal::Signal`].
+///
+/// Use [`SignalSetter::set_from`] for the common case of
+/// `T = U` with a simple clone mapping:
+/// ```rust
+/// # use rsact_reactive::prelude::*;
+/// # use rsact_reactive::maybe::{MaybeSignal, IntoMaybeReactive};
+/// # use rsact_reactive::write::{WriteSignal, SignalSetter};
+/// let mut target: MaybeSignal<u32> = MaybeSignal::new_inert(0);
+/// let source = create_signal(99u32);
+/// target.set_from(source.maybe_reactive()); // target is now a Signal
+/// ```
 impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MaybeReactive<U>>
     for MaybeSignal<T>
 {
@@ -628,7 +828,32 @@ impl<T: 'static> From<Signal<T>> for MaybeSignal<T> {
     }
 }
 
-/// `SignalMap` alternative that always produces a `Memo`
+// TODO: This is kinda shitty trait, remove it, it's like "make a memo from anything even if it's not reactive", but if it's not reactive then the memo is just a wrapper around inert value and won't update.
+/// A [`SignalMap`] variant that **always** returns a [`Memo<U>`].
+///
+/// Unlike [`SignalMap::map`], which preserves the reactivity of the source
+/// (inert in → inert out, reactive in → reactive out), `map_reactive`
+/// unconditionally produces a tracked memo node:
+///
+/// - For a reactive source ([`MaybeSignal::Signal`], [`MaybeReactive::Memo`],
+///   etc.) the returned memo re-evaluates `map` whenever the source changes.
+/// - For a [`MaybeSignal::Inert`] source the returned memo is a **constant**:
+///   the closure is evaluated once at call time and the memo never
+///   re-evaluates. If the `MaybeSignal` is later promoted to a `Signal` via
+///   [`WriteSignal`], the already-returned `Memo<U>` is **not** updated.
+///
+/// # Example (real usage in `rsact-ui`)
+///
+/// ```rust,ignore
+/// // Slider: range may be static or reactive, but step is always a live Memo.
+/// let step = range.map_reactive(|r| Self::step_from_range(r));
+///
+/// // Flex: children list may be static or reactive,
+/// // but layout children must always be a live Memo.
+/// let layout_children = children.map_reactive(|children| {
+///     children.iter().map(|c| c.layout().memo()).collect()
+/// });
+/// ```
 pub trait SignalMapReactive<T> {
     fn map_reactive<U: PartialEq + Clone + 'static>(
         &self,
@@ -662,12 +887,20 @@ impl<T: PartialEq + 'static> SignalMapReactive<T> for MaybeReactive<T> {
     }
 }
 
+/// Marker trait for types that statically encode whether a value is reactive
+/// or inert. Used as a type-level flag in generic APIs.
+///
+/// See [`IsReactive`] and [`IsInert`].
 pub trait ReactivityMarker {}
 
+/// Marker type indicating that a value is reactive (tracked by the runtime).
+/// See [`ReactivityMarker`].
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct IsReactive;
 impl ReactivityMarker for IsReactive {}
 
+/// Marker type indicating that a value is inert (not tracked by the runtime).
+/// See [`ReactivityMarker`].
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct IsInert;
 impl ReactivityMarker for IsInert {}
@@ -745,4 +978,29 @@ mod tests {
         assert_eq!(maybe.get(), 69);
         assert!(matches!(maybe, MaybeSignal::Signal(_)));
     }
+
+    // #[test]
+    // fn into_maybe_iterator_inert() {
+    //     let _deny_new_reactive = new_deny_new_scope();
+
+    //     let items: MaybeReactive<Vec<u32>> =
+    //         vec![1, 2, 3].inert().maybe_reactive_iter();
+    //     assert_eq!(
+    //         items.with(|c| c.iter().cloned().collect::<Vec<_>>()),
+    //         vec![1, 2, 3]
+    //     );
+    // }
+
+    // #[test]
+    // fn into_maybe_iterator_inert_generic() {
+    //     let _deny_new_reactive = new_deny_new_scope();
+
+    //     fn accept_maybe_iterator(items: impl IntoMaybeReactiveIterator<u32>) {
+    //         let items: MaybeReactive<_> = items.maybe_reactive_iter();
+    //         assert_eq!(
+    //             items.with(|c| c.into_iter().collect::<Vec<_>>()),
+    //             vec![1, 2, 3]
+    //         );
+    //     }
+    // }
 }

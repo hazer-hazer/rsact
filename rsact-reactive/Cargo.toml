@@ -1,15 +1,17 @@
 [dependencies]
-log = {workspace = true}
-once_cell = {workspace = true}
-replace_with = {workspace = true}
-rsact-macros = {workspace = true}
-slotmap = {workspace = true}
+log = { workspace = true }
+once_cell = { workspace = true }
+replace_with = { workspace = true }
+rsact-macros = { workspace = true }
+slotmap = { workspace = true }
 tinyvec.workspace = true
-ahash = {version = "0.8.12", default-features = false, features = ["compile-time-rng"]}
+ahash = { version = "0.8.12", default-features = false, features = [
+    "compile-time-rng",
+] }
 
 [dev-dependencies]
-criterion = "0.5.1"
-cap = {workspace = true}
+criterion = "0.8.2"
+cap = { workspace = true }
 
 [package]
 edition.workspace = true
@@ -22,6 +24,7 @@ default-runtime = []
 single-thread = []
 std = []
 debug-info = []
+async = []
 
 [[bench]]
 harness = false
@@ -29,3 +32,6 @@ name = "reactivity"
 
 [lints]
 workspace = true
+
+[lib]
+bench = false
