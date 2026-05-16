@@ -24,7 +24,7 @@ use rsact_reactive::{
 // TODO: Not an actual context, rename to something like `WidgetTypeFamily`
 pub trait WidgetCtx: Sized + Clone + 'static {
     type Renderer: Renderer<Color = Self::Color>;
-    type Styler: PartialEq + Copy;
+    type Styler: Copy;
     type Color: Color;
     type PageId: PageId;
     type CustomEvent: Debug;
@@ -39,6 +39,7 @@ pub trait WidgetCtx: Sized + Clone + 'static {
     }
 }
 
+// TODO: This is a pure WidgetCtx, but for most users we want such WTF that constraints over all stylists and events for all native widgets. Is it possible to create such keeping UI implementation untouched?
 /// WidgetTypeFamily
 /// Type family of types used in Widgets
 pub struct Wtf<R, S, I, E = ()>
@@ -65,24 +66,24 @@ where
     }
 }
 
-impl<R, E, S, I> Wtf<R, E, S, I>
-where
-    R: Renderer,
-{
-    pub fn new() -> Self {
-        Self {
-            _renderer: PhantomData,
-            _event: PhantomData,
-            _styler: PhantomData,
-            _page_id: PhantomData,
-        }
-    }
-}
+// impl<R, E, S, I> Wtf<R, E, S, I>
+// where
+//     R: Renderer,
+// {
+//     pub fn new() -> Self {
+//         Self {
+//             _renderer: PhantomData,
+//             _event: PhantomData,
+//             _styler: PhantomData,
+//             _page_id: PhantomData,
+//         }
+//     }
+// }
 
 impl<R, S, I, E> WidgetCtx for Wtf<R, S, I, E>
 where
     R: Renderer + DrawTarget<Color = <R as Renderer>::Color> + 'static,
-    S: PartialEq + Copy + 'static,
+    S: Copy + 'static,
     I: PageId + 'static,
     E: Debug + 'static,
 {
@@ -123,7 +124,7 @@ pub struct RenderCtx<'a, W: WidgetCtx, S = CtxUnready> {
     pub layout: &'a LayoutModelNode<'a>,
     pub tree_style: TreeStyle<W::Color>,
     pub page_style: Signal<PageStyle<W::Color>, ReadOnly>,
-    pub viewport: Memo<Size>,
+    pub viewport: MaybeReactive<Size>,
     pub fonts: Signal<FontCtx, ReadOnly>,
     force_redraw: Trigger,
     parent_dirty: bool,
@@ -249,7 +250,7 @@ impl<'a, W: WidgetCtx + 'static> RenderCtx<'a, W, CtxUnready> {
         layout: &'a LayoutModelNode<'a>,
         tree_style: TreeStyle<W::Color>,
         page_style: Signal<PageStyle<W::Color>, ReadOnly>,
-        viewport: Memo<Size>,
+        viewport: MaybeReactive<Size>,
         fonts: Signal<FontCtx, ReadOnly>,
         force_redraw: Trigger,
     ) -> Self {
@@ -459,8 +460,8 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
 }
 
 pub struct MountCtx<W: WidgetCtx> {
-    pub viewport: Memo<Size>,
-    pub styler: Memo<W::Styler>,
+    pub viewport: MaybeReactive<Size>,
+    pub styler: Inert<W::Styler>,
     pub inherit_font_props: FontProps,
 }
 

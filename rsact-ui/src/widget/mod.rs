@@ -20,7 +20,7 @@ pub mod text;
 use crate::font::{Font, FontProps};
 use bitflags::bitflags;
 use prelude::*;
-use rsact_reactive::maybe::IntoMaybeReactive;
+use rsact_reactive::prelude::*;
 
 pub type RenderResult = Result<(), ()>;
 
@@ -59,8 +59,42 @@ impl Meta {
     // }
 }
 
+// TODO: MaybeReactive MetaTree
 // TODO: Custom MemoTree with SmallVec<T, 1>
-pub type MetaTree = MemoTree<Meta>;
+// pub type MetaTree = MemoTree<Meta>;
+
+#[derive(PartialEq, Clone, Copy)]
+pub struct MetaTree {
+    // TODO: I don't see a place where meta needs to be reactive (or MaybeReactive).
+    meta: Meta,
+    // TODO: Optional vec to avoid useless allocations?
+    children: MaybeReactive<Vec<MetaTree>>,
+}
+
+impl MetaTree {
+    pub fn none() -> Self {
+        Self::childless(Meta::none())
+    }
+
+    pub fn new(
+        meta: Meta,
+        children: impl IntoMaybeReactive<Vec<MetaTree>>,
+    ) -> Self {
+        Self { meta, children: children.maybe_reactive() }
+    }
+
+    pub fn childless(meta: Meta) -> Self {
+        Self::new(meta, Vec::new().maybe_reactive())
+    }
+
+    pub fn flat_collect(&self) -> Vec<Meta> {
+        self.children.with(|children| {
+            core::iter::once(self.meta)
+                .chain(children.iter().map(MetaTree::flat_collect).flatten())
+                .collect()
+        })
+    }
+}
 
 // #[derive(PartialEq)]
 // pub struct MetaTree {
@@ -248,12 +282,6 @@ pub trait FontSettingWidget<W: WidgetCtx>: Widget<W> + Sized + 'static {
         });
         self
     }
-}
-
-pub trait IntoWidget<W: WidgetCtx> {
-    type Widget: Widget<W>;
-
-    fn into_widget(self) -> Self::Widget;
 }
 
 pub mod prelude {

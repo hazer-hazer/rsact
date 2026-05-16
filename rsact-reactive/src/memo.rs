@@ -1,6 +1,7 @@
 use crate::{
     ReactiveValue,
     callback::{AnyCallback, CallbackFn},
+    inert::Inert,
     read::{ReadSignal, SignalMap, impl_read_signal_traits},
     runtime::with_current_runtime,
     signal::Signal,
@@ -91,13 +92,14 @@ where
 /// The runtime topologically sorts pending memos before flushing effects, so
 /// a memo is always recomputed at most once per reactive update cycle and
 /// effects never observe a stale intermediate value.
-pub enum Memo<T: PartialEq> {
+pub enum Memo<T: ?Sized + PartialEq> {
+    Inert(Inert<T>),
     Memo {
         id: ValueId,
         ty: PhantomData<T>,
     },
     /// Identity-mapped signal as memo. Stored in memo as is to avoid creation of new memos for signals mapped as readonly identity values.
-    Signal(Signal<T>),
+    Signal(Signal<T, crate::signal::marker::ReadOnly>),
 }
 
 impl_read_signal_traits!(Memo<T>: PartialEq);
@@ -109,13 +111,6 @@ impl<T: PartialEq + 'static> Memo<T> {
         Self::Memo {
             id: with_current_runtime(|rt| rt.create_memo(f, caller)),
             ty: PhantomData,
-        }
-    }
-
-    pub fn id(&self) -> ValueId {
-        match self {
-            Memo::Memo { id, ty: _ } => *id,
-            Memo::Signal(signal) => signal.id(),
         }
     }
 
@@ -132,6 +127,7 @@ impl<T: PartialEq + 'static> Clone for Memo<T> {
         match self {
             &Memo::Memo { id, ty } => Self::Memo { id, ty },
             &Memo::Signal(signal) => Memo::Signal(signal),
+            &Memo::Inert(inert) => Memo::Inert(inert),
         }
     }
 }
@@ -142,7 +138,11 @@ impl<T: PartialEq + 'static> ReactiveValue for Memo<T> {
     type Value = T;
 
     fn id(&self) -> Option<ValueId> {
-        Some(Memo::id(&self))
+        match self {
+            Memo::Memo { id, ty: _ } => Some(*id),
+            Memo::Signal(signal) => signal.id(),
+            Memo::Inert(inert) => inert.id(),
+        }
     }
 
     fn is_alive(&self) -> bool {
@@ -151,6 +151,7 @@ impl<T: PartialEq + 'static> ReactiveValue for Memo<T> {
                 with_current_runtime(|rt| rt.is_alive(id))
             },
             Memo::Signal(signal) => signal.is_alive(),
+            Memo::Inert(inert) => inert.is_alive(),
         }
     }
 
@@ -160,6 +161,7 @@ impl<T: PartialEq + 'static> ReactiveValue for Memo<T> {
                 with_current_runtime(|rt| rt.dispose(id))
             },
             Memo::Signal(signal) => signal.dispose(),
+            Memo::Inert(inert) => unsafe { inert.dispose() },
         }
     }
 }
@@ -172,6 +174,7 @@ impl<T: PartialEq + 'static> ReadSignal<T> for Memo<T> {
                 with_current_runtime(|rt| id.subscribe(rt))
             },
             Memo::Signal(signal) => signal.track(),
+            Memo::Inert(inert) => inert.track(),
         }
     }
 
@@ -191,18 +194,18 @@ impl<T: PartialEq + 'static> ReadSignal<T> for Memo<T> {
                 })
             },
             Memo::Signal(signal) => signal.with_untracked(f),
+            Memo::Inert(inert) => inert.with_untracked(f),
         }
     }
 }
 
-impl<T: PartialEq + 'static> SignalMap<T> for Memo<T> {
-    type Output<U: PartialEq + 'static> = Memo<U>;
+impl<T: PartialEq + 'static, U: PartialEq + 'static> SignalMap<T, U>
+    for Memo<T>
+{
+    type Output = Memo<U>;
 
     #[track_caller]
-    fn map<U: PartialEq + 'static>(
-        &self,
-        mut map: impl FnMut(&T) -> U + 'static,
-    ) -> Self::Output<U> {
+    fn map(&self, mut map: impl FnMut(&T) -> U + 'static) -> Self::Output {
         let this = *self;
         create_memo(move || this.with(&mut map))
     }
@@ -225,14 +228,6 @@ impl<T: PartialEq + 'static> IntoMemo<T> for Memo<T> {
     /// Should never be called directly being redundant
     fn memo(self) -> Memo<T> {
         self
-    }
-}
-
-impl<T: PartialEq + 'static> IntoMemo<T> for Signal<T> {
-    /// Converting Signal to Memo is cheap, and does not actually create new memo instance!
-    #[track_caller]
-    fn memo(self) -> Memo<T> {
-        Memo::Signal(self)
     }
 }
 

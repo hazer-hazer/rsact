@@ -93,7 +93,7 @@ where
     W::Styler: WidgetStylist<KnobStyle<W::Color>>,
 {
     fn meta(&self, id: ElId) -> MetaTree {
-        MetaTree::childless(Meta::focusable(id).inert().memo())
+        MetaTree::childless(Meta::focusable(id))
     }
 
     fn on_mount(&mut self, ctx: super::MountCtx<W>) {

@@ -58,7 +58,8 @@ impl Align {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ContentLayout {
-    Text { font_props: FontProps, content: Memo<String> },
+    Text { font_props: FontProps, content: MaybeReactive<String> },
+    // TODO: MaybeReactive described in Icon widget
     Icon(Memo<FontSize>),
     Fixed(Size),
 }
@@ -78,7 +79,7 @@ impl Display for ContentLayout {
 }
 
 impl ContentLayout {
-    pub fn text(content: Memo<String>) -> Self {
+    pub fn text(content: MaybeReactive<String>) -> Self {
         Self::Text { font_props: Default::default(), content }
     }
 
@@ -675,11 +676,11 @@ impl LayoutModel {
         self
     }
 
-    pub fn tree_root(&self) -> LayoutModelNode {
+    pub fn tree_root(&self) -> LayoutModelNode<'_> {
         LayoutModelNode { outer: self.outer, inner: self.inner, model: self }
     }
 
-    fn node(&self, parent_inner: Rectangle) -> LayoutModelNode {
+    fn node(&self, parent_inner: Rectangle) -> LayoutModelNode<'_> {
         LayoutModelNode {
             outer: self.outer.translate(parent_inner.top_left),
             inner: self.inner.translate(parent_inner.top_left),
@@ -764,6 +765,8 @@ pub struct LayoutCtx<'a> {
     pub fonts: &'a FontCtx,
     pub viewport: Size,
 }
+
+// TODO: Split layouts decorations and layout modeling logic into separate files
 
 // TODO: Should viewport be unwrapped value as we depend modeling on viewport value?
 pub fn model_layout(

@@ -16,6 +16,7 @@ pub mod computed;
 #[cfg(feature = "async")]
 pub mod async_rt;
 pub mod effect;
+pub mod inert;
 pub mod maybe;
 pub mod memo;
 pub mod memo_chain;
@@ -29,21 +30,29 @@ pub mod signal;
 pub mod storage;
 mod thread_local;
 pub mod trigger;
-pub mod versioned;
+// pub mod versioned;
 pub mod write;
+mod macros;
 
 pub mod prelude {
     pub use super::{
+        ReactiveValue,
         computed::{Computed, create_computed},
         // cow::CowSignal,
         effect::{Effect, create_effect},
+        inert::{Inert, IntoInert},
         maybe::{
-            Inert, IntoInert, IntoMaybeReactive, IntoMaybeSignal,
-            MaybeReactive, MaybeSignal, SignalMapReactive,
+            IsInert, IsReactive, ReactivityMarker, SignalMapReactive,
+            maybe_reactive::IntoMaybeReactive, maybe_reactive::MaybeReactive,
+            maybe_signal::IntoMaybeSignal, maybe_signal::MaybeSignal,
         },
         memo::{IntoMemo, Memo, MemoTree, create_memo},
         memo_chain::{IntoMemoChain, MemoChain, create_memo_chain},
-        read::{ReadSignal, SignalMap, SignalWithSlice, map, with},
+        read::{
+            ReadSignal, SignalMap, SignalMapRef, SignalMapRefMaybeReactive,
+            SignalMapSlice, SignalWithRef, SignalWithSlice, map, with,
+        },
+        // TODO: Is this right to reexport from other crate?
         rsact_macros::IntoMaybeReactive,
         runtime::{
             batch, create_runtime, defer_effects, observe, observe_by_location,
@@ -77,7 +86,7 @@ pub mod prelude {
 /// is still referenced by a live effect or memo causes use-after-free in the
 /// dependency graph. Prefer letting the owning [`scope::ScopeHandle`] manage
 /// lifetimes automatically.
-pub trait ReactiveValue: 'static {
+pub trait ReactiveValue {
     type Value;
 
     fn id(&self) -> Option<ValueId>;

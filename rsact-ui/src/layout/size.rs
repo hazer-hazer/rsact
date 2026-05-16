@@ -347,14 +347,16 @@ impl From<u32> for Length {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, IntoMaybeReactive,
+)]
 #[cfg_attr(feature = "defmt", derive(::defmt::Format))]
-pub struct Size<T = u32> {
+pub struct Size<T: PartialEq = u32> {
     pub width: T,
     pub height: T,
 }
 
-impl<T> Size<T> {
+impl<T: PartialEq> Size<T> {
     pub const fn new(width: T, height: T) -> Self {
         Self { width, height }
     }
@@ -366,7 +368,7 @@ impl<T> Size<T> {
         Self { width: equal, height: equal }
     }
 
-    pub fn map<F, U>(&self, f: F) -> Size<U>
+    pub fn map<F, U: PartialEq>(&self, f: F) -> Size<U>
     where
         F: Fn(T) -> U,
         T: Copy,
@@ -654,7 +656,7 @@ impl Into<Size<Length>> for Size {
     }
 }
 
-impl<T> From<(T, T)> for Size<T> {
+impl<T: PartialEq> From<(T, T)> for Size<T> {
     fn from(value: (T, T)) -> Self {
         Size::new(value.0, value.1)
     }
@@ -672,7 +674,7 @@ impl Into<embedded_graphics_core::geometry::Size> for Size {
     }
 }
 
-impl<S: Copy> Axial for Size<S> {
+impl<S: PartialEq + Copy> Axial for Size<S> {
     type Data = S;
 
     #[inline]

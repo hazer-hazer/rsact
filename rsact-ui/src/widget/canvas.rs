@@ -176,7 +176,7 @@ impl<W: WidgetCtx> SizedWidget<W> for Canvas<W> {}
 
 impl<W: WidgetCtx> Widget<W> for Canvas<W> {
     fn meta(&self, _: ElId) -> MetaTree {
-        MetaTree::childless(Meta::none)
+        MetaTree::none()
     }
 
     fn on_mount(&mut self, ctx: super::MountCtx<W>) {

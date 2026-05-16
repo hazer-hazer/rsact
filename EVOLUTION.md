@@ -18,3 +18,6 @@ This are the actions to be done by me or LLM. When LLM completes one, it should 
 
 - [] WIP: `S.js` has nice specifications and requirements for signals. Copy useful paragraphs from readme and tell LLM to write tests based on them.
 - [] `SignalMapReactive` seems strange as it makes reactive values from `Inert`. This should be avoided as `Memo` from `Inert` leads to useless cloning. I think that it is okay to live with distinct cases where `MaybeReactive` or truly reactive values are expected.
+- [] Go over the cases where something strange like `.inert().memo()` happens, most of the time this is incorrect.
+- [] `MaybeReactive` widget meta easily implementable through custom MaybeReactive tree of Meta. Look at MemoTree.
+- [] `MaybeReactive` layouts require reactive-on-write reactivity primitive that will turn into signal when user sets it from some reactive source

@@ -34,7 +34,7 @@ where
         IntoIterator<Item = <W::Color as PixelColor>::Raw>,
 {
     fn meta(&self, _: ElId) -> MetaTree {
-        MetaTree::childless(Meta::none)
+        MetaTree::none()
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {

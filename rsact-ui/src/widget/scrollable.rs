@@ -10,7 +10,7 @@ use embedded_graphics::{
     prelude::{Point, Primitive, Transform},
     primitives::{PrimitiveStyle, PrimitiveStyleBuilder},
 };
-use rsact_reactive::maybe::IntoMaybeReactive;
+use rsact_reactive::prelude::*;
 
 #[derive(Clone, Copy)]
 pub enum ScrollableMode {
@@ -214,10 +214,7 @@ where
 {
     fn meta(&self, id: ElId) -> crate::widget::MetaTree {
         let content_tree = self.content.meta(id);
-        MetaTree {
-            data: Meta::none.memo(),
-            children: vec![content_tree].inert().memo(),
-        }
+        MetaTree::new(Meta::none(), vec![content_tree].inert())
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {

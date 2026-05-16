@@ -17,9 +17,7 @@ use embedded_graphics::{
 };
 use itertools::Itertools as _;
 use layout::{axis::Anchor, size::RectangleExt};
-use rsact_reactive::{
-    maybe::IntoMaybeReactive, memo_chain::IntoMemoChain, read::SignalMapSlice,
-};
+use rsact_reactive::prelude::*;
 
 #[derive(Clone, Copy)]
 pub struct SelectState {
@@ -130,12 +128,8 @@ where
 {
     pub fn vertical(
         selected: impl IntoMaybeSignal<K>,
-        options: impl SignalMapSlice<
-            K,
-            Output<Vec<SelectOption<W, K>>> = MaybeReactive<
-                Vec<SelectOption<W, K>>,
-            >,
-        > + PartialEq,
+        options: impl SignalMapRefMaybeReactive<[K], Vec<SelectOption<W, K>>>
+        + PartialEq,
     ) -> Self {
         Self::new(selected, options)
     }
@@ -149,12 +143,7 @@ where
 {
     pub fn horizontal(
         selected: impl IntoMaybeSignal<K>,
-        options: impl SignalMapSlice<
-            K,
-            Output<Vec<SelectOption<W, K>>> = MaybeReactive<
-                Vec<SelectOption<W, K>>,
-            >,
-        > + PartialEq,
+        options: impl SignalMapRefMaybeReactive<[K], Vec<SelectOption<W, K>>>,
     ) -> Self {
         Self::new(selected, options)
     }
@@ -171,38 +160,39 @@ where
     // TODO: MaybeReactive options
     pub fn new(
         selected: impl IntoMaybeSignal<K>,
-        options: impl SignalMapSlice<K> + PartialEq,
+        options: impl SignalMapRefMaybeReactive<[K], Vec<SelectOption<W, K>>>,
     ) -> Self {
-        let options: MaybeReactive<Vec<SelectOption<W, K>>> = options
-            .map_slice_reactive(|options| {
-                options
-                    .into_iter()
-                    .cloned()
-                    .map(|opt| SelectOption::new(opt))
-                    .collect::<Vec<_>>()
-            });
+        let options = options.map_ref_maybe_reactive(|options| {
+            options
+                .into_iter()
+                .cloned()
+                .map(|opt| SelectOption::new(opt))
+                .collect::<Vec<_>>()
+        });
 
         let mut selected = selected.maybe_signal();
 
         // TODO: This maybe reactive optimization not working, as when selected is inert, it is then converted into a signal inside `selected.setter`, but this signal is unavailable outside, user still holds they Inert value and selected signal doesn't need to be tracked. So we either do runtime check like `if selected.is_inert() { ... }` or we just require selected to always be a signal. Or we can do two constructors: one for inert selected and one for reactive selected.
+        // TODO: ... For this to work as expected we need `SelectState` to be Signal still its `selected` to be mapped as MaybeReactive. Select widget stylist expects full `SelectState` to be a signal.
+        // TODO: ... What idea I like is just to remove `SignalSetter` implementation from `MaybeSignal` to avoid such problems and just dynamically check if `selected` is reactive or inert and create setter effect depending on that.
+        // TODO: ... Wait wait wait. We receive selected and then make a setter for it, why not just put it inside the `SelectState`? It's not a problem to pass this when accepting styles as it's just a copy-type boolean.
         let state = SelectState::initial(with!(move |selected, options| {
             options.iter().position(|opt| &opt.key == selected)
         }))
         .signal();
 
-        // TODO: If-reactive setter
-        // selected.setter(
-        //     state.map(|state| state.selected).maybe_reactive(),
-        //     move |selected, position| {
-        //         if let Some(option) = position.and_then(|pos| {
-        //             options.with(|options| {
-        //                 options.get(pos).map(|opt| opt.key.clone())
-        //             })
-        //         }) {
-        //             *selected = option;
-        //         }
-        //     },
-        // );
+        selected.setter(
+            state.map(|state| state.selected).maybe_reactive(),
+            move |selected, position| {
+                if let Some(option) = position.and_then(|pos| {
+                    options.with(|options| {
+                        options.get(pos).map(|opt| opt.key.clone())
+                    })
+                }) {
+                    *selected = option;
+                }
+            },
+        );
 
         Self {
             layout: Layout::new(
@@ -296,7 +286,7 @@ where
     W::Styler: WidgetStylist<SelectStyle<W::Color>>,
 {
     fn meta(&self, id: ElId) -> MetaTree {
-        MetaTree::childless(Meta::focusable(id).inert().memo())
+        MetaTree::childless(Meta::focusable(id))
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {

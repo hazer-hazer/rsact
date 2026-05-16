@@ -92,10 +92,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
     fn meta(&self, id: ElId) -> MetaTree {
         let content_tree = self.content.meta(id);
 
-        MetaTree {
-            data: Meta::none.memo(),
-            children: vec![content_tree].inert().memo(),
-        }
+        MetaTree::new(Meta::none(), vec![content_tree].inert())
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {

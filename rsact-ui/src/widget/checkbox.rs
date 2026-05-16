@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{render::Renderable, widget::prelude::*};
 use rsact_icons::{IconSet, system::SystemIcon};
-use rsact_reactive::maybe::{IntoMaybeReactive, IsReactive};
+use rsact_reactive::prelude::*;
 
 #[derive(Clone, Copy)]
 pub struct CheckboxState {
@@ -81,7 +81,7 @@ where
         + WidgetStylist<IconStyle<W::Color>>,
 {
     fn meta(&self, id: ElId) -> MetaTree {
-        MetaTree::childless(move || Meta::focusable(id))
+        MetaTree::childless(Meta::focusable(id))
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {

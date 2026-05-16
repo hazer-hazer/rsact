@@ -17,7 +17,7 @@ use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use core::{fmt::Debug, marker::PhantomData};
 use embedded_graphics::prelude::DrawTarget;
 use log::info;
-use rsact_reactive::{maybe::IntoMaybeReactive, prelude::*};
+use rsact_reactive::prelude::*;
 use tinyvec::TinyVec;
 
 pub struct UiOptions {
@@ -40,9 +40,10 @@ impl HasPages for WithPages {}
 pub struct UI<W: WidgetCtx, P: HasPages> {
     page_history: TinyVec<[W::PageId; 1]>,
     pages: BTreeMap<W::PageId, Page<W>>,
-    viewport: Memo<Size>,
+    viewport: MaybeReactive<Size>,
     on_exit: Option<Box<dyn Fn()>>,
-    styler: Memo<W::Styler>,
+    // Note: Styler is Inert by design as we don't still support dynamic stylers. But do be noted Inert make data 'static and only freed on reactive scope drop, so it is better to somehow run UI inside new reactive runtime, but this requires user signals to be created inside it. 
+    styler: Inert<W::Styler>,
     dev_tools: Signal<DevTools>,
     renderer: Signal<W::Renderer>,
     message_queue: Option<UiQueue<W>>,
@@ -62,12 +63,13 @@ where
         V: PartialEq + Into<Size> + Copy + 'static,
     >(
         // TODO: Rewrite to `IntoMaybeReactive` + MaybeReactive viewport
-        viewport: impl IntoMemo<V>,
+        viewport: impl IntoMaybeReactive<V>,
         // TODO: `with_styler` optional. Note: Not easily implementable
         styler: S,
         default_background: C,
     ) -> Self {
-        let viewport = viewport.memo().map(|&viewport| viewport.into());
+        let viewport =
+            viewport.maybe_reactive().map(|&viewport| viewport.into());
 
         Self::new(
             viewport,
@@ -87,12 +89,12 @@ where
     pub fn new_with_layer_renderer<
         V: PartialEq + Into<Size> + Copy + 'static,
     >(
-        // TODO: Rewrite to `IntoMaybeReactive` + MaybeReactive viewport
-        viewport: impl IntoMemo<V>,
+        viewport: impl IntoMaybeReactive<V>,
         // TODO: `with_styler` optional. Note: Not easily implementable
         styler: S,
     ) -> Self {
-        let viewport = viewport.memo().map(|&viewport| viewport.into());
+        let viewport =
+            viewport.maybe_reactive().map(|&viewport| viewport.into());
 
         // TODO: [`LayeringRenderer`] should use viewport as memo, otherwise it doesn't make any sense to be memo :)
         Self::new(viewport, styler, LayeringRenderer::new(viewport.get()))
@@ -119,8 +121,7 @@ where
 {
     // TODO: Maybe just use embedded_graphics Size to avoid conversion and marking value as inert
     fn new(
-        // TODO: Rewrite to `IntoMaybeReactive` + MaybeReactive viewport
-        viewport: Memo<Size>,
+        viewport: MaybeReactive<Size>,
         // TODO: `with_styler` optional. Note: Not easily implementable
         styler: S,
         renderer: R,
@@ -135,7 +136,7 @@ where
             viewport,
             pages: BTreeMap::new(),
             on_exit: None,
-            styler: styler.inert().memo(),
+            styler: styler.inert(),
             dev_tools,
             // TODO: Reactive viewport in Renderer
             renderer: renderer.signal(),

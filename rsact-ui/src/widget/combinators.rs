@@ -192,7 +192,7 @@ pub struct Unit;
 
 impl<W: WidgetCtx> Widget<W> for Unit {
     fn meta(&self, id: ElId) -> MetaTree {
-        MetaTree::childless(Meta::none)
+        MetaTree::none()
     }
 
     fn on_mount(&mut self, ctx: super::MountCtx<W>) {
@@ -223,9 +223,7 @@ impl<W: WidgetCtx, T: Widget<W> + 'static> Into<El<W>> for Option<T> {
 
 impl<W: WidgetCtx> Widget<W> for Option<El<W>> {
     fn meta(&self, id: ElId) -> MetaTree {
-        self.as_ref()
-            .map(|widget| widget.meta(id))
-            .unwrap_or(MetaTree::childless(Meta::none))
+        self.as_ref().map(|widget| widget.meta(id)).unwrap_or(MetaTree::none())
     }
 
     fn on_mount(&mut self, ctx: super::MountCtx<W>) {

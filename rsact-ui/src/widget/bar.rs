@@ -9,7 +9,7 @@ use embedded_graphics::{
     primitives::{PrimitiveStyle, PrimitiveStyleBuilder},
 };
 use layout::size::RectangleExt;
-use rsact_reactive::maybe::IntoMaybeReactive;
+use rsact_reactive::prelude::*;
 
 // TODO: Padding for inner bar
 
@@ -81,7 +81,7 @@ where
     W::Styler: WidgetStylist<BarStyle<W::Color>>,
 {
     fn meta(&self, _: ElId) -> MetaTree {
-        MetaTree::childless(Meta::none)
+        MetaTree::none()
     }
 
     fn on_mount(&mut self, ctx: super::MountCtx<W>) {

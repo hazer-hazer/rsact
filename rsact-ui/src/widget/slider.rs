@@ -12,7 +12,7 @@ use embedded_graphics::{
     prelude::{Point, Primitive},
     primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle},
 };
-use rsact_reactive::{maybe::IntoMaybeReactive, memo_chain::IntoMemoChain};
+use rsact_reactive::prelude::*;
 
 #[derive(Clone, Copy, Default, PartialEq)]
 pub enum SliderThumbShape {
@@ -154,7 +154,7 @@ where
     W::Styler: WidgetStylist<SliderStyle<W::Color>>,
 {
     fn meta(&self, id: ElId) -> MetaTree {
-        MetaTree::childless(Meta::focusable(id).inert().memo())
+        MetaTree::childless(Meta::focusable(id))
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {

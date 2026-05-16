@@ -101,7 +101,7 @@ where
     W::Styler: WidgetStylist<ButtonStyle<W::Color>>,
 {
     fn meta(&self, id: ElId) -> MetaTree {
-        MetaTree::childless(move || Meta::focusable(id))
+        MetaTree::childless(Meta::focusable(id))
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {

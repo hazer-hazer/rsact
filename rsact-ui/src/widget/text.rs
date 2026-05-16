@@ -1,10 +1,10 @@
 use super::{FontSettingWidget, prelude::*};
 use crate::font::{TextHorizontalAlign, TextVerticalAlign};
 use alloc::string::{String, ToString};
+use core::fmt::Display;
 use layout::ContentLayout;
 use rsact_reactive::{
-    memo::{IntoMemo, Memo},
-    prelude::MemoChain,
+    maybe::maybe_reactive::SignalMapMaybeReactive, prelude::MemoChain,
     signal::Signal,
 };
 
@@ -29,19 +29,16 @@ impl<C: Color> TextStyle<C> {
 }
 
 pub struct Text<W: WidgetCtx> {
-    content: Memo<String>,
+    content: MaybeReactive<String>,
     layout: Signal<Layout>,
     style: MemoChain<TextStyle<W::Color>>,
 }
 
 impl<W: WidgetCtx> Text<W> {
-    pub fn new_inert(content: impl ToString) -> Self {
-        // TODO: Is it possible to make real MaybeReactive text content?
-        Self::new(content.to_string().inert())
-    }
-
-    pub fn new(content: impl IntoMemo<String>) -> Self {
-        let content = content.memo();
+    pub fn new<T: Display + 'static>(
+        content: impl SignalMapMaybeReactive<T, String>,
+    ) -> Self {
+        let content = content.map_maybe_reactive(|content| content.to_string());
         let style = TextStyle::base().memo_chain();
 
         let layout = Layout::shrink(super::LayoutKind::Content(
@@ -106,7 +103,7 @@ where
     W::Styler: WidgetStylist<TextStyle<W::Color>>,
 {
     fn meta(&self, _: ElId) -> MetaTree {
-        MetaTree::childless(Meta::none)
+        MetaTree::none()
     }
 
     fn on_mount(&mut self, ctx: MountCtx<W>) {
@@ -150,7 +147,7 @@ where
     W::Styler: WidgetStylist<TextStyle<W::Color>>,
 {
     fn into(self) -> El<W> {
-        Text::new_inert(self).el()
+        Text::new(self.to_string().inert()).el()
     }
 }
 
@@ -159,7 +156,7 @@ where
     W::Styler: WidgetStylist<TextStyle<W::Color>>,
 {
     fn into(self) -> El<W> {
-        Text::new_inert(self).el()
+        Text::new(self.inert()).el()
     }
 }
 

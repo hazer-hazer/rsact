@@ -46,7 +46,7 @@ impl ReactiveValue for Trigger {
     type Value = ();
 
     fn id(&self) -> Option<crate::storage::ValueId> {
-        Some(self.inner.id())
+        self.inner.id()
     }
 
     fn is_alive(&self) -> bool {

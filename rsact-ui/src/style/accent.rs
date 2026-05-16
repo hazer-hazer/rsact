@@ -13,7 +13,7 @@ use crate::{
     },
 };
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy)]
 pub struct AccentStyler<C: Color> {
     accent: C,
 }
@@ -31,7 +31,7 @@ impl<C: Color + 'static> WidgetStylist<BarStyle<C>> for AccentStyler<C> {
         BarStyle<C>,
         <BarStyle<C> as super::WidgetStyle>::Inputs,
     ) -> BarStyle<C>
-           + 'static {
+    + 'static {
         move |base, ()| base.color(self.accent)
     }
 }
@@ -43,7 +43,7 @@ impl<C: Color + 'static> WidgetStylist<ButtonStyle<C>> for AccentStyler<C> {
         ButtonStyle<C>,
         <ButtonStyle<C> as super::WidgetStyle>::Inputs,
     ) -> ButtonStyle<C>
-           + 'static {
+    + 'static {
         move |base, state| match state {
             ButtonState { pressed: true } => base.container(
                 base.container.border(base.container.border.color(self.accent)),
@@ -60,7 +60,7 @@ impl<C: Color + 'static> WidgetStylist<CheckboxStyle<C>> for AccentStyler<C> {
         CheckboxStyle<C>,
         <CheckboxStyle<C> as super::WidgetStyle>::Inputs,
     ) -> CheckboxStyle<C>
-           + 'static {
+    + 'static {
         move |base, state| match state {
             CheckboxState { pressed: true } => base.container(
                 base.container.border(base.container.border.color(self.accent)),
@@ -77,7 +77,7 @@ impl<C: Color + 'static> WidgetStylist<KnobStyle<C>> for AccentStyler<C> {
         KnobStyle<C>,
         <KnobStyle<C> as super::WidgetStyle>::Inputs,
     ) -> KnobStyle<C>
-           + 'static {
+    + 'static {
         move |base, state| match state {
             KnobState { pressed: _, active: true } => base.color(self.accent),
             _ => base,
@@ -93,7 +93,7 @@ impl<C: Color + 'static> WidgetStylist<TextStyle<C>> for AccentStyler<C> {
         TextStyle<C>,
         <TextStyle<C> as super::WidgetStyle>::Inputs,
     ) -> TextStyle<C>
-           + 'static {
+    + 'static {
         move |base, ()| base
     }
 }
@@ -105,7 +105,7 @@ impl<C: Color + 'static> WidgetStylist<ScrollableStyle<C>> for AccentStyler<C> {
         ScrollableStyle<C>,
         <ScrollableStyle<C> as super::WidgetStyle>::Inputs,
     ) -> ScrollableStyle<C>
-           + 'static {
+    + 'static {
         move |base, state| match state {
             ScrollableState { offset: _, focus_pressed: _, active: true } => {
                 base.thumb_color(self.accent)
@@ -122,7 +122,7 @@ impl<C: Color + 'static> WidgetStylist<SelectStyle<C>> for AccentStyler<C> {
         SelectStyle<C>,
         <SelectStyle<C> as super::WidgetStyle>::Inputs,
     ) -> SelectStyle<C>
-           + 'static {
+    + 'static {
         move |base, state| match state {
             SelectState { pressed: _, active: true, selected: _ } => {
                 base.selected_border_color(self.accent)
@@ -139,7 +139,7 @@ impl<C: Color + 'static> WidgetStylist<SliderStyle<C>> for AccentStyler<C> {
         SliderStyle<C>,
         <SliderStyle<C> as super::WidgetStyle>::Inputs,
     ) -> SliderStyle<C>
-           + 'static {
+    + 'static {
         move |base, state| match state {
             SliderState { pressed: _, active: true } => {
                 base.thumb_color(self.accent)

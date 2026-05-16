@@ -262,6 +262,7 @@ impl core::fmt::Display for ValueDebugInfo {
 
 #[derive(Clone)]
 pub enum ValueKind {
+    Stored,
     Signal,
     Effect {
         f: Rc<RefCell<dyn AnyCallback>>,
@@ -286,6 +287,7 @@ impl Display for ValueKind {
             f,
             "{}",
             match self {
+                ValueKind::Stored => "stored",
                 ValueKind::Effect { .. } => "effect",
                 ValueKind::Signal => "signal",
                 ValueKind::Memo { .. } => "memo",

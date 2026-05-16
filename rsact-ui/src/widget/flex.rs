@@ -3,7 +3,7 @@ use crate::widget::{
 };
 use alloc::vec::Vec;
 use core::marker::PhantomData;
-use rsact_reactive::maybe::IntoMaybeReactive;
+use rsact_reactive::prelude::*;
 
 // pub type Row<C> = Flex<C, RowDir>;
 // pub type Col<C> = Flex<C, ColDir>;
@@ -209,12 +209,10 @@ impl<W: WidgetCtx + 'static, Dir: Direction + 'static> FontSettingWidget<W>
 
 impl<W: WidgetCtx + 'static, Dir: Direction> Widget<W> for Flex<W, Dir> {
     fn meta(&self, id: ElId) -> MetaTree {
-        MetaTree {
-            data: Meta::none.memo(),
-            children: self.children.map_reactive(move |children| {
-                children.iter().map(|child| child.meta(id)).collect()
-            }),
-        }
+        MetaTree::new(Meta::none(), self.children.map_reactive(move |children| {
+            children.iter().map(|child| child.meta(id)).collect()
+        }))
+
     }
 
     fn on_mount(&mut self, ctx: MountCtx<W>) {

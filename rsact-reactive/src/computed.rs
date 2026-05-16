@@ -90,13 +90,13 @@ pub struct Computed<T> {
     ty: PhantomData<T>,
 }
 
-impl<T: PartialEq + 'static> SignalMap<T> for Computed<T> {
-    type Output<U: PartialEq + 'static> = Memo<U>;
+impl<T: 'static, U: PartialEq + 'static> SignalMap<T, U> for Computed<T> {
+    type Output = Memo<U>;
 
-    fn map<U: PartialEq + 'static>(
+    fn map(
         &self,
         mut map: impl FnMut(&T) -> U + 'static,
-    ) -> Self::Output<U> {
+    ) -> Self::Output {
         let this = *self;
         create_memo(move || this.with(&mut map))
     }

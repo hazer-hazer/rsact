@@ -6,6 +6,7 @@ use super::prelude::*;
 /// - Isn't drawn
 /// - Ignores events
 pub struct Show<W: WidgetCtx> {
+    // TODO: Do we need MaybeReactive overhead if user rarely needs element to always be hidden or shown?
     show: Memo<bool>,
     el: El<W>,
     // TODO: Cannot do fallback because layout returns Signal but I don't know how to make dynamic layouts and how they should be mutated.
@@ -22,6 +23,7 @@ impl<W: WidgetCtx> Show<W> {
         el.layout().update(|layout| {
             layout.set_show(show);
         });
+        // TODO: This is a logic for `IfWidget` or so
         // fallback.layout().update(|layout| {
         //     layout.set_show(show.map(|show| !*show));
         // });

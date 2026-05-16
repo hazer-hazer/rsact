@@ -3,9 +3,7 @@ use crate::widget::prelude::*;
 use core::marker::PhantomData;
 use embedded_graphics::{pixelcolor::raw::BigEndian, prelude::DrawTarget};
 use rsact_icons::{EmptyIconSet, IconRaw, IconSet};
-use rsact_reactive::maybe::{
-    IntoMaybeReactive, IsInert, IsReactive, ReactivityMarker,
-};
+use rsact_reactive::prelude::*;
 
 declare_widget_style! {
     IconStyle () {
@@ -66,8 +64,10 @@ impl<W: WidgetCtx> Icon<W, EmptyIconSet, IsInert> {
 impl<W: WidgetCtx, I: IconSet + 'static> Icon<W, I, IsReactive> {
     pub fn new(icon: impl IntoMaybeReactive<I>) -> Self {
         let icon = icon.maybe_reactive();
+        // TODO: Here we need something like `SignalOnWrite` reactive type that is unlike MaybeSignal turns into Signal on write instead of writing to the owned value. Now size is always a signal, while in most cases will be untouched, but making FontSize a MaybeSignal now will make it always inert as MaybeSignal does not turn into reactive when updated, it just updates owned value. (also as FontSize is a Copy-type this may seem misleading). We need reactivity for layouts to react on size change.
         let size = FontSize::Relative(1.0).signal();
         let value = IconValue::Relative(size, icon);
+
         let layout = Layout::shrink(LayoutKind::Content(ContentLayout::Icon(
             size.memo(),
         )))
@@ -117,7 +117,7 @@ where
     W::Styler: WidgetStylist<IconStyle<W::Color>>,
 {
     fn meta(&self, _: ElId) -> MetaTree {
-        MetaTree::childless(Meta::none)
+        MetaTree::none()
     }
 
     fn on_mount(&mut self, ctx: MountCtx<W>) {

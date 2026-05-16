@@ -1,5 +1,10 @@
 use crate::{
-    ReactiveValue, async_rt::{AsyncNotify, AsyncState}, effect::create_effect, read::ReadSignal, signal::{Signal, create_signal}, write::WriteSignal
+    ReactiveValue,
+    async_rt::{AsyncNotify, AsyncState},
+    effect::create_effect,
+    read::ReadSignal,
+    signal::{Signal, create_signal},
+    write::WriteSignal,
 };
 use alloc::{boxed::Box, rc::Rc};
 use core::{
@@ -40,7 +45,7 @@ impl<T: 'static> ReactiveValue for Resource<T> {
     type Value = T;
 
     fn id(&self) -> Option<crate::storage::ValueId> {
-        Some(self.signal.id())
+        self.signal.id()
     }
 
     fn is_alive(&self) -> bool {

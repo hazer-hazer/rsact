@@ -16,9 +16,7 @@ use embedded_graphics::{
     Drawable as _,
     prelude::{DrawTarget, Point},
 };
-use rsact_reactive::{
-    ReactiveValue, maybe::IntoMaybeReactive, prelude::*, runtime::defer_effects,
-};
+use rsact_reactive::prelude::*;
 
 pub mod dev;
 pub mod id;
@@ -54,11 +52,12 @@ pub struct Page<W: WidgetCtx> {
     id: W::PageId,
     root: El<W>,
     meta: PageMeta,
+    // TODO: MaybeReactive
     layout: Memo<LayoutModel>,
     state: Signal<PageState<W>>,
     style: Signal<PageStyle<W::Color>>,
     renderer: Signal<W::Renderer>,
-    viewport: Memo<Size>,
+    viewport: MaybeReactive<Size>,
     dev_tools: Signal<DevTools>,
     force_redraw: Trigger,
     render_calls: usize,
@@ -69,8 +68,8 @@ impl<W: WidgetCtx> Page<W> {
     pub(crate) fn new(
         id: W::PageId,
         root: impl Into<El<W>>,
-        viewport: Memo<Size>,
-        styler: Memo<W::Styler>,
+        viewport: MaybeReactive<Size>,
+        styler: Inert<W::Styler>,
         dev_tools: Signal<DevTools>,
         renderer: Signal<W::Renderer>,
         fonts: Signal<FontCtx>,
@@ -96,24 +95,21 @@ impl<W: WidgetCtx> Page<W> {
         let focusable = create_memo(move || {
             meta.flat_collect()
                 .iter()
-                .filter_map(|el| {
-                    el.with(|el_meta| {
-                        if let Some(id) = el_meta.id {
-                            if !(el_meta.behavior & Behavior::FOCUSABLE)
-                                .is_empty()
-                            {
-                                return Some(id);
-                            }
+                .filter_map(|el_meta| {
+                    if let Some(id) = el_meta.id {
+                        if !(el_meta.behavior & Behavior::FOCUSABLE).is_empty()
+                        {
+                            return Some(id);
                         }
-                        None
-                    })
+                    }
+                    None
                 })
                 .collect()
         })
         .name("Focusable");
 
         let layout_tree = root.layout().name("Layout tree");
-        let layout_model = map!(move |viewport, fonts| {
+        let layout_model = map!(move |fonts, viewport| {
             let viewport = *viewport;
             // println!("Relayout");
             // TODO: Possible optimization is to use previous memo result, pass
@@ -420,12 +416,7 @@ mod tests {
         widget::{Widget, ctx::*},
     };
     use alloc::string::String;
-    use rsact_reactive::{
-        maybe::IntoInert,
-        memo::{IntoMemo, create_memo},
-        signal::IntoSignal,
-        write::WriteSignal,
-    };
+    use rsact_reactive::prelude::*;
 
     type NullWtf = Wtf<NullRenderer, NullStyler, (), ()>;
 
@@ -433,8 +424,8 @@ mod tests {
         Page::new(
             (),
             root,
-            create_memo(|| Size::new_equal(1)),
-            NullStyler::default().inert().memo(),
+            Size::new_equal(1).maybe_reactive(),
+            NullStyler::default().inert(),
             DevTools::default().signal(),
             NullRenderer::default().signal(),
             FontCtx::new().signal(),

@@ -381,6 +381,19 @@ impl Runtime {
         id
     }
 
+    pub fn create_inert<T: 'static>(
+        &self,
+        value: T,
+        _caller: &'static Location<'static>,
+    ) -> ValueId {
+        self.add_value::<_, T>(
+            value,
+            ValueKind::Stored,
+            ValueState::Clean,
+            _caller,
+        )
+    }
+
     pub fn create_signal<T: 'static>(
         &self,
         value: T,
@@ -709,6 +722,7 @@ impl Runtime {
             }
 
             let changed = match &value.kind {
+                ValueKind::Stored => false,
                 ValueKind::MemoChain { memo, first, last } => {
                     let value = value.value;
 
@@ -919,6 +933,7 @@ impl Runtime {
             if let Some(value) = value {
                 let name = format!("{}{id}", value.kind);
                 let (lp, rp, print_ty) = match &value.kind {
+                    ValueKind::Stored => ("[", "]", true),
                     ValueKind::Signal => ("(", ")", true),
                     ValueKind::Effect { .. } => ("[[", "]]", true),
                     ValueKind::Memo { .. } => ("([", "])", true),
@@ -1192,10 +1207,11 @@ impl Runtime {
 
 pub fn current_runtime_profile() -> Profile {
     with_current_runtime(|rt| {
-        let (signals, effects, memos, computed, memo_chains) =
+        let (stored, signals, effects, memos, computed, memo_chains) =
             rt.storage.values.borrow().values().fold(
-                (0, 0, 0, 0, 0),
+                (0, 0, 0, 0, 0, 0),
                 |(
+                    mut stored,
                     mut signals,
                     mut effects,
                     mut memos,
@@ -1204,6 +1220,7 @@ pub fn current_runtime_profile() -> Profile {
                 ),
                  value| {
                     match &value.kind {
+                        ValueKind::Stored => stored += 1,
                         ValueKind::Signal => signals += 1,
                         ValueKind::Effect { .. } => effects += 1,
                         ValueKind::Memo { .. } => memos += 1,
@@ -1212,7 +1229,7 @@ pub fn current_runtime_profile() -> Profile {
                         ValueKind::Observer { .. } => {},
                     }
 
-                    (signals, effects, memos, computed, memo_chains)
+                    (stored, signals, effects, memos, computed, memo_chains)
                 },
             );
 
@@ -1261,6 +1278,7 @@ pub fn current_runtime_profile() -> Profile {
             });
 
         Profile {
+            stored,
             signals,
             effects,
             memos,
@@ -1281,6 +1299,7 @@ pub fn current_runtime_profile() -> Profile {
 
 #[derive(Clone, Copy)]
 pub struct Profile {
+    stored: usize,
     signals: usize,
     effects: usize,
     memos: usize,
@@ -1302,8 +1321,13 @@ impl Display for Profile {
         writeln!(
             f,
             "{} values:",
-            self.signals + self.effects + self.memos + self.memo_chains
+            self.stored
+                + self.signals
+                + self.effects
+                + self.memos
+                + self.memo_chains
         )?;
+        writeln!(f, "  {} stored", self.stored)?;
         writeln!(f, "  {} signals", self.signals)?;
         writeln!(f, "  {} effects", self.effects)?;
         writeln!(f, "  {} memos", self.memos)?;
@@ -1339,6 +1363,7 @@ impl Display for Profile {
 mod tests {
     use super::CURRENT_RUNTIME;
     use crate::{
+        ReactiveValue as _,
         effect::create_effect,
         memo::create_memo,
         read::ReadSignal,
@@ -1474,7 +1499,7 @@ mod tests {
             }
             // Effect disposed. The signal's subscribers map must be empty —
             // confirmed by checking that no subscribers remain.
-            let sig_id = sig.id();
+            let sig_id = sig.id().unwrap();
             let subs_count = rt
                 .subscribers
                 .borrow()
@@ -1540,7 +1565,7 @@ mod tests {
             assert_eq!(reads.get(), 2);
 
             // `a` should have no subscribers now (cleanup removed the stale sub).
-            let a_id = a.id();
+            let a_id = a.id().unwrap();
             let a_subs =
                 rt.subscribers.borrow().get(a_id).map(|s| s.len()).unwrap_or(0);
             assert_eq!(

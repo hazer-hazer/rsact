@@ -100,7 +100,7 @@ pub mod marker {
 /// assert_eq!(doubled.get(), 4);
 /// # });
 /// ```
-pub struct Signal<T, M: marker::Any = marker::Rw> {
+pub struct Signal<T: ?Sized, M: marker::Any = marker::Rw> {
     id: ValueId,
     ty: PhantomData<T>,
     rw: PhantomData<M>,
@@ -146,10 +146,6 @@ impl<T: 'static, M: marker::Any> Signal<T, M> {
             ty: PhantomData,
             rw: PhantomData,
         }
-    }
-
-    pub fn id(&self) -> ValueId {
-        self.id
     }
 
     #[track_caller]
@@ -265,9 +261,7 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MemoChain<U>>
     }
 }
 
-impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, Inert<U>>
-    for Signal<T>
-{
+impl<T: 'static, U: 'static> SignalSetter<T, Inert<U>> for Signal<T> {
     #[track_caller]
     fn setter(
         &mut self,
@@ -275,7 +269,7 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, Inert<U>>
         mut set_map: impl FnMut(&mut T, &<Inert<U> as ReactiveValue>::Value)
         + 'static,
     ) {
-        self.update(|this| set_map(this, &source))
+        source.with_untracked(|inert| self.update(|this| set_map(this, &inert)))
     }
 }
 
@@ -304,14 +298,13 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MaybeReactive<U>>
     }
 }
 
-impl<T: 'static, M: marker::CanRead> SignalMap<T> for Signal<T, M> {
-    type Output<U: PartialEq + 'static> = Memo<U>;
+impl<T: 'static, U: PartialEq + 'static, M: marker::CanRead> SignalMap<T, U>
+    for Signal<T, M>
+{
+    type Output = Memo<U>;
 
     #[track_caller]
-    fn map<U: PartialEq + 'static>(
-        &self,
-        mut map: impl FnMut(&T) -> U + 'static,
-    ) -> Memo<U> {
+    fn map(&self, mut map: impl FnMut(&T) -> U + 'static) -> Memo<U> {
         let this = *self;
         create_memo(move || this.with(&mut map))
     }
@@ -326,6 +319,14 @@ impl<T: 'static, M: marker::CanRead> Signal<T, M> {
 impl<T: 'static, M: marker::CanWrite> Signal<T, M> {
     pub fn write_only(self) -> Signal<T, marker::WriteOnly> {
         Signal { id: self.id, ty: PhantomData, rw: PhantomData }
+    }
+}
+
+impl<T: PartialEq + 'static, M: marker::CanRead> IntoMemo<T> for Signal<T, M> {
+    /// Converting Signal to Memo is cheap, and does not actually create new memo instance!
+    #[track_caller]
+    fn memo(self) -> Memo<T> {
+        Memo::Signal(self.read_only())
     }
 }
 

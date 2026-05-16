@@ -115,7 +115,7 @@ where
 ///
 /// Use [`IntoMemoChain::memo_chain`] to convert a plain value or existing
 /// `MemoChain` without calling the constructor directly.
-pub struct MemoChain<T: PartialEq> {
+pub struct MemoChain<T: ?Sized + PartialEq> {
     id: ValueId,
     ty: PhantomData<T>,
 }
@@ -175,14 +175,13 @@ impl<T: PartialEq + 'static> ReactiveValue for MemoChain<T> {
     }
 }
 
-impl<T: PartialEq + 'static> SignalMap<T> for MemoChain<T> {
-    type Output<U: PartialEq + 'static> = Memo<U>;
+impl<T: PartialEq + 'static, U: PartialEq + 'static> SignalMap<T, U>
+    for MemoChain<T>
+{
+    type Output = Memo<U>;
 
     #[track_caller]
-    fn map<U: PartialEq + 'static>(
-        &self,
-        mut map: impl FnMut(&T) -> U + 'static,
-    ) -> Self::Output<U> {
+    fn map(&self, mut map: impl FnMut(&T) -> U + 'static) -> Self::Output {
         let this = *self;
         create_memo(move || this.with(&mut map))
     }

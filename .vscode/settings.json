@@ -3,8 +3,11 @@
   "rust-analyzer.cargo.allTargets": true,
   "cSpell.words": [
     "Deque",
+    "dirten",
+    "downcasting",
     "Framebuf",
     "fullscreen",
+    "pixelcolor",
     "rsact",
     "Uninit",
     "vals",

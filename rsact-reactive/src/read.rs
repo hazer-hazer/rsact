@@ -1,6 +1,6 @@
 use crate::{
     ReactiveValue,
-    maybe::{IntoMaybeReactive, MaybeReactive},
+    maybe::maybe_reactive::{IntoMaybeReactive, MaybeReactive},
 };
 
 /// Read access to a reactive value.
@@ -15,7 +15,7 @@ use crate::{
 ///
 /// Implemented by: [`crate::signal::Signal`], [`crate::memo::Memo`], [`crate::memo_chain::MemoChain`], [`crate::computed::Computed`],
 /// [`crate::trigger::Trigger`], [`crate::maybe::Inert`], [`crate::maybe::MaybeReactive`], [`crate::maybe::MaybeSignal`].
-pub trait ReadSignal<T: 'static>: ReactiveValue {
+pub trait ReadSignal<T>: ReactiveValue {
     fn track(&self);
     fn with_untracked<U>(&self, f: impl FnOnce(&T) -> U) -> U;
 
@@ -61,27 +61,41 @@ pub trait ReadSignal<T: 'static>: ReactiveValue {
 ///
 /// See also [`crate::maybe::SignalMapReactive`] when you always need a `Memo<U>`
 /// regardless of source reactivity.
-pub trait SignalMap<T: 'static> {
-    type Output<U: PartialEq + 'static>;
+pub trait SignalMap<T, U> {
+    type Output: ReactiveValue<Value = U>;
 
-    fn map<U: PartialEq + 'static>(
-        &self,
-        map: impl FnMut(&T) -> U + 'static,
-    ) -> Self::Output<U>;
+    fn map(&self, map: impl FnMut(&T) -> U + 'static) -> Self::Output;
 
     // TODO: Is this needed?
     #[track_caller]
-    fn map_cloned<U: PartialEq + 'static>(
-        &self,
-        mut map: impl FnMut(T) -> U + 'static,
-    ) -> Self::Output<U>
+    fn map_cloned(&self, mut map: impl FnMut(T) -> U + 'static) -> Self::Output
     where
-        Self: Sized + 'static,
         T: Clone,
     {
         self.map(move |this| map(this.clone()))
     }
 }
+
+// macro_rules! impl_signal_map_raw {
+//     ($ty: ty) => {
+//         impl<U> SignalMap<$ty, U> for $ty {
+//             type Output = U;
+
+//             #[track_caller]
+//             fn map(&self, mut map: impl FnMut(&$ty) -> U + 'static) -> Self::Output {
+//                 map(self)
+//             }
+//         }
+//     };
+
+//     ($($ty: ty),* $(,)?) => {
+//         $(impl_signal_map_raw!($ty);)*
+//     };
+// }
+
+// impl_signal_map_raw! {
+//     u32,
+// }
 
 // /// Used to access deep signal values, such as `Memo<Memo<Memo<T>>>`. Be careful with this, only use if `signal.with(|signal| signal.with(|signal| signal.with(f)))` is the behavior you need.
 // pub trait WithDeep<T: 'static>: ReadSignal<T> {
@@ -187,7 +201,7 @@ macro_rules! impl_read_signal_traits {
 
             impl<T> core::ops::Neg for $ty
             where
-                T: core::ops::Neg<Output = T> + PartialEq + Clone + 'static,
+                T: core::ops::Neg<Output = T> + PartialEq + Clone + 'static + $($($generics+)*)?,
             {
                 // type Output = <$ty as SignalMapper<T>>::Output<T>;
                 type Output = T;
@@ -200,7 +214,7 @@ macro_rules! impl_read_signal_traits {
 
             impl<T> core::ops::Not for $ty
             where
-                T: core::ops::Not<Output = T> + PartialEq + Clone + 'static,
+                T: core::ops::Not<Output = T> + PartialEq + Clone + 'static + $($($generics+)*)?,
             {
                 // type Output = <$ty as SignalMapper<T>>::Output<T>;
                 type Output = T;
@@ -213,7 +227,7 @@ macro_rules! impl_read_signal_traits {
 
             impl<T> PartialOrd for $ty
             where
-                T: PartialEq + PartialOrd + Clone + 'static,
+                T: PartialEq + PartialOrd + Clone + 'static + $($($generics+)*)?,
             {
                 #[track_caller]
                 fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
@@ -263,13 +277,13 @@ macro_rules! impl_read_signal_traits {
 
 pub(crate) use impl_read_signal_traits;
 
-pub trait WithRef<T: ?Sized> {
+pub trait SignalWithRef<T: ?Sized> {
     fn with_ref<U>(&self, f: impl FnOnce(&T) -> U) -> U;
 }
 
-impl<T: ?Sized, C, R> WithRef<T> for R
+impl<T: ?Sized, C, R> SignalWithRef<T> for R
 where
-    C: AsRef<T> + 'static,
+    C: AsRef<T>,
     R: ReactiveValue<Value = C> + ReadSignal<C>,
 {
     fn with_ref<U>(&self, f: impl FnOnce(&T) -> U) -> U {
@@ -283,77 +297,68 @@ pub trait SignalWithSlice<T> {
 
 impl<T, R> SignalWithSlice<T> for R
 where
-    R: WithRef<[T]>,
+    R: SignalWithRef<[T]>,
 {
     fn with_slice<U>(&self, f: impl FnOnce(&[T]) -> U) -> U {
         self.with_ref(f)
     }
 }
 
-pub trait SignalMapRef<T: ?Sized> {
-    type Output<U: PartialEq + 'static>;
+pub trait SignalMapRef<T: ?Sized, U: ?Sized> {
+    type Output: ReactiveValue<Value = U>;
 
-    fn map_ref<U: PartialEq + 'static>(
-        &self,
-        map: impl FnMut(&T) -> U + 'static,
-    ) -> Self::Output<U>;
+    fn map_ref(&self, map: impl FnMut(&T) -> U + 'static) -> Self::Output;
 }
 
-impl<T: ?Sized, C, R> SignalMapRef<T> for R
+impl<T: ?Sized, U, C, R> SignalMapRef<T, U> for R
 where
-    C: AsRef<T> + 'static,
-    R: ReactiveValue<Value = C> + SignalMap<C>,
+    C: AsRef<T>,
+    R: ReactiveValue<Value = C> + SignalMap<C, U>,
 {
-    type Output<U: PartialEq + 'static> = <Self as SignalMap<C>>::Output<U>;
+    type Output = <Self as SignalMap<C, U>>::Output;
 
-    fn map_ref<U: PartialEq + 'static>(
-        &self,
-        mut map: impl FnMut(&T) -> U + 'static,
-    ) -> Self::Output<U> {
+    fn map_ref(&self, mut map: impl FnMut(&T) -> U + 'static) -> Self::Output {
         self.map(move |c| map(c.as_ref()))
     }
 }
 
-// pub trait SignalMapRefMaybeReactive<T: ?Sized> {
-//     fn map_ref_maybe_reactive<U: PartialEq + 'static>(
-//         &self,
-//         map: impl FnMut(&T) -> U + 'static,
-//     ) -> MaybeReactive<U>;
-// }
-
-// impl<T: ?Sized, C, R> SignalMapRefMaybeReactive<T> for R
-// where
-//     C: AsRef<T> + 'static,
-//     R: ReactiveValue<Value = C> + SignalMap<C>,
-// {
-//     fn map_ref_maybe_reactive<U: PartialEq + 'static>(
-//         &self,
-//         mut map: impl FnMut(&T) -> U + 'static,
-//     ) -> MaybeReactive<U> {
-//         self.map(move |c| map(c.as_ref())).maybe_reactive()
-//     }
-// }
-
-pub trait SignalMapSlice<T> {
-    type Output<U: PartialEq + 'static>;
-
-    fn map_slice<U: PartialEq + 'static>(
+pub trait SignalMapRefMaybeReactive<T: ?Sized, U: PartialEq> {
+    fn map_ref_maybe_reactive(
         &self,
-        map: impl FnMut(&[T]) -> U + 'static,
-    ) -> Self::Output<U>;
+        map: impl FnMut(&T) -> U + 'static,
+    ) -> MaybeReactive<U>;
 }
 
-impl<T, R> SignalMapSlice<T> for R
+impl<T: ?Sized, U: PartialEq, C, R> SignalMapRefMaybeReactive<T, U> for R
 where
-    R: SignalMapRef<[T]>,
+    C: AsRef<T>,
+    R: ReactiveValue<Value = C> + SignalMap<C, U>,
+    <R as SignalMap<C, U>>::Output: IntoMaybeReactive<U>,
 {
-    type Output<U: PartialEq + 'static> =
-        <Self as SignalMapRef<[T]>>::Output<U>;
+    fn map_ref_maybe_reactive(
+        &self,
+        mut map: impl FnMut(&T) -> U + 'static,
+    ) -> MaybeReactive<U> {
+        self.map(move |c| map(c.as_ref())).maybe_reactive()
+    }
+}
 
-    fn map_slice<U: PartialEq + 'static>(
+pub trait SignalMapSlice<T, U> {
+    type Output: ReactiveValue<Value = U>;
+
+    fn map_slice(&self, map: impl FnMut(&[T]) -> U + 'static) -> Self::Output;
+}
+
+impl<T, U, R> SignalMapSlice<T, U> for R
+where
+    R: SignalMapRef<[T], U>,
+{
+    type Output = <Self as SignalMapRef<[T], U>>::Output;
+
+    fn map_slice(
         &self,
         mut map: impl FnMut(&[T]) -> U + 'static,
-    ) -> Self::Output<U> {
+    ) -> Self::Output {
         self.map_ref(move |c| map(c))
     }
 }
@@ -362,14 +367,14 @@ where
 mod tests {
     use crate::{
         prelude::*,
-        read::{SignalMapRef, SignalMapSlice, WithRef},
+        read::{SignalMapRef, SignalMapSlice, SignalWithRef},
     };
     use alloc::vec;
     use core::iter::Sum;
 
     #[test]
     fn with_slice_parameter() {
-        fn accept_slice(slice: impl WithRef<[u32]>) -> u32 {
+        fn accept_slice(slice: impl SignalWithRef<[u32]>) -> u32 {
             slice.with_ref(|slice| slice.iter().sum())
         }
 
@@ -416,7 +421,7 @@ mod tests {
     #[test]
     fn signal_map_ref_memo_sum() {
         fn sum<T: Sum + Copy + PartialEq + 'static>(
-            slice: impl SignalMapRef<[T], Output<T> = Memo<T>>,
+            slice: impl SignalMapRef<[T], T, Output = Memo<T>>,
         ) -> Memo<T> {
             slice.map_ref(|slice| slice.into_iter().copied().sum::<T>())
         }
@@ -433,7 +438,7 @@ mod tests {
     #[test]
     fn signal_map_slice_memo_sum() {
         fn sum<T: Sum + Copy + PartialEq + 'static>(
-            slice: impl SignalMapSlice<T, Output<T> = Memo<T>>,
+            slice: impl SignalMapSlice<T, T, Output = Memo<T>>,
         ) -> Memo<T> {
             slice.map_slice(|slice| slice.into_iter().copied().sum::<T>())
         }
@@ -450,7 +455,7 @@ mod tests {
     #[test]
     fn signal_map_ref_maybe_reactive() {
         fn sum<T: Sum + Copy + PartialEq + 'static>(
-            slice: impl SignalMapRef<[T], Output<T> = MaybeReactive<T>>,
+            slice: impl SignalMapRef<[T], T, Output = MaybeReactive<T>>,
         ) -> MaybeReactive<T> {
             slice.map_ref(|slice| slice.into_iter().copied().sum::<T>())
         }
@@ -467,7 +472,7 @@ mod tests {
     #[test]
     fn signal_map_slice_maybe_reactive() {
         fn sum<T: Sum + Copy + PartialEq + 'static>(
-            slice: impl SignalMapSlice<T, Output<T> = MaybeReactive<T>>,
+            slice: impl SignalMapSlice<T, T, Output = MaybeReactive<T>>,
         ) -> MaybeReactive<T> {
             slice.map_slice(|slice| slice.into_iter().copied().sum::<T>())
         }
@@ -489,7 +494,7 @@ mod tests {
     // fn signal_map_slice_into_maybe_reactive() {
     //     fn sum<
     //         T: Sum + Copy + PartialEq + 'static,
-    //         S: SignalMapSlice<T, Output<T> = MaybeReactive<T>> + PartialEq,
+    //         S: SignalMapSlice<T, T, Output = MaybeReactive<T>> + PartialEq,
     //     >(
     //         slice: S,
     //     ) -> MaybeReactive<T> {

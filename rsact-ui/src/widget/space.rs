@@ -69,7 +69,7 @@ impl<W: WidgetCtx, Dir: Direction> Space<W, Dir> {
 
 impl<W: WidgetCtx, Dir: Direction> Widget<W> for Space<W, Dir> {
     fn meta(&self, _: ElId) -> MetaTree {
-        MetaTree::childless(Meta::none)
+        MetaTree::none()
     }
 
     fn layout(&self) -> Signal<Layout> {

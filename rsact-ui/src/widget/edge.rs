@@ -32,7 +32,7 @@ impl<W: WidgetCtx + 'static> SizedWidget<W> for Edge<W> {}
 
 impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
     fn meta(&self, _: ElId) -> crate::widget::MetaTree {
-        MetaTree::childless(Meta::none)
+        MetaTree::none()
     }
 
     fn layout(&self) -> Signal<Layout> {

@@ -9,9 +9,7 @@ use core::{
 };
 use embedded_graphics::primitives::Rectangle;
 use fixed::{FixedFont, FixedFontCollection};
-use rsact_reactive::{
-    maybe::MaybeReactive, prelude::IntoMaybeReactive, read::ReadSignal,
-};
+use rsact_reactive::prelude::*;
 
 pub mod fixed;
 
