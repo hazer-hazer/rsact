@@ -39,11 +39,11 @@ fn main() {
         Rgb888::WHITE,
     ).no_events().with_page(SinglePage, 
         Flex::col([
-            Text::new_inert("System icons").el(),
+            Text::new("System icons").el(),
             Flex::row(system_icons).wrap(true).gap(5u32).el(),
-            Text::new_inert("Common icons").el(),
+            Text::new("Common icons").el(),
             Flex::row(common_icons).wrap(true).gap(5u32).el(),
-            Text::new_inert(format!("Icons of size {ICON_SIZE}. Auto-generated from Material Design Icons")).el()
+            Text::new(format!("Icons of size {ICON_SIZE}. Auto-generated from Material Design Icons")).el()
         ])
         .center()
         .fill()

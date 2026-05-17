@@ -28,7 +28,7 @@ impl<C: Color> ButtonStyle<C> {
 }
 
 pub struct Button<W: WidgetCtx> {
-    layout: Signal<Layout>,
+    layout: Layout,
     content: El<W>,
     state: Signal<ButtonState>,
     style: MemoChain<ButtonStyle<W::Color>>,
@@ -44,10 +44,9 @@ impl<W: WidgetCtx + 'static> Button<W> {
             block_model: BlockModel::zero().padding(2).border_width(1),
             horizontal_align: Align::Center,
             vertical_align: Align::Center,
-            content: content.layout().memo(),
+            content: content.layout(),
             font_props: Default::default(),
-        }))
-        .signal();
+        }));
 
         Self {
             layout,
@@ -109,7 +108,7 @@ where
         ctx.pass_to_child(self.layout, &mut self.content);
     }
 
-    fn layout(&self) -> Signal<Layout> {
+    fn layout(&self) -> Layout {
         self.layout
     }
 

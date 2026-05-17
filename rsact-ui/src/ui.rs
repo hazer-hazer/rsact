@@ -42,7 +42,7 @@ pub struct UI<W: WidgetCtx, P: HasPages> {
     pages: BTreeMap<W::PageId, Page<W>>,
     viewport: MaybeReactive<Size>,
     on_exit: Option<Box<dyn Fn()>>,
-    // Note: Styler is Inert by design as we don't still support dynamic stylers. But do be noted Inert make data 'static and only freed on reactive scope drop, so it is better to somehow run UI inside new reactive runtime, but this requires user signals to be created inside it. 
+    // Note: Styler is Inert by design as we don't still support dynamic stylers. But do be noted Inert make data 'static and only freed on reactive scope drop, so it is better to somehow run UI inside new reactive runtime, but this requires user signals to be created inside it.
     styler: Inert<W::Styler>,
     dev_tools: Signal<DevTools>,
     renderer: Signal<W::Renderer>,
@@ -54,7 +54,7 @@ pub struct UI<W: WidgetCtx, P: HasPages> {
 
 impl<C, S, I, E> UI<Wtf<BufferRenderer<C>, S, I, E>, NoPages>
 where
-    S: PartialEq + Copy + 'static,
+    S: Copy + 'static,
     I: PageId + 'static,
     E: Debug + 'static,
     C: Color + 'static,
@@ -81,7 +81,7 @@ where
 
 impl<C, S, I, E> UI<Wtf<LayeringRenderer<C>, S, I, E>, NoPages>
 where
-    S: PartialEq + Copy + 'static,
+    S: Copy + 'static,
     I: PageId + 'static,
     E: Debug + 'static,
     C: Color + 'static,
@@ -115,7 +115,7 @@ impl<W: WidgetCtx> UI<W, WithPages> {
 impl<R, S, I, E> UI<Wtf<R, S, I, E>, NoPages>
 where
     R: Renderer + DrawTarget<Color = <R as Renderer>::Color> + 'static,
-    S: PartialEq + Copy + 'static,
+    S: Copy + 'static,
     I: PageId + 'static,
     E: Debug + 'static,
 {

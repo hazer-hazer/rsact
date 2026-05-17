@@ -20,9 +20,7 @@ impl<W: WidgetCtx> Show<W> {
         // fallback: Option<El<W>>,
     ) -> Self {
         let show = show.memo();
-        el.layout().update(|layout| {
-            layout.set_show(show);
-        });
+        el.layout().show(show);
         // TODO: This is a logic for `IfWidget` or so
         // fallback.layout().update(|layout| {
         //     layout.set_show(show.map(|show| !*show));
@@ -40,7 +38,7 @@ impl<W: WidgetCtx> Widget<W> for Show<W> {
         self.el.on_mount(ctx);
     }
 
-    fn layout(&self) -> Signal<Layout> {
+    fn layout(&self) -> Layout {
         self.el.layout()
     }
 

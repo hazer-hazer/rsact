@@ -22,6 +22,7 @@ impl<B, C> UpdateNotification for ControlFlow<B, C> {
 
 // TODO: Add `change` method, like `set` but notifies only if value is changed. Open question is if `change` should track get of current value to compare with new one or do it silently
 
+// TODO: Can use Reactive::Value instead of requiring `T`
 /// Write access to a reactive value.
 ///
 /// The two required methods are [`WriteSignal::notify`] and

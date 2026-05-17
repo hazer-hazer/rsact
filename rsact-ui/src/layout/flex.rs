@@ -1,11 +1,11 @@
 use super::{
-    FlexLayout, LayoutCtx, LayoutModel, Limits,
+    FlexLayout, LayoutCtx, Limits,
     size::{Length, Size},
 };
 use crate::layout::{
     Align,
     axis::Axial as _,
-    model_layout,
+    model::{LayoutModel, model_layout},
     size::{DivFactors, SubTake as _},
 };
 use alloc::vec::Vec;

@@ -57,7 +57,7 @@ impl<C: Color> KnobStyle<C> {
 }
 
 pub struct Knob<W: WidgetCtx, V: RangeValue> {
-    layout: Signal<Layout>,
+    layout: Layout,
     value: Signal<V>,
     state: Signal<KnobState>,
     style: MemoChain<KnobStyle<W::Color>>,
@@ -66,7 +66,7 @@ pub struct Knob<W: WidgetCtx, V: RangeValue> {
 impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
     pub fn new(value: Signal<V>) -> Self {
         Self {
-            layout: Layout::edge(Size::new_equal(Length::Fixed(25))).signal(),
+            layout: Layout::edge(Size::new_equal(Length::Fixed(25))),
             value,
             state: KnobState::none().signal(),
             style: KnobStyle::base().memo_chain(),
@@ -100,7 +100,7 @@ where
         ctx.accept_styles(self.style, self.state);
     }
 
-    fn layout(&self) -> Signal<Layout> {
+    fn layout(&self) -> Layout {
         self.layout
     }
 

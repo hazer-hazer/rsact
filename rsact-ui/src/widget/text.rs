@@ -28,23 +28,23 @@ impl<C: Color> TextStyle<C> {
     }
 }
 
+
 pub struct Text<W: WidgetCtx> {
     content: MaybeReactive<String>,
-    layout: Signal<Layout>,
+    layout: Layout,
     style: MemoChain<TextStyle<W::Color>>,
 }
 
 impl<W: WidgetCtx> Text<W> {
-    pub fn new<T: Display + 'static>(
-        content: impl SignalMapMaybeReactive<T, String>,
-    ) -> Self {
-        let content = content.map_maybe_reactive(|content| content.to_string());
+    // TODO: 'static string optimization, can store &'static str directly without allocating String
+    pub fn new(content: impl SignalMapRefMaybeReactive<str, String>) -> Self {
+        let content =
+            content.map_ref_maybe_reactive(|content| content.to_string());
         let style = TextStyle::base().memo_chain();
 
         let layout = Layout::shrink(super::LayoutKind::Content(
             ContentLayout::text(content),
-        ))
-        .signal();
+        ));
 
         Self { content, layout, style }
     }
@@ -111,7 +111,7 @@ where
         ctx.inherit_font_props(self.layout);
     }
 
-    fn layout(&self) -> Signal<Layout> {
+    fn layout(&self) -> Layout {
         self.layout
     }
 

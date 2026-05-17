@@ -38,7 +38,7 @@ impl ValueId {
 
     #[track_caller]
     #[inline(always)]
-    pub(crate) fn with_untracked<T: 'static, U>(
+    pub fn with_untracked<T: 'static, U>(
         &self,
         rt: &Runtime,
         f: impl FnOnce(&T) -> U,
@@ -97,18 +97,18 @@ impl ValueId {
 
     #[track_caller]
     #[inline(always)]
-    pub(crate) fn update_untracked<T: 'static, U>(
+    pub fn update_untracked<T: 'static, U>(
         &self,
         rt: &Runtime,
         f: impl FnOnce(&mut T) -> U,
-        _caller: Option<&'static Location<'static>>,
+        _caller: &'static Location<'static>,
     ) -> U {
         // rt.updating.set(rt.updating.get() + 1);
 
         // let value = self.get_untracked(rt);
         #[cfg(feature = "debug-info")]
         rt.storage.set_debug_info(*self, |debug_info| {
-            debug_info.borrowed_mut = _caller;
+            debug_info.borrowed_mut = Some(_caller);
         });
 
         let value = rt.storage.get(*self).unwrap();

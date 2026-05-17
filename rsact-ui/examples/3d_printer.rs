@@ -1,38 +1,38 @@
 use cap::Cap;
-use embedded_graphics::{ pixelcolor::BinaryColor, prelude::{ Dimensions, Point } };
-use embedded_graphics_simulator::{ OutputSettingsBuilder, SimulatorDisplay, Window };
-use rand::{ Rng, rng, thread_rng };
-use rsact_icons::{ common::CommonIcon, system::SystemIcon };
+use embedded_graphics::{
+    pixelcolor::BinaryColor,
+    prelude::{Dimensions, Point},
+};
+use embedded_graphics_simulator::{
+    OutputSettingsBuilder, SimulatorDisplay, Window,
+};
+use rand::{Rng, rng, thread_rng};
+use rsact_icons::{common::CommonIcon, system::SystemIcon};
 use rsact_reactive::runtime::current_runtime_profile;
 use rsact_ui::{
-    event::{ message::UiQueue, simulator::simulator_single_encoder },
-    layout::{ Align, size::{ PointExt, Size, UnitV2 } },
+    event::{message::UiQueue, simulator::simulator_single_encoder},
+    layout::{
+        Align,
+        size::{PointExt, Size, UnitV2},
+    },
     prelude::{
-        Button,
-        Icon,
-        IntoInert,
-        ReadSignal,
-        Scrollable,
-        SignalMap,
-        Text,
-        UiMessage,
-        WriteSignal,
-        create_effect,
-        create_signal,
+        Button, Icon, IntoInert, ReadSignal, Scrollable, SignalMap, Text,
+        UiMessage, WriteSignal, create_effect, create_signal,
         with_current_runtime,
     },
     style::NullStyler,
     ui::UI,
     utils::lerpi,
     value::RangeU8,
-    widget::{ BlockModelWidget, SizedWidget, Widget, bar::Bar, flex::Flex, knob::Knob },
+    widget::{
+        BlockModelWidget, SizedWidget, Widget, bar::Bar, flex::Flex, knob::Knob,
+    },
 };
 use std::{
     alloc::System,
-    format,
-    println,
-    string::{ String, ToString },
-    time::{ Duration, Instant },
+    format, println,
+    string::{String, ToString},
+    time::{Duration, Instant},
     vec::Vec,
 };
 
@@ -48,7 +48,8 @@ fn main() {
 
     let mut window = Window::new("3D Printer", &output_settings);
 
-    let mut display = SimulatorDisplay::<BinaryColor>::new(Size::new(128, 64).into());
+    let mut display =
+        SimulatorDisplay::<BinaryColor>::new(Size::new(128, 64).into());
 
     window.update(&display);
 
@@ -59,15 +60,18 @@ fn main() {
 
     let back_button = || {
         Button::new(
-            Flex::row([Icon::new(SystemIcon::ArrowLeft).size(6u32).el(), "Back".into()])
-                .gap(2u32)
-                .center()
+            Flex::row([
+                Icon::new(SystemIcon::ArrowLeft).size(6u32).el(),
+                "Back".into(),
+            ])
+            .gap(2u32)
+            .center(),
         )
-            .padding(2u32)
-            .on_click(move || {
-                queue.publish(UiMessage::GoTo(main_page_id));
-            })
-            .el()
+        .padding(2u32)
+        .on_click(move || {
+            queue.publish(UiMessage::GoTo(main_page_id));
+        })
+        .el()
     };
 
     // This is not a good way to implement animations/logic, this's just to simulate printing process
@@ -78,21 +82,26 @@ fn main() {
     let print_page_id = "print";
     let print_page = Flex::col([
         Bar::horizontal(printing_progress).el(),
-        Text::new(printing_file.map(|filename| format!("Printing {filename}..."))).el(),
+        Text::new(
+            printing_file.map(|filename| format!("Printing {filename}...")),
+        )
+        .el(),
     ])
-        .fill()
-        .gap(10u32)
-        .padding(10u32)
-        .horizontal_align(Align::Center)
-        .el();
+    .fill()
+    .gap(10u32)
+    .padding(10u32)
+    .horizontal_align(Align::Center)
+    .el();
 
     create_effect(move |_| {
         if is_printing.get() {
             if printing_progress.get().is_max() {
                 is_printing.set(false);
                 queue.publish(UiMessage::PreviousPage);
-            } else if printing_progress_anim_ts.get().elapsed().as_millis() > 10 {
-                printing_progress.set(printing_progress.get() + rng().random_range(0..5));
+            } else if printing_progress_anim_ts.get().elapsed().as_millis() > 10
+            {
+                printing_progress
+                    .set(printing_progress.get() + rng().random_range(0..5));
                 printing_progress_anim_ts.set(Instant::now());
             }
         }
@@ -112,27 +121,24 @@ fn main() {
     let files = fake::vec![String as fake::faker::lorem::en::Word(); 10..15];
     let files_page = Scrollable::vertical(
         Flex::col(
-            core::iter
-                ::once(back_button())
-                .chain(
-                    files.into_iter().map(|filename| {
-                        Button::new(filename.as_str())
-                            .fill_width()
-                            .on_click(move || {
-                                print_file(&filename);
-                            })
-                            .el()
-                    })
-                )
-                .collect::<Vec<_>>()
+            core::iter::once(back_button())
+                .chain(files.into_iter().map(|filename| {
+                    Button::new(filename.as_str())
+                        .fill_width()
+                        .on_click(move || {
+                            print_file(&filename);
+                        })
+                        .el()
+                }))
+                .collect::<Vec<_>>(),
         )
-            .fill_width()
-            .gap(1u32)
-            .el()
+        .fill_width()
+        .gap(1u32)
+        .el(),
     )
-        .tracker()
-        .fill()
-        .el();
+    .tracker()
+    .fill()
+    .el();
 
     const MAX_POSITION: Point = Point::new(250, 200);
     let max_z = 200;
@@ -144,7 +150,8 @@ fn main() {
         Button::new(text)
             .on_click(move || {
                 position.update(move |pos| {
-                    *pos = (*pos + dir * move_distance).clamp_axes(Point::zero(), MAX_POSITION);
+                    *pos = (*pos + dir * move_distance)
+                        .clamp_axes(Point::zero(), MAX_POSITION);
                 })
             })
             .padding(3u32)
@@ -159,13 +166,18 @@ fn main() {
         if parking_home.get() {
             if z_pos.get() == 0 && position.get() == Point::zero() {
                 parking_home.set(false);
-            } else if let elapsed @ 1.. = home_anim_ts.get().elapsed().as_millis() {
+            } else if let elapsed @ 1.. =
+                home_anim_ts.get().elapsed().as_millis()
+            {
                 position.update(move |pos| {
-                    pos.x = lerpi(pos.x, 0, elapsed as i32, parking_home_anim_dur);
-                    pos.y = lerpi(pos.x, 0, elapsed as i32, parking_home_anim_dur);
+                    pos.x =
+                        lerpi(pos.x, 0, elapsed as i32, parking_home_anim_dur);
+                    pos.y =
+                        lerpi(pos.x, 0, elapsed as i32, parking_home_anim_dur);
                 });
                 z_pos.update(move |z_pos| {
-                    *z_pos = lerpi(*z_pos, 0, elapsed as i32, parking_home_anim_dur);
+                    *z_pos =
+                        lerpi(*z_pos, 0, elapsed as i32, parking_home_anim_dur);
                 });
                 home_anim_ts.set(Instant::now());
             }
@@ -184,11 +196,11 @@ fn main() {
                 })
                 .el(),
         ])
-            .padding(1u32)
-            .fill_height()
-            .center()
-            .gap(3u32)
-            .el(),
+        .padding(1u32)
+        .fill_height()
+        .center()
+        .gap(3u32)
+        .el(),
         Flex::col([
             Button::new("Z+")
                 .on_click(move || {
@@ -208,26 +220,26 @@ fn main() {
                 .padding(2u32)
                 .el(),
         ])
-            .center()
-            .gap(1u32)
-            .fill_height()
-            .el(),
+        .center()
+        .gap(1u32)
+        .fill_height()
+        .el(),
         Flex::col([
             position_button("Y-", UnitV2::UP),
             Text::new(position.map(|pos| pos.to_string())).el(),
             position_button("Y+", UnitV2::DOWN),
         ])
-            .gap(5u32)
-            .center()
-            .fill()
-            .el(),
+        .gap(5u32)
+        .center()
+        .fill()
+        .el(),
         Flex::col([position_button("X+", UnitV2::RIGHT)])
             .center()
             .fill_height()
             .el(),
     ])
-        .fill()
-        .el();
+    .fill()
+    .el();
 
     let temp_page_id = "temp";
     let mut bed_temp = create_signal(RangeU8::<0, 110>::new_clamped(60));
@@ -241,12 +253,24 @@ fn main() {
         if cooling.get() {
             if bed_temp.get() <= 25 && nozzle_temp.get() <= 25 {
                 cooling.set(false);
-            } else if let elapsed @ 1.. = cool_anim_ts.get().elapsed().as_millis() {
+            } else if let elapsed @ 1.. =
+                cool_anim_ts.get().elapsed().as_millis()
+            {
                 bed_temp.update(|temp| {
-                    temp.set(lerpi(temp.inner() as u32, 20, elapsed as u32, cool_anim_dur) as u8);
+                    temp.set(lerpi(
+                        temp.inner() as u32,
+                        20,
+                        elapsed as u32,
+                        cool_anim_dur,
+                    ) as u8);
                 });
                 nozzle_temp.update(|temp| {
-                    temp.set(lerpi(temp.inner() as u32, 20, elapsed as u32, cool_anim_dur) as u8);
+                    temp.set(lerpi(
+                        temp.inner() as u32,
+                        20,
+                        elapsed as u32,
+                        cool_anim_dur,
+                    ) as u8);
                 });
             }
         }
@@ -264,72 +288,78 @@ fn main() {
                 .padding(3u32)
                 .el(),
         ])
-            .center()
-            .gap(5u32)
-            .fill()
-            .el(),
+        .center()
+        .gap(5u32)
+        .fill()
+        .el(),
         Flex::col([
             Text::new(bed_temp.map(|temp| format!("{temp}C"))).el(),
             Knob::new(bed_temp).el(),
-            Text::new_inert("Bed").el(),
+            Text::new("Bed").el(),
         ])
-            .gap(2u32)
-            .center()
-            .fill()
-            .el(),
+        .gap(2u32)
+        .center()
+        .fill()
+        .el(),
         Flex::col([
             Text::new(nozzle_temp.map(|temp| format!("{temp}C"))).el(),
             Knob::new(nozzle_temp).el(),
-            Text::new_inert("Nozzle").el(),
+            Text::new("Nozzle").el(),
         ])
-            .gap(2u32)
-            .center()
-            .fill()
-            .el(),
-    ])
+        .gap(2u32)
+        .center()
         .fill()
-        .el();
+        .el(),
+    ])
+    .fill()
+    .el();
 
     let main = Scrollable::vertical(
         Flex::col([
             Button::new(
-                Flex::row([Icon::new(CommonIcon::File).size(8u32).el(), "Files".into()]).gap(3u32)
+                Flex::row([
+                    Icon::new(CommonIcon::File).size(8u32).el(),
+                    "Files".into(),
+                ])
+                .gap(3u32),
             )
-                .on_click(move || {
-                    queue.publish(UiMessage::GoTo(files_page_id));
-                })
-                .fill_width()
-                .el(),
+            .on_click(move || {
+                queue.publish(UiMessage::GoTo(files_page_id));
+            })
+            .fill_width()
+            .el(),
             Button::new(
                 Flex::row([
                     Icon::new(CommonIcon::MapMarker).size(8u32).el(),
                     "Position".into(),
-                ]).gap(3u32)
+                ])
+                .gap(3u32),
             )
-                .on_click(move || {
-                    queue.publish(UiMessage::GoTo(position_page_id));
-                })
-                .fill_width()
-                .el(),
+            .on_click(move || {
+                queue.publish(UiMessage::GoTo(position_page_id));
+            })
+            .fill_width()
+            .el(),
             Button::new(
                 Flex::row([
                     Icon::new(CommonIcon::Thermometer).size(8u32).el(),
                     "Temperature".into(),
-                ]).gap(3u32)
+                ])
+                .gap(3u32),
             )
-                .on_click(move || {
-                    queue.publish(UiMessage::GoTo(temp_page_id));
-                })
-                .fill_width()
-                .el(),
-        ])
-            .gap(1u32)
+            .on_click(move || {
+                queue.publish(UiMessage::GoTo(temp_page_id));
+            })
             .fill_width()
-            .el()
+            .el(),
+        ])
+        .gap(1u32)
+        .fill_width()
+        .el(),
     )
-        .tracker()
-        .fill()
-        .el();
+    .tracker()
+    .fill()
+    .el();
 
     let mut ui = UI::new_with_buffer_renderer(
         display.bounding_box().size.inert(),

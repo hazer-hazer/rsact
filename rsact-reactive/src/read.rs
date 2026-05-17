@@ -1,7 +1,9 @@
 use crate::{
     ReactiveValue,
+    inert::IntoInert,
     maybe::maybe_reactive::{IntoMaybeReactive, MaybeReactive},
 };
+use alloc::string::String;
 
 /// Read access to a reactive value.
 ///
@@ -340,6 +342,27 @@ where
         mut map: impl FnMut(&T) -> U + 'static,
     ) -> MaybeReactive<U> {
         self.map(move |c| map(c.as_ref())).maybe_reactive()
+    }
+}
+
+// TODO: Impl as slice?
+// impl<U: PartialEq + 'static> SignalMap
+
+impl<'a, U: PartialEq + 'static> SignalMapRefMaybeReactive<str, U> for &'a str {
+    fn map_ref_maybe_reactive(
+        &self,
+        mut map: impl FnMut(&str) -> U + 'static,
+    ) -> MaybeReactive<U> {
+        map(self).inert().maybe_reactive()
+    }
+}
+
+impl<U: PartialEq + 'static> SignalMapRefMaybeReactive<str, U> for String {
+    fn map_ref_maybe_reactive(
+        &self,
+        mut map: impl FnMut(&str) -> U + 'static,
+    ) -> MaybeReactive<U> {
+        map(self).inert().maybe_reactive()
     }
 }
 

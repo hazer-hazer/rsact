@@ -90,7 +90,7 @@ pub struct Slider<W: WidgetCtx, Dir: Direction> {
     range: MaybeReactive<RangeInclusive<f32>>,
     step: Memo<f32>,
     state: Signal<SliderState>,
-    layout: Signal<Layout>,
+    layout: Layout,
     style: MemoChain<SliderStyle<W::Color>>,
     dir: PhantomData<Dir>,
 }
@@ -110,8 +110,7 @@ impl<W: WidgetCtx, Dir: Direction> Slider<W, Dir> {
             step,
             layout: Layout::edge(
                 Dir::AXIS.canon(Length::fill(), Length::Fixed(13)),
-            )
-            .signal(),
+            ),
             style: SliderStyle::base().memo_chain(),
             dir: PhantomData,
         }
@@ -161,7 +160,7 @@ where
         ctx.accept_styles(self.style, self.state);
     }
 
-    fn layout(&self) -> Signal<Layout> {
+    fn layout(&self) -> Layout {
         self.layout
     }
 

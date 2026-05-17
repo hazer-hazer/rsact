@@ -39,7 +39,7 @@ type IconKind = SystemIcon;
 
 pub struct Checkbox<W: WidgetCtx> {
     state: Signal<CheckboxState>,
-    layout: Signal<Layout>,
+    layout: Layout,
     icon: El<W>,
     value: MaybeSignal<bool>,
     style: MemoChain<CheckboxStyle<W::Color>>,
@@ -64,10 +64,9 @@ where
         Self {
             state: CheckboxState::none().signal(),
             layout: Layout::shrink(LayoutKind::Container(
-                ContainerLayout::base(icon.layout().memo())
+                ContainerLayout::base(icon.layout())
                     .block_model(BlockModel::zero().border_width(1)),
-            ))
-            .signal(),
+            )),
             icon,
             value,
             style: CheckboxStyle::base().memo_chain(),
@@ -89,7 +88,7 @@ where
         ctx.pass_to_child(self.layout, &mut self.icon);
     }
 
-    fn layout(&self) -> Signal<Layout> {
+    fn layout(&self) -> Layout {
         self.layout
     }
 

@@ -116,7 +116,7 @@
 //  */
 // pub struct EncoderKeyboard<W: WidgetCtx, Dir: Direction> {
 //     id: ElId,
-//     layout: Signal<Layout>,
+//     layout: Layout,
 //     keys: Vec<EncoderKeyboardKey<W>>,
 //     value: Signal<String>,
 //     state: Signal<EncoderKeyboardState>,
@@ -220,7 +220,7 @@
 //         ctx.accept_styles(self.style, self.state);
 //     }
 
-//     fn layout(&self) -> Signal<Layout> {
+//     fn layout(&self) -> Layout {
 //         self.layout
 //     }
 

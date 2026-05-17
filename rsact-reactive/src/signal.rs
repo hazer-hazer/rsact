@@ -155,7 +155,7 @@ impl<T: 'static, M: marker::Any> Signal<T, M> {
 
     #[track_caller]
     pub fn dispose(self) {
-        with_current_runtime(|rt| rt.dispose(self.id))
+        with_current_runtime(|rt| unsafe { rt.dispose(self.id) })
     }
 
     // // TODO: Mark unsafe?
@@ -202,7 +202,7 @@ impl<T: 'static, M: marker::CanWrite> WriteSignal<T> for Signal<T, M> {
     #[track_caller]
     fn update_untracked<U>(&mut self, f: impl FnOnce(&mut T) -> U) -> U {
         let caller = Location::caller();
-        with_current_runtime(|rt| self.id.update_untracked(rt, f, Some(caller)))
+        with_current_runtime(|rt| self.id.update_untracked(rt, f, caller))
     }
 }
 

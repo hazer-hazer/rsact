@@ -1,4 +1,7 @@
-use crate::font::{FontCtx, FontProps, FontSize};
+use crate::{
+    font::{FontCtx, FontProps, FontSize},
+    layout::node::Layout,
+};
 use alloc::{string::String, vec::Vec};
 use axis::Direction;
 pub use axis::{Axial as _, Axis};
@@ -7,11 +10,7 @@ use core::{
     fmt::{Debug, Display},
     u32,
 };
-use embedded_graphics::{
-    prelude::{Point, Transform},
-    primitives::Rectangle,
-};
-use flex::model_flex;
+use embedded_graphics::primitives::Rectangle;
 pub use limits::Limits;
 use num::traits::SaturatingAdd;
 use padding::Padding;
@@ -23,8 +22,16 @@ pub mod block_model;
 pub mod flex;
 pub mod grid;
 pub mod limits;
+pub mod model;
+pub mod node;
 pub mod padding;
 pub mod size;
+
+#[derive(Clone, Copy)]
+pub struct LayoutCtx<'a> {
+    pub fonts: &'a FontCtx,
+    pub viewport: Size,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, IntoMaybeReactive)]
 pub enum Align {
@@ -56,10 +63,10 @@ impl Align {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ContentLayout {
     Text { font_props: FontProps, content: MaybeReactive<String> },
-    // TODO: MaybeReactive described in Icon widget
+    // TODO: MaybeReactive problem described in Icon widget
     Icon(Memo<FontSize>),
     Fixed(Size),
 }
@@ -109,22 +116,22 @@ impl ContentLayout {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Copy, PartialEq)]
 pub struct ContainerLayout {
     pub block_model: BlockModel,
     pub horizontal_align: Align,
     pub vertical_align: Align,
-    pub content: Memo<Layout>,
+    pub content: Layout,
     pub font_props: FontProps,
 }
 
 impl ContainerLayout {
-    pub fn base(content: impl IntoMemo<Layout>) -> Self {
+    pub fn base(content: Layout) -> Self {
         Self {
             block_model: BlockModel::zero(),
             horizontal_align: Align::Start,
             vertical_align: Align::Start,
-            content: content.memo(),
+            content,
             font_props: Default::default(),
         }
     }
@@ -140,7 +147,7 @@ impl ContainerLayout {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FlexLayout {
     pub wrap: bool,
     pub block_model: BlockModel,
@@ -149,13 +156,13 @@ pub struct FlexLayout {
     pub gap: Size,
     pub horizontal_align: Align,
     pub vertical_align: Align,
-    pub children: Memo<Vec<Memo<Layout>>>,
+    pub children: MaybeReactive<Vec<Layout>>,
     pub font_props: FontProps,
 }
 
 impl FlexLayout {
     /// Default but with specific axis
-    pub fn base(axis: Axis, children: Memo<Vec<Memo<Layout>>>) -> Self {
+    pub fn base(axis: Axis, children: MaybeReactive<Vec<Layout>>) -> Self {
         Self {
             wrap: false,
             block_model: BlockModel::zero(),
@@ -239,14 +246,14 @@ impl FlexLayout {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Copy, PartialEq)]
 pub struct ScrollableLayout {
-    pub content: Memo<Layout>,
+    pub content: Layout,
     pub font_props: FontProps,
 }
 
 impl ScrollableLayout {
-    pub fn new(content: Memo<Layout>) -> Self {
+    pub fn new(content: Layout) -> Self {
         Self { content, font_props: Default::default() }
     }
 
@@ -404,7 +411,7 @@ impl Display for DevHoveredLayout {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LayoutKind {
     Zero,
     Edge,
@@ -414,63 +421,26 @@ pub enum LayoutKind {
     Scrollable(ScrollableLayout),
 }
 
-#[derive(Debug, PartialEq)]
-pub struct Layout {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LayoutData {
     kind: LayoutKind,
-    pub(crate) size: Size<Length>,
+    pub size: Size<Length>,
     show: Option<Memo<bool>>,
 }
 
-impl Layout {
-    pub fn new(kind: LayoutKind, size: Size<Length>) -> Self {
-        Self { kind, size, show: None }
-    }
-
-    pub fn zero() -> Self {
-        Self::new(LayoutKind::Zero, Size::zero().into())
-    }
-
-    pub fn shrink(kind: LayoutKind) -> Self {
-        Self::new(kind, Size::shrink())
-    }
-
-    pub fn edge(size: Size<Length>) -> Self {
-        Self::new(LayoutKind::Edge, size)
-    }
-
-    /// Construct base scrollable layout where main axis will be shrinking and cross axis will fill. Also checks if content layout is with growing length on main axis which is disallowed.
-    pub fn scrollable<Dir: Direction>(content: Memo<Layout>) -> Self {
-        let content_layout_length =
-            content.with(|layout| layout.size.main(Dir::AXIS));
-
-        if content_layout_length.is_grow() {
-            panic!(
-                "Don't use growing Length (Div/fill) for content {} inside {} Scrollable!",
-                Dir::AXIS.length_name(),
-                Dir::AXIS.dir_name()
-            );
-        }
-
-        Self {
-            kind: LayoutKind::Scrollable(ScrollableLayout {
-                content,
-                font_props: Default::default(),
-            }),
-            size: Dir::AXIS.canon(
-                Length::InfiniteWindow(Length::Shrink.try_into().unwrap()),
-                Length::fill(),
-            ),
-            show: None,
+impl LayoutData {
+    pub fn expect_container_mut(&mut self) -> &mut ContainerLayout {
+        match &mut self.kind {
+            LayoutKind::Container(container) => container,
+            _ => unreachable!(),
         }
     }
 
-    pub fn set_show(&mut self, show: Memo<bool>) {
-        self.show = Some(show);
-    }
-
-    pub fn show(mut self, show: Memo<bool>) -> Self {
-        self.set_show(show);
-        self
+    pub fn expect_flex_mut(&mut self) -> &mut FlexLayout {
+        match &mut self.kind {
+            LayoutKind::Flex(flex) => flex,
+            _ => unreachable!(),
+        }
     }
 
     pub fn min_size(&self, ctx: &LayoutCtx) -> Size {
@@ -489,25 +459,6 @@ impl Layout {
         }
     }
 
-    pub fn size(mut self, size: Size<Length>) -> Self {
-        self.size = size;
-        self
-    }
-
-    pub fn expect_container_mut(&mut self) -> &mut ContainerLayout {
-        match &mut self.kind {
-            LayoutKind::Container(container) => container,
-            _ => unreachable!(),
-        }
-    }
-
-    pub fn expect_flex_mut(&mut self) -> &mut FlexLayout {
-        match &mut self.kind {
-            LayoutKind::Flex(flex) => flex,
-            _ => unreachable!(),
-        }
-    }
-
     // TODO: Panic on invalid layout kind usage in these methods?
     pub fn block_model(&self) -> BlockModel {
         match self.kind {
@@ -517,26 +468,6 @@ impl Layout {
             | LayoutKind::Scrollable(..) => BlockModel::zero(),
             LayoutKind::Container(ContainerLayout { block_model, .. })
             | LayoutKind::Flex(FlexLayout { block_model, .. }) => block_model,
-        }
-    }
-
-    pub fn set_border_width(&mut self, border_width: u32) {
-        match &mut self.kind {
-            LayoutKind::Container(ContainerLayout { block_model, .. })
-            | LayoutKind::Flex(FlexLayout { block_model, .. }) => {
-                block_model.border_width = border_width;
-            },
-            _ => {},
-        }
-    }
-
-    pub fn set_padding(&mut self, padding: Padding) {
-        match &mut self.kind {
-            LayoutKind::Container(ContainerLayout { block_model, .. })
-            | LayoutKind::Flex(FlexLayout { block_model, .. }) => {
-                block_model.padding = padding;
-            },
-            _ => {},
         }
     }
 
@@ -581,304 +512,79 @@ impl Layout {
             },
         }
     }
-}
 
-/// Layout tree representation with real position in viewport
-pub struct LayoutModelNode<'a> {
-    pub outer: Rectangle,
-    pub inner: Rectangle,
-    model: &'a LayoutModel,
-}
-
-impl<'a> Debug for LayoutModelNode<'a> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut f = f.debug_struct("LayoutModelNode");
-        f.field("inner", &self.inner);
-        f.field("outer", &self.outer);
-        #[cfg(feature = "debug-info")]
-        f.field("dev", &self.model.dev);
-        // TODO: How can I avoid collecting to vector without `field_with`?
-        f.field("children", &self.children().collect::<Vec<_>>());
-        f.finish()
-    }
-}
-
-impl<'a> LayoutModelNode<'a> {
-    pub fn translate(&self, by: Point) -> Self {
-        Self {
-            outer: self.outer.translate(by),
-            inner: self.inner.translate(by),
-            model: self.model,
+    pub fn set_border_width(&mut self, border_width: u32) {
+        match &mut self.kind {
+            LayoutKind::Container(ContainerLayout { block_model, .. })
+            | LayoutKind::Flex(FlexLayout { block_model, .. }) => {
+                block_model.border_width = border_width;
+            },
+            _ => {},
         }
     }
 
-    pub fn children(&'a self) -> impl Iterator<Item = LayoutModelNode<'a>> {
-        self.model.children.iter().map(|child| child.node(self.inner))
+    pub fn set_padding(&mut self, padding: Padding) {
+        match &mut self.kind {
+            LayoutKind::Container(ContainerLayout { block_model, .. })
+            | LayoutKind::Flex(FlexLayout { block_model, .. }) => {
+                block_model.padding = padding;
+            },
+            _ => {},
+        }
+    }
+}
+
+impl Layout {
+    pub fn new(kind: LayoutKind, size: Size<Length>) -> Self {
+        Self::inert(LayoutData { kind, size, show: None })
     }
 
-    // Note: May be slow and expensive
-    pub fn dev_hover(&'a self, point: Point) -> Option<DevHoveredLayout> {
-        self.children().find_map(|child| child.dev_hover(point)).or_else(|| {
-            if self.outer.contains(point) {
-                Some(DevHoveredLayout {
-                    area: self.outer,
-                    children_count: self.model.children.len(),
-                    #[cfg(feature = "debug-info")]
-                    layout: self.model.dev.clone(),
-                })
-            } else {
-                None
-            }
+    pub fn zero() -> Self {
+        Self::new(LayoutKind::Zero, Size::zero().into())
+    }
+
+    pub fn shrink(kind: LayoutKind) -> Self {
+        Self::new(kind, Size::shrink())
+    }
+
+    pub fn edge(size: Size<Length>) -> Self {
+        Self::new(LayoutKind::Edge, size)
+    }
+
+    /// Construct base scrollable layout where main axis will be shrinking and cross axis will fill. Also checks if content layout is with growing length on main axis which is disallowed.
+    pub fn scrollable<Dir: Direction>(content: Layout) -> Self {
+        let content_layout_length =
+            content.with(|layout| layout.size.main(Dir::AXIS));
+
+        if content_layout_length.is_grow() {
+            panic!(
+                "Don't use growing Length (Div/fill) for content {} inside {} Scrollable!",
+                Dir::AXIS.length_name(),
+                Dir::AXIS.dir_name()
+            );
+        }
+
+        Self::inert(LayoutData {
+            kind: LayoutKind::Scrollable(ScrollableLayout {
+                content,
+                font_props: Default::default(),
+            }),
+            size: Dir::AXIS.canon(
+                Length::InfiniteWindow(Length::Shrink.try_into().unwrap()),
+                Length::fill(),
+            ),
+            show: None,
         })
     }
-}
 
-/// Layout tree representation with relative positions
-#[derive(Debug, PartialEq)]
-pub struct LayoutModel {
-    outer: Rectangle,
-    inner: Rectangle,
-    // /// Full-padding: padding + border width
-    // full_padding: Padding,
-    // Note: `dev` goes before `children` which is intentional to make more
-    // readable pretty-printed debug
-    // TODO: Make debug_assertions-only
-    #[cfg(feature = "debug-info")]
-    dev: DevLayout,
-    children: Vec<LayoutModel>,
-}
-
-impl LayoutModel {
-    pub fn new(
-        inner_size: Size,
-        children: Vec<LayoutModel>,
-        #[cfg(feature = "debug-info")] dev: DevLayout,
-    ) -> Self {
-        Self {
-            outer: Rectangle::new(Point::zero(), inner_size.into()),
-            inner: Rectangle::new(Point::zero(), inner_size.into()),
-            children,
-            #[cfg(feature = "debug-info")]
-            dev,
-        }
+    pub fn show(&mut self, show: Memo<bool>) {
+        self.update_untracked(|l| l.show = Some(show));
     }
 
-    /// Full padding includes padding + border size
-    fn with_full_padding(mut self, full_padding: Padding) -> Self {
-        let padding_size: Size = full_padding.into();
-
-        self.inner = self.inner.translate(full_padding.top_left());
-
-        self.outer = self.outer.resized(
-            self.outer.size + padding_size.into(),
-            embedded_graphics::geometry::AnchorPoint::TopLeft,
-        );
+    pub fn size(mut self, size: Size<Length>) -> Self {
+        self.update_untracked(|l| l.size = size);
         self
     }
-
-    pub fn tree_root(&self) -> LayoutModelNode<'_> {
-        LayoutModelNode { outer: self.outer, inner: self.inner, model: self }
-    }
-
-    fn node(&self, parent_inner: Rectangle) -> LayoutModelNode<'_> {
-        LayoutModelNode {
-            outer: self.outer.translate(parent_inner.top_left),
-            inner: self.inner.translate(parent_inner.top_left),
-            model: self,
-        }
-    }
-
-    fn zero() -> Self {
-        Self {
-            outer: Rectangle::zero(),
-            inner: Rectangle::zero(),
-            // full_padding: Padding::zero(),
-            children: vec![],
-            #[cfg(feature = "debug-info")]
-            dev: DevLayout::zero(),
-        }
-    }
-
-    pub fn outer_size(&self) -> Size {
-        self.outer.size.into()
-    }
-
-    // pub fn move_mut(&mut self, to: impl Into<Point> + Copy) -> &mut Self {
-    //     self.outer.top_left = to.into();
-    //     self.inner.top_left = to.into();
-    //     self
-    // }
-
-    // pub fn moved(mut self, to: impl Into<Point> + Copy) -> Self {
-    //     self.move_mut(to);
-    //     self
-    // }
-
-    fn translate_mut(&mut self, by: impl Into<Point> + Copy) -> &mut Self {
-        self.outer.top_left += by.into();
-        self.inner.top_left += by.into();
-        self
-    }
-
-    pub fn align_mut(
-        &mut self,
-        horizontal: Align,
-        vertical: Align,
-        free_space: Size,
-    ) -> &mut Self {
-        let x = match horizontal {
-            Align::Start => 0,
-            Align::Center => (free_space.width as i32) / 2,
-            Align::End => free_space.width as i32,
-        };
-
-        let y = match vertical {
-            Align::Start => 0,
-            Align::Center => {
-                (free_space.height as i32) / 2
-                // - self.relative_area.size.height as i32 / 2;
-            },
-            Align::End => {
-                free_space.height as i32
-                // - self.relative_area.size.height as i32;
-            },
-        };
-
-        self.translate_mut(Point::new(x, y));
-
-        self
-    }
-
-    pub fn aligned(
-        mut self,
-        horizontal: Align,
-        vertical: Align,
-        parent_size: Size,
-    ) -> Self {
-        self.align_mut(horizontal, vertical, parent_size);
-        self
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct LayoutCtx<'a> {
-    pub fonts: &'a FontCtx,
-    pub viewport: Size,
-}
-
-// TODO: Split layouts decorations and layout modeling logic into separate files
-
-// TODO: Should viewport be unwrapped value as we depend modeling on viewport value?
-pub fn model_layout(
-    ctx: &LayoutCtx,
-    layout: Memo<Layout>,
-    parent_limits: Limits,
-    parent_size: Size<Length>, // viewport: Memo<Size>,
-) -> LayoutModel {
-    layout.with(|layout| {
-        if !layout.show.map(|show| show.get()).unwrap_or(true) {
-            // TODO: Should be zero or skipped? Doesn't zero layout take child place in flex?
-            return LayoutModel::zero();
-        }
-
-        let size = layout.size.in_parent(parent_size);
-
-        match &layout.kind {
-            // TODO: Panic or not?
-            LayoutKind::Zero => LayoutModel::zero(),
-            LayoutKind::Edge => {
-                LayoutModel::new(
-                    parent_limits.resolve_size(size, Size::zero(),None),
-                    vec![],
-                    #[cfg(feature = "debug-info")] DevLayout::new(size, DevLayoutKind::Edge)
-                )
-            }
-            LayoutKind::Content(content_layout) => {
-                let min_content = content_layout.min_size(ctx);
-
-                LayoutModel::new(
-                    parent_limits.resolve_size(size, min_content, None),
-                    vec![],
-                    #[cfg(feature = "debug-info")] DevLayout::new(
-                        size,
-                        DevLayoutKind::Content(content_layout.clone())
-                    )
-                )
-            }
-            LayoutKind::Container(container_layout) => {
-                let ContainerLayout {
-                    block_model,
-                    horizontal_align,
-                    vertical_align,
-                    content,
-                    font_props: _,
-                    // TODO: Useless?
-                } = container_layout;
-
-                // let min_content = content_size.get().min();
-
-                let full_padding = block_model.full_padding();
-
-                // TODO: Panic or warn in case when there're more than a single
-                // child
-
-                let content_layout = model_layout(
-                    ctx,
-                    *content,
-                    parent_limits.child_limits(size).shrink(full_padding),
-                    size
-                    // viewport,
-                );
-
-                let content_size = content_layout.outer_size();
-                let real_size = parent_limits.resolve_size(size, content_size, Some(full_padding));
-                let content_layout = content_layout
-                    // .moved(full_padding.top_left())
-                    .aligned(*horizontal_align, *vertical_align, real_size - content_size);
-
-                LayoutModel::new(
-                    // TODO: Generalize logic with real_size.expand/shrink and
-                    // full_padding
-                    real_size,
-                    vec![content_layout],
-                    #[cfg(feature = "debug-info")] DevLayout::new(
-                        size,
-                        DevLayoutKind::Container(container_layout.clone())
-                    )
-                ).with_full_padding(full_padding)
-            }
-            LayoutKind::Scrollable(scrollable_layout) => {
-                // TODO: Useless?
-                let ScrollableLayout { content, font_props: _ } = scrollable_layout;
-
-                let content_layout = model_layout(
-                    ctx,
-                    *content,
-                    parent_limits.child_limits(size),
-                    size
-                    // viewport,
-                );
-
-                // Note: For [`LayoutKind::Scrollable`], parent_limits are used as
-                // content limits are unlimited on one axis
-                // TODO: This is wrong? I changed to use its limits
-                let real_size = parent_limits.resolve_size(size, content_layout.outer_size(), None);
-
-                // extern crate std;
-                // println!("parent limits: {parent_limits}, self limits: {}, child_limits: {limits}, content_size: {}", parent_limits.self_limits(size), content_layout.outer.size);
-
-                LayoutModel::new(
-                    real_size,
-                    vec![content_layout],
-                    #[cfg(feature = "debug-info")] DevLayout::new(
-                        size,
-                        DevLayoutKind::Scrollable(scrollable_layout.clone())
-                    )
-                )
-            }
-            LayoutKind::Flex(flex_layout) => { model_flex(ctx, parent_limits, flex_layout, size) }
-        }
-    })
 }
 
 #[cfg(test)]

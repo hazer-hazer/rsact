@@ -31,7 +31,7 @@ pub mod maybe_signal;
 /// // Flex: children list may be static or reactive,
 /// // but layout children must always be a live Memo.
 /// let layout_children = children.map_reactive(|children| {
-///     children.iter().map(|c| c.layout().memo()).collect()
+///     children.iter().map(|c| c.layout()).collect()
 /// });
 /// ```
 pub trait SignalMapReactive<T> {

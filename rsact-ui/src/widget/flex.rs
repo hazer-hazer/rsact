@@ -64,7 +64,7 @@ pub struct Flex<W: WidgetCtx, Dir: Direction> {
     // TODO: Signal vector?
     // TODO: Can we do fixed size?
     children: MaybeSignal<Vec<El<W>>>,
-    layout: Signal<Layout>,
+    layout: Layout,
     dir: PhantomData<Dir>,
 }
 
@@ -87,8 +87,8 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Flex<W, Dir> {
     pub fn new(children: impl IntoChildren<W>) -> Self {
         let children = children.into_children();
 
-        let layout_children = children.map_reactive(|children| {
-            children.iter().map(|child| child.layout().memo()).collect()
+        let layout_children = children.map(|children| {
+            children.iter().map(|child| child.layout()).collect()
         });
 
         Self {
@@ -96,8 +96,7 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Flex<W, Dir> {
             layout: Layout::shrink(LayoutKind::Flex(FlexLayout::base(
                 Dir::AXIS,
                 layout_children,
-            )))
-            .signal(),
+            ))),
             dir: PhantomData,
         }
     }
@@ -209,17 +208,19 @@ impl<W: WidgetCtx + 'static, Dir: Direction + 'static> FontSettingWidget<W>
 
 impl<W: WidgetCtx + 'static, Dir: Direction> Widget<W> for Flex<W, Dir> {
     fn meta(&self, id: ElId) -> MetaTree {
-        MetaTree::new(Meta::none(), self.children.map_reactive(move |children| {
-            children.iter().map(|child| child.meta(id)).collect()
-        }))
-
+        MetaTree::new(
+            Meta::none(),
+            self.children.map_reactive(move |children| {
+                children.iter().map(|child| child.meta(id)).collect()
+            }),
+        )
     }
 
     fn on_mount(&mut self, ctx: MountCtx<W>) {
         ctx.pass_to_children(self.layout, &mut self.children);
     }
 
-    fn layout(&self) -> Signal<Layout> {
+    fn layout(&self) -> Layout {
         self.layout
     }
 

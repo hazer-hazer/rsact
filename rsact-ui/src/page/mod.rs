@@ -5,7 +5,11 @@ use crate::{
         UnhandledEvent,
     },
     font::{Font, FontCtx, FontProps},
-    layout::{LayoutCtx, LayoutModel, Limits, model_layout, size::Size},
+    layout::{
+        LayoutCtx, Limits,
+        model::{LayoutModel, model_layout},
+        size::Size,
+    },
     render::color::Color,
     style::TreeStyle,
     widget::{Behavior, Widget, ctx::*},
@@ -117,7 +121,7 @@ impl<W: WidgetCtx> Page<W> {
             // inside Fixed-sized container changed, returning previous result
             let layout = model_layout(
                 &LayoutCtx { fonts, viewport },
-                layout_tree.memo(),
+                layout_tree,
                 Limits::only_max(viewport),
                 viewport.into(),
                 // viewport,

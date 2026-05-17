@@ -93,7 +93,7 @@ where
         self.widget.meta(self.id)
     }
 
-    fn layout(&self) -> Signal<Layout> {
+    fn layout(&self) -> Layout {
         self.widget.layout()
     }
 

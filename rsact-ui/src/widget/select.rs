@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     declare_widget_style,
-    layout::LayoutKind,
+    layout::{LayoutKind, model::LayoutModelNode},
     render::Renderable,
     style::{ColorStyle, WidgetStylist},
     widget::{Meta, MetaTree, prelude::*},
@@ -112,7 +112,7 @@ impl<W: WidgetCtx, K: PartialEq> PartialEq for SelectOption<W, K> {
 }
 
 pub struct Select<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> {
-    layout: Signal<Layout>,
+    layout: Layout,
     state: Signal<SelectState>,
     style: MemoChain<SelectStyle<W::Color>>,
     // TODO: Can we do fixed size?
@@ -199,12 +199,12 @@ where
                 LayoutKind::Flex(
                     FlexLayout::base(
                         Dir::AXIS,
-                        todo!(), // options.map(|options| {
-                                 //     options
-                                 //         .iter()
-                                 //         .map(|opt| opt.el.borrow().layout().memo())
-                                 //         .collect()
-                                 // }),
+                        options.map(|options| {
+                            options
+                                .iter()
+                                .map(|opt| opt.el.borrow().layout())
+                                .collect()
+                        }),
                     )
                     .block_model(BlockModel::zero().padding(1u32))
                     .gap(Dir::AXIS.canon(5, 0))
@@ -215,8 +215,7 @@ where
                     Length::InfiniteWindow(Length::Shrink.try_into().unwrap()),
                     Length::Shrink,
                 ),
-            )
-            .signal(),
+            ),
             state,
             style: SelectStyle::base().memo_chain(),
             options,
@@ -300,7 +299,7 @@ where
         });
     }
 
-    fn layout(&self) -> Signal<Layout> {
+    fn layout(&self) -> Layout {
         self.layout
     }
 

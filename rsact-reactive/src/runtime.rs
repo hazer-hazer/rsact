@@ -546,7 +546,7 @@ impl Runtime {
         }
     }
 
-    pub fn dispose(&self, id: ValueId) {
+    pub unsafe fn dispose(&self, id: ValueId) {
         // Collect owned children first so the borrow on `owned` is fully
         // released before any recursive dispose() call re-borrows it.
         let owned_children: Vec<ValueId> =
@@ -590,7 +590,7 @@ impl Runtime {
         // Recursively dispose owned children now that all borrows are released.
         for child in owned_children {
             if self.is_alive(child) {
-                self.dispose(child);
+                unsafe { self.dispose(child) };
             }
         }
     }
@@ -605,7 +605,7 @@ impl Runtime {
             // Guard against double-dispose: a value may already have been
             // disposed as an owned child of another value in this scope.
             if self.is_alive(id) {
-                self.dispose(id);
+                unsafe { self.dispose(id) };
             }
         }
     }
@@ -1087,7 +1087,7 @@ impl Runtime {
 
         for child in owned_snapshot {
             if self.is_alive(child) {
-                self.dispose(child);
+                unsafe { self.dispose(child) };
             }
         }
     }

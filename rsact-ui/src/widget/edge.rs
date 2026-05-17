@@ -5,16 +5,14 @@ use crate::{
 use rsact_reactive::memo_chain::IntoMemoChain;
 
 pub struct Edge<W: WidgetCtx> {
-    pub layout: Signal<Layout>,
+    pub layout: Layout,
     style: MemoChain<BlockStyle<W::Color>>,
 }
 
 impl<W: WidgetCtx + 'static> Edge<W> {
     pub fn new() -> Self {
         Self {
-            layout: Layout::shrink(LayoutKind::Edge)
-                .size(Size::fill())
-                .signal(),
+            layout: Layout::shrink(LayoutKind::Edge).size(Size::fill()),
             style: BlockStyle::base().memo_chain(),
         }
     }
@@ -35,7 +33,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
         MetaTree::none()
     }
 
-    fn layout(&self) -> Signal<Layout> {
+    fn layout(&self) -> Layout {
         self.layout
     }
 

@@ -129,7 +129,7 @@ where
 
     // These functions MUST be called only ones per widget //
     fn on_mount(&mut self, ctx: MountCtx<W>);
-    fn layout(&self) -> Signal<Layout>;
+    fn layout(&self) -> Layout;
 
     // Hot-loop called functions //
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult;
@@ -293,13 +293,13 @@ pub mod prelude {
         },
         font::{FontSize, FontStyle},
         layout::{
-            self, Align, ContainerLayout, FlexLayout, Layout, LayoutKind,
-            LayoutModelNode, Limits,
+            self, Align, ContainerLayout, FlexLayout, LayoutKind, Limits,
             axis::{
                 Anchor, Axial as _, Axis, AxisAnchorPoint, ColDir, Direction,
                 RowDir,
             },
             block_model::BlockModel,
+            node::Layout,
             padding::Padding,
             size::{Length, Size},
         },

@@ -1,9 +1,8 @@
 use crate::{
     el::ElId,
     event::EventResponse,
-    layout::Layout,
     render::Renderable,
-    widget::{Meta, MetaTree, Widget, WidgetCtx},
+    widget::{MetaTree, Widget, WidgetCtx, prelude::*},
 };
 use embedded_graphics::{
     image::ImageRaw, iterator::raw::RawDataSlice, pixelcolor::raw::ByteOrder,
@@ -17,14 +16,14 @@ use super::ctx::EventCtx;
 pub struct Image<'a, W: WidgetCtx, BO: ByteOrder> {
     // TODO: Reactive?
     data: ImageRaw<'a, W::Color, BO>,
-    layout: Signal<Layout>,
+    layout: Layout,
 }
 
 impl<'a, W: WidgetCtx, BO: ByteOrder> Image<'a, W, BO> {
     pub fn new(data: ImageRaw<'a, W::Color, BO>) -> Self {
         let size = data.size().into();
 
-        Self { data, layout: Layout::edge(size).signal() }
+        Self { data, layout: Layout::edge(size) }
     }
 }
 
@@ -41,7 +40,7 @@ where
         let _ = ctx;
     }
 
-    fn layout(&self) -> Signal<Layout> {
+    fn layout(&self) -> Layout {
         self.layout
     }
 

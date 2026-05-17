@@ -2,7 +2,7 @@ use rsact_ui::{prelude::SelectOption, widget::prelude::*};
 
 // pub struct DropDown<W: WidgetCtx, K: PartialEq> {
 //     id: ElId,
-//     layout: Signal<Layout>,
+//     layout: Layout,
 //     list: Memo<Vec<SelectOption<W, K>>>,
 //     selected: Signal<Option<usize>>,
 // }

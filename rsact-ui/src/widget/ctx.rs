@@ -8,7 +8,7 @@ use crate::{
         Capture, CaptureData, Event, EventResponse, FocusEvent, Propagate,
     },
     font::{AbsoluteFontProps, Font, FontCtx, FontProps},
-    layout::{Layout, LayoutModelNode},
+    layout::{model::LayoutModelNode, node::Layout},
     page::{PageStyle, id::PageId},
     render::{Block, Border, Renderable as _, Renderer},
     style::{TreeStyle, WidgetStyle, WidgetStylist},
@@ -485,7 +485,7 @@ impl<W: WidgetCtx> MountCtx<W> {
     }
 
     // Note: Setting inherited font is not a reactive process. If user didn't set the font, the inherited is set. But user cannot unset font, thus font never fallbacks to inherited.
-    pub fn inherit_font_props(self, mut layout: Signal<Layout>) -> Self {
+    pub fn inherit_font_props(self, mut layout: Layout) -> Self {
         // Set inherited font props in layout
         layout.update_untracked(|layout| {
             if let Some(font_props) = layout.font_props_mut() {
@@ -503,7 +503,7 @@ impl<W: WidgetCtx> MountCtx<W> {
 
     pub fn pass_to_child(
         self,
-        this_layout: Signal<Layout>,
+        this_layout: Layout,
         child: &mut impl Widget<W>,
     ) {
         child.on_mount(self.inherit_font_props(this_layout));
@@ -511,7 +511,7 @@ impl<W: WidgetCtx> MountCtx<W> {
 
     pub fn pass_to_children(
         mut self,
-        this_layout: Signal<Layout>,
+        this_layout: Layout,
         children: &mut MaybeSignal<Vec<El<W>>>,
     ) {
         self = self.inherit_font_props(this_layout);

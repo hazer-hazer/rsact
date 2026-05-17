@@ -4,16 +4,17 @@ use crate::{
     el::El,
     event::EventResponse,
     layout::{
-        Layout,
         axis::{ColDir, Direction, RowDir},
         size::Length,
     },
-    widget::{EventCtx, RenderCtx, RenderResult, Widget, WidgetCtx},
+    widget::{
+        EventCtx, RenderCtx, RenderResult, Widget, WidgetCtx, prelude::*,
+    },
 };
 use core::marker::PhantomData;
 
 pub struct Space<W: WidgetCtx, Dir: Direction> {
-    layout: Signal<Layout>,
+    layout: Layout,
     ctx: PhantomData<W>,
     dir: PhantomData<Dir>,
 }
@@ -60,8 +61,7 @@ impl<W: WidgetCtx, Dir: Direction> Space<W, Dir> {
     // TODO: Reactive length, MaybeReactive
     pub fn new(length: impl Into<Length>) -> Self {
         let layout = Layout::shrink(LayoutKind::Edge)
-            .size(Dir::AXIS.canon(length.into(), Length::fill()))
-            .signal();
+            .size(Dir::AXIS.canon(length.into(), Length::fill()));
 
         Self { layout, ctx: PhantomData, dir: PhantomData }
     }
@@ -72,7 +72,7 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Space<W, Dir> {
         MetaTree::none()
     }
 
-    fn layout(&self) -> Signal<Layout> {
+    fn layout(&self) -> Layout {
         self.layout
     }
 

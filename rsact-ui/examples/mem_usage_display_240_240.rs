@@ -287,7 +287,7 @@ fn main() {
         Flex::col([
             Text::new(bed_temp.map(|temp| format!("{temp}C"))).el(),
             Knob::new(bed_temp).el(),
-            Text::new_inert("Bed").el(),
+            Text::new("Bed").el(),
         ])
         .gap(2u32)
         .center()
@@ -296,7 +296,7 @@ fn main() {
         Flex::col([
             Text::new(nozzle_temp.map(|temp| format!("{temp}C"))).el(),
             Knob::new(nozzle_temp).el(),
-            Text::new_inert("Nozzle").el(),
+            Text::new("Nozzle").el(),
         ])
         .gap(2u32)
         .center()

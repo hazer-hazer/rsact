@@ -31,7 +31,7 @@ pub enum IconValue<I: IconSet> {
 
 pub struct Icon<W: WidgetCtx, I: IconSet, R: ReactivityMarker> {
     value: IconValue<I>,
-    layout: Signal<Layout>,
+    layout: Layout,
     style: MemoChain<IconStyle<W::Color>>,
     is_reactive: PhantomData<R>,
     visible: MaybeReactive<bool>,
@@ -48,8 +48,7 @@ impl<W: WidgetCtx> Icon<W, EmptyIconSet, IsInert> {
     pub fn inert(icon: IconRaw<BigEndian>) -> Self {
         let layout = Layout::shrink(LayoutKind::Content(ContentLayout::fixed(
             Size::new_equal(icon.size),
-        )))
-        .signal();
+        )));
 
         Self {
             value: IconValue::Fixed(icon),
@@ -70,8 +69,7 @@ impl<W: WidgetCtx, I: IconSet + 'static> Icon<W, I, IsReactive> {
 
         let layout = Layout::shrink(LayoutKind::Content(ContentLayout::Icon(
             size.memo(),
-        )))
-        .signal();
+        )));
 
         Self {
             value,
@@ -124,7 +122,7 @@ where
         ctx.accept_styles(self.style, ());
     }
 
-    fn layout(&self) -> Signal<Layout> {
+    fn layout(&self) -> Layout {
         self.layout
     }
 

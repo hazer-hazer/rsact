@@ -32,7 +32,7 @@ use super::prelude::*;
 //         self.otherwise.on_mount(ctx);
 //     }
 
-//     fn layout(&self) -> Signal<Layout> {}
+//     fn layout(&self) -> Layout {}
 
 //     fn draw(&self, ctx: &mut DrawCtx<'_, W>) -> DrawResult {
 //         todo!()
@@ -199,8 +199,8 @@ impl<W: WidgetCtx> Widget<W> for Unit {
         let _ = ctx;
     }
 
-    fn layout(&self) -> rsact_reactive::prelude::Signal<Layout> {
-        Layout::zero().signal()
+    fn layout(&self) -> Layout {
+        Layout::zero()
     }
 
     #[track_caller]
@@ -226,15 +226,13 @@ impl<W: WidgetCtx> Widget<W> for Option<El<W>> {
         self.as_ref().map(|widget| widget.meta(id)).unwrap_or(MetaTree::none())
     }
 
-    fn on_mount(&mut self, ctx: super::MountCtx<W>) {
+    fn on_mount(&mut self, ctx: MountCtx<W>) {
         let layout = self.layout();
         self.as_mut().map(|widget| ctx.pass_to_child(layout, widget));
     }
 
-    fn layout(&self) -> rsact_reactive::prelude::Signal<super::Layout> {
-        self.as_ref()
-            .map(|widget| widget.layout())
-            .unwrap_or(Layout::zero().signal())
+    fn layout(&self) -> Layout {
+        self.as_ref().map(|widget| widget.layout()).unwrap_or(Layout::zero())
     }
 
     #[track_caller]

@@ -44,7 +44,7 @@ impl<C: Color> BarStyle<C> {
 #[derive(Clone)]
 pub struct Bar<W: WidgetCtx, V: RangeValue, Dir: Direction> {
     value: MaybeReactive<V>,
-    layout: Signal<Layout>,
+    layout: Layout,
     style: MemoChain<BarStyle<W::Color>>,
     dir: PhantomData<Dir>,
 }
@@ -67,8 +67,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction> Bar<W, V, Dir> {
             value: value.maybe_reactive(),
             layout: Layout::edge(
                 Dir::AXIS.canon(Length::fill(), Length::Fixed(10)),
-            )
-            .signal(),
+            ),
             style: BarStyle::base().memo_chain(),
             dir: PhantomData,
         }
@@ -88,7 +87,7 @@ where
         ctx.accept_styles(self.style, ());
     }
 
-    fn layout(&self) -> Signal<Layout> {
+    fn layout(&self) -> Layout {
         self.layout
     }
 

@@ -4,7 +4,7 @@ use crate::{
 };
 
 pub struct Container<W: WidgetCtx> {
-    pub layout: Signal<Layout>,
+    pub layout: Layout,
     pub content: El<W>,
     pub style: MemoChain<BlockStyle<W::Color>>,
 }
@@ -16,8 +16,7 @@ impl<W: WidgetCtx + 'static> Container<W> {
         Self {
             layout: Layout::shrink(LayoutKind::Container(
                 ContainerLayout::base(content.layout()),
-            ))
-            .signal(),
+            )),
             content,
             style: BlockStyle::base().memo_chain(),
         }
@@ -100,7 +99,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
         ctx.pass_to_child(self.layout, &mut self.content);
     }
 
-    fn layout(&self) -> Signal<Layout> {
+    fn layout(&self) -> Layout {
         self.layout
     }
 

@@ -20,7 +20,6 @@ pub mod inert;
 pub mod maybe;
 pub mod memo;
 pub mod memo_chain;
-pub mod observer;
 pub mod read;
 #[cfg(feature = "async")]
 pub mod resource;

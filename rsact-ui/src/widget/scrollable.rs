@@ -97,7 +97,7 @@ pub struct Scrollable<W: WidgetCtx, Dir: Direction> {
     state: Signal<ScrollableState>,
     style: MemoChain<ScrollableStyle<W::Color>>,
     content: El<W>,
-    layout: Signal<Layout>,
+    layout: Layout,
     mode: ScrollableMode,
     dir: PhantomData<Dir>,
 }
@@ -119,8 +119,7 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
         let content = content.el();
         let state = create_signal(ScrollableState::none());
 
-        let layout =
-            Layout::scrollable::<Dir>(content.layout().memo()).signal();
+        let layout = Layout::scrollable::<Dir>(content.layout());
 
         Self {
             content,
@@ -222,7 +221,7 @@ where
         ctx.pass_to_child(self.layout, &mut self.content);
     }
 
-    fn layout(&self) -> Signal<Layout> {
+    fn layout(&self) -> Layout {
         self.layout
     }
 
