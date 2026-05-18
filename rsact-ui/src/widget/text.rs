@@ -97,10 +97,6 @@ impl<W: WidgetCtx> Widget<W> for Text<W> {
         MetaTree::none()
     }
 
-    fn on_mount(&mut self, ctx: MountCtx<W>) {
-        ctx.inherit_font_props(self.layout);
-    }
-
     fn layout(&self) -> Layout {
         self.layout
     }
@@ -111,7 +107,7 @@ impl<W: WidgetCtx> Widget<W> for Text<W> {
             let content = self.content;
             let base = ctx.theme.with(|theme| theme.text);
             let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
-            let props = self.font_props();
+            let props = ctx.font_props;
 
             with!(move |content| {
                 let font = props.font();

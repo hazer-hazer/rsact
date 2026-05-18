@@ -78,10 +78,6 @@ impl<W: WidgetCtx> Widget<W> for Checkbox<W>
         MetaTree::childless(Meta::focusable(id))
     }
 
-    fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
-        ctx.pass_to_child(self.layout, &mut self.icon);
-    }
-
     fn layout(&self) -> Layout {
         self.layout
     }

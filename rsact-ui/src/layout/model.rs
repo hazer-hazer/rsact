@@ -1,8 +1,8 @@
 use crate::{
-    font::FontCtx,
+    font::{FontCtx, FontProps},
     layout::{
-        Align, ContainerLayout, DevHoveredLayout, LayoutCtx, LayoutKind,
-        Limits, ScrollableLayout,
+        Align, ContainerLayout, ContentLayout, DevHoveredLayout, LayoutCtx,
+        LayoutKind, Limits, ScrollableLayout,
         flex::model_flex,
         node::Layout,
         padding::Padding,
@@ -40,6 +40,10 @@ impl<'a> Debug for LayoutModelNode<'a> {
 }
 
 impl<'a> LayoutModelNode<'a> {
+    pub fn font_props(&self) -> Option<FontProps> {
+        self.model.font_props
+    }
+
     pub fn translate(&self, by: Point) -> Self {
         Self {
             outer: self.outer.translate(by),
@@ -74,8 +78,9 @@ impl<'a> LayoutModelNode<'a> {
 pub struct LayoutModel {
     outer: Rectangle,
     inner: Rectangle,
-    // /// Full-padding: padding + border width
-    // full_padding: Padding,
+
+    font_props: Option<FontProps>,
+
     // Note: `dev` goes before `children` which is intentional to make more
     // readable pretty-printed debug
     // TODO: Make debug_assertions-only
@@ -94,9 +99,15 @@ impl LayoutModel {
             outer: Rectangle::new(Point::zero(), inner_size.into()),
             inner: Rectangle::new(Point::zero(), inner_size.into()),
             children,
+            font_props: None,
             #[cfg(feature = "debug-info")]
             dev,
         }
+    }
+
+    pub fn with_font_props(mut self, fp: Option<FontProps>) -> Self {
+        self.font_props = fp;
+        self
     }
 
     /// Full padding includes padding + border size
@@ -128,8 +139,8 @@ impl LayoutModel {
         Self {
             outer: Rectangle::zero(),
             inner: Rectangle::zero(),
-            // full_padding: Padding::zero(),
             children: vec![],
+            font_props: None,
             #[cfg(feature = "debug-info")]
             dev: DevLayout::zero(),
         }
@@ -216,97 +227,118 @@ pub fn model_layout(
         match &layout.kind {
             // TODO: Panic or not?
             LayoutKind::Zero => LayoutModel::zero(),
-            LayoutKind::Edge => {
-                LayoutModel::new(
-                    parent_limits.resolve_size(size, Size::zero(),None),
-                    vec![],
-                    #[cfg(feature = "debug-info")] DevLayout::new(size, DevLayoutKind::Edge)
-                )
-            }
+            LayoutKind::Edge => LayoutModel::new(
+                parent_limits.resolve_size(size, Size::zero(), None),
+                vec![],
+                #[cfg(feature = "debug-info")]
+                DevLayout::new(size, DevLayoutKind::Edge),
+            ),
             LayoutKind::Content(content_layout) => {
                 let min_content = content_layout.min_size(ctx);
+                let layout_font_props = match content_layout {
+                    ContentLayout::Text { font_props: text_fp, .. }
+                        if text_fp.has_any() =>
+                    {
+                        let resolved = text_fp.inherited(&ctx.font_props);
+                        Some(resolved)
+                    },
+                    _ => None,
+                };
 
                 LayoutModel::new(
                     parent_limits.resolve_size(size, min_content, None),
                     vec![],
-                    #[cfg(feature = "debug-info")] DevLayout::new(
+                    #[cfg(feature = "debug-info")]
+                    DevLayout::new(
                         size,
-                        DevLayoutKind::Content(content_layout.clone())
-                    )
+                        DevLayoutKind::Content(content_layout.clone()),
+                    ),
                 )
-            }
+                .with_font_props(layout_font_props)
+            },
             LayoutKind::Container(container_layout) => {
                 let ContainerLayout {
                     block_model,
                     horizontal_align,
                     vertical_align,
                     content,
-                    font_props: _,
-                    // TODO: Useless?
+                    font_props: container_fp,
                 } = container_layout;
 
                 // let min_content = content_size.get().min();
 
                 let full_padding = block_model.full_padding();
 
-                // TODO: Panic or warn in case when there're more than a single
-                // child
+                let child_fp = container_fp.inherited(&ctx.font_props);
+                let child_ctx = LayoutCtx { font_props: child_fp, ..*ctx };
 
                 let content_layout = model_layout(
-                    ctx,
+                    &child_ctx,
                     *content,
                     parent_limits.child_limits(size).shrink(full_padding),
-                    size
-                    // viewport,
+                    size,
                 );
 
                 let content_size = content_layout.outer_size();
-                let real_size = parent_limits.resolve_size(size, content_size, Some(full_padding));
-                let content_layout = content_layout
-                    // .moved(full_padding.top_left())
-                    .aligned(*horizontal_align, *vertical_align, real_size - content_size);
+                let real_size = parent_limits.resolve_size(
+                    size,
+                    content_size,
+                    Some(full_padding),
+                );
+                let content_layout = content_layout.aligned(
+                    *horizontal_align,
+                    *vertical_align,
+                    real_size - content_size,
+                );
 
                 LayoutModel::new(
                     // TODO: Generalize logic with real_size.expand/shrink and
                     // full_padding
                     real_size,
                     vec![content_layout],
-                    #[cfg(feature = "debug-info")] DevLayout::new(
+                    #[cfg(feature = "debug-info")]
+                    DevLayout::new(
                         size,
-                        DevLayoutKind::Container(container_layout.clone())
-                    )
-                ).with_full_padding(full_padding)
-            }
+                        DevLayoutKind::Container(container_layout.clone()),
+                    ),
+                )
+                .with_full_padding(full_padding)
+                .with_font_props(container_fp.has_any().then_some(child_fp))
+            },
             LayoutKind::Scrollable(scrollable_layout) => {
-                // TODO: Useless?
-                let ScrollableLayout { content, font_props: _ } = scrollable_layout;
+                let ScrollableLayout { content, font_props: scrollable_fp } =
+                    scrollable_layout;
+
+                let child_fp = scrollable_fp.inherited(&ctx.font_props);
+                let child_ctx = LayoutCtx { font_props: child_fp, ..*ctx };
 
                 let content_layout = model_layout(
-                    ctx,
+                    &child_ctx,
                     *content,
                     parent_limits.child_limits(size),
-                    size
-                    // viewport,
+                    size,
                 );
 
-                // Note: For [`LayoutKind::Scrollable`], parent_limits are used as
-                // content limits are unlimited on one axis
-                // TODO: This is wrong? I changed to use its limits
-                let real_size = parent_limits.resolve_size(size, content_layout.outer_size(), None);
-
-                // extern crate std;
-                // println!("parent limits: {parent_limits}, self limits: {}, child_limits: {limits}, content_size: {}", parent_limits.self_limits(size), content_layout.outer.size);
+                let real_size = parent_limits.resolve_size(
+                    size,
+                    content_layout.outer_size(),
+                    None,
+                );
 
                 LayoutModel::new(
                     real_size,
                     vec![content_layout],
-                    #[cfg(feature = "debug-info")] DevLayout::new(
+                    #[cfg(feature = "debug-info")]
+                    DevLayout::new(
                         size,
-                        DevLayoutKind::Scrollable(scrollable_layout.clone())
-                    )
+                        DevLayoutKind::Scrollable(scrollable_layout.clone()),
+                    ),
                 )
-            }
-            LayoutKind::Flex(flex_layout) => { model_flex(ctx, parent_limits, flex_layout, size) }
+                .with_font_props(scrollable_fp.has_any().then_some(child_fp))
+            },
+            LayoutKind::Flex(flex_layout) => {
+                model_flex(ctx, parent_limits, flex_layout, size)
+            },
         }
     })
 }

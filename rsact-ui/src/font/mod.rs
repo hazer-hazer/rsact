@@ -40,15 +40,22 @@ pub struct FontProps {
 }
 
 impl FontProps {
-    pub fn inherit(&mut self, parent: &FontProps) {
-        if let font @ None = &mut self.font {
-            *font = parent.font.clone();
-        }
-        if let font_size @ None = &mut self.font_size {
-            *font_size = parent.font_size.clone();
-        }
-        if let font_style @ None = &mut self.font_style {
-            *font_style = parent.font_style.clone();
+    pub fn has_any(&self) -> bool {
+        matches!(
+            self,
+            FontProps {
+                font: Some(_),
+                font_size: Some(_),
+                font_style: Some(_)
+            }
+        )
+    }
+
+    pub fn inherited(&self, parent: &FontProps) -> Self {
+        Self {
+            font: self.font.or(parent.font),
+            font_size: self.font_size.or(parent.font_size),
+            font_style: self.font_style.or(parent.font_style),
         }
     }
 

@@ -36,10 +36,6 @@ where
         MetaTree::none()
     }
 
-    fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
-        let _ = ctx;
-    }
-
     fn layout(&self) -> Layout {
         self.layout
     }

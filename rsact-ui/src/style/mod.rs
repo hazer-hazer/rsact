@@ -77,6 +77,8 @@ pub trait WidgetStyle: PartialEq + Clone {
     type Color: Color;
 }
 
+pub type WidgetStyleFn<S> = Option<Box<dyn Fn(S) -> S>>;
+
 #[derive(Clone, Copy)]
 pub struct TreeStyle<C: Color> {
     pub text_color: ColorStyle<C>,
@@ -302,4 +304,5 @@ macro_rules! declare_widget_style {
     };
 }
 
+use alloc::boxed::Box;
 pub use declare_widget_style;

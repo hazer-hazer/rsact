@@ -8,7 +8,7 @@ use crate::{
         Capture, CaptureData, Event, EventResponse, FocusEvent, Propagate,
     },
     font::{AbsoluteFontProps, Font, FontCtx, FontProps},
-    layout::{model::LayoutModelNode, node::Layout},
+    layout::{model::LayoutModelNode},
     page::{PageStyle, id::PageId},
     render::{Block, Border, Renderable as _, Renderer},
     style::{TreeStyle, theme::Theme},
@@ -124,6 +124,7 @@ pub struct RenderCtx<'a, W: WidgetCtx, S = CtxUnready> {
     pub viewport: MaybeReactive<Size>,
     pub fonts: Signal<FontCtx, ReadOnly>,
     pub theme: Inert<Theme<W::Color>>,
+    pub font_props: FontProps,
     force_redraw: Trigger,
     parent_dirty: bool,
 
@@ -182,6 +183,7 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
         child_layout: &LayoutModelNode,
         f: impl FnOnce(&mut RenderCtx<'_, W, CtxUnready>) -> R,
     ) -> R {
+        let font_props = child_layout.font_props().unwrap_or(self.font_props);
         f(&mut (RenderCtx {
             id,
             state: self.state,
@@ -192,6 +194,7 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
             viewport: self.viewport,
             fonts: self.fonts,
             theme: self.theme,
+            font_props,
             force_redraw: self.force_redraw,
             parent_dirty: self.parent_dirty,
             ctx_state: PhantomData,
@@ -214,6 +217,7 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
             viewport: self.viewport,
             fonts: self.fonts,
             theme: self.theme,
+            font_props: self.font_props,
             force_redraw: self.force_redraw,
             parent_dirty: self.parent_dirty,
             ctx_state: PhantomData,
@@ -235,6 +239,7 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
                 viewport: self.viewport,
                 fonts: self.fonts,
                 theme: self.theme,
+                font_props: self.font_props,
                 force_redraw: self.force_redraw,
                 parent_dirty: self.parent_dirty,
                 ctx_state: PhantomData,
@@ -254,6 +259,7 @@ impl<'a, W: WidgetCtx + 'static> RenderCtx<'a, W, CtxUnready> {
         viewport: MaybeReactive<Size>,
         fonts: Signal<FontCtx, ReadOnly>,
         theme: Inert<Theme<W::Color>>,
+        font_props: FontProps,
         force_redraw: Trigger,
     ) -> Self {
         Self {
@@ -266,6 +272,7 @@ impl<'a, W: WidgetCtx + 'static> RenderCtx<'a, W, CtxUnready> {
             viewport,
             fonts,
             theme,
+            font_props,
             force_redraw,
             parent_dirty: false,
             ctx_state: PhantomData,
@@ -304,6 +311,7 @@ impl<'a, W: WidgetCtx + 'static> RenderCtx<'a, W, CtxUnready> {
                 viewport: self.viewport,
                 fonts: self.fonts,
                 theme: self.theme,
+                font_props: self.font_props,
                 force_redraw: self.force_redraw,
                 parent_dirty: self.parent_dirty,
                 ctx_state: PhantomData,
@@ -466,104 +474,4 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
     }
 }
 
-pub struct MountCtx<W: WidgetCtx> {
-    pub viewport: MaybeReactive<Size>,
-    // TODO: Later Theme should be a collection of signals for styling each component individually so each component is rerendered only on its styles changes.
-    pub theme: Inert<Theme<W::Color>>,
-    pub inherit_font_props: FontProps,
-}
 
-impl<W: WidgetCtx> MountCtx<W> {
-    // Note: Setting inherited font is not a reactive process. If user didn't set the font, the inherited is set. But user cannot unset font, thus font never fallbacks to inherited.
-    pub fn inherit_font_props(self, mut layout: Layout) -> Self {
-        // Set inherited font props in layout
-        layout.update_untracked(|layout| {
-            if let Some(font_props) = layout.font_props_mut() {
-                font_props.inherit(&self.inherit_font_props);
-            }
-        });
-
-        // Set new inherited font for use with children
-        if let Some(font_props) = layout.with(|layout| layout.font_props()) {
-            Self { inherit_font_props: font_props, ..self }
-        } else {
-            self
-        }
-    }
-
-    pub fn pass_to_child(
-        self,
-        this_layout: Layout,
-        child: &mut impl Widget<W>,
-    ) {
-        child.on_mount(self.inherit_font_props(this_layout));
-    }
-
-    pub fn pass_to_children(
-        mut self,
-        this_layout: Layout,
-        children: &mut MaybeSignal<Vec<El<W>>>,
-    ) {
-        self = self.inherit_font_props(this_layout);
-
-        if let Some(inert) = children.as_inert_mut() {
-            inert.iter_mut().for_each(|child| child.on_mount(self));
-        } else if let Some(mut children) = children.as_signal() {
-            create_effect(move |_| {
-                children.track();
-                children.update(|children| {
-                    children.iter_mut().for_each(|child| child.on_mount(self));
-                });
-            });
-        }
-    }
-
-    // TODO: Use watch?
-    // FIXME: Wtf
-    // TODO: Use computed
-    // pub fn pass_to_children(
-    //     self,
-    //     children: impl RwSignal<Vec<El<W>>> + 'static,
-    // ) {
-    //     use_effect(move |_| {
-    //         children.track();
-    //         children.update_untracked(|children| {
-    //             for child in children {
-    //                 child.on_mount(self);
-    //             }
-    //         });
-    //     });
-    // }
-
-    // pub fn pass_to_child(self, child: impl RwSignal<El<W>> + 'static) {
-    //     use_effect(move |_| {
-    //         child.track();
-    //         child.update_untracked(|child| {
-    //             child.on_mount(self);
-    //         });
-    //     });
-    // }
-
-    // TODO: Rewrite with lenses
-    // pub fn pass_to_children(self, children: &mut [El<W>]) {
-    //     for child in children {
-    //         child.on_mount(self);
-    //     }
-    // }
-
-    // pub fn pass_to_child(self, child: &mut El<W>) {
-    //     child.on_mount(self);
-    // }
-}
-
-impl<W: WidgetCtx> Clone for MountCtx<W> {
-    fn clone(&self) -> Self {
-        Self {
-            viewport: self.viewport.clone(),
-            theme: self.theme.clone(),
-            inherit_font_props: self.inherit_font_props.clone(),
-        }
-    }
-}
-
-impl<W: WidgetCtx> Copy for MountCtx<W> {}

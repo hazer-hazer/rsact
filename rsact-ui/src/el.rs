@@ -48,8 +48,6 @@ where
     W: WidgetCtx,
 {
     widget: Box<dyn Widget<W>>,
-    // TODO: Can use RefCell<bool> and on_mount can become a immutable method. Or we can store `mounted` state inside MountCtx.
-    mounted: bool,
     id: ElId,
 }
 
@@ -67,7 +65,7 @@ where
     W: WidgetCtx,
 {
     pub(crate) fn new(widget: impl Widget<W> + 'static) -> Self {
-        Self { widget: Box::new(widget), mounted: false, id: ElId::unique() }
+        Self { widget: Box::new(widget), id: ElId::unique() }
     }
 }
 
@@ -80,14 +78,6 @@ where
         Self: Sized + 'static,
     {
         self
-    }
-
-    // TODO: on_mount should not subscribe to ctx, but return a callback to call when MountCtx changes
-    fn on_mount(&mut self, ctx: MountCtx<W>) {
-        if !self.mounted {
-            self.widget.on_mount(ctx);
-            self.mounted = true;
-        }
     }
 
     fn meta(&self, _parent_id: ElId) -> MetaTree {

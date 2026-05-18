@@ -85,17 +85,6 @@ impl<W: WidgetCtx> Page<W> {
 
         let force_redraw = create_trigger().name("Force redraw");
 
-        // Raw root initialization //
-        root.on_mount(MountCtx {
-            viewport,
-            theme,
-            inherit_font_props: FontProps {
-                font: Some(Font::Auto.maybe_reactive()),
-                font_size: None,
-                font_style: None,
-            },
-        });
-
         let meta = root.meta(root.id());
 
         // TODO: Multiple behaviors will lead to multiple memos, I am not sure what is more efficient, to recollect all behaviors when any changed or to store multiple memos.
@@ -120,20 +109,25 @@ impl<W: WidgetCtx> Page<W> {
         let layout_model = map!(move |fonts, viewport| {
             info!("Relayout page {:?}", id);
 
-            let viewport = *viewport;
-            // println!("Relayout");
             // TODO: Possible optimization is to use previous memo result, pass
             // it to model_layout as tree and don't relayout parents if layouts
             // inside Fixed-sized container changed, returning previous result
+
+            let viewport = *viewport;
             let layout = model_layout(
-                &LayoutCtx { fonts, viewport },
+                &LayoutCtx {
+                    fonts,
+                    viewport,
+                    font_props: FontProps {
+                        font: Some(Font::Auto.maybe_reactive()),
+                        font_size: None,
+                        font_style: None,
+                    },
+                },
                 layout_tree,
                 Limits::only_max(viewport),
                 viewport.into(),
-                // viewport,
             );
-
-            // std::println!("Relayout {:#?}", layout.tree_root());
 
             force_redraw.notify();
 
@@ -397,6 +391,11 @@ impl<W: WidgetCtx> Page<W> {
                             self.viewport,
                             self.fonts.read_only(),
                             self.theme,
+                            FontProps {
+                                font: Some(Font::Auto.maybe_reactive()),
+                                font_size: None,
+                                font_style: None,
+                            },
                             self.force_redraw,
                         ))
                     })?;

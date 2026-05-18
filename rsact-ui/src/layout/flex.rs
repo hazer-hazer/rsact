@@ -74,10 +74,14 @@ pub fn model_flex(
         horizontal_align,
         vertical_align,
         children,
-        font_props: _,
+        font_props: flex_fp,
     } = flex_layout;
 
     let full_padding = block_model.full_padding();
+
+    let child_fp = flex_fp.inherited(&ctx.font_props);
+    let child_ctx = LayoutCtx { font_props: child_fp, ..*ctx };
+    let ctx = &child_ctx;
 
     let limits = parent_limits.child_limits(size).shrink(full_padding);
     let (max_possible_main, max_possible_cross) = limits.max().destruct(axis);
@@ -426,4 +430,5 @@ pub fn model_flex(
         ),
     )
     .with_full_padding(full_padding)
+    .with_font_props(flex_fp.has_any().then_some(child_fp))
 }

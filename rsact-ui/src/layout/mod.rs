@@ -31,6 +31,7 @@ pub mod size;
 pub struct LayoutCtx<'a> {
     pub fonts: &'a FontCtx,
     pub viewport: Size,
+    pub font_props: FontProps,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, IntoMaybeReactive)]
@@ -101,9 +102,10 @@ impl ContentLayout {
     pub fn min_size(&self, ctx: &LayoutCtx) -> Size {
         match self {
             &ContentLayout::Text { font_props, content } => {
+                let resolved = font_props.inherited(&ctx.font_props);
                 with!(move |content| {
-                    let props = font_props.resolve(ctx.viewport);
-                    let font = font_props.font();
+                    let props = resolved.resolve(ctx.viewport);
+                    let font = resolved.font();
                     ctx.fonts.measure_text_size(font, content, props)
                 })
                 .min()
@@ -142,7 +144,9 @@ impl ContainerLayout {
     }
 
     pub fn min_size(&self, ctx: &LayoutCtx) -> Size {
-        self.content.with(|content| content.min_size(ctx))
+        let fp = self.font_props.inherited(&ctx.font_props);
+        let child_ctx = LayoutCtx { font_props: fp, ..*ctx };
+        self.content.with(|content| content.min_size(&child_ctx))
             + self.block_model.full_padding()
     }
 }
@@ -215,11 +219,13 @@ impl FlexLayout {
     }
 
     pub fn min_size(&self, ctx: &LayoutCtx) -> Size {
+        let fp = self.font_props.inherited(&ctx.font_props);
+        let child_ctx = LayoutCtx { font_props: fp, ..*ctx };
         self.children.with(|children| {
             children.iter().fold(Size::zero(), |min_size, child| {
                 self.axis.infix(
                     min_size,
-                    child.with(|child| child.min_size(ctx)),
+                    child.with(|child| child.min_size(&child_ctx)),
                     |lhs, rhs| SaturatingAdd::saturating_add(&lhs, &rhs),
                     core::cmp::max,
                 )
@@ -258,7 +264,9 @@ impl ScrollableLayout {
     }
 
     pub fn min_size(&self, ctx: &LayoutCtx) -> Size {
-        self.content.with(|content| content.min_size(ctx))
+        let fp = self.font_props.inherited(&ctx.font_props);
+        let child_ctx = LayoutCtx { font_props: fp, ..*ctx };
+        self.content.with(|content| content.min_size(&child_ctx))
     }
 }
 

@@ -176,10 +176,6 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
         MetaTree::none()
     }
 
-    fn on_mount(&mut self, ctx: super::MountCtx<W>) {
-        let _ = ctx;
-    }
-
     fn layout(&self) -> Layout {
         self.layout
     }

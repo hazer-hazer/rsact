@@ -195,10 +195,6 @@ impl<W: WidgetCtx> Widget<W> for Unit {
         MetaTree::none()
     }
 
-    fn on_mount(&mut self, ctx: super::MountCtx<W>) {
-        let _ = ctx;
-    }
-
     fn layout(&self) -> Layout {
         Layout::zero()
     }
@@ -224,11 +220,6 @@ impl<W: WidgetCtx, T: Widget<W> + 'static> Into<El<W>> for Option<T> {
 impl<W: WidgetCtx> Widget<W> for Option<El<W>> {
     fn meta(&self, id: ElId) -> MetaTree {
         self.as_ref().map(|widget| widget.meta(id)).unwrap_or(MetaTree::none())
-    }
-
-    fn on_mount(&mut self, ctx: MountCtx<W>) {
-        let layout = self.layout();
-        self.as_mut().map(|widget| ctx.pass_to_child(layout, widget));
     }
 
     fn layout(&self) -> Layout {

@@ -94,8 +94,6 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Widget<W> for Knob<W, V>
         MetaTree::childless(Meta::focusable(id))
     }
 
-    fn on_mount(&mut self, _ctx: super::MountCtx<W>) {}
-
     fn layout(&self) -> Layout {
         self.layout
     }

@@ -80,8 +80,6 @@ impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction> Widget<W>
         MetaTree::none()
     }
 
-    fn on_mount(&mut self, _ctx: super::MountCtx<W>) {}
-
     fn layout(&self) -> Layout {
         self.layout
     }

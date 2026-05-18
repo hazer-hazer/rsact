@@ -2,7 +2,7 @@ use crate::{
     declare_widget_style,
     el::WithElId,
     render::{Renderable, primitives::line::Line},
-    style::{ColorStyle},
+    style::ColorStyle,
     widget::{Meta, MetaTree, SizedWidget, prelude::*},
 };
 use core::marker::PhantomData;
@@ -95,7 +95,9 @@ impl<C: Color> ScrollableStyle<C> {
 
 pub struct Scrollable<W: WidgetCtx, Dir: Direction> {
     state: Signal<ScrollableState>,
-    style: Option<Box<dyn Fn(ScrollableStyle<W::Color>) -> ScrollableStyle<W::Color>>>,
+    style: Option<
+        Box<dyn Fn(ScrollableStyle<W::Color>) -> ScrollableStyle<W::Color>>,
+    >,
     content: El<W>,
     layout: Layout,
     mode: ScrollableMode,
@@ -138,7 +140,8 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
 
     pub fn style(
         mut self,
-        styler: impl Fn(ScrollableStyle<W::Color>) -> ScrollableStyle<W::Color> + 'static,
+        styler: impl Fn(ScrollableStyle<W::Color>) -> ScrollableStyle<W::Color>
+        + 'static,
     ) -> Self {
         self.style = Some(Box::new(styler));
         self
@@ -152,8 +155,7 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
     }
 }
 
-impl<W: WidgetCtx> SizedWidget<W> for Scrollable<W, RowDir>
-{
+impl<W: WidgetCtx> SizedWidget<W> for Scrollable<W, RowDir> {
     fn width<L: Into<Length> + PartialEq + Copy + 'static>(
         self,
         width: impl IntoMaybeReactive<L>,
@@ -169,8 +171,7 @@ impl<W: WidgetCtx> SizedWidget<W> for Scrollable<W, RowDir>
     }
 }
 
-impl<W: WidgetCtx> SizedWidget<W> for Scrollable<W, ColDir>
-{
+impl<W: WidgetCtx> SizedWidget<W> for Scrollable<W, ColDir> {
     fn height<L: Into<Length> + PartialEq + Copy + 'static>(
         self,
         height: impl IntoMaybeReactive<L> + 'static,
@@ -188,17 +189,13 @@ impl<W: WidgetCtx> SizedWidget<W> for Scrollable<W, ColDir>
 
 impl<W: WidgetCtx, Dir: Direction + 'static> FontSettingWidget<W>
     for Scrollable<W, Dir>
-{}
-
-impl<W: WidgetCtx, Dir: Direction> Widget<W> for Scrollable<W, Dir>
 {
+}
+
+impl<W: WidgetCtx, Dir: Direction> Widget<W> for Scrollable<W, Dir> {
     fn meta(&self, id: ElId) -> crate::widget::MetaTree {
         let content_tree = self.content.meta(id);
         MetaTree::new(Meta::none(), vec![content_tree].inert())
-    }
-
-    fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
-        ctx.pass_to_child(self.layout, &mut self.content);
     }
 
     fn layout(&self) -> Layout {
@@ -243,7 +240,8 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Scrollable<W, Dir>
 
             if draw_scrollbar {
                 let base = ctx.theme.with(|theme| theme.scrollable);
-                let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
+                let style =
+                    self.style.as_ref().map(|f| f(base)).unwrap_or(base);
 
                 let track_start = match Dir::AXIS {
                     Axis::X => ctx.layout.inner.anchor_point(

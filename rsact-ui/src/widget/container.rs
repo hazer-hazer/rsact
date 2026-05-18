@@ -1,12 +1,11 @@
 use crate::{
-    render::Renderable,
-    widget::{BlockModelWidget, Meta, MetaTree, SizedWidget, prelude::*},
+    render::Renderable, style::WidgetStyleFn, widget::{BlockModelWidget, Meta, MetaTree, SizedWidget, prelude::*}
 };
 
 pub struct Container<W: WidgetCtx> {
     pub layout: Layout,
     pub content: El<W>,
-    pub style: Option<Box<dyn Fn(BlockStyle<W::Color>) -> BlockStyle<W::Color>>>,
+    pub style: WidgetStyleFn<BlockStyle<W::Color>>,
 }
 
 impl<W: WidgetCtx + 'static> Container<W> {
@@ -92,10 +91,6 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
         let content_tree = self.content.meta(id);
 
         MetaTree::new(Meta::none(), vec![content_tree].inert())
-    }
-
-    fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
-        ctx.pass_to_child(self.layout, &mut self.content);
     }
 
     fn layout(&self) -> Layout {

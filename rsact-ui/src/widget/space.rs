@@ -76,8 +76,6 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Space<W, Dir> {
         self.layout
     }
 
-    fn on_mount(&mut self, _ctx: crate::widget::MountCtx<W>) {}
-
     fn render(&self, _ctx: &mut RenderCtx<'_, W>) -> RenderResult {
         Ok(())
     }

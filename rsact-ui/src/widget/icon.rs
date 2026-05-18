@@ -116,8 +116,6 @@ impl<W: WidgetCtx, I: IconSet + 'static, R: ReactivityMarker> Widget<W>
         MetaTree::none()
     }
 
-    fn on_mount(&mut self, _ctx: MountCtx<W>) {}
-
     fn layout(&self) -> Layout {
         self.layout
     }

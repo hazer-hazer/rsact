@@ -273,15 +273,6 @@ impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> Widget<W>
         MetaTree::childless(Meta::focusable(id))
     }
 
-    fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
-        let layout = self.layout;
-        self.options.with(|options| {
-            options.iter().for_each(move |opt| {
-                ctx.pass_to_child(layout, &mut *opt.el.borrow_mut());
-            })
-        });
-    }
-
     fn layout(&self) -> Layout {
         self.layout
     }

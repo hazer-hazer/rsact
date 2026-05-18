@@ -1,11 +1,12 @@
 use crate::{
     render::Renderable,
+    style::WidgetStyleFn,
     widget::{Meta, MetaTree, prelude::*},
 };
 
 pub struct Edge<W: WidgetCtx> {
     pub layout: Layout,
-    style: Option<Box<dyn Fn(BlockStyle<W::Color>) -> BlockStyle<W::Color>>>,
+    style: WidgetStyleFn<BlockStyle<W::Color>>,
 }
 
 impl<W: WidgetCtx + 'static> Edge<W> {
@@ -35,8 +36,6 @@ impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
     fn layout(&self) -> Layout {
         self.layout
     }
-
-    fn on_mount(&mut self, _ctx: crate::widget::MountCtx<W>) {}
 
     #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {

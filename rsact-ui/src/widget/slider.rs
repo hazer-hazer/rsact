@@ -153,8 +153,6 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Slider<W, Dir> {
         MetaTree::childless(Meta::focusable(id))
     }
 
-    fn on_mount(&mut self, _ctx: crate::widget::MountCtx<W>) {}
-
     fn layout(&self) -> Layout {
         self.layout
     }

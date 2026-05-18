@@ -127,8 +127,6 @@ where
     // TODO: Can rewrite so that meta is called once?
     fn meta(&self, id: ElId) -> MetaTree;
 
-    // These functions MUST be called only ones per widget //
-    fn on_mount(&mut self, ctx: MountCtx<W>);
     fn layout(&self) -> Layout;
 
     // Hot-loop called functions //
@@ -250,6 +248,7 @@ pub trait FontSettingWidget<W: WidgetCtx>: Widget<W> + Sized + 'static {
         mut self,
         font_size: impl IntoMaybeReactive<S>,
     ) -> Self {
+        // TODO: Wrong, we accept MaybeReactive but update only once. Use setter!
         // TODO: Warn on overwrite
         self.update_font_props(|font_props| {
             font_props.font_size = Some(

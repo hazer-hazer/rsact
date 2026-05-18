@@ -83,10 +83,6 @@ impl<W: WidgetCtx + 'static> Widget<W> for Button<W> {
         MetaTree::childless(Meta::focusable(id))
     }
 
-    fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
-        ctx.pass_to_child(self.layout, &mut self.content);
-    }
-
     fn layout(&self) -> Layout {
         self.layout
     }

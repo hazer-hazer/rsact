@@ -24,8 +24,8 @@
   "rust-analyzer.check.noDefaultFeatures": true,
   "rust-analyzer.check.features": [
     "single-thread",
-    "debug-info"
-    // "simulator"
+    "debug-info",
+    "simulator"
     // "async"
   ],
   "rust-analyzer.testExplorer": true,

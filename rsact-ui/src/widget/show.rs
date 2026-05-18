@@ -34,10 +34,6 @@ impl<W: WidgetCtx> Widget<W> for Show<W> {
         self.el.meta(id)
     }
 
-    fn on_mount(&mut self, ctx: MountCtx<W>) {
-        self.el.on_mount(ctx);
-    }
-
     fn layout(&self) -> Layout {
         self.el.layout()
     }
