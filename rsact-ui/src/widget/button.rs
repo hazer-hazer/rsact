@@ -90,8 +90,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Button<W> {
     #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
         ctx.render_self("Button", |ctx| {
-            let base = ctx.theme.with(|theme| theme.button);
-            let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
+            let style = ctx.get_style(|t| t.button, self.style.as_deref());
 
             Block::from_layout_style(
                 ctx.layout.outer,

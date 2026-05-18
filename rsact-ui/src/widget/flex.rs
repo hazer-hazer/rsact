@@ -210,7 +210,7 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Widget<W> for Flex<W, Dir> {
     fn meta(&self, id: ElId) -> MetaTree {
         MetaTree::new(
             Meta::none(),
-            self.children.map_reactive(move |children| {
+            self.children.map(move |children| {
                 children.iter().map(|child| child.meta(id)).collect()
             }),
         )

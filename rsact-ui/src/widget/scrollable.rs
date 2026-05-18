@@ -211,8 +211,7 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Scrollable<W, Dir> {
         let child_layout = child_layout.as_ref().unwrap();
 
         ctx.render_self("Scrollable", |ctx| {
-            let base = ctx.theme.with(|theme| theme.scrollable);
-            let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
+            let style = ctx.get_style(|t| t.scrollable, self.style.as_deref());
 
             Block::from_layout_style(
                 ctx.layout.outer,

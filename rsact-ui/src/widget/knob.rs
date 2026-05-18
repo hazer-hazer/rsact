@@ -101,8 +101,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Widget<W> for Knob<W, V>
     #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
         ctx.render_self("Knob", |ctx| {
-            let base = ctx.theme.with(|theme| theme.knob);
-            let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
+            let style = ctx.get_style(|t| t.knob, self.style.as_deref());
 
             let value_real = self.value.get().real_point();
             let range_degrees = style.angle;

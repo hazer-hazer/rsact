@@ -87,8 +87,7 @@ impl<W: WidgetCtx> Widget<W> for Checkbox<W>
         ctx: &mut crate::widget::RenderCtx<'_, W>,
     ) -> crate::widget::RenderResult {
         ctx.render_self("Checkbox", |ctx| {
-            let base = ctx.theme.with(|theme| theme.checkbox);
-            let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
+            let style = ctx.get_style(|t| t.checkbox, self.style.as_deref());
 
             Block::from_layout_style(
                 ctx.layout.outer,

@@ -1,5 +1,7 @@
 use crate::{
-    render::Renderable, style::WidgetStyleFn, widget::{BlockModelWidget, Meta, MetaTree, SizedWidget, prelude::*}
+    render::Renderable,
+    style::WidgetStyleFn,
+    widget::{BlockModelWidget, Meta, MetaTree, SizedWidget, prelude::*},
 };
 
 pub struct Container<W: WidgetCtx> {

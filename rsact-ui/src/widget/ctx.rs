@@ -8,7 +8,7 @@ use crate::{
         Capture, CaptureData, Event, EventResponse, FocusEvent, Propagate,
     },
     font::{AbsoluteFontProps, Font, FontCtx, FontProps},
-    layout::{model::LayoutModelNode},
+    layout::model::LayoutModelNode,
     page::{PageStyle, id::PageId},
     render::{Block, Border, Renderable as _, Renderer},
     style::{TreeStyle, theme::Theme},
@@ -112,6 +112,12 @@ pub struct CtxReady;
 pub struct CtxUnready;
 
 pub struct RenderSelf;
+
+pub trait GetStyle<W> {
+    type Style;
+
+    fn style(&self) -> Self::Style;
+}
 
 // TODO: Make RenderCtx a delegate to renderer so u can do `Primitive::(...).render(ctx)`
 pub struct RenderCtx<'a, W: WidgetCtx, S = CtxUnready> {
@@ -245,6 +251,15 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
                 ctx_state: PhantomData,
             }))
         })
+    }
+
+    pub fn get_style<Style: Copy>(
+        &self,
+        base: impl FnOnce(&Theme<W::Color>) -> Style,
+        style: Option<&dyn Fn(Style) -> Style>,
+    ) -> Style {
+        let base = self.theme.with(base);
+        style.map(|f| f(base)).unwrap_or(base)
     }
 }
 
@@ -473,5 +488,3 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
         EventResponse::Continue(Propagate::Ignored)
     }
 }
-
-

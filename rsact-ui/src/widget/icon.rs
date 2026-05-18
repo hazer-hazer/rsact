@@ -128,8 +128,7 @@ impl<W: WidgetCtx, I: IconSet + 'static, R: ReactivityMarker> Widget<W>
             }
 
             let viewport = ctx.viewport;
-            let base = ctx.theme.with(|theme| theme.icon);
-            let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
+            let style = ctx.get_style(|t| t.icon, self.style.as_deref());
 
             let icon_raw = match &self.value {
                 &IconValue::Fixed(icon_raw) => icon_raw,

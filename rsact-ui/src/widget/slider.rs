@@ -88,7 +88,7 @@ impl SliderState {
 pub struct Slider<W: WidgetCtx, Dir: Direction> {
     value: Signal<f32>,
     range: MaybeReactive<RangeInclusive<f32>>,
-    step: Memo<f32>,
+    step: MaybeReactive<f32>,
     state: Signal<SliderState>,
     layout: Layout,
     style: Option<Box<dyn Fn(SliderStyle<W::Color>) -> SliderStyle<W::Color>>>,
@@ -101,7 +101,7 @@ impl<W: WidgetCtx, Dir: Direction> Slider<W, Dir> {
         range: impl IntoMaybeReactive<RangeInclusive<f32>>,
     ) -> Self {
         let range = range.maybe_reactive();
-        let step = range.map_reactive(|range| Self::step_from_range(range));
+        let step = range.map(|range| Self::step_from_range(range));
 
         Self {
             state: SliderState::none().signal(),
@@ -116,6 +116,7 @@ impl<W: WidgetCtx, Dir: Direction> Slider<W, Dir> {
         }
     }
 
+    // TODO: Custom speed
     fn step_from_range(range: &RangeInclusive<f32>) -> f32 {
         if range.is_empty() {
             0.0
@@ -124,8 +125,8 @@ impl<W: WidgetCtx, Dir: Direction> Slider<W, Dir> {
         }
     }
 
-    pub fn step(mut self, step: impl IntoMemo<f32>) -> Self {
-        self.step = step.memo();
+    pub fn step(mut self, step: impl IntoMaybeReactive<f32>) -> Self {
+        self.step = step.maybe_reactive();
         self
     }
 }
@@ -162,8 +163,7 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Slider<W, Dir> {
         ctx.render_self("Slider", |ctx| {
             ctx.render_focus_outline(ctx.id)?;
 
-            let base = ctx.theme.with(|theme| theme.slider);
-            let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
+            let style = ctx.get_style(|t| t.slider, self.style.as_deref());
 
             let track_len = ctx
                 .layout

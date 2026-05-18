@@ -282,8 +282,7 @@ impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> Widget<W>
         let children_layouts = ctx.layout.children().collect::<Vec<_>>();
 
         ctx.render_self("Select", |ctx| {
-            let base = ctx.theme.with(|theme| theme.select);
-            let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
+            let style = ctx.get_style(|t| t.select, self.style.as_deref());
             let state = self.state.get();
 
             if let (options_offset, Some(selected)) =
@@ -313,8 +312,7 @@ impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> Widget<W>
 
         ctx.render_part("options", |ctx| {
             let state = self.state.get();
-            let base = ctx.theme.with(|theme| theme.select);
-            let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
+            let style = ctx.get_style(|t| t.select, self.style.as_deref());
             let (options_offset, _) =
                 state.options_offset(ctx.layout.inner, &children_layouts);
 

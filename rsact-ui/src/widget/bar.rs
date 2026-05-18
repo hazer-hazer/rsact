@@ -87,8 +87,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction> Widget<W>
     #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
         ctx.render_self("Bar", |ctx| {
-            let base = ctx.theme.with(|theme| theme.bar);
-            let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
+            let style = ctx.get_style(|t| t.bar, self.style.as_deref());
 
             // let start = ctx.layout.area.anchor_point(
             //     Dir::AXIS

@@ -105,8 +105,7 @@ impl<W: WidgetCtx> Widget<W> for Text<W> {
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
         ctx.render_self("Text", |ctx| {
             let content = self.content;
-            let base = ctx.theme.with(|theme| theme.text);
-            let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
+            let style = ctx.get_style(|t| t.text, self.style.as_deref());
             let props = ctx.font_props;
 
             with!(move |content| {
