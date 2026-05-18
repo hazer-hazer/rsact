@@ -41,11 +41,10 @@ impl<C: Color> BarStyle<C> {
     }
 }
 
-#[derive(Clone)]
 pub struct Bar<W: WidgetCtx, V: RangeValue, Dir: Direction> {
     value: MaybeReactive<V>,
     layout: Layout,
-    style: MemoChain<BarStyle<W::Color>>,
+    style: Option<Box<dyn Fn(BarStyle<W::Color>) -> BarStyle<W::Color>>>,
     dir: PhantomData<Dir>,
 }
 
@@ -68,7 +67,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction> Bar<W, V, Dir> {
             layout: Layout::edge(
                 Dir::AXIS.canon(Length::fill(), Length::Fixed(10)),
             ),
-            style: BarStyle::base().memo_chain(),
+            style: None,
             dir: PhantomData,
         }
     }
@@ -76,16 +75,12 @@ impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction> Bar<W, V, Dir> {
 
 impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction> Widget<W>
     for Bar<W, V, Dir>
-where
-    W::Styler: WidgetStylist<BarStyle<W::Color>>,
 {
     fn meta(&self, _: ElId) -> MetaTree {
         MetaTree::none()
     }
 
-    fn on_mount(&mut self, ctx: super::MountCtx<W>) {
-        ctx.accept_styles(self.style, ());
-    }
+    fn on_mount(&mut self, _ctx: super::MountCtx<W>) {}
 
     fn layout(&self) -> Layout {
         self.layout
@@ -93,8 +88,9 @@ where
 
     #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
-        ctx.render_self(|ctx| {
-            let style = self.style.get();
+        ctx.render_self("Bar", |ctx| {
+            let base = ctx.theme.with(|theme| theme.bar);
+            let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
 
             // let start = ctx.layout.area.anchor_point(
             //     Dir::AXIS

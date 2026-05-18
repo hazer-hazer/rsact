@@ -20,7 +20,7 @@ use rsact_ui::{
         UiMessage, WriteSignal, create_effect, create_signal,
         with_current_runtime,
     },
-    style::NullStyler,
+    style::theme::Theme,
     ui::UI,
     utils::lerpi,
     value::RangeU8,
@@ -40,6 +40,8 @@ use std::{
 static GLOBAL: Cap<System> = Cap::new(System, usize::MAX);
 
 fn main() {
+    env_logger::init();
+
     let output_settings = OutputSettingsBuilder::new()
         .max_fps(10000)
         .scale(5)
@@ -363,7 +365,7 @@ fn main() {
 
     let mut ui = UI::new_with_buffer_renderer(
         display.bounding_box().size.inert(),
-        NullStyler,
+        Theme::default(),
         BinaryColor::Off
         // AccentStyler::new(Rgb888::RED),
     )

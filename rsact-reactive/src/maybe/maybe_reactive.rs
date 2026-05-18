@@ -6,10 +6,10 @@ use crate::{
     read::{ReadSignal, SignalMap, impl_read_signal_traits},
     signal::Signal,
 };
-use alloc::string::String;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 
+// TODO: Get rid of MemoChain, it is anti-pattern from the start. It was created for styles but now we don't need it.
 // TODO: Can we hack reactive values so PartialEq won't be required? One way is to make ValueId generic over reactive value type, for example `as_memo_with_untracked` and `as_signal_with_untracked` implementations that will be dispatched based on the MaybeReactive variant.
 /// An optionally reactive, **read-only** value.
 ///

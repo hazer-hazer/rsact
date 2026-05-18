@@ -4,8 +4,7 @@ use alloc::string::{String, ToString};
 use core::fmt::Display;
 use layout::ContentLayout;
 use rsact_reactive::{
-    maybe::maybe_reactive::SignalMapMaybeReactive, prelude::MemoChain,
-    signal::Signal,
+    maybe::maybe_reactive::SignalMapMaybeReactive, signal::Signal,
 };
 
 declare_widget_style! {
@@ -28,11 +27,10 @@ impl<C: Color> TextStyle<C> {
     }
 }
 
-
 pub struct Text<W: WidgetCtx> {
     content: MaybeReactive<String>,
     layout: Layout,
-    style: MemoChain<TextStyle<W::Color>>,
+    style: Option<Box<dyn Fn(TextStyle<W::Color>) -> TextStyle<W::Color>>>,
 }
 
 impl<W: WidgetCtx> Text<W> {
@@ -40,20 +38,19 @@ impl<W: WidgetCtx> Text<W> {
     pub fn new(content: impl SignalMapRefMaybeReactive<str, String>) -> Self {
         let content =
             content.map_ref_maybe_reactive(|content| content.to_string());
-        let style = TextStyle::base().memo_chain();
 
         let layout = Layout::shrink(super::LayoutKind::Content(
             ContentLayout::text(content),
         ));
 
-        Self { content, layout, style }
+        Self { content, layout, style: None }
     }
 
     pub fn style(
-        self,
-        styler: impl Fn(TextStyle<W::Color>, ()) -> TextStyle<W::Color> + 'static,
+        mut self,
+        styler: impl Fn(TextStyle<W::Color>) -> TextStyle<W::Color> + 'static,
     ) -> Self {
-        self.style.last(move |base| styler(*base, ())).unwrap();
+        self.style = Some(Box::new(styler));
         self
     }
 
@@ -93,21 +90,14 @@ impl<W: WidgetCtx> Text<W> {
     // }
 }
 
-impl<W: WidgetCtx> FontSettingWidget<W> for Text<W> where
-    W::Styler: WidgetStylist<TextStyle<W::Color>>
-{
-}
+impl<W: WidgetCtx> FontSettingWidget<W> for Text<W> {}
 
-impl<W: WidgetCtx> Widget<W> for Text<W>
-where
-    W::Styler: WidgetStylist<TextStyle<W::Color>>,
-{
+impl<W: WidgetCtx> Widget<W> for Text<W> {
     fn meta(&self, _: ElId) -> MetaTree {
         MetaTree::none()
     }
 
     fn on_mount(&mut self, ctx: MountCtx<W>) {
-        ctx.accept_styles(self.style, ());
         ctx.inherit_font_props(self.layout);
     }
 
@@ -117,9 +107,10 @@ where
 
     #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
-        ctx.render_self(|ctx| {
+        ctx.render_self("Text", |ctx| {
             let content = self.content;
-            let style = self.style.get();
+            let base = ctx.theme.with(|theme| theme.text);
+            let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
             let props = self.font_props();
 
             with!(move |content| {
@@ -142,28 +133,19 @@ where
     }
 }
 
-impl<'a, W: WidgetCtx> Into<El<W>> for &'a str
-where
-    W::Styler: WidgetStylist<TextStyle<W::Color>>,
-{
+impl<'a, W: WidgetCtx> Into<El<W>> for &'a str {
     fn into(self) -> El<W> {
         Text::new(self.to_string().inert()).el()
     }
 }
 
-impl<W: WidgetCtx> Into<El<W>> for String
-where
-    W::Styler: WidgetStylist<TextStyle<W::Color>>,
-{
+impl<W: WidgetCtx> Into<El<W>> for String {
     fn into(self) -> El<W> {
         Text::new(self.inert()).el()
     }
 }
 
-impl<W: WidgetCtx> Into<El<W>> for Signal<String>
-where
-    W::Styler: WidgetStylist<TextStyle<W::Color>>,
-{
+impl<W: WidgetCtx> Into<El<W>> for Signal<String> {
     fn into(self) -> El<W> {
         Text::new(self).el()
     }

@@ -11,6 +11,7 @@ use crate::{
         Renderer, buffer::BufferRenderer, color::Color,
         draw_target::LayeringRenderer,
     },
+    style::theme::Theme,
     widget::ctx::*,
 };
 use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
@@ -42,8 +43,8 @@ pub struct UI<W: WidgetCtx, P: HasPages> {
     pages: BTreeMap<W::PageId, Page<W>>,
     viewport: MaybeReactive<Size>,
     on_exit: Option<Box<dyn Fn()>>,
-    // Note: Styler is Inert by design as we don't still support dynamic stylers. But do be noted Inert make data 'static and only freed on reactive scope drop, so it is better to somehow run UI inside new reactive runtime, but this requires user signals to be created inside it.
-    styler: Inert<W::Styler>,
+    // Note: Theme is Inert by design as we don't still support dynamic themes. But do be noted Inert make data 'static and only freed on reactive scope drop, so it is better to somehow run UI inside new reactive runtime, but this requires user signals to be created inside it.
+    theme: Inert<Theme<W::Color>>,
     dev_tools: Signal<DevTools>,
     renderer: Signal<W::Renderer>,
     message_queue: Option<UiQueue<W>>,
@@ -52,9 +53,8 @@ pub struct UI<W: WidgetCtx, P: HasPages> {
     fonts: Signal<FontCtx>,
 }
 
-impl<C, S, I, E> UI<Wtf<BufferRenderer<C>, S, I, E>, NoPages>
+impl<C, I, E> UI<Wtf<BufferRenderer<C>, I, E>, NoPages>
 where
-    S: Copy + 'static,
     I: PageId + 'static,
     E: Debug + 'static,
     C: Color + 'static,
@@ -64,8 +64,7 @@ where
     >(
         // TODO: Rewrite to `IntoMaybeReactive` + MaybeReactive viewport
         viewport: impl IntoMaybeReactive<V>,
-        // TODO: `with_styler` optional. Note: Not easily implementable
-        styler: S,
+        theme: Theme<C>,
         default_background: C,
     ) -> Self {
         let viewport =
@@ -73,15 +72,14 @@ where
 
         Self::new(
             viewport,
-            styler,
+            theme,
             BufferRenderer::new(viewport.get(), default_background),
         )
     }
 }
 
-impl<C, S, I, E> UI<Wtf<LayeringRenderer<C>, S, I, E>, NoPages>
+impl<C, I, E> UI<Wtf<LayeringRenderer<C>, I, E>, NoPages>
 where
-    S: Copy + 'static,
     I: PageId + 'static,
     E: Debug + 'static,
     C: Color + 'static,
@@ -90,14 +88,13 @@ where
         V: PartialEq + Into<Size> + Copy + 'static,
     >(
         viewport: impl IntoMaybeReactive<V>,
-        // TODO: `with_styler` optional. Note: Not easily implementable
-        styler: S,
+        theme: Theme<C>,
     ) -> Self {
         let viewport =
             viewport.maybe_reactive().map(|&viewport| viewport.into());
 
         // TODO: [`LayeringRenderer`] should use viewport as memo, otherwise it doesn't make any sense to be memo :)
-        Self::new(viewport, styler, LayeringRenderer::new(viewport.get()))
+        Self::new(viewport, theme, LayeringRenderer::new(viewport.get()))
     }
 }
 
@@ -112,18 +109,16 @@ impl<W: WidgetCtx> UI<W, WithPages> {
     }
 }
 
-impl<R, S, I, E> UI<Wtf<R, S, I, E>, NoPages>
+impl<R, I, E> UI<Wtf<R, I, E>, NoPages>
 where
     R: Renderer + DrawTarget<Color = <R as Renderer>::Color> + 'static,
-    S: Copy + 'static,
     I: PageId + 'static,
     E: Debug + 'static,
 {
     // TODO: Maybe just use embedded_graphics Size to avoid conversion and marking value as inert
     fn new(
         viewport: MaybeReactive<Size>,
-        // TODO: `with_styler` optional. Note: Not easily implementable
-        styler: S,
+        theme: Theme<<R as Renderer>::Color>,
         renderer: R,
     ) -> Self {
         let dev_tools =
@@ -136,7 +131,7 @@ where
             viewport,
             pages: BTreeMap::new(),
             on_exit: None,
-            styler: styler.inert(),
+            theme: theme.inert(),
             dev_tools,
             // TODO: Reactive viewport in Renderer
             renderer: renderer.signal(),
@@ -200,7 +195,7 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
             pages: self.pages,
             viewport: self.viewport,
             on_exit: self.on_exit,
-            styler: self.styler,
+            theme: self.theme,
             dev_tools: self.dev_tools,
             renderer: self.renderer,
             message_queue: self.message_queue,
@@ -226,7 +221,7 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
                         id,
                         page_root,
                         self.viewport,
-                        self.styler,
+                        self.theme,
                         self.dev_tools,
                         self.renderer,
                         self.fonts
@@ -267,7 +262,7 @@ impl<W: WidgetCtx> UI<W, WithPages> {
 
     /// Run some logic on page change
     fn on_page_change(&mut self) {
-        info!("UI: Page changed");
+        info!("UI: Page changed to {:?}", self.page_history.last().unwrap());
         self.current_page().clear().force_redraw();
 
         if self.options.auto_focus {

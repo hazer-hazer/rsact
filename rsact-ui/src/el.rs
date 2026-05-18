@@ -48,6 +48,7 @@ where
     W: WidgetCtx,
 {
     widget: Box<dyn Widget<W>>,
+    // TODO: Can use RefCell<bool> and on_mount can become a immutable method. Or we can store `mounted` state inside MountCtx.
     mounted: bool,
     id: ElId,
 }

@@ -10,6 +10,8 @@ use crate::{
 use alloc::rc::Rc;
 use core::{any::Any, cell::RefCell, marker::PhantomData, panic::Location};
 
+// TODO: Rename MemoChain first and last to before and after, because it seems misleading as someone could think that the order is first -> base -> last instead of base -> first -> last. Or maybe even better to rename first and last to pre and post, because it is more common naming for such cases.
+
 /// Error returned when [`MemoChain::first`] or [`MemoChain::last`] is called
 /// on a chain that already has that slot filled.
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -15,7 +15,7 @@ use rsact_ui::{
         AntiAliasing, RendererOptions,
         primitives::{arc::Arc, circle::Circle},
     },
-    style::NullStyler,
+    style::theme::Theme,
     ui::UI,
     widget::{
         SizedWidget, Widget,
@@ -29,6 +29,8 @@ use std::{
 };
 
 fn main() {
+    env_logger::init();
+
     let output_settings = OutputSettingsBuilder::new().max_fps(10000).build();
 
     let mut window = Window::new("SANDBOX", &output_settings);
@@ -45,7 +47,7 @@ fn main() {
 
     let mut ui = UI::new_with_buffer_renderer(
         display.bounding_box().size.inert(),
-        NullStyler,
+        Theme::default(),
         Rgb888::WHITE,
     )
     .on_exit(|| process::exit(0))

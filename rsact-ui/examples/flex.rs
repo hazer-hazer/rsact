@@ -18,7 +18,7 @@ use rsact_ui::{
         SignalMap, Size, Slider, Space, Text, TextStyle, create_signal,
     },
     render::color::RgbExt,
-    style::{NullStyler, WidgetStylist},
+    style::theme::Theme,
     ui::UI,
     widget::{BlockModelWidget, SizedWidget, Widget, ctx::*},
 };
@@ -32,8 +32,6 @@ fn random_size() -> Size<Length> {
 }
 
 fn item<W: WidgetCtx<Color = Rgb888>>(size: Size<Length>) -> El<W>
-where
-    W::Styler: WidgetStylist<TextStyle<Rgb888>>,
 {
     Container::new(Text::new_inert(size))
         .center()
@@ -45,6 +43,8 @@ where
 }
 
 fn main() {
+    env_logger::init();
+
     let output_settings = OutputSettingsBuilder::new()
         .max_fps(10000)
         // .theme(embedded_graphics_simulator::BinaryColorTheme::OledWhite)
@@ -159,7 +159,7 @@ fn main() {
 
     let mut ui = UI::new_with_buffer_renderer(
         display.bounding_box().size.inert(),
-        NullStyler,
+        Theme::default(),
         Rgb888::WHITE,
     )
     .auto_focus()

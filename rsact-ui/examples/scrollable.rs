@@ -11,6 +11,8 @@ use rsact_ui::{event::simulator::simulator_single_encoder, prelude::*};
 use u8g2_fonts::FontRenderer;
 
 fn main() {
+    env_logger::init();
+
     let output_settings =
         OutputSettingsBuilder::new().max_fps(10000).scale(5).build();
 
@@ -39,7 +41,7 @@ fn main() {
 
     let mut ui = UI::new_with_buffer_renderer(
         display.bounding_box().size.inert(),
-        NullStyler,
+        Theme::default(),
         BinaryColor::Off,
     )
     .auto_focus()

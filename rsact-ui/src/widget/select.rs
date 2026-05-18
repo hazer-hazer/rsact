@@ -6,7 +6,7 @@ use crate::{
     declare_widget_style,
     layout::{LayoutKind, model::LayoutModelNode},
     render::Renderable,
-    style::{ColorStyle, WidgetStylist},
+    style::ColorStyle,
     widget::{Meta, MetaTree, prelude::*},
 };
 use alloc::string::ToString;
@@ -90,7 +90,6 @@ pub struct SelectOption<W: WidgetCtx, K: PartialEq> {
 impl<W: WidgetCtx, K: PartialEq> SelectOption<W, K> {
     pub fn new(key: K) -> Self
     where
-        W::Styler: WidgetStylist<TextStyle<W::Color>>,
         K: Display,
     {
         let string = key.to_string();
@@ -114,16 +113,14 @@ impl<W: WidgetCtx, K: PartialEq> PartialEq for SelectOption<W, K> {
 pub struct Select<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> {
     layout: Layout,
     state: Signal<SelectState>,
-    style: MemoChain<SelectStyle<W::Color>>,
+    style: Option<Box<dyn Fn(SelectStyle<W::Color>) -> SelectStyle<W::Color>>>,
     // TODO: Can we do fixed size?
     options: MaybeReactive<Vec<SelectOption<W, K>>>,
     dir: PhantomData<Dir>,
 }
 
-impl<W, K> Select<W, K, ColDir>
+impl<W: WidgetCtx, K> Select<W, K, ColDir>
 where
-    W: WidgetCtx,
-    W::Styler: WidgetStylist<TextStyle<W::Color>>,
     K: PartialEq + Clone + Display + 'static,
 {
     pub fn vertical(
@@ -135,10 +132,8 @@ where
     }
 }
 
-impl<W, K> Select<W, K, RowDir>
+impl<W: WidgetCtx, K> Select<W, K, RowDir>
 where
-    W::Styler: WidgetStylist<TextStyle<W::Color>>,
-    W: WidgetCtx,
     K: PartialEq + Clone + Display + 'static,
 {
     pub fn horizontal(
@@ -149,11 +144,9 @@ where
     }
 }
 
-impl<W, K, Dir> Select<W, K, Dir>
+impl<W: WidgetCtx, K, Dir> Select<W, K, Dir>
 where
     K: PartialEq + Clone + Display + 'static,
-    W: WidgetCtx,
-    W::Styler: WidgetStylist<TextStyle<W::Color>>,
     Dir: Direction,
 {
     // TODO: Inert options?
@@ -217,7 +210,7 @@ where
                 ),
             ),
             state,
-            style: SelectStyle::base().memo_chain(),
+            style: None,
             options,
             dir: PhantomData,
         }
@@ -252,45 +245,35 @@ where
     // }
 }
 
-impl<W, K, Dir> BlockModelWidget<W> for Select<W, K, Dir>
+impl<W: WidgetCtx, K, Dir> BlockModelWidget<W> for Select<W, K, Dir>
 where
-    W: WidgetCtx,
     K: PartialEq + Display + 'static,
     Dir: Direction,
-    W::Styler: WidgetStylist<SelectStyle<W::Color>>,
 {
 }
 
-impl<W, K, Dir> SizedWidget<W> for Select<W, K, Dir>
+impl<W: WidgetCtx, K, Dir> SizedWidget<W> for Select<W, K, Dir>
 where
-    W: WidgetCtx,
     K: PartialEq + Clone + Display + 'static,
     Dir: Direction,
-    W::Styler: WidgetStylist<SelectStyle<W::Color>>,
 {
 }
 
-impl<W, K, Dir: 'static> FontSettingWidget<W> for Select<W, K, Dir>
+impl<W: WidgetCtx, K, Dir: 'static> FontSettingWidget<W> for Select<W, K, Dir>
 where
-    W: WidgetCtx,
     K: PartialEq + Clone + Display + 'static,
     Dir: Direction,
-    W::Styler: WidgetStylist<SelectStyle<W::Color>>,
 {
 }
 
 impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> Widget<W>
     for Select<W, K, Dir>
-where
-    W::Styler: WidgetStylist<SelectStyle<W::Color>>,
 {
     fn meta(&self, id: ElId) -> MetaTree {
         MetaTree::childless(Meta::focusable(id))
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
-        ctx.accept_styles(self.style, self.state);
-
         let layout = self.layout;
         self.options.with(|options| {
             options.iter().for_each(move |opt| {
@@ -307,8 +290,9 @@ where
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
         let children_layouts = ctx.layout.children().collect::<Vec<_>>();
 
-        ctx.render_self(|ctx| {
-            let style = self.style.get();
+        ctx.render_self("Select", |ctx| {
+            let base = ctx.theme.with(|theme| theme.select);
+            let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
             let state = self.state.get();
 
             if let (options_offset, Some(selected)) =
@@ -338,7 +322,8 @@ where
 
         ctx.render_part("options", |ctx| {
             let state = self.state.get();
-            let style = self.style.get();
+            let base = ctx.theme.with(|theme| theme.select);
+            let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
             let (options_offset, _) =
                 state.options_offset(ctx.layout.inner, &children_layouts);
 

@@ -60,7 +60,7 @@ pub struct Knob<W: WidgetCtx, V: RangeValue> {
     layout: Layout,
     value: Signal<V>,
     state: Signal<KnobState>,
-    style: MemoChain<KnobStyle<W::Color>>,
+    style: Option<Box<dyn Fn(KnobStyle<W::Color>) -> KnobStyle<W::Color>>>,
 }
 
 impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
@@ -69,7 +69,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
             layout: Layout::edge(Size::new_equal(Length::Fixed(25))),
             value,
             state: KnobState::none().signal(),
-            style: KnobStyle::base().memo_chain(),
+            style: None,
         }
     }
 
@@ -89,16 +89,12 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
 }
 
 impl<W: WidgetCtx, V: RangeValue + 'static> Widget<W> for Knob<W, V>
-where
-    W::Styler: WidgetStylist<KnobStyle<W::Color>>,
 {
     fn meta(&self, id: ElId) -> MetaTree {
         MetaTree::childless(Meta::focusable(id))
     }
 
-    fn on_mount(&mut self, ctx: super::MountCtx<W>) {
-        ctx.accept_styles(self.style, self.state);
-    }
+    fn on_mount(&mut self, _ctx: super::MountCtx<W>) {}
 
     fn layout(&self) -> Layout {
         self.layout
@@ -106,8 +102,9 @@ where
 
     #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
-        ctx.render_self(|ctx| {
-            let style = self.style.get();
+        ctx.render_self("Knob", |ctx| {
+            let base = ctx.theme.with(|theme| theme.knob);
+            let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
 
             let value_real = self.value.get().real_point();
             let range_degrees = style.angle;

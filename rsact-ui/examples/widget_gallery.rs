@@ -13,9 +13,9 @@ use rsact_ui::{
     prelude::{IntoInert, Select, SignalMap, create_signal},
     render::{AntiAliasing, RendererOptions},
     row,
-    style::accent::AccentStyler,
+    style::theme::Theme,
     ui::UI,
-    widget::{SizedWidget, Widget, flex::Flex},
+    widget::{SizedWidget, Widget, container::Container, flex::Flex},
 };
 use std::{
     fmt::Display,
@@ -27,6 +27,12 @@ enum WidgetTab {
     Button,
 }
 
+impl WidgetTab {
+    fn each() -> impl Iterator<Item = Self> {
+        [Self::Button].into_iter()
+    }
+}
+
 impl Display for WidgetTab {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -36,6 +42,8 @@ impl Display for WidgetTab {
 }
 
 fn main() {
+    env_logger::init();
+
     let output_settings = OutputSettingsBuilder::new().max_fps(10000).build();
 
     let mut window = Window::new("Widget gallery", &output_settings);
@@ -46,15 +54,23 @@ fn main() {
     window.update(&display);
 
     let widget = create_signal(WidgetTab::Button);
-    let select_widget = Select::vertical(widget, vec![].inert());
+    let select_widget =
+        Select::vertical(widget, WidgetTab::each().collect::<Vec<_>>().inert());
 
     let widget_view = widget.map(|widget| {});
 
-    let page = row![col![select_widget,]].center().fill();
+    let page = row![
+        col![
+            select_widget
+        ],
+        col![
+            Container::new(content)
+        ]
+    ].center().fill();
 
     let mut ui = UI::new_with_buffer_renderer(
         display.bounding_box().size.inert(),
-        AccentStyler::new(Rgb888::RED),
+        Theme::default().with_accent(Rgb888::RED),
         Rgb888::WHITE,
     )
     .with_page(SinglePage, page.el())

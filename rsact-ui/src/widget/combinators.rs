@@ -244,3 +244,25 @@ impl<W: WidgetCtx> Widget<W> for Option<El<W>> {
         self.as_mut().map(|widget| widget.on_event(ctx)).unwrap_or(ctx.ignore())
     }
 }
+
+// impl<W: WidgetCtx, E: Widget<W> + PartialEq> Widget<W> for MaybeReactive<E> {
+//     fn meta(&self, id: ElId) -> MetaTree {
+//         self.with(|w| w.meta(id))
+//     }
+
+//     fn on_mount(&mut self, ctx: MountCtx<W>) {
+//         self.update(|w| w.on_mount(ctx))
+//     }
+
+//     fn layout(&self) -> Layout {
+        
+//     }
+
+//     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
+//         todo!()
+//     }
+
+//     fn on_event(&mut self, ctx: EventCtx<'_, W>) -> EventResponse {
+//         todo!()
+//     }
+// }

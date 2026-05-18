@@ -48,7 +48,7 @@ where
         &self,
         ctx: &mut crate::widget::RenderCtx<'_, W>,
     ) -> crate::widget::RenderResult {
-        ctx.render_self(|ctx| {
+        ctx.render_self("Image", |ctx| {
             embedded_graphics::image::Image::new(
                 &self.data,
                 ctx.layout.inner.top_left,

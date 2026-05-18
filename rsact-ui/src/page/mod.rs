@@ -11,7 +11,7 @@ use crate::{
         size::Size,
     },
     render::color::Color,
-    style::TreeStyle,
+    style::{TreeStyle, theme::Theme},
     widget::{Behavior, Widget, ctx::*},
 };
 use alloc::vec::Vec;
@@ -20,6 +20,7 @@ use embedded_graphics::{
     Drawable as _,
     prelude::{DrawTarget, Point},
 };
+use log::{debug, info};
 use rsact_reactive::prelude::*;
 
 pub mod dev;
@@ -62,6 +63,7 @@ pub struct Page<W: WidgetCtx> {
     style: Signal<PageStyle<W::Color>>,
     renderer: Signal<W::Renderer>,
     viewport: MaybeReactive<Size>,
+    theme: Inert<Theme<W::Color>>,
     dev_tools: Signal<DevTools>,
     force_redraw: Trigger,
     render_calls: usize,
@@ -73,7 +75,7 @@ impl<W: WidgetCtx> Page<W> {
         id: W::PageId,
         root: impl Into<El<W>>,
         viewport: MaybeReactive<Size>,
-        styler: Inert<W::Styler>,
+        theme: Inert<Theme<W::Color>>,
         dev_tools: Signal<DevTools>,
         renderer: Signal<W::Renderer>,
         fonts: Signal<FontCtx>,
@@ -86,7 +88,7 @@ impl<W: WidgetCtx> Page<W> {
         // Raw root initialization //
         root.on_mount(MountCtx {
             viewport,
-            styler,
+            theme,
             inherit_font_props: FontProps {
                 font: Some(Font::Auto.maybe_reactive()),
                 font_size: None,
@@ -96,6 +98,7 @@ impl<W: WidgetCtx> Page<W> {
 
         let meta = root.meta(root.id());
 
+        // TODO: Multiple behaviors will lead to multiple memos, I am not sure what is more efficient, to recollect all behaviors when any changed or to store multiple memos.
         let focusable = create_memo(move || {
             meta.flat_collect()
                 .iter()
@@ -113,7 +116,10 @@ impl<W: WidgetCtx> Page<W> {
         .name("Focusable");
 
         let layout_tree = root.layout().name("Layout tree");
+        // TODO: If we make fonts MaybeReactive, we can go fully MaybeReactive LayoutModel here
         let layout_model = map!(move |fonts, viewport| {
+            info!("Relayout page {:?}", id);
+
             let viewport = *viewport;
             // println!("Relayout");
             // TODO: Possible optimization is to use previous memo result, pass
@@ -147,6 +153,7 @@ impl<W: WidgetCtx> Page<W> {
             // TODO: Signal viewport in Renderer
             renderer,
             viewport: viewport.name("Viewport"),
+            theme,
             dev_tools,
             force_redraw,
             render_calls: 0,
@@ -349,6 +356,12 @@ impl<W: WidgetCtx> Page<W> {
     pub fn use_renderer(&mut self, f: impl FnOnce(&W::Renderer)) -> bool {
         let mut renderer = self.renderer;
         let drawn = observe(("render_page", self.id), || {
+            info!(
+                "Render page {:?} (calls: {})",
+                self.id,
+                self.render_calls + 1
+            );
+
             self.force_redraw.track();
 
             self.render_calls += 1;
@@ -360,6 +373,10 @@ impl<W: WidgetCtx> Page<W> {
                             if let Some(background_color) =
                                 style.background_color
                             {
+                                debug!(
+                                    "Clear page {:?} with color {:?}",
+                                    self.id, background_color
+                                );
                                 renderer.clear(background_color)
                             } else {
                                 Ok(())
@@ -368,7 +385,6 @@ impl<W: WidgetCtx> Page<W> {
                         .ok()
                         .unwrap();
 
-                    // TODO: Reactive LayoutModel
                     let layout = self.layout;
                     with!(|layout| {
                         self.root.render(&mut RenderCtx::new(
@@ -380,6 +396,7 @@ impl<W: WidgetCtx> Page<W> {
                             self.style.read_only(),
                             self.viewport,
                             self.fonts.read_only(),
+                            self.theme,
                             self.force_redraw,
                         ))
                     })?;
@@ -416,20 +433,20 @@ mod tests {
         font::FontCtx,
         prelude::{Size, Text},
         render::{NullDrawTarget, NullRenderer},
-        style::NullStyler,
+        style::theme::Theme,
         widget::{Widget, ctx::*},
     };
     use alloc::string::String;
     use rsact_reactive::prelude::*;
 
-    type NullWtf = Wtf<NullRenderer, NullStyler, (), ()>;
+    type NullWtf = Wtf<NullRenderer, (), ()>;
 
     fn create_null_page(root: impl Into<El<NullWtf>>) -> Page<NullWtf> {
         Page::new(
             (),
             root,
             Size::new_equal(1).maybe_reactive(),
-            NullStyler::default().inert(),
+            Theme::default().inert(),
             DevTools::default().signal(),
             NullRenderer::default().signal(),
             FontCtx::new().signal(),

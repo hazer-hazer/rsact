@@ -1,6 +1,5 @@
 use crate::render::color::Color;
 
-pub mod accent;
 pub mod block;
 pub mod primary_gray;
 pub mod theme;
@@ -76,44 +75,7 @@ impl<C: Color> ColorStyle<C> {
 
 pub trait WidgetStyle: PartialEq + Clone {
     type Color: Color;
-    type Inputs;
 }
-
-#[derive(Default, PartialEq, Clone, Copy)]
-pub struct NullStyler;
-
-impl<S: WidgetStyle> WidgetStylist<S> for NullStyler
-where
-    S: Clone,
-{
-    fn style(self) -> impl Fn(S, S::Inputs) -> S + 'static {
-        move |style, _| style.clone()
-    }
-}
-
-pub trait WidgetStylist<S: WidgetStyle> {
-    fn style(self) -> impl Fn(S, S::Inputs) -> S + 'static;
-}
-
-// impl<S: WidgetStyle, F> Styler<S> for F
-// where
-//     F: Fn(S, S::Inputs) -> S + 'static,
-// {
-//     type Class = ();
-
-//     fn default() -> Self::Class {
-//         ()
-//     }
-
-//     fn style(
-//         self,
-//         _class: Self::Class,
-//     ) -> impl Fn(S, S::Inputs) -> S + 'static {
-//         self
-//     }
-// }
-
-// impl<S: WidgetStyle> Styler<S> for S {}
 
 #[derive(Clone, Copy)]
 pub struct TreeStyle<C: Color> {
@@ -163,15 +125,7 @@ macro_rules! declare_widget_style {
 
         impl<C: $crate::render::color::Color> $crate::style::WidgetStyle for $name<C> {
             type Color = C;
-            type Inputs = $crate::style::declare_widget_style!(@inputs $($inputs)?);
         }
-    };
-
-    (@inputs $inputs: ty) => {
-        $inputs
-    };
-    (@inputs) => {
-        ()
     };
 
     (@opt_method_list $field: ident: $ty: ident $({

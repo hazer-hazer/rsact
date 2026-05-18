@@ -31,7 +31,7 @@ pub struct Button<W: WidgetCtx> {
     layout: Layout,
     content: El<W>,
     state: Signal<ButtonState>,
-    style: MemoChain<ButtonStyle<W::Color>>,
+    style: Option<Box<dyn Fn(ButtonStyle<W::Color>) -> ButtonStyle<W::Color>>>,
     on_click: Option<Box<dyn FnMut()>>,
 }
 
@@ -48,13 +48,7 @@ impl<W: WidgetCtx + 'static> Button<W> {
             font_props: Default::default(),
         }));
 
-        Self {
-            layout,
-            content,
-            state,
-            style: ButtonStyle::base().memo_chain(),
-            on_click: None,
-        }
+        Self { layout, content, state, style: None, on_click: None }
     }
 
     pub fn on_click<F: 'static>(mut self, on_click: F) -> Self
@@ -72,39 +66,24 @@ impl<W: WidgetCtx + 'static> Button<W> {
     }
 
     pub fn style(
-        self,
-        styler: impl Fn(ButtonStyle<W::Color>, ButtonState) -> ButtonStyle<W::Color>
-        + 'static,
+        mut self,
+        styler: impl Fn(ButtonStyle<W::Color>) -> ButtonStyle<W::Color> + 'static,
     ) -> Self {
-        let state = self.state;
-        self.style.last(move |base| styler(*base, state.get())).unwrap();
+        self.style = Some(Box::new(styler));
         self
     }
 }
 
-impl<W: WidgetCtx + 'static> SizedWidget<W> for Button<W> where
-    W::Styler: WidgetStylist<ButtonStyle<W::Color>>
-{
-}
-impl<W: WidgetCtx + 'static> BlockModelWidget<W> for Button<W> where
-    W::Styler: WidgetStylist<ButtonStyle<W::Color>>
-{
-}
-impl<W: WidgetCtx> FontSettingWidget<W> for Button<W> where
-    W::Styler: WidgetStylist<ButtonStyle<W::Color>>
-{
-}
+impl<W: WidgetCtx + 'static> SizedWidget<W> for Button<W> {}
+impl<W: WidgetCtx + 'static> BlockModelWidget<W> for Button<W> {}
+impl<W: WidgetCtx> FontSettingWidget<W> for Button<W> {}
 
-impl<W: WidgetCtx + 'static> Widget<W> for Button<W>
-where
-    W::Styler: WidgetStylist<ButtonStyle<W::Color>>,
-{
+impl<W: WidgetCtx + 'static> Widget<W> for Button<W> {
     fn meta(&self, id: ElId) -> MetaTree {
         MetaTree::childless(Meta::focusable(id))
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
-        ctx.accept_styles(self.style, self.state);
         ctx.pass_to_child(self.layout, &mut self.content);
     }
 
@@ -114,8 +93,9 @@ where
 
     #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
-        ctx.render_self(|ctx| {
-            let style = self.style.get();
+        ctx.render_self("Button", |ctx| {
+            let base = ctx.theme.with(|theme| theme.button);
+            let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
 
             Block::from_layout_style(
                 ctx.layout.outer,

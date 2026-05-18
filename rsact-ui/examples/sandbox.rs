@@ -13,13 +13,15 @@ use rsact_ui::{
     prelude::{IntoInert, Select, create_signal},
     render::{AntiAliasing, RendererOptions},
     row,
-    style::accent::AccentStyler,
+    style::theme::Theme,
     ui::UI,
     widget::{SizedWidget, Widget, flex::Flex},
 };
 use std::time::{Duration, Instant};
 
 fn main() {
+    env_logger::init();
+
     let output_settings =
         OutputSettingsBuilder::new().max_fps(10000).scale(3).build();
 
@@ -37,7 +39,7 @@ fn main() {
 
     let mut ui = UI::new_with_buffer_renderer(
         display.bounding_box().size.inert(),
-        AccentStyler::new(Rgb888::RED),
+        Theme::default().with_accent(Rgb888::RED),
         Rgb888::WHITE,
     )
     .with_page(SinglePage, page.el())

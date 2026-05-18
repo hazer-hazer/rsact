@@ -12,6 +12,7 @@ ahash = { version = "0.8.12", default-features = false, features = [
 [dev-dependencies]
 criterion = "0.8.2"
 cap = { workspace = true }
+env_logger = { workspace = true }
 
 [package]
 edition.workspace = true

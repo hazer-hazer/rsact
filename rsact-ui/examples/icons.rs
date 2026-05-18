@@ -5,10 +5,12 @@ use embedded_graphics_simulator::{
 };
 use rsact_icons::{common::CommonIcon, system::SystemIcon, IconSet};
 use rsact_ui::{
-    page::id::SinglePage, prelude::{Flex, Icon, IntoInert, Size, Text}, style::NullStyler, ui::UI, widget::{SizedWidget, Widget}
+    page::id::SinglePage, prelude::{Flex, Icon, IntoInert, Size, Text}, style::theme::Theme, ui::UI, widget::{SizedWidget, Widget}
 };
 
 fn main() {
+    env_logger::init();
+
     let output_settings =
         OutputSettingsBuilder::new().scale(1).max_fps(10000).build();
 
@@ -35,7 +37,7 @@ fn main() {
 
     let mut ui = UI::new_with_buffer_renderer(
         display.bounding_box().size.inert(),
-        NullStyler,
+        Theme::default(),
         Rgb888::WHITE,
     ).no_events().with_page(SinglePage, 
         Flex::col([

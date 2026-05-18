@@ -4,7 +4,7 @@ use crate::{
         Renderable,
         primitives::{circle::Circle, line::Line, rounded_rect::RoundedRect},
     },
-    style::{ColorStyle, WidgetStylist},
+    style::ColorStyle,
     widget::{Meta, MetaTree, prelude::*},
 };
 use core::{marker::PhantomData, ops::RangeInclusive};
@@ -91,7 +91,7 @@ pub struct Slider<W: WidgetCtx, Dir: Direction> {
     step: Memo<f32>,
     state: Signal<SliderState>,
     layout: Layout,
-    style: MemoChain<SliderStyle<W::Color>>,
+    style: Option<Box<dyn Fn(SliderStyle<W::Color>) -> SliderStyle<W::Color>>>,
     dir: PhantomData<Dir>,
 }
 
@@ -111,7 +111,7 @@ impl<W: WidgetCtx, Dir: Direction> Slider<W, Dir> {
             layout: Layout::edge(
                 Dir::AXIS.canon(Length::fill(), Length::Fixed(13)),
             ),
-            style: SliderStyle::base().memo_chain(),
+            style: None,
             dir: PhantomData,
         }
     }
@@ -148,17 +148,12 @@ impl<W: WidgetCtx> Slider<W, RowDir> {
     }
 }
 
-impl<W: WidgetCtx, Dir: Direction> Widget<W> for Slider<W, Dir>
-where
-    W::Styler: WidgetStylist<SliderStyle<W::Color>>,
-{
+impl<W: WidgetCtx, Dir: Direction> Widget<W> for Slider<W, Dir> {
     fn meta(&self, id: ElId) -> MetaTree {
         MetaTree::childless(Meta::focusable(id))
     }
 
-    fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
-        ctx.accept_styles(self.style, self.state);
-    }
+    fn on_mount(&mut self, _ctx: crate::widget::MountCtx<W>) {}
 
     fn layout(&self) -> Layout {
         self.layout
@@ -166,10 +161,11 @@ where
 
     #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
-        ctx.render_self(|ctx| {
+        ctx.render_self("Slider", |ctx| {
             ctx.render_focus_outline(ctx.id)?;
 
-            let style = self.style.get();
+            let base = ctx.theme.with(|theme| theme.slider);
+            let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
 
             let track_len = ctx
                 .layout

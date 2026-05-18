@@ -2,26 +2,25 @@ use crate::{
     render::Renderable,
     widget::{Meta, MetaTree, prelude::*},
 };
-use rsact_reactive::memo_chain::IntoMemoChain;
 
 pub struct Edge<W: WidgetCtx> {
     pub layout: Layout,
-    style: MemoChain<BlockStyle<W::Color>>,
+    style: Option<Box<dyn Fn(BlockStyle<W::Color>) -> BlockStyle<W::Color>>>,
 }
 
 impl<W: WidgetCtx + 'static> Edge<W> {
     pub fn new() -> Self {
         Self {
             layout: Layout::shrink(LayoutKind::Edge).size(Size::fill()),
-            style: BlockStyle::base().memo_chain(),
+            style: None,
         }
     }
 
     pub fn style(
-        self,
+        mut self,
         styler: impl (Fn(BlockStyle<W::Color>) -> BlockStyle<W::Color>) + 'static,
     ) -> Self {
-        self.style.last(move |prev_style| styler(*prev_style)).unwrap();
+        self.style = Some(Box::new(styler));
         self
     }
 }
@@ -41,8 +40,9 @@ impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
 
     #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
-        ctx.render_self(|ctx| {
-            let style = self.style.get();
+        ctx.render_self("Edge", |ctx| {
+            let base = BlockStyle::base();
+            let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
 
             Block::from_layout_style(
                 ctx.layout.outer,

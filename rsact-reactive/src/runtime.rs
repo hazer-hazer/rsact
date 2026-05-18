@@ -176,6 +176,7 @@ pub fn observe_by_location<R>(f: impl FnOnce() -> R) -> Option<R> {
     })
 }
 
+// TODO: Should observes be scoped? Like 1 { 2 {} } should not be the same observers as 2 { 1 {} } in the storage.
 /// Run `f` identified by an arbitrary hashable key; re-runs only if reactive
 /// dependencies from the previous call changed.
 ///

@@ -6,7 +6,7 @@ use crate::{
 pub struct Container<W: WidgetCtx> {
     pub layout: Layout,
     pub content: El<W>,
-    pub style: MemoChain<BlockStyle<W::Color>>,
+    pub style: Option<Box<dyn Fn(BlockStyle<W::Color>) -> BlockStyle<W::Color>>>,
 }
 
 impl<W: WidgetCtx + 'static> Container<W> {
@@ -18,15 +18,15 @@ impl<W: WidgetCtx + 'static> Container<W> {
                 ContainerLayout::base(content.layout()),
             )),
             content,
-            style: BlockStyle::base().memo_chain(),
+            style: None,
         }
     }
 
     pub fn style(
-        self,
+        mut self,
         style: impl (Fn(BlockStyle<W::Color>) -> BlockStyle<W::Color>) + 'static,
     ) -> Self {
-        self.style.last(move |prev_style| style(*prev_style)).unwrap();
+        self.style = Some(Box::new(style));
         self
     }
 
@@ -95,7 +95,6 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
-        // ctx.accept_styles(self.style, ());
         ctx.pass_to_child(self.layout, &mut self.content);
     }
 
@@ -107,8 +106,9 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
         &self,
         ctx: &mut RenderCtx<'_, W>,
     ) -> crate::widget::RenderResult {
-        ctx.render_self(|ctx| {
-            let style = self.style.get();
+        ctx.render_self("Container", |ctx| {
+            let base = BlockStyle::base();
+            let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
 
             Block::from_layout_style(
                 ctx.layout.outer,

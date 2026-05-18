@@ -1,121 +1,52 @@
-use crate::render::color::Color;
-use rsact_reactive::prelude::*;
+use crate::{
+    render::color::Color,
+    widget::{
+        bar::BarStyle, button::ButtonStyle, checkbox::CheckboxStyle,
+        icon::IconStyle, knob::KnobStyle, scrollable::ScrollableStyle,
+        select::SelectStyle, slider::SliderStyle, text::TextStyle,
+    },
+};
 
+/// Application-level theme: provides default styles for all built-in widgets.
+///
+/// Construct with [`Theme::default()`] and optionally customise with
+/// [`Theme::with_accent`].
 #[derive(Clone, Copy, PartialEq)]
-pub struct Palette<C: Color> {
-    background: C,
-    foreground: C,
-    primary: C,
-    secondary: C,
-    accent: C,
+pub struct Theme<C: Color> {
+    pub bar: BarStyle<C>,
+    pub button: ButtonStyle<C>,
+    pub checkbox: CheckboxStyle<C>,
+    pub icon: IconStyle<C>,
+    pub knob: KnobStyle<C>,
+    pub scrollable: ScrollableStyle<C>,
+    pub select: SelectStyle<C>,
+    pub slider: SliderStyle<C>,
+    pub text: TextStyle<C>,
 }
 
-// FIXME: Wrong PartialEq usage on Signal?
-#[derive(Clone, Copy, PartialEq)]
-pub struct ThemeStyler<C: ThemeColor + 'static> {
-    palette: Signal<Palette<C>>,
-}
-
-impl<C: ThemeColor + 'static> Default for ThemeStyler<C> {
+impl<C: Color> Default for Theme<C> {
     fn default() -> Self {
-        Self { palette: Theme::default().palette().signal() }
-    }
-}
-
-impl<C: ThemeColor + 'static> ThemeStyler<C> {
-    pub fn new(theme: Theme<C>) -> Self {
-        Self { palette: theme.palette().signal() }
-    }
-
-    pub fn set_theme(&mut self, theme: Theme<C>) {
-        self.palette.set(theme.palette());
-    }
-}
-
-// impl<C: ThemeColor + 'static> Styler<ButtonStyle<C>> for ThemeStyler<C> {
-//     type Class = ();
-
-//     fn default() -> Self::Class {
-//         // TODO
-//         ()
-//     }
-
-//     // TODO
-//     fn style(
-//         self,
-//         _inputs: Self::Class,
-//     ) -> impl Fn(
-//         ButtonStyle<C>,
-//         <ButtonStyle<C> as super::WidgetStyle>::Inputs,
-//     ) -> ButtonStyle<C>
-//            + 'static {
-//         move |mut prev_style, _state| {
-//             self.palette.with(|palette| {
-//                 // match state {}
-//                 prev_style.container.background_color =
-//                     Some(palette.background);
-//                 prev_style
-//             })
-//         }
-//     }
-// }
-
-pub struct CustomTheme<C: Color> {
-    palette: Palette<C>,
-}
-
-#[derive(Default)]
-pub enum Theme<C: ThemeColor> {
-    #[default]
-    Light,
-    Dark,
-    Custom(CustomTheme<C>),
-}
-
-impl<C: ThemeColor> Theme<C> {
-    pub fn palette(&self) -> Palette<C> {
-        match self {
-            Theme::Light => C::LIGHT,
-            Theme::Dark => C::DARK,
-            Theme::Custom(custom) => custom.palette,
+        Self {
+            bar: BarStyle::base(),
+            button: ButtonStyle::base(),
+            checkbox: CheckboxStyle::base(),
+            icon: IconStyle::base(),
+            knob: KnobStyle::base(),
+            scrollable: ScrollableStyle::base(),
+            select: SelectStyle::base(),
+            slider: SliderStyle::base(),
+            text: TextStyle::base(),
         }
     }
 }
 
-pub trait ThemeColor: Color {
-    const LIGHT: Palette<Self>;
-    const DARK: Palette<Self>;
+impl<C: Color> Theme<C> {
+    /// Apply an accent colour to all widgets that support it.
+    pub fn with_accent(mut self, accent: C) -> Self {
+        self.bar.color.set_high_priority(Some(accent));
+        self.button.container.border.color.set_high_priority(Some(accent));
+        self.checkbox.container.border.color.set_high_priority(Some(accent));
+        self.knob.color.set_high_priority(Some(accent));
+        self
+    }
 }
-
-// macro_rules! impl_rgb_theme_color {
-//     ($($colors: path),* {
-//         $($theme: ident = $palette: expr);*
-//         $(;)?
-//     }) => {
-//         $(
-//             impl ThemeColor for $colors {
-//                 $(const $theme = $palette);*
-//             }
-//         )*
-//     };
-// }
-
-// impl_rgb_theme_color! {
-//     Rgb888 {
-//         LIGHT = Palette {
-//             background: todo!(),
-//             foreground: todo!(),
-//             primary: todo!(),
-//             secondary: todo!(),
-//             accent: todo!(),
-//         };
-
-//         DARK = Palette {
-//             background: todo!(),
-//             foreground: todo!(),
-//             primary: todo!(),
-//             secondary: todo!(),
-//             accent: todo!(),
-//         };
-//     }
-// }

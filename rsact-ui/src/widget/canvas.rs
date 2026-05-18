@@ -186,7 +186,7 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
 
     #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
-        ctx.render_self(|ctx| {
+        ctx.render_self("Canvas", |ctx| {
             self.queue.queue.track();
 
             // TODO: Right DrawResult error

@@ -32,7 +32,7 @@ pub enum IconValue<I: IconSet> {
 pub struct Icon<W: WidgetCtx, I: IconSet, R: ReactivityMarker> {
     value: IconValue<I>,
     layout: Layout,
-    style: MemoChain<IconStyle<W::Color>>,
+    style: Option<Box<dyn Fn(IconStyle<W::Color>) -> IconStyle<W::Color>>>,
     is_reactive: PhantomData<R>,
     visible: MaybeReactive<bool>,
 }
@@ -53,7 +53,7 @@ impl<W: WidgetCtx> Icon<W, EmptyIconSet, IsInert> {
         Self {
             value: IconValue::Fixed(icon),
             layout,
-            style: IconStyle::base().memo_chain(),
+            style: None,
             is_reactive: PhantomData,
             visible: true.inert().maybe_reactive(),
         }
@@ -74,7 +74,7 @@ impl<W: WidgetCtx, I: IconSet + 'static> Icon<W, I, IsReactive> {
         Self {
             value,
             layout,
-            style: IconStyle::base().memo_chain(),
+            style: None,
             is_reactive: PhantomData,
             visible: true.inert().maybe_reactive(),
         }
@@ -111,16 +111,12 @@ impl<W: WidgetCtx, I: IconSet + 'static> Icon<W, I, IsReactive> {
 
 impl<W: WidgetCtx, I: IconSet + 'static, R: ReactivityMarker> Widget<W>
     for Icon<W, I, R>
-where
-    W::Styler: WidgetStylist<IconStyle<W::Color>>,
 {
     fn meta(&self, _: ElId) -> MetaTree {
         MetaTree::none()
     }
 
-    fn on_mount(&mut self, ctx: MountCtx<W>) {
-        ctx.accept_styles(self.style, ());
-    }
+    fn on_mount(&mut self, _ctx: MountCtx<W>) {}
 
     fn layout(&self) -> Layout {
         self.layout
@@ -128,13 +124,14 @@ where
 
     #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
-        ctx.render_self(|ctx| {
+        ctx.render_self("Icon", |ctx| {
             if !self.visible.get() {
                 return Ok(());
             }
 
             let viewport = ctx.viewport;
-            let style = self.style.get();
+            let base = ctx.theme.with(|theme| theme.icon);
+            let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
 
             let icon_raw = match &self.value {
                 &IconValue::Fixed(icon_raw) => icon_raw,

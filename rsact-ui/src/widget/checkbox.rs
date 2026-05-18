@@ -42,12 +42,10 @@ pub struct Checkbox<W: WidgetCtx> {
     layout: Layout,
     icon: El<W>,
     value: MaybeSignal<bool>,
-    style: MemoChain<CheckboxStyle<W::Color>>,
+    style: Option<Box<dyn Fn(CheckboxStyle<W::Color>) -> CheckboxStyle<W::Color>>>,
 }
 
 impl<W: WidgetCtx> Checkbox<W>
-where
-    W::Styler: WidgetStylist<IconStyle<W::Color>>,
 {
     pub fn new(value: impl Into<MaybeSignal<bool>>) -> Self {
         Self::new_with_icon(value, SystemIcon::Check.inert())
@@ -69,22 +67,18 @@ where
             )),
             icon,
             value,
-            style: CheckboxStyle::base().memo_chain(),
+            style: None,
         }
     }
 }
 
 impl<W: WidgetCtx> Widget<W> for Checkbox<W>
-where
-    W::Styler: WidgetStylist<CheckboxStyle<W::Color>>
-        + WidgetStylist<IconStyle<W::Color>>,
 {
     fn meta(&self, id: ElId) -> MetaTree {
         MetaTree::childless(Meta::focusable(id))
     }
 
     fn on_mount(&mut self, ctx: crate::widget::MountCtx<W>) {
-        ctx.accept_styles(self.style, self.state);
         ctx.pass_to_child(self.layout, &mut self.icon);
     }
 
@@ -96,8 +90,9 @@ where
         &self,
         ctx: &mut crate::widget::RenderCtx<'_, W>,
     ) -> crate::widget::RenderResult {
-        ctx.render_self(|ctx| {
-            let style = self.style.get();
+        ctx.render_self("Checkbox", |ctx| {
+            let base = ctx.theme.with(|theme| theme.checkbox);
+            let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
 
             Block::from_layout_style(
                 ctx.layout.outer,

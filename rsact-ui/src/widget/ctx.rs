@@ -11,20 +11,24 @@ use crate::{
     layout::{model::LayoutModelNode, node::Layout},
     page::{PageStyle, id::PageId},
     render::{Block, Border, Renderable as _, Renderer},
-    style::{TreeStyle, WidgetStyle, WidgetStylist},
+    style::{TreeStyle, theme::Theme},
 };
 use alloc::vec::Vec;
-use core::{fmt::Debug, hash::Hash, marker::PhantomData};
+use core::{
+    fmt::{Debug, Display},
+    hash::Hash,
+    marker::PhantomData,
+};
 use embedded_graphics::{prelude::DrawTarget, primitives::Rectangle};
 use itertools::Itertools as _;
+use log::{debug, info};
 use rsact_reactive::{
     prelude::*, runtime::get_observer, signal::marker::ReadOnly,
 };
 
 // TODO: Not an actual context, rename to something like `WidgetTypeFamily`
-pub trait WidgetCtx: Sized + Clone + 'static {
+pub trait WidgetCtx: Sized + PartialEq + Clone + 'static {
     type Renderer: Renderer<Color = Self::Color>;
-    type Styler: Copy;
     type Color: Color;
     type PageId: PageId;
     type CustomEvent: Debug;
@@ -42,54 +46,47 @@ pub trait WidgetCtx: Sized + Clone + 'static {
 // TODO: This is a pure WidgetCtx, but for most users we want such WTF that constraints over all stylists and events for all native widgets. Is it possible to create such keeping UI implementation untouched?
 /// WidgetTypeFamily
 /// Type family of types used in Widgets
-pub struct Wtf<R, S, I, E = ()>
+pub struct Wtf<R, I, E = ()>
 where
     R: Renderer,
 {
     _renderer: PhantomData<R>,
-    _styler: PhantomData<S>,
     _page_id: PhantomData<I>,
     _event: PhantomData<E>,
 }
 
-impl<R, S, I, E> Clone for Wtf<R, S, I, E>
+impl<R, I, E> PartialEq for Wtf<R, I, E>
+where
+    R: Renderer,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self._renderer == other._renderer
+            && self._page_id == other._page_id
+            && self._event == other._event
+    }
+}
+
+impl<R, I, E> Clone for Wtf<R, I, E>
 where
     R: Renderer,
 {
     fn clone(&self) -> Self {
         Self {
             _renderer: self._renderer.clone(),
-            _styler: self._styler.clone(),
             _page_id: self._page_id.clone(),
             _event: self._event.clone(),
         }
     }
 }
 
-// impl<R, E, S, I> Wtf<R, E, S, I>
-// where
-//     R: Renderer,
-// {
-//     pub fn new() -> Self {
-//         Self {
-//             _renderer: PhantomData,
-//             _event: PhantomData,
-//             _styler: PhantomData,
-//             _page_id: PhantomData,
-//         }
-//     }
-// }
-
-impl<R, S, I, E> WidgetCtx for Wtf<R, S, I, E>
+impl<R, I, E> WidgetCtx for Wtf<R, I, E>
 where
     R: Renderer + DrawTarget<Color = <R as Renderer>::Color> + 'static,
-    S: Copy + 'static,
     I: PageId + 'static,
     E: Debug + 'static,
 {
     type Renderer = R;
     type Color = <R as DrawTarget>::Color;
-    type Styler = S;
     type PageId = I;
     type CustomEvent = E;
 }
@@ -126,6 +123,7 @@ pub struct RenderCtx<'a, W: WidgetCtx, S = CtxUnready> {
     pub page_style: Signal<PageStyle<W::Color>, ReadOnly>,
     pub viewport: MaybeReactive<Size>,
     pub fonts: Signal<FontCtx, ReadOnly>,
+    pub theme: Inert<Theme<W::Color>>,
     force_redraw: Trigger,
     parent_dirty: bool,
 
@@ -193,6 +191,7 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
             page_style: self.page_style,
             viewport: self.viewport,
             fonts: self.fonts,
+            theme: self.theme,
             force_redraw: self.force_redraw,
             parent_dirty: self.parent_dirty,
             ctx_state: PhantomData,
@@ -214,6 +213,7 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
             page_style: self.page_style,
             viewport: self.viewport,
             fonts: self.fonts,
+            theme: self.theme,
             force_redraw: self.force_redraw,
             parent_dirty: self.parent_dirty,
             ctx_state: PhantomData,
@@ -234,6 +234,7 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
                 page_style: self.page_style,
                 viewport: self.viewport,
                 fonts: self.fonts,
+                theme: self.theme,
                 force_redraw: self.force_redraw,
                 parent_dirty: self.parent_dirty,
                 ctx_state: PhantomData,
@@ -252,6 +253,7 @@ impl<'a, W: WidgetCtx + 'static> RenderCtx<'a, W, CtxUnready> {
         page_style: Signal<PageStyle<W::Color>, ReadOnly>,
         viewport: MaybeReactive<Size>,
         fonts: Signal<FontCtx, ReadOnly>,
+        theme: Inert<Theme<W::Color>>,
         force_redraw: Trigger,
     ) -> Self {
         Self {
@@ -263,24 +265,28 @@ impl<'a, W: WidgetCtx + 'static> RenderCtx<'a, W, CtxUnready> {
             page_style,
             viewport,
             fonts,
+            theme,
             force_redraw,
             parent_dirty: false,
             ctx_state: PhantomData,
         }
     }
 
-    pub fn render_part<H: Hash + Copy>(
+    // Note: Display is required for logs, but as for now, all render_part calls are used with a string to be hashed, so we either require it to always be a string or keep it so, idk.
+    pub fn render_part<H: Display + Hash + Copy>(
         &mut self,
-        hash: H,
+        hash_source: H,
         f: impl FnOnce(&mut RenderCtx<'_, W, RenderSelf>) -> RenderResult,
     ) -> RenderResult {
-        let render_id = WithElId::new(self.id, hash);
+        let render_id = WithElId::new(self.id, hash_source);
 
         if self.parent_dirty {
             get_observer(render_id).map(|observer| observer.dirten());
         }
 
         observe(render_id, || {
+            debug!("Rendering {} [#{:?}]", hash_source, self.id);
+
             if !self.parent_dirty {
                 self.clear_outer()?;
             }
@@ -297,6 +303,7 @@ impl<'a, W: WidgetCtx + 'static> RenderCtx<'a, W, CtxUnready> {
                 page_style: self.page_style,
                 viewport: self.viewport,
                 fonts: self.fonts,
+                theme: self.theme,
                 force_redraw: self.force_redraw,
                 parent_dirty: self.parent_dirty,
                 ctx_state: PhantomData,
@@ -308,9 +315,10 @@ impl<'a, W: WidgetCtx + 'static> RenderCtx<'a, W, CtxUnready> {
     #[must_use]
     pub fn render_self(
         &mut self,
+        widget_name: &str,
         f: impl FnOnce(&mut RenderCtx<'_, W, RenderSelf>) -> RenderResult,
     ) -> RenderResult {
-        self.render_part("render", f)
+        self.render_part(&format!("{widget_name}_[render_self]"), f)
     }
 
     #[must_use]
@@ -413,7 +421,6 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
         self.pass_to_children(core::slice::from_mut(child))
     }
 
-    // TODO: Do not receive id, we already have it, same for `handle_focusable`
     pub fn is_focused(&self) -> bool {
         self.page_state.with(|page_state| page_state.is_focused(self.id))
     }
@@ -461,29 +468,12 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
 
 pub struct MountCtx<W: WidgetCtx> {
     pub viewport: MaybeReactive<Size>,
-    pub styler: Inert<W::Styler>,
+    // TODO: Later Theme should be a collection of signals for styling each component individually so each component is rerendered only on its styles changes.
+    pub theme: Inert<Theme<W::Color>>,
     pub inherit_font_props: FontProps,
 }
 
 impl<W: WidgetCtx> MountCtx<W> {
-    pub fn accept_styles<
-        I: Clone + 'static,
-        S: WidgetStyle<Inputs = I> + 'static,
-    >(
-        &self,
-        style: MemoChain<S>,
-        inputs: impl Into<MaybeSignal<I>>,
-    ) where
-        W::Styler: WidgetStylist<S>,
-    {
-        let styler = self.styler;
-        let inputs = inputs.into();
-        style
-            .first(move |base| { styler.get().style()(base.clone(), inputs.get_cloned()) })
-            // TODO: Don't panic, better overwrite `first` but emit a warning
-            .unwrap();
-    }
-
     // Note: Setting inherited font is not a reactive process. If user didn't set the font, the inherited is set. But user cannot unset font, thus font never fallbacks to inherited.
     pub fn inherit_font_props(self, mut layout: Layout) -> Self {
         // Set inherited font props in layout
@@ -570,7 +560,7 @@ impl<W: WidgetCtx> Clone for MountCtx<W> {
     fn clone(&self) -> Self {
         Self {
             viewport: self.viewport.clone(),
-            styler: self.styler.clone(),
+            theme: self.theme.clone(),
             inherit_font_props: self.inherit_font_props.clone(),
         }
     }

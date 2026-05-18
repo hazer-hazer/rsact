@@ -28,7 +28,7 @@ pub mod prelude {
     pub use crate::{
         font::FontImport,
         page::id::{PageId, SinglePage},
-        style::{NullStyler, WidgetStylist, declare_widget_style},
+        style::{declare_widget_style, theme::Theme},
         ui::UI,
         widget::{
             button::*, checkbox::*, container::*, edge::*, flex::*, icon::*,

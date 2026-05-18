@@ -304,7 +304,7 @@ pub mod prelude {
             size::{Length, Size},
         },
         render::{Block, Border, Renderer, color::Color},
-        style::{ColorStyle, WidgetStylist, block::*, declare_widget_style},
+        style::{ColorStyle, block::*, declare_widget_style},
         widget::{
             BlockModelWidget, FontSettingWidget, Meta, MetaTree, RenderResult,
             SizedWidget, Widget, ctx::*,

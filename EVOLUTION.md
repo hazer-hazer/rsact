@@ -21,3 +21,5 @@ This are the actions to be done by me or LLM. When LLM completes one, it should 
 - [] Go over the cases where something strange like `.inert().memo()` happens, most of the time this is incorrect.
 - [] `MaybeReactive` widget meta easily implementable through custom MaybeReactive tree of Meta. Look at MemoTree.
 - [] `MaybeReactive` layouts require reactive-on-write reactivity primitive that will turn into signal when user sets it from some reactive source
+- [] For debugging purpose we can add `what_changed` function that will list values that are changed in current reactive observer telling why this observer recomputed
+- [] ??? I think that now we can get rid of using MemoChain for styles in each widget. Let's replace them and make a perfect reactive dependency style inheritance in render pass.

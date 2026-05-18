@@ -168,7 +168,6 @@ pub struct BlockStyle<C: Color> {
 
 impl<C: Color> WidgetStyle for BlockStyle<C> {
     type Color = C;
-    type Inputs = ();
 }
 
 impl<C: Color> Clone for BlockStyle<C> {
