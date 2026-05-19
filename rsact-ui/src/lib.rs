@@ -8,6 +8,7 @@ pub mod anim;
 pub mod el;
 pub mod event;
 pub mod font;
+pub mod geometry;
 pub mod layout;
 pub mod page;
 pub mod render;
@@ -17,25 +18,26 @@ pub mod utils;
 pub mod value;
 pub mod widget;
 
+#[cfg(feature = "embedded-graphics")]
+pub mod eg;
+
 // #[macro_use]
 extern crate log;
-pub use derivative;
-pub use embedded_graphics;
-pub use embedded_graphics_core;
-pub use embedded_text;
 
 pub mod prelude {
+    pub use crate::font::FontImport;
     pub use crate::{
-        font::FontImport,
+        geometry::*,
         page::id::{PageId, SinglePage},
         style::{declare_widget_style, theme::Theme},
         ui::UI,
         widget::{
-            button::*, checkbox::*, container::*, edge::*, flex::*, icon::*,
-            image::*, prelude::*, scrollable::*, select::*, slider::*,
-            space::*, text::*,
+            button::*, container::*, edge::*, flex::*, prelude::*,
+            scrollable::*, select::*, slider::*, space::*, text::*,
         },
     };
-
+    #[cfg(feature = "embedded-graphics")]
+    pub use crate::{widget::checkbox::*, widget::icon::*, widget::image::*};
+    #[cfg(feature = "embedded-graphics")]
     pub use rsact_icons::{IconRaw, IconSet};
 }

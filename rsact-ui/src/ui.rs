@@ -1,25 +1,26 @@
+#[cfg(feature = "embedded-graphics")]
+use crate::font::FontImport;
 use crate::{
+    geometry::Size,
     el::El,
     event::{
         Event, UnhandledEvent,
         message::{UiMessage, UiQueue},
     },
-    font::{FontCtx, FontImport},
-    layout::size::Size,
+    font::FontCtx,
     page::{Page, dev::DevTools, id::PageId},
-    render::{
-        Renderer, buffer::BufferRenderer, color::Color,
-        draw_target::LayeringRenderer,
-    },
+    render::{Renderer, color::Color},
     style::theme::Theme,
     widget::ctx::*,
 };
 use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use core::{fmt::Debug, marker::PhantomData};
-use embedded_graphics::prelude::DrawTarget;
 use log::info;
 use rsact_reactive::prelude::*;
 use tinyvec::TinyVec;
+
+#[cfg(feature = "embedded-graphics")]
+use embedded_graphics::prelude::DrawTarget;
 
 pub struct UiOptions {
     auto_focus: bool,
@@ -53,70 +54,75 @@ pub struct UI<W: WidgetCtx, P: HasPages> {
     fonts: Signal<FontCtx>,
 }
 
-impl<C, I, E> UI<Wtf<BufferRenderer<C>, I, E>, NoPages>
-where
-    I: PageId + 'static,
-    E: Debug + 'static,
-    C: Color + 'static,
-{
-    pub fn new_with_buffer_renderer<
-        V: PartialEq + Into<Size> + Copy + 'static,
-    >(
-        // TODO: Rewrite to `IntoMaybeReactive` + MaybeReactive viewport
-        viewport: impl IntoMaybeReactive<V>,
-        theme: Theme<C>,
-        default_background: C,
-    ) -> Self {
-        let viewport =
-            viewport.maybe_reactive().map(|&viewport| viewport.into());
-
-        Self::new(
-            viewport,
-            theme,
-            BufferRenderer::new(viewport.get(), default_background),
-        )
-    }
-}
-
-impl<C, I, E> UI<Wtf<LayeringRenderer<C>, I, E>, NoPages>
-where
-    I: PageId + 'static,
-    E: Debug + 'static,
-    C: Color + 'static,
-{
-    pub fn new_with_layer_renderer<
-        V: PartialEq + Into<Size> + Copy + 'static,
-    >(
-        viewport: impl IntoMaybeReactive<V>,
-        theme: Theme<C>,
-    ) -> Self {
-        let viewport =
-            viewport.maybe_reactive().map(|&viewport| viewport.into());
-
-        // TODO: [`LayeringRenderer`] should use viewport as memo, otherwise it doesn't make any sense to be memo :)
-        Self::new(viewport, theme, LayeringRenderer::new(viewport.get()))
-    }
-}
-
 // LayeringRenderer is DrawTarget layering wrapper which is the only Renderer supported for now.
 impl<W: WidgetCtx> UI<W, WithPages> {
     // TODO: Move `MapColor` mapping to separate drawing variant to avoid specifying generic for `C`
+    #[cfg(feature = "embedded-graphics")]
     pub fn render(
         &mut self,
         target: &mut impl DrawTarget<Color = W::Color>,
-    ) -> bool {
+    ) -> bool
+    where
+        W::Renderer: embedded_graphics::Drawable<Color = W::Color, Output = ()>,
+    {
         self.current_page().render(target)
     }
 }
 
+#[cfg(not(feature = "embedded-graphics"))]
 impl<R, I, E> UI<Wtf<R, I, E>, NoPages>
 where
-    R: Renderer + DrawTarget<Color = <R as Renderer>::Color> + 'static,
+    R: Renderer + 'static,
     I: PageId + 'static,
     E: Debug + 'static,
 {
     // TODO: Maybe just use embedded_graphics Size to avoid conversion and marking value as inert
     fn new(
+        viewport: MaybeReactive<Size>,
+        theme: Theme<<R as Renderer>::Color>,
+        renderer: R,
+    ) -> Self {
+        let dev_tools =
+            create_signal(DevTools { enabled: false, hovered: None });
+
+        let fonts = create_signal(FontCtx::new());
+
+        Self {
+            page_history: Default::default(),
+            viewport,
+            pages: BTreeMap::new(),
+            on_exit: None,
+            theme: theme.inert(),
+            dev_tools,
+            // TODO: Reactive viewport in Renderer
+            renderer: renderer.signal(),
+            message_queue: None,
+            options: Default::default(),
+            has_pages: PhantomData,
+            fonts,
+        }
+    }
+
+    pub fn auto_focus(mut self) -> Self {
+        self.options.auto_focus = true;
+        self
+    }
+}
+
+#[cfg(feature = "embedded-graphics")]
+impl<R, I, E> UI<Wtf<R, I, E>, NoPages>
+where
+    R: Renderer
+        + embedded_graphics::prelude::DrawTarget<
+            Color = <R as Renderer>::Color,
+            Error = (),
+        > + 'static,
+    <R as Renderer>::Color: embedded_graphics::prelude::PixelColor,
+    I: PageId + 'static,
+    E: Debug + 'static,
+{
+    // TODO: Maybe just use embedded_graphics Size to avoid conversion and marking value as inert
+    pub(crate) fn new(
         viewport: MaybeReactive<Size>,
         theme: Theme<<R as Renderer>::Color>,
         renderer: R,
@@ -233,12 +239,14 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
 
     // Fonts //
     /// Adds font import into UI.
+    #[cfg(feature = "embedded-graphics")]
     pub fn with_font(mut self, import: FontImport) -> Self {
         self.fonts.update(|fonts| fonts.insert(import));
         self
     }
 
     // TODO: Can we support reactive default?
+    #[cfg(feature = "embedded-graphics")]
     pub fn with_default_font(mut self, import: FontImport) -> Self {
         self.fonts.update(|fonts| {
             fonts.set_default(import);

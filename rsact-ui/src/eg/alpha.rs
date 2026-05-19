@@ -1,3 +1,4 @@
+use crate::{render::color::Color, widget::RenderResult};
 use embedded_graphics::{
     Drawable, Pixel,
     image::{Image, ImageDrawable},
@@ -6,10 +7,6 @@ use embedded_graphics::{
     text::renderer::{CharacterStyle, TextRenderer},
 };
 use embedded_text::TextBox;
-
-use crate::widget::RenderResult;
-
-use super::color::Color;
 
 pub trait AlphaDrawTarget: DrawTarget {
     fn pixel_alpha(
@@ -20,7 +17,7 @@ pub trait AlphaDrawTarget: DrawTarget {
 }
 
 #[cfg(feature = "simulator")]
-impl<C: Color> AlphaDrawTarget
+impl<C: Color + embedded_graphics::prelude::PixelColor> AlphaDrawTarget
     for embedded_graphics_simulator::SimulatorDisplay<C>
 {
     fn pixel_alpha(
@@ -63,7 +60,9 @@ impl<P: StyledAlphaDrawable<S>, S> AlphaDrawable for Styled<P, S> {
 }
 
 // Note: Rectangle has nothing to anti-alias, it has perfect 90° angles
-impl<C: Color> AlphaDrawable for Styled<Rectangle, PrimitiveStyle<C>> {
+impl<C: Color + embedded_graphics::prelude::PixelColor> AlphaDrawable
+    for Styled<Rectangle, PrimitiveStyle<C>>
+{
     type Color = C;
 
     fn draw_alpha<A>(&self, target: &mut A) -> RenderResult
@@ -75,8 +74,11 @@ impl<C: Color> AlphaDrawable for Styled<Rectangle, PrimitiveStyle<C>> {
     }
 }
 
-impl<'a, C: Color, S: TextRenderer<Color = C> + CharacterStyle<Color = C>>
-    AlphaDrawable for TextBox<'a, S>
+impl<
+    'a,
+    C: Color + embedded_graphics::prelude::PixelColor,
+    S: TextRenderer<Color = C> + CharacterStyle<Color = C>,
+> AlphaDrawable for TextBox<'a, S>
 {
     type Color = C;
 
@@ -101,7 +103,9 @@ impl<'a, C: Color, T: ImageDrawable<Color = C>> AlphaDrawable for Image<'a, T> {
     }
 }
 
-impl<C: Color> AlphaDrawable for Pixel<C> {
+impl<C: Color + embedded_graphics::prelude::PixelColor> AlphaDrawable
+    for Pixel<C>
+{
     type Color = C;
 
     fn draw_alpha<A>(&self, target: &mut A) -> RenderResult

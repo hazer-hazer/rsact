@@ -4,6 +4,12 @@ I plan to deeply use LLMs to rethink this library.
 
 Here are the contents written by me along points from models.
 
+Use cargo-hack to check for all features to compile
+
+```
+cargo hack check --feature-powerset --no-dev-deps --all --mutually-exclusive-features std,single-thread --at-least-one-of std,single-thread
+```
+
 ## Ideas
 
 - rsact_reactive: support/pass custom comparator to memo
@@ -24,3 +30,6 @@ This are the actions to be done by me or LLM. When LLM completes one, it should 
 - [] For debugging purpose we can add `what_changed` function that will list values that are changed in current reactive observer telling why this observer recomputed
 - [] ??? I think that now we can get rid of using MemoChain for styles in each widget. Let's replace them and make a perfect reactive dependency style inheritance in render pass.
 - [] Add full mouse support. Start with simple traversal + maybe path cache for non-reactive element paths. Maybe move to more complex hit testing.
+- [] Fully get rid of embedded_graphics as a required dependency and implement generic proxies for rendering.
+- [] Remove embedded-graphics dependencies from rsact-icons like endianness. Remove feature flag for rsact-icons
+- [] Remove embedded-graphics dependencies from Image widget.

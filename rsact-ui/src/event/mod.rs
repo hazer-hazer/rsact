@@ -1,6 +1,6 @@
+use crate::geometry::*;
 use crate::{el::ElId, widget::ctx::WidgetCtx};
 use core::{fmt::Debug, ops::ControlFlow};
-use embedded_graphics::prelude::Point;
 
 pub mod message;
 #[cfg(feature = "simulator")]

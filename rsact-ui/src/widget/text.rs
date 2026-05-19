@@ -104,22 +104,27 @@ impl<W: WidgetCtx> Widget<W> for Text<W> {
     #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
         ctx.render_self("Text", |ctx| {
-            let content = self.content;
-            let style = ctx.get_style(|t| t.text, self.style.as_deref());
-            let props = ctx.font_props;
+            #[cfg(feature = "embedded-graphics")]
+            {
+                let content = self.content;
+                let style = ctx.get_style(|t| t.text, self.style.as_deref());
+                let props = ctx.font_props;
 
-            with!(move |content| {
-                let font = props.font();
-                let props = props.resolve(ctx.viewport.get());
+                with!(move |content| {
+                    let font = props.font();
+                    let props = props.resolve(ctx.viewport.get());
 
-                ctx.render_font(
-                    font,
-                    content,
-                    props,
-                    ctx.layout.inner,
-                    style.color.expect(),
-                )
-            })
+                    ctx.render_font(
+                        font,
+                        content,
+                        props,
+                        ctx.layout.inner,
+                        style.color.expect(),
+                    )
+                })
+            }
+            #[cfg(not(feature = "embedded-graphics"))]
+            Ok(())
         })
     }
 

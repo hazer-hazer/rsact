@@ -1,15 +1,11 @@
-use super::{
-    FlexLayout, LayoutCtx, Limits,
-    size::{Length, Size},
-};
+use super::{FlexLayout, LayoutCtx, Limits, length::Length};
+use crate::geometry::*;
 use crate::layout::{
     Align,
-    axis::Axial as _,
+    length::{DivFactors, SubTake as _},
     model::{LayoutModel, model_layout},
-    size::{DivFactors, SubTake as _},
 };
 use alloc::vec::Vec;
-use embedded_graphics::prelude::Point;
 use itertools::Itertools as _;
 use rsact_reactive::prelude::*;
 
@@ -345,7 +341,7 @@ pub fn model_flex(
                 );
             }
 
-            children_layouts[i].translate_mut(next_pos);
+            children_layouts[i].translate_mut(next_pos.into());
 
             let child_size = children_layouts[i].outer_size();
 

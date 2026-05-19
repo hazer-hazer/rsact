@@ -1,13 +1,16 @@
 pub mod bar;
 pub mod button;
 pub mod canvas;
+#[cfg(feature = "embedded-graphics")]
 pub mod checkbox;
 pub mod combinators;
 pub mod container;
 pub mod ctx;
 pub mod edge;
 pub mod flex;
+#[cfg(feature = "embedded-graphics")]
 pub mod icon;
+#[cfg(feature = "embedded-graphics")]
 pub mod image;
 pub mod knob;
 pub mod scrollable;
@@ -291,16 +294,15 @@ pub mod prelude {
             message::UiMessage,
         },
         font::{FontSize, FontStyle},
+        geometry::{
+            Anchor, AnchorPoint, Angle, Axial, AxialData, Axis, ColDir,
+            CornerRadii, Direction, Point, PointExt, Rect, RectExt, RowDir,
+            Size, SizeExt,
+        },
         layout::{
             self, Align, ContainerLayout, FlexLayout, LayoutKind, Limits,
-            axis::{
-                Anchor, Axial as _, Axis, AxisAnchorPoint, ColDir, Direction,
-                RowDir,
-            },
-            block_model::BlockModel,
-            node::Layout,
+            block_model::BlockModel, length::Length, node::Layout,
             padding::Padding,
-            size::{Length, Size},
         },
         render::{Block, Border, Renderer, color::Color},
         style::{ColorStyle, block::*, declare_widget_style},

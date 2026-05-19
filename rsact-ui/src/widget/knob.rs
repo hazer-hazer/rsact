@@ -1,10 +1,9 @@
 use super::prelude::*;
-use crate::render::Renderable;
-use crate::render::primitives::sector::Sector;
-use crate::value::RangeValue;
-use embedded_graphics::prelude::{Angle, Primitive};
-use embedded_graphics::primitives::{PrimitiveStyle, PrimitiveStyleBuilder};
-use layout::size::SizeExt;
+use crate::{
+    geometry::*,
+    render::{DrawStyle, StrokeAlignment},
+    value::RangeValue,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct KnobState {
@@ -39,20 +38,13 @@ impl<C: Color> KnobStyle<C> {
         }
     }
 
-    fn sector_style(&self) -> PrimitiveStyle<C> {
-        let base = PrimitiveStyleBuilder::new()
-            // .stroke_width(self.thickness)
-            .stroke_alignment(
-                embedded_graphics::primitives::StrokeAlignment::Outside,
-            );
-
-        let base = self
-            .color
-            .get()
-            .map(|color| base.fill_color(color))
-            .unwrap_or(base);
-
-        base.build()
+    fn sector_draw_style(&self) -> DrawStyle<C> {
+        DrawStyle {
+            fill: self.color.get(),
+            stroke: None,
+            stroke_width: 0,
+            stroke_alignment: StrokeAlignment::Outside,
+        }
     }
 }
 
@@ -88,8 +80,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
     }
 }
 
-impl<W: WidgetCtx, V: RangeValue + 'static> Widget<W> for Knob<W, V>
-{
+impl<W: WidgetCtx, V: RangeValue + 'static> Widget<W> for Knob<W, V> {
     fn meta(&self, id: ElId) -> MetaTree {
         MetaTree::childless(Meta::focusable(id))
     }
@@ -109,14 +100,15 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Widget<W> for Knob<W, V>
                 (value_real * range_degrees.to_degrees()).min(360.0),
             );
 
-            Sector::new(
-                ctx.layout.inner.top_left,
-                ctx.layout.inner.size.max_square().width,
+            let top_left = ctx.layout.inner.top_left;
+            let diameter = ctx.layout.inner.size.max_square().width;
+            ctx.renderer().draw_sector(
+                top_left,
+                diameter,
                 style.angle_start,
                 value_angle,
-            )
-            .into_styled(style.sector_style())
-            .render(ctx.renderer())?;
+                style.sector_draw_style(),
+            )?;
 
             // TODO: Round focus outline
             ctx.render_focus_outline(ctx.id)

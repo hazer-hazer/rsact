@@ -1,8 +1,6 @@
-use super::{
-    RenderResult, Widget,
-    prelude::{Color, Size},
-};
+use super::{RenderResult, Widget, prelude::Color};
 use crate::{
+    geometry::*,
     el::{El, ElId, WithElId},
     event::{
         Capture, CaptureData, Event, EventResponse, FocusEvent, Propagate,
@@ -10,7 +8,7 @@ use crate::{
     font::{AbsoluteFontProps, Font, FontCtx, FontProps},
     layout::model::LayoutModelNode,
     page::{PageStyle, id::PageId},
-    render::{Block, Border, Renderable as _, Renderer},
+    render::{Block, Border, Renderer},
     style::{TreeStyle, theme::Theme},
 };
 use alloc::vec::Vec;
@@ -19,17 +17,25 @@ use core::{
     hash::Hash,
     marker::PhantomData,
 };
-use embedded_graphics::{prelude::DrawTarget, primitives::Rectangle};
 use itertools::Itertools as _;
-use log::{debug, info};
+use log::debug;
 use rsact_reactive::{
     prelude::*, runtime::get_observer, signal::marker::ReadOnly,
 };
 
 // TODO: Not an actual context, rename to something like `WidgetTypeFamily`
 pub trait WidgetCtx: Sized + PartialEq + Clone + 'static {
+    #[cfg(not(feature = "embedded-graphics"))]
     type Renderer: Renderer<Color = Self::Color>;
+    #[cfg(feature = "embedded-graphics")]
+    type Renderer: Renderer<Color = Self::Color>
+        + embedded_graphics::prelude::DrawTarget<Color = Self::Color, Error = ()>;
+
+    #[cfg(not(feature = "embedded-graphics"))]
     type Color: Color;
+    #[cfg(feature = "embedded-graphics")]
+    type Color: Color + embedded_graphics::prelude::PixelColor;
+
     type PageId: PageId;
     type CustomEvent: Debug;
 
@@ -79,14 +85,33 @@ where
     }
 }
 
+#[cfg(not(feature = "embedded-graphics"))]
 impl<R, I, E> WidgetCtx for Wtf<R, I, E>
 where
-    R: Renderer + DrawTarget<Color = <R as Renderer>::Color> + 'static,
+    R: Renderer + 'static,
     I: PageId + 'static,
     E: Debug + 'static,
 {
     type Renderer = R;
-    type Color = <R as DrawTarget>::Color;
+    type Color = <R as Renderer>::Color;
+    type PageId = I;
+    type CustomEvent = E;
+}
+
+#[cfg(feature = "embedded-graphics")]
+impl<R, I, E> WidgetCtx for Wtf<R, I, E>
+where
+    R: Renderer
+        + embedded_graphics::prelude::DrawTarget<
+            Color = <R as Renderer>::Color,
+            Error = (),
+        > + 'static,
+    <R as Renderer>::Color: embedded_graphics::prelude::PixelColor,
+    I: PageId + 'static,
+    E: Debug + 'static,
+{
+    type Renderer = R;
+    type Color = <R as Renderer>::Color;
     type PageId = I;
     type CustomEvent = E;
 }
@@ -143,14 +168,19 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, RenderSelf> {
     }
 
     #[must_use]
+    #[cfg(feature = "embedded-graphics")]
     pub fn render_font(
         &mut self,
         font: Font,
         content: &str,
         props: AbsoluteFontProps,
-        bounds: Rectangle,
+        bounds: Rect,
         color: W::Color,
-    ) -> RenderResult {
+    ) -> RenderResult
+    where
+        W::Color: embedded_graphics::prelude::PixelColor,
+        W::Renderer: embedded_graphics::prelude::DrawTarget<Color = W::Color, Error = ()>,
+    {
         self.fonts.with(|fonts| {
             fonts.render::<W>(
                 font,

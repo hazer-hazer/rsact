@@ -1,7 +1,7 @@
 use super::{DevToolsEvent, Event, MouseEvent, MouseWheelDir, PressEvent};
 use embedded_graphics_simulator::{
-    sdl2::{Keycode, Mod, MouseWheelDirection},
     SimulatorEvent as SE,
+    sdl2::{Keycode, Mod, MouseWheelDirection},
 };
 
 pub fn simulator_single_encoder(event: SE) -> Option<Event> {
@@ -47,16 +47,16 @@ pub fn simulator_single_encoder(event: SE) -> Option<Event> {
         },
         SE::MouseWheel { scroll_delta, direction } => match direction {
             MouseWheelDirection::Normal => Some(Event::Mouse(
-                MouseEvent::Wheel(scroll_delta, MouseWheelDir::Normal),
+                MouseEvent::Wheel(scroll_delta.into(), MouseWheelDir::Normal),
             )),
             MouseWheelDirection::Flipped => Some(Event::Mouse(
-                MouseEvent::Wheel(scroll_delta, MouseWheelDir::Flipped),
+                MouseEvent::Wheel(scroll_delta.into(), MouseWheelDir::Flipped),
             )),
             MouseWheelDirection::Unknown(_) => None,
         },
         SE::Quit => Some(Event::Exit),
         SE::MouseMove { point } => {
-            Some(Event::Mouse(MouseEvent::MouseMove(point)))
+            Some(Event::Mouse(MouseEvent::MouseMove(point.into())))
         },
     }
 }

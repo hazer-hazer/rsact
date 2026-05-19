@@ -1,14 +1,8 @@
-use embedded_graphics::{
-    mono_font::{MonoTextStyleBuilder, ascii::FONT_8X13},
-    prelude::Point,
-    primitives::Rectangle,
-};
-use embedded_text::{TextBox, style::TextBoxStyleBuilder};
-
 use crate::{
+    geometry::*,
     layout::DevHoveredLayout,
-    prelude::{BlockModel, BlockStyle, BorderStyle, Size},
-    render::{Block, Border, Renderable, Renderer, color::Color},
+    prelude::{BlockModel, BlockStyle, BorderStyle},
+    render::{Block, Border, Renderer, color::Color},
     widget::RenderResult,
 };
 
@@ -23,7 +17,7 @@ pub struct DevHoveredEl {
 }
 
 impl DevHoveredEl {
-    fn model<C: Color>(area: Rectangle, color: C) -> Block<C> {
+    fn model<C: Color>(area: Rect, color: C) -> Block<C> {
         Block {
             border: Border::new(
                 BlockStyle::base().border(BorderStyle::base().color(color)),
@@ -34,11 +28,32 @@ impl DevHoveredEl {
         }
     }
 
-    pub fn draw<C: Color>(
+    #[cfg(not(feature = "embedded-graphics"))]
+    pub fn draw<R: Renderer>(&self, r: &mut R, viewport: Size) -> RenderResult
+    where
+        R: Renderer,
+    {
+        // TODO
+        todo!()
+    }
+
+    #[cfg(feature = "embedded-graphics")]
+    pub fn draw<C: Color + embedded_graphics::prelude::PixelColor, R>(
         &self,
-        r: &mut impl Renderer<Color = C>,
+        r: &mut R,
         viewport: Size,
-    ) -> RenderResult {
+    ) -> RenderResult
+    where
+        R: Renderer<Color = C>
+            + embedded_graphics::prelude::DrawTarget<Color = C, Error = ()>,
+    {
+        use embedded_graphics::{
+            Drawable as _,
+            mono_font::{MonoTextStyleBuilder, ascii::FONT_8X13},
+            prelude::Point,
+        };
+        use embedded_text::{TextBox, style::TextBoxStyleBuilder};
+
         let area = self.layout.area;
 
         let [text_color, inner_color, padding_color, ..] = C::accents();
@@ -49,9 +64,13 @@ impl DevHoveredEl {
         }
 
         // Ignore error, TextBox sometimes fails
-        TextBox::with_textbox_style(
+        let eg_viewport = embedded_graphics::primitives::Rectangle::new(
+            Point::zero(),
+            viewport.into(),
+        );
+        let _ = TextBox::with_textbox_style(
             &format!("{}", self.layout),
-            Rectangle::new(Point::zero(), viewport.into()),
+            eg_viewport,
             MonoTextStyleBuilder::new()
                 .font(&FONT_8X13)
                 .text_color(text_color)
@@ -64,7 +83,8 @@ impl DevHoveredEl {
                 )
                 .build(),
         )
-        .render(r)?;
+        .draw(r)
+        .map_err(|_| ());
 
         Ok(())
     }

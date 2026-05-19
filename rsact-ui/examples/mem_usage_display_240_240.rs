@@ -1,7 +1,7 @@
 use cap::Cap;
 use embedded_graphics::{
     pixelcolor::Rgb565,
-    prelude::{Dimensions, Point, RgbColor},
+    prelude::{Dimensions, RgbColor},
 };
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
@@ -11,10 +11,8 @@ use rsact_icons::{common::CommonIcon, system::SystemIcon};
 use rsact_reactive::runtime::current_runtime_profile;
 use rsact_ui::{
     event::{message::UiQueue, simulator::simulator_single_encoder},
-    layout::{
-        Align,
-        size::{PointExt, Size, UnitV2},
-    },
+    layout::Align,
+    prelude::*,
     prelude::{
         Button, Icon, IntoInert, ReadSignal, Scrollable, SignalMap, Text,
         UiMessage, WriteSignal, create_effect, create_signal,

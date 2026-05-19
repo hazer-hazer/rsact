@@ -7,45 +7,62 @@ version.workspace = true
 bitflags = { workspace = true }
 defmt = { workspace = true, optional = true }
 derivative = { workspace = true }
-embedded-graphics = { workspace = true }
-embedded-graphics-core = { workspace = true }
+embedded-graphics = { workspace = true, optional = true }
+embedded-graphics-core = { workspace = true, optional = true }
 embedded-graphics-simulator = { workspace = true, optional = true }
-embedded-text = { workspace = true }
+embedded-text = { workspace = true, optional = true }
 embedded-time = { workspace = true }
 itertools = { version = "0.14.0", default-features = false }
 log = { workspace = true }
-micromath = { workspace = true }
 num = { workspace = true }
-rsact-icons = { workspace = true, features = ["common", "all-sizes"] }
+rsact-icons = { workspace = true, features = [
+    "common",
+    "all-sizes",
+], optional = true }
 rsact-reactive = { workspace = true }
 tinyvec = { workspace = true }
-u8g2-fonts = { workspace = true }
+u8g2-fonts = { workspace = true, optional = true }
+tiny-skia = { version = "0.12.0", optional = true }
 
 [dev-dependencies]
+embedded-graphics = { workspace = true }
+embedded-graphics-core = { workspace = true }
 cap = { workspace = true }
 fake = "4.0.0"
 rand = "0.9"
 paw = { path = "../../paw" }
 env_logger = { workspace = true }
-
+embedded-graphics-simulator = { workspace = true }
 [features]
 default = []
 
 debug-info = []
 defmt = ["dep:defmt"]
-simulator = ["dep:embedded-graphics-simulator"]
+simulator = [
+    "dep:embedded-graphics-simulator",
+    "embedded-graphics",
+    "u8g2-fonts",
+]
+embedded-graphics = [
+    "dep:embedded-graphics",
+    "dep:embedded-graphics-core",
+    "dep:embedded-text",
+    "dep:rsact-icons",
+]
+u8g2-fonts = ["dep:u8g2-fonts", "embedded-graphics"]
 single-thread = ["rsact-reactive/single-thread"]
 std = ["log/std", "rsact-reactive/std"]
 # TODO: Print pretty blocks in terminal showing layout problems: overflows, insufficient sizes, etc.
 layout-diagnostics = []
+tiny-skia = ["dep:tiny-skia"]
 
 [[example]]
 name = "animation"
-required-features = ["std", "simulator"]
+required-features = ["std", "simulator", "embedded-graphics"]
 
 [[example]]
 name = "flex"
-required-features = ["std", "simulator"]
+required-features = ["std", "simulator", "embedded-graphics"]
 
 [lints]
 workspace = true

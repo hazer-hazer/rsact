@@ -1,6 +1,6 @@
 {
-  "rust-analyzer.check.allTargets": true,
-  "rust-analyzer.cargo.allTargets": true,
+  // "rust-analyzer.check.allTargets": false,
+  "rust-analyzer.cargo.allTargets": false,
   "cSpell.words": [
     "Deque",
     "dirten",
@@ -8,7 +8,9 @@
     "Framebuf",
     "fullscreen",
     "pixelcolor",
+    "renderable",
     "rsact",
+    "Skia",
     "Uninit",
     "vals",
     "viewports"
@@ -19,15 +21,21 @@
     "single-thread",
     "debug-info",
     "simulator",
-    "async"
+    "async",
+    // "tiny-skia",
+    "embedded-graphics",
+    "u8g2-fonts",
+    "layout-diagnostics",
+    "defmt"
   ],
-  "rust-analyzer.check.noDefaultFeatures": true,
-  "rust-analyzer.check.features": [
-    "single-thread",
-    "debug-info",
-    "simulator"
-    // "async"
-  ],
+  // "rust-analyzer.check.noDefaultFeatures": true,
+  // "rust-analyzer.check.features": [
+  //   "single-thread",
+  //   "debug-info",
+  //   "simulator",
+  //   "tiny-skia"
+  //   // "async"
+  // ],
   "rust-analyzer.testExplorer": true,
   "rust-analyzer.checkOnSave": true,
   "search.exclude": {

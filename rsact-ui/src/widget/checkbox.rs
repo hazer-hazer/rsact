@@ -2,7 +2,7 @@ use super::{
     ContainerLayout,
     icon::{Icon, IconStyle},
 };
-use crate::{render::Renderable, widget::prelude::*};
+use crate::widget::prelude::*;
 use rsact_icons::{IconSet, system::SystemIcon};
 use rsact_reactive::prelude::*;
 
@@ -42,11 +42,11 @@ pub struct Checkbox<W: WidgetCtx> {
     layout: Layout,
     icon: El<W>,
     value: MaybeSignal<bool>,
-    style: Option<Box<dyn Fn(CheckboxStyle<W::Color>) -> CheckboxStyle<W::Color>>>,
+    style:
+        Option<Box<dyn Fn(CheckboxStyle<W::Color>) -> CheckboxStyle<W::Color>>>,
 }
 
-impl<W: WidgetCtx> Checkbox<W>
-{
+impl<W: WidgetCtx> Checkbox<W> {
     pub fn new(value: impl Into<MaybeSignal<bool>>) -> Self {
         Self::new_with_icon(value, SystemIcon::Check.inert())
     }
@@ -72,8 +72,7 @@ impl<W: WidgetCtx> Checkbox<W>
     }
 }
 
-impl<W: WidgetCtx> Widget<W> for Checkbox<W>
-{
+impl<W: WidgetCtx> Widget<W> for Checkbox<W> {
     fn meta(&self, id: ElId) -> MetaTree {
         MetaTree::childless(Meta::focusable(id))
     }

@@ -1,29 +1,19 @@
 use crate::{
+    geometry::*,
     layout::{block_model::BlockModel, padding::Padding},
+    render::color::Color,
     style::block::{BlockStyle, BorderRadius, BorderStyle},
     widget::RenderResult,
 };
-use alpha::{AlphaDrawTarget, AlphaDrawable, StyledAlphaDrawable};
-use color::Color;
-use embedded_graphics::{
-    Drawable, Pixel,
-    draw_target::DrawTargetExt,
-    pixelcolor::BinaryColor,
-    prelude::{Dimensions, DrawTarget},
-    primitives::{
-        PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, RoundedRectangle,
-        StyledDrawable,
-    },
-};
-use primitives::rounded_rect::RoundedRect;
+use path::Path;
 use rsact_reactive::prelude::IntoMaybeReactive;
 
-pub mod alpha;
-pub mod buffer;
 pub mod color;
-pub mod draw_target;
-pub mod framebuf;
+pub mod path;
 pub mod primitives;
+
+#[cfg(feature = "tiny-skia")]
+pub mod tiny_skia;
 
 #[derive(PartialEq, Clone)]
 pub enum AntiAliasing {
@@ -33,7 +23,7 @@ pub enum AntiAliasing {
 
 #[derive(Default, Clone, PartialEq, IntoMaybeReactive)]
 pub struct RendererOptions {
-    anti_aliasing: Option<AntiAliasing>,
+    pub anti_aliasing: Option<AntiAliasing>,
 }
 
 impl RendererOptions {
@@ -48,62 +38,170 @@ impl RendererOptions {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StrokeAlignment {
+    Inside,
+    Center,
+    Outside,
+}
+
+impl Default for StrokeAlignment {
+    fn default() -> Self {
+        Self::Inside
+    }
+}
+
+/// Unified style for drawing filled/stroked primitives.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DrawStyle<C: Color> {
+    pub fill: Option<C>,
+    pub stroke: Option<C>,
+    pub stroke_width: u32,
+    pub stroke_alignment: StrokeAlignment,
+}
+
+impl<C: Color> Default for DrawStyle<C> {
+    fn default() -> Self {
+        Self {
+            fill: None,
+            stroke: None,
+            stroke_width: 0,
+            stroke_alignment: StrokeAlignment::Inside,
+        }
+    }
+}
+
+impl<C: Color> DrawStyle<C> {
+    pub fn filled(color: C) -> Self {
+        Self { fill: Some(color), ..Default::default() }
+    }
+
+    pub fn stroked(color: C, width: u32) -> Self {
+        Self { stroke: Some(color), stroke_width: width, ..Default::default() }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum ViewportKind {
     Fullscreen,
     /// Clipped part of parent layer with absolute positions relative to screen
     /// top-left point
-    Clipped(Rectangle),
+    Clipped(Rect),
     /// Part of parent layer with positions relative to this layer top-left
     /// point
-    Cropped(Rectangle),
+    Cropped(Rect),
 }
 
 #[derive(Clone, Copy)]
 pub struct Viewport {
     /// It's okay to have multiple Layers pointing to the same Canvas as it can
     /// be Clipped or Cropped but not for overlaying
-    layer: usize,
-    kind: ViewportKind,
+    pub layer: usize,
+    pub kind: ViewportKind,
 }
 
 impl Viewport {
     pub fn root() -> Self {
         Self { layer: 0, kind: ViewportKind::Fullscreen }
     }
+}
 
-    pub fn draw_in<D: DrawTarget>(
-        &self,
-        target: &mut D,
-        pixels: impl IntoIterator<Item = Pixel<D::Color>>,
-    ) -> Result<(), D::Error> {
-        match self.kind {
-            ViewportKind::Fullscreen => target.draw_iter(pixels),
-            ViewportKind::Clipped(area) => {
-                target.clipped(&area).draw_iter(pixels)
-            },
-            ViewportKind::Cropped(area) => {
-                target.cropped(&area).draw_iter(pixels)
-            },
-        }
-    }
+/// Core renderer trait: defines primitive drawing methods independent of
+/// embedded_graphics.
+pub trait Renderer {
+    type Color: Color;
+    type Options: PartialEq + Clone + Default;
+
+    fn set_options(&mut self, options: Self::Options);
+
+    fn clipped(
+        &mut self,
+        area: Rect,
+        f: impl FnOnce(&mut Self) -> RenderResult,
+    ) -> RenderResult;
+
+    fn fill_solid(&mut self, rect: &Rect, color: Self::Color) -> RenderResult;
+
+    fn draw_line(
+        &mut self,
+        from: Point,
+        to: Point,
+        style: DrawStyle<Self::Color>,
+    ) -> RenderResult;
+
+    fn draw_rect(
+        &mut self,
+        rect: Rect,
+        style: DrawStyle<Self::Color>,
+    ) -> RenderResult;
+
+    fn draw_rounded_rect(
+        &mut self,
+        rect: Rect,
+        corners: CornerRadii,
+        style: DrawStyle<Self::Color>,
+    ) -> RenderResult;
+
+    fn draw_circle(
+        &mut self,
+        top_left: Point,
+        diameter: u32,
+        style: DrawStyle<Self::Color>,
+    ) -> RenderResult;
+
+    fn draw_arc(
+        &mut self,
+        top_left: Point,
+        diameter: u32,
+        start: Angle,
+        sweep: Angle,
+        style: DrawStyle<Self::Color>,
+    ) -> RenderResult;
+
+    fn draw_ellipse(
+        &mut self,
+        bounding_box: Rect,
+        style: DrawStyle<Self::Color>,
+    ) -> RenderResult;
+
+    fn draw_sector(
+        &mut self,
+        top_left: Point,
+        diameter: u32,
+        start: Angle,
+        sweep: Angle,
+        style: DrawStyle<Self::Color>,
+    ) -> RenderResult;
+
+    fn draw_polygon(
+        &mut self,
+        points: &[Point],
+        style: DrawStyle<Self::Color>,
+    ) -> RenderResult;
+
+    fn draw_path(
+        &mut self,
+        path: &Path,
+        style: DrawStyle<Self::Color>,
+    ) -> RenderResult;
+}
+
+pub trait LayerRenderer {
+    fn on_layer(
+        &mut self,
+        index: usize,
+        f: impl FnOnce(&mut Self) -> RenderResult,
+    ) -> RenderResult;
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Border<C: Color>
-where
-    C: Copy,
-{
+pub struct Border<C: Color> {
     pub color: Option<C>,
     pub width: u32,
     pub radius: BorderRadius,
 }
 
 impl<C: Color> Border<C> {
-    // pub fn new() -> Self {
-    //     Self { color: None, width: 1, radius: BorderRadius::zero() }
-    // }
-
     pub fn new(block_style: BlockStyle<C>, block_model: BlockModel) -> Self {
         Self {
             color: block_style.border.color.get(),
@@ -131,17 +229,13 @@ impl<C: Color> Border<C> {
         self
     }
 
-    // Make Block for border used as outline. Background color is always removed
-    // to avoid drawing above element.
-    pub fn into_outline(self, bounds: Rectangle) -> Block<C> {
+    /// Make Block for border used as outline. Background color is always
+    /// removed to avoid drawing above element.
+    pub fn into_outline(self, bounds: Rect) -> Block<C> {
         Block { rect: bounds, background: None, border: self }
     }
 
-    pub fn into_block(
-        self,
-        bounds: Rectangle,
-        background: Option<C>,
-    ) -> Block<C> {
+    pub fn into_block(self, bounds: Rect, background: Option<C>) -> Block<C> {
         Block { rect: bounds, background, border: self }
     }
 }
@@ -155,76 +249,33 @@ impl<C: Color> Into<Padding> for Border<C> {
 #[derive(Clone, Copy)]
 pub struct Block<C: Color> {
     pub border: Border<C>,
-    pub rect: Rectangle,
+    pub rect: Rect,
     pub background: Option<C>,
 }
 
 impl<C: Color> Block<C> {
-    fn style(&self) -> PrimitiveStyle<C> {
-        let style = PrimitiveStyleBuilder::new()
-            .stroke_width(self.border.width)
-            .stroke_alignment(
-                embedded_graphics::primitives::StrokeAlignment::Inside,
-            );
-
-        let style = if let Some(border_color) = self.border.color {
-            style.stroke_color(border_color)
-        } else {
-            style
-        };
-
-        let style = if let Some(background) = self.background {
-            style.fill_color(background)
-        } else {
-            style
-        };
-
-        style.build()
-    }
-}
-
-impl<C: Color> Drawable for Block<C> {
-    type Color = C;
-    type Output = ();
-
-    fn draw<D>(&self, target: &mut D) -> Result<Self::Output, D::Error>
-    where
-        D: DrawTarget<Color = Self::Color>,
-    {
-        RoundedRectangle::new(
+    /// Render this block using the renderer's primitive drawing methods.
+    pub fn render<R: Renderer<Color = C>>(
+        &self,
+        renderer: &mut R,
+    ) -> RenderResult {
+        renderer.draw_rounded_rect(
             self.rect,
             self.border.radius.into_corner_radii(self.rect.size),
+            DrawStyle {
+                fill: self.background,
+                stroke: self.border.color,
+                stroke_width: self.border.width,
+                stroke_alignment: StrokeAlignment::Inside,
+            },
         )
-        .draw_styled(&self.style(), target)
-        .ok()
-        .unwrap();
-
-        Ok(())
     }
-}
-
-impl<C: Color> AlphaDrawable for Block<C> {
-    type Color = C;
-
-    fn draw_alpha<A>(&self, target: &mut A) -> RenderResult
-    where
-        A: AlphaDrawTarget<Color = Self::Color>,
-    {
-        RoundedRect::new(self.rect, self.border.radius)
-            .draw_styled_alpha(&self.style(), target)
-    }
-}
-
-impl<C: Color + Copy> Block<C> {
-    // pub fn new_filled(bounds: Rectangle, background: Option<C>) -> Self {
-    //     Self { border: Border::zero(), rect: bounds, background }
-    // }
 
     // TODO: Find better way to construct Block. border width inside layout
     // makes it complex
     #[inline]
     pub fn from_layout_style(
-        outer: Rectangle,
+        outer: Rect,
         BlockModel { border_width, padding: _ }: BlockModel,
         BlockStyle {
             background_color,
@@ -243,217 +294,161 @@ impl<C: Color + Copy> Block<C> {
     }
 }
 
-/// Trait to pass any Drawable + AlphaDrawable to Renderer using `render` call instead of `Renderer::render`
-pub trait Renderable<C: Color>:
-    Sized + Drawable<Color = C> + AlphaDrawable<Color = C>
-{
-    fn render(&self, renderer: &mut impl Renderer<Color = C>) -> RenderResult {
-        renderer.render(self)
+/// Minimal color type for use in NullRenderer (no embedded_graphics needed).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NullColor;
+
+impl Color for NullColor {
+    fn default_foreground() -> Self {
+        NullColor
+    }
+
+    fn default_background() -> Self {
+        NullColor
+    }
+
+    fn accents() -> [Self; 6] {
+        [NullColor; 6]
+    }
+
+    fn map(&self, _f: impl Fn(u8) -> u8) -> Self {
+        *self
+    }
+
+    fn fold(&self, _other: Self, _f: impl Fn(u8, u8) -> u8) -> Self {
+        *self
     }
 }
 
-impl<C: Color, T> Renderable<C> for T where
-    T: Drawable<Color = C> + AlphaDrawable<Color = C> + Sized
-{
-}
-
-// pub trait Renderable {
-//     type Color: Color;
-
-//     fn render(
-//         &self,
-//         target: &mut impl DrawTarget<Color = Self::Color>,
-//     ) -> DrawResult;
-
-//     fn render_aa(
-//         &self,
-//         target: &mut impl AlphaDrawTarget<Color = Self::Color>,
-//     ) -> DrawResult {
-//         self.render(target)
-//     }
-// }
-
-// // TODO: Get rid of embedded_graphics usage?
-// impl<C: Color, T> Renderable for T
-// where
-//     T: Drawable<Color = C> + AlphaDrawable<Color = C>,
-// {
-//     type Color = C;
-
-//     fn render(
-//         &self,
-//         target: &mut impl DrawTarget<Color = Self::Color>,
-//     ) -> DrawResult {
-//         self.draw(target).ok().unwrap();
-//         Ok(())
-//     }
-
-//     fn render_aa(
-//         &self,
-//         target: &mut impl AlphaDrawTarget<Color = Self::Color>,
-//     ) -> DrawResult {
-//         self.draw_alpha(target).unwrap();
-//         Ok(())
-//     }
-// }
-
-// TODO: Custom MonoText struct with String to pass from Canvas widget. Lifetime in TextBox require Canvas only to draw 'static strings
-
-// pub type Alpha = f32;
-
-pub trait Renderer:
-    DrawTarget<Color = <Self as Renderer>::Color>
-    + Drawable<Color = <Self as Renderer>::Color>
-{
-    type Color: Color;
-    type Options: PartialEq + Clone + Default;
-
-    fn set_options(&mut self, options: Self::Options);
-
-    // // TODO: Generic targets
-    // // TODO: This is the same as implementing Drawable for Renderer
-    // async fn finish_frame(
-    //     &self,
-    //     f: impl AsyncFn(&[<Self::Color as PackedColor>::Storage]),
-    // );
-    // fn clear(&mut self, color: Self::Color) -> DrawResult;
-    // fn clear_rect(&mut self, rect: Rectangle, color: Self::Color)
-    // -> DrawResult;
-    fn clipped(
-        &mut self,
-        area: Rectangle,
-        f: impl FnOnce(&mut Self) -> RenderResult,
-    ) -> RenderResult;
-    // fn on_layer(
-    //     &mut self,
-    //     index: usize,
-    //     f: impl FnOnce(&mut Self) -> DrawResult,
-    // ) -> DrawResult;
-
-    // fn pixel_iter(
-    //     &mut self,
-    //     mut pixels: impl Iterator<Item = Pixel<Self::Color>>,
-    // ) -> DrawResult {
-    //     pixels.try_for_each(|pixel| self.pixel(pixel))
-    // }
-
-    // fn pixel_iter_alpha(
-    //     &mut self,
-    //     pixels: impl Iterator<Item = (Pixel<Self::Color>, Alpha)>,
-    // ) -> DrawResult;
-
-    fn render(
-        &mut self,
-        renderable: &impl Renderable<<Self as Renderer>::Color>,
-    ) -> RenderResult;
-
-    // fn translucent_pixel_iter(
-    //     &mut self,
-    //     mut pixels: impl Iterator<Item = Option<Pixel<Self::Color>>>,
-    // ) -> DrawResult {
-    //     pixels.try_for_each(|pixel| {
-    //         if let Some(pixel) = pixel { self.pixel(pixel) } else { Ok(()) }
-    //     })
-    // }
-
-    // fn pixel(&mut self, pixel: Pixel<Self::Color>) -> DrawResult;
-    // fn pixel_alpha(
-    //     &mut self,
-    //     pixel: Pixel<Self::Color>,
-    //     alpha: Alpha,
-    // ) -> DrawResult;
-}
-
-#[derive(Default)]
-/// Stub for tests
-pub(crate) struct NullDrawTarget;
-
-impl Dimensions for NullDrawTarget {
-    fn bounding_box(&self) -> Rectangle {
-        Rectangle::zero()
-    }
-}
-
-impl DrawTarget for NullDrawTarget {
-    type Color = BinaryColor;
-    type Error = ();
-
-    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
-    where
-        I: IntoIterator<Item = Pixel<Self::Color>>,
-    {
-        let _ = pixels;
-        Ok(())
-    }
-}
-
-/// Stub for tests
+/// Stub renderer for tests.
 #[derive(Default)]
 pub(crate) struct NullRenderer;
 
-impl Dimensions for NullRenderer {
-    fn bounding_box(&self) -> Rectangle {
-        Rectangle::zero()
+#[cfg(feature = "embedded-graphics")]
+impl embedded_graphics::prelude::PixelColor for NullColor {
+    type Raw = embedded_graphics_core::pixelcolor::raw::RawU8;
+}
+
+#[cfg(feature = "embedded-graphics")]
+impl embedded_graphics::prelude::Dimensions for NullRenderer {
+    fn bounding_box(&self) -> embedded_graphics::primitives::Rectangle {
+        embedded_graphics::primitives::Rectangle::zero()
     }
 }
 
-impl DrawTarget for NullRenderer {
-    type Color = BinaryColor;
+#[cfg(feature = "embedded-graphics")]
+impl embedded_graphics::prelude::DrawTarget for NullRenderer {
+    type Color = NullColor;
     type Error = ();
 
-    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
+    fn draw_iter<I>(&mut self, _pixels: I) -> Result<(), Self::Error>
     where
-        I: IntoIterator<Item = Pixel<Self::Color>>,
+        I: IntoIterator<Item = embedded_graphics::Pixel<Self::Color>>,
     {
-        let _ = pixels;
-        Ok(())
-    }
-}
-
-impl Drawable for NullRenderer {
-    type Color = BinaryColor;
-    type Output = ();
-
-    fn draw<D>(&self, target: &mut D) -> Result<Self::Output, D::Error>
-    where
-        D: DrawTarget<Color = Self::Color>,
-    {
-        let _ = target;
         Ok(())
     }
 }
 
 impl Renderer for NullRenderer {
-    type Color = BinaryColor;
+    type Color = NullColor;
     type Options = ();
 
-    fn set_options(&mut self, options: Self::Options) {
-        let _ = options;
-    }
+    fn set_options(&mut self, _options: Self::Options) {}
 
     fn clipped(
         &mut self,
-        area: Rectangle,
+        _area: Rect,
         f: impl FnOnce(&mut Self) -> RenderResult,
     ) -> RenderResult {
-        let _ = f(self);
-        let _ = area;
-        RenderResult::Ok(())
+        f(self)
     }
 
-    fn render(
+    fn fill_solid(
         &mut self,
-        renderable: &impl Renderable<<Self as Renderer>::Color>,
+        _rect: &Rect,
+        _color: Self::Color,
     ) -> RenderResult {
-        let _ = renderable;
-        RenderResult::Ok(())
+        Ok(())
     }
-}
 
-pub trait LayerRenderer {
-    fn on_layer(
+    fn draw_line(
         &mut self,
-        index: usize,
-        f: impl FnOnce(&mut Self) -> RenderResult,
-    ) -> RenderResult;
+        _from: Point,
+        _to: Point,
+        _style: DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        Ok(())
+    }
+
+    fn draw_rect(
+        &mut self,
+        _rect: Rect,
+        _style: DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        Ok(())
+    }
+
+    fn draw_rounded_rect(
+        &mut self,
+        _rect: Rect,
+        _corners: CornerRadii,
+        _style: DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        Ok(())
+    }
+
+    fn draw_circle(
+        &mut self,
+        _top_left: Point,
+        _diameter: u32,
+        _style: DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        Ok(())
+    }
+
+    fn draw_arc(
+        &mut self,
+        _top_left: Point,
+        _diameter: u32,
+        _start: Angle,
+        _sweep: Angle,
+        _style: DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        Ok(())
+    }
+
+    fn draw_ellipse(
+        &mut self,
+        _bounding_box: Rect,
+        _style: DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        Ok(())
+    }
+
+    fn draw_sector(
+        &mut self,
+        _top_left: Point,
+        _diameter: u32,
+        _start: Angle,
+        _sweep: Angle,
+        _style: DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        Ok(())
+    }
+
+    fn draw_polygon(
+        &mut self,
+        _points: &[Point],
+        _style: DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        Ok(())
+    }
+
+    fn draw_path(
+        &mut self,
+        _path: &Path,
+        _style: DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        Ok(())
+    }
 }

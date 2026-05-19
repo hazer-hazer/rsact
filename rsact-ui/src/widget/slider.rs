@@ -1,17 +1,10 @@
 use crate::{
     declare_widget_style,
-    render::{
-        Renderable,
-        primitives::{circle::Circle, line::Line, rounded_rect::RoundedRect},
-    },
+    render::{DrawStyle, StrokeAlignment},
     style::ColorStyle,
     widget::{Meta, MetaTree, prelude::*},
 };
 use core::{marker::PhantomData, ops::RangeInclusive};
-use embedded_graphics::{
-    prelude::{Point, Primitive},
-    primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle},
-};
 use rsact_reactive::prelude::*;
 
 #[derive(Clone, Copy, Default, PartialEq)]
@@ -58,16 +51,13 @@ impl<C: Color> SliderStyle<C> {
         }
     }
 
-    fn track_line_style(&self) -> PrimitiveStyle<C> {
-        let style = PrimitiveStyleBuilder::new();
-
-        let style = if let Some(track_color) = self.track_color.get() {
-            style.stroke_color(track_color)
-        } else {
-            style
-        };
-
-        style.stroke_width(self.track_width).build()
+    fn track_draw_style(&self) -> DrawStyle<C> {
+        DrawStyle {
+            fill: None,
+            stroke: self.track_color.get(),
+            stroke_width: self.track_width,
+            stroke_alignment: StrokeAlignment::Center,
+        }
     }
 }
 
@@ -182,9 +172,7 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Slider<W, Dir> {
 
             let end = start + Dir::AXIS.canon::<Point>(track_len as i32, 0);
 
-            Line::new(start, end)
-                .into_styled(style.track_line_style())
-                .render(ctx.renderer())?;
+            ctx.renderer().draw_line(start, end, style.track_draw_style())?;
 
             let range_len =
                 self.range.with(|range| range.end() - range.start());
@@ -196,58 +184,38 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Slider<W, Dir> {
                     -half_thumb_size,
                 );
 
-            let thumb_style = PrimitiveStyleBuilder::new()
-                .stroke_width(style.thumb_border_width)
-                .stroke_alignment(
-                    embedded_graphics::primitives::StrokeAlignment::Inside,
-                );
-
-            let thumb_style =
-                if let Some(thumb_color) = style.thumb.background_color.get() {
-                    thumb_style.fill_color(thumb_color)
-                } else {
-                    thumb_style
-                };
-
-            let thumb_style =
-                if let Some(border_color) = style.thumb.border.color.get() {
-                    thumb_style.stroke_color(border_color)
-                } else {
-                    thumb_style
-                };
+            let thumb_draw_style = DrawStyle {
+                fill: style.thumb.background_color.get(),
+                stroke: style.thumb.border.color.get(),
+                stroke_width: style.thumb_border_width,
+                stroke_alignment: StrokeAlignment::Inside,
+            };
 
             match style.thumb_shape {
-                SliderThumbShape::Dash => Line::new(
+                SliderThumbShape::Dash => ctx.renderer().draw_line(
                     thumb_pos,
                     thumb_pos
                         + Dir::AXIS.canon::<Point>(0, style.thumb_size as i32),
-                )
-                .into_styled(thumb_style.build())
-                .render(ctx.renderer()),
-                SliderThumbShape::RoundedSquare => RoundedRect::new(
-                    Rectangle::new(
-                        thumb_pos,
-                        embedded_graphics::prelude::Size::new_equal(
-                            style.thumb_size,
-                        ),
-                    ),
-                    style.thumb.border.radius,
-                )
-                .into_styled(thumb_style.build())
-                .render(ctx.renderer()),
-                SliderThumbShape::Circle => {
-                    Circle::new(thumb_pos, style.thumb_size)
-                        .into_styled(thumb_style.build())
-                        .render(ctx.renderer())
+                    thumb_draw_style,
+                ),
+                SliderThumbShape::RoundedSquare => {
+                    let rect =
+                        Rect::new(thumb_pos, Size::new_equal(style.thumb_size));
+                    ctx.renderer().draw_rounded_rect(
+                        rect,
+                        style.thumb.border.radius.into_corner_radii(rect.size),
+                        thumb_draw_style,
+                    )
                 },
-                SliderThumbShape::Square => Rectangle::new(
+                SliderThumbShape::Circle => ctx.renderer().draw_circle(
                     thumb_pos,
-                    embedded_graphics::prelude::Size::new_equal(
-                        style.thumb_size,
-                    ),
-                )
-                .into_styled(thumb_style.build())
-                .render(ctx.renderer()),
+                    style.thumb_size,
+                    thumb_draw_style,
+                ),
+                SliderThumbShape::Square => ctx.renderer().draw_rect(
+                    Rect::new(thumb_pos, Size::new_equal(style.thumb_size)),
+                    thumb_draw_style,
+                ),
             }
         })
     }

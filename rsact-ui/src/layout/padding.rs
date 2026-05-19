@@ -1,6 +1,5 @@
-use super::{axis::Axis, size::Size};
+use crate::geometry::*;
 use core::ops::{Add, Sub};
-use embedded_graphics::{geometry::Point, primitives::Rectangle};
 use rsact_reactive::prelude::IntoMaybeReactive;
 
 // TODO: Outline -- outer bounds border that does not take any space
@@ -141,13 +140,19 @@ impl Sub for Padding {
     }
 }
 
-impl Sub<Padding> for Rectangle {
-    type Output = Rectangle;
+impl Sub<Padding> for Rect {
+    type Output = Rect;
 
     fn sub(self, rhs: Padding) -> Self::Output {
-        Self::new(
-            self.top_left + rhs.top_left(),
-            self.size - Into::<Size>::into(rhs).into(),
+        Rect::new(
+            Point::new(
+                self.top_left.x + rhs.left as i32,
+                self.top_left.y + rhs.top as i32,
+            ),
+            Size::new(
+                self.size.width.saturating_sub(rhs.total_x()),
+                self.size.height.saturating_sub(rhs.total_y()),
+            ),
         )
     }
 }

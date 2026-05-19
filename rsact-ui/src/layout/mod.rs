@@ -1,31 +1,28 @@
 use crate::{
+    geometry::*,
     font::{FontCtx, FontProps, FontSize},
     layout::node::Layout,
 };
 use alloc::{string::String, vec::Vec};
-use axis::Direction;
-pub use axis::{Axial as _, Axis};
 use block_model::BlockModel;
 use core::{
     fmt::{Debug, Display},
     u32,
 };
-use embedded_graphics::primitives::Rectangle;
+use length::Length;
 pub use limits::Limits;
 use num::traits::SaturatingAdd;
 use padding::Padding;
 use rsact_reactive::prelude::*;
-use size::{Length, Size};
 
-pub mod axis;
 pub mod block_model;
 pub mod flex;
 pub mod grid;
+pub mod length;
 pub mod limits;
 pub mod model;
 pub mod node;
 pub mod padding;
-pub mod size;
 
 #[derive(Clone, Copy)]
 pub struct LayoutCtx<'a> {
@@ -388,7 +385,7 @@ impl Display for DevLayoutKind {
 pub struct DevHoveredLayout {
     #[cfg(feature = "debug-info")]
     pub layout: DevLayout,
-    pub area: Rectangle,
+    pub area: Rect,
     pub children_count: usize,
 }
 

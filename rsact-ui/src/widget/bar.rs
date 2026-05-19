@@ -1,14 +1,9 @@
 use crate::{
-    render::{Renderable as _, primitives::rounded_rect::RoundedRect},
+    render::{DrawStyle, StrokeAlignment},
     value::RangeValue,
     widget::prelude::*,
 };
 use core::marker::PhantomData;
-use embedded_graphics::{
-    prelude::Primitive,
-    primitives::{PrimitiveStyle, PrimitiveStyleBuilder},
-};
-use layout::size::RectangleExt;
 use rsact_reactive::prelude::*;
 
 // TODO: Padding for inner bar
@@ -29,15 +24,13 @@ impl<C: Color> BarStyle<C> {
         }
     }
 
-    fn bar_style(&self) -> PrimitiveStyle<C> {
-        let base = PrimitiveStyleBuilder::new();
-
-        (if let Some(color) = self.color.get() {
-            base.fill_color(color)
-        } else {
-            base
-        })
-        .build()
+    fn bar_draw_style(&self) -> DrawStyle<C> {
+        DrawStyle {
+            fill: self.color.get(),
+            stroke: None,
+            stroke_width: 0,
+            stroke_alignment: StrokeAlignment::Inside,
+        }
     }
 }
 
@@ -116,9 +109,11 @@ impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction> Widget<W>
                 Anchor::Start,
             );
 
-            RoundedRect::new(bar_area, style.container.border.radius)
-                .into_styled(style.bar_style())
-                .render(ctx.renderer())?;
+            ctx.renderer().draw_rounded_rect(
+                bar_area,
+                style.container.border.radius.into_corner_radii(bar_area.size),
+                style.bar_draw_style(),
+            )?;
 
             // ctx.renderer().line(
             //     Line::new(start, end).into_styled(style.line_style(bar_width)),

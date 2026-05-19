@@ -1,5 +1,4 @@
-use super::color::Color;
-use crate::prelude::Size;
+use crate::{prelude::Size, render::color::Color};
 use alloc::boxed::Box;
 use embedded_graphics::{
     Pixel,
@@ -111,7 +110,10 @@ impl PackedColor for BinaryColor {
     }
 }
 
-pub trait Framebuf<C: Color>: Dimensions + DrawTarget {
+pub trait Framebuf<
+    C: Color + PackedColor + embedded_graphics::prelude::PixelColor,
+>: Dimensions + DrawTarget
+{
     fn data(&self) -> &[C::Storage];
     fn data_mut(&mut self) -> &mut [C::Storage];
     // fn pack(&self, pack: usize) -> &C::Storage;
@@ -169,12 +171,16 @@ pub trait Framebuf<C: Color>: Dimensions + DrawTarget {
     }
 }
 
-pub struct PackedFramebuf<C: Color> {
+pub struct PackedFramebuf<
+    C: Color + PackedColor + embedded_graphics::prelude::PixelColor,
+> {
     size: Size,
     pixels: Box<[C::Storage]>,
 }
 
-impl<C: Color> DrawTarget for PackedFramebuf<C> {
+impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor> DrawTarget
+    for PackedFramebuf<C>
+{
     type Color = C;
     type Error = ();
 
@@ -190,7 +196,9 @@ impl<C: Color> DrawTarget for PackedFramebuf<C> {
     }
 }
 
-impl<C: Color> Framebuf<C> for PackedFramebuf<C> {
+impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor>
+    Framebuf<C> for PackedFramebuf<C>
+{
     fn data(&self) -> &[C::Storage] {
         self.pixels.as_ref()
     }
@@ -200,13 +208,17 @@ impl<C: Color> Framebuf<C> for PackedFramebuf<C> {
     }
 }
 
-impl<C: Color> Dimensions for PackedFramebuf<C> {
+impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor> Dimensions
+    for PackedFramebuf<C>
+{
     fn bounding_box(&self) -> embedded_graphics::primitives::Rectangle {
         Rectangle::new(Point::zero(), self.size.into())
     }
 }
 
-impl<C: Color> PackedFramebuf<C> {
+impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor>
+    PackedFramebuf<C>
+{
     pub fn new(size: Size, initial_color: C) -> Self {
         // TODO: Not really, unused space is possible, just choose least sufficient framebuf size
         assert!(

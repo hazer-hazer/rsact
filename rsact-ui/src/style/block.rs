@@ -1,6 +1,6 @@
 use super::{ColorStyle, WidgetStyle};
-use crate::{layout::size::Size, render::color::Color};
-use embedded_graphics::primitives::CornerRadii;
+use crate::geometry::*;
+use crate::render::color::Color;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Radius {
@@ -15,10 +15,7 @@ impl Radius {
         Radius::Percentage(Size::new_equal(0.5))
     }
 
-    pub fn into_real(
-        self,
-        corner_size: Size,
-    ) -> embedded_graphics_core::geometry::Size {
+    pub fn into_real(self, corner_size: Size) -> Size {
         match self {
             Radius::Size(size) => size,
             Radius::SizeEqual(size) => Size::new_equal(size),
@@ -26,7 +23,6 @@ impl Radius {
             Radius::PercentageEqual(percentage) => corner_size * percentage,
         }
         .min(corner_size)
-        .into()
     }
 }
 
@@ -60,6 +56,7 @@ impl From<(f32, f32)> for Radius {
     }
 }
 
+// TODO: Merge with CornerRadii.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BorderRadius {
     pub top_left: Radius,

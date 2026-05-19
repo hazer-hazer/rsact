@@ -1,24 +1,18 @@
 use cap::Cap;
-use embedded_graphics::{
-    pixelcolor::BinaryColor,
-    prelude::{Dimensions, Point},
-};
+use embedded_graphics::{pixelcolor::BinaryColor, prelude::Dimensions};
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
-use rand::{Rng, rng, thread_rng};
+use rand::{Rng, rng};
 use rsact_icons::{common::CommonIcon, system::SystemIcon};
 use rsact_reactive::runtime::current_runtime_profile;
 use rsact_ui::{
     event::{message::UiQueue, simulator::simulator_single_encoder},
-    layout::{
-        Align,
-        size::{PointExt, Size, UnitV2},
-    },
+    layout::Align,
+    prelude::*,
     prelude::{
         Button, Icon, IntoInert, ReadSignal, Scrollable, SignalMap, Text,
         UiMessage, WriteSignal, create_effect, create_signal,
-        with_current_runtime,
     },
     style::theme::Theme,
     ui::UI,

@@ -1,15 +1,10 @@
 use crate::{
     declare_widget_style,
-    el::WithElId,
-    render::{Renderable, primitives::line::Line},
+    render::{DrawStyle, StrokeAlignment},
     style::ColorStyle,
     widget::{Meta, MetaTree, SizedWidget, prelude::*},
 };
 use core::marker::PhantomData;
-use embedded_graphics::{
-    prelude::{Point, Primitive, Transform},
-    primitives::{PrimitiveStyle, PrimitiveStyleBuilder},
-};
 use rsact_reactive::prelude::*;
 
 #[derive(Clone, Copy)]
@@ -68,28 +63,22 @@ impl<C: Color> ScrollableStyle<C> {
         }
     }
 
-    fn track_style(&self) -> PrimitiveStyle<C> {
-        let style =
-            PrimitiveStyleBuilder::new().stroke_width(self.scrollbar_width);
-
-        (if let Some(track_color) = self.track_color.get() {
-            style.stroke_color(track_color)
-        } else {
-            style
-        })
-        .build()
+    fn track_draw_style(&self) -> DrawStyle<C> {
+        DrawStyle {
+            fill: None,
+            stroke: self.track_color.get(),
+            stroke_width: self.scrollbar_width,
+            stroke_alignment: StrokeAlignment::Center,
+        }
     }
 
-    fn thumb_style(&self) -> PrimitiveStyle<C> {
-        let style =
-            PrimitiveStyleBuilder::new().stroke_width(self.scrollbar_width);
-
-        (if let Some(thumb_color) = self.thumb_color.get() {
-            style.stroke_color(thumb_color)
-        } else {
-            style
-        })
-        .build()
+    fn thumb_draw_style(&self) -> DrawStyle<C> {
+        DrawStyle {
+            fill: None,
+            stroke: self.thumb_color.get(),
+            stroke_width: self.scrollbar_width,
+            stroke_alignment: StrokeAlignment::Center,
+        }
     }
 }
 
@@ -243,12 +232,12 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Scrollable<W, Dir> {
                     self.style.as_ref().map(|f| f(base)).unwrap_or(base);
 
                 let track_start = match Dir::AXIS {
-                    Axis::X => ctx.layout.inner.anchor_point(
-                        embedded_graphics::geometry::AnchorPoint::BottomLeft,
-                    ),
-                    Axis::Y => ctx.layout.inner.anchor_point(
-                        embedded_graphics::geometry::AnchorPoint::TopRight,
-                    ),
+                    Axis::X => {
+                        ctx.layout.inner.anchor_point(AnchorPoint::BottomLeft)
+                    },
+                    Axis::Y => {
+                        ctx.layout.inner.anchor_point(AnchorPoint::TopRight)
+                    },
                 };
 
                 let track_end = ctx
@@ -257,16 +246,15 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Scrollable<W, Dir> {
                     .bottom_right()
                     .unwrap_or(ctx.layout.inner.top_left);
 
-                let scrollbar_translation =
+                let scrollbar_translation: Point =
                     Dir::AXIS.canon(0, -((style.scrollbar_width as i32) / 2));
 
-                let track_line = Line::new(track_start, track_end)
-                    .translate(scrollbar_translation);
-
                 // Draw track
-                track_line
-                    .into_styled(style.track_style())
-                    .render(ctx.renderer())?;
+                ctx.renderer().draw_line(
+                    track_start + scrollbar_translation,
+                    track_end + scrollbar_translation,
+                    style.track_draw_style(),
+                )?;
 
                 let thumb_len = ((scrollable_length as f32)
                     * ((scrollable_length as f32) / (content_length as f32)))
@@ -279,13 +267,13 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Scrollable<W, Dir> {
                 let thumb_start = track_start
                     + Dir::AXIS.canon::<Point>(thumb_offset as i32, 0);
 
-                Line::new(
-                    thumb_start,
-                    thumb_start + Dir::AXIS.canon::<Point>(thumb_len as i32, 0),
-                )
-                .translate(scrollbar_translation)
-                .into_styled(style.thumb_style())
-                .render(ctx.renderer())?;
+                ctx.renderer().draw_line(
+                    thumb_start + scrollbar_translation,
+                    thumb_start
+                        + Dir::AXIS.canon::<Point>(thumb_len as i32, 0)
+                        + scrollbar_translation,
+                    style.thumb_draw_style(),
+                )?;
             }
 
             ctx.render_focus_outline(ctx.id)

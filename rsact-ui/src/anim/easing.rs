@@ -1,5 +1,5 @@
 use core::f32::consts::PI;
-use micromath::F32Ext as _;
+use num::Float as _;
 
 #[derive(Clone)]
 pub enum Easing {

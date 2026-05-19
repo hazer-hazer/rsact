@@ -1,23 +1,19 @@
-use core::fmt::Display;
-
-use alloc::collections::btree_map::BTreeMap;
-use embedded_graphics::{prelude::Point, primitives::Rectangle};
-
+use super::{AbsoluteFontProps, FontHandler, FontStyle};
+use crate::geometry::*;
 use crate::{
     layout::Limits,
-    prelude::Size,
-    render::Renderable as _,
     widget::{RenderResult, ctx::WidgetCtx},
 };
-
-use super::{AbsoluteFontProps, FontHandler, FontStyle};
-
+use alloc::collections::btree_map::BTreeMap;
+use core::fmt::Display;
 /// Fixed-size fonts
 #[derive(Clone, Copy, Debug)]
 pub enum FixedFont {
     /// embedded_graphics mono font of fixed size.
+    #[cfg(feature = "embedded-graphics")]
     EGMonoFont(&'static embedded_graphics::mono_font::MonoFont<'static>),
     /// u8g2 font of fixed size.
+    #[cfg(feature = "u8g2-fonts")]
     U8G2(&'static u8g2_fonts::FontRenderer),
 }
 
@@ -28,6 +24,7 @@ impl FontHandler for FixedFont {
         _props: AbsoluteFontProps,
     ) -> Option<Limits> {
         match self {
+            #[cfg(feature = "embedded-graphics")]
             Self::EGMonoFont(font) => {
                 let char_size = font.character_size;
 
@@ -52,17 +49,18 @@ impl FontHandler for FixedFont {
                 Some(Limits::new(max_size, max_size))
             },
             // TODO: How does initial point affects dimensions? Maybe we should add position to size to compute real bounding box
+            #[cfg(feature = "u8g2-fonts")]
             Self::U8G2(font) => {
                 let bounds = font
                     .get_rendered_dimensions(
                         content,
-                        Point::zero(),
+                        embedded_graphics::prelude::Point::new(0, 0),
                         u8g2_fonts::types::VerticalPosition::Top,
                         // u8g2_fonts::types::HorizontalAlignment::Left,
                     )
                     .unwrap()
                     .bounding_box
-                    .unwrap_or(Rectangle::zero());
+                    .unwrap_or(embedded_graphics::primitives::Rectangle::zero());
 
                 // let max_size = Size::new(
                 //     (bounds.size.width as i32 - bounds.top_left.x) as u32,
@@ -72,33 +70,48 @@ impl FontHandler for FixedFont {
 
                 Some(Limits::new(max_size, max_size))
             },
+            _ => unreachable!(),
         }
     }
 
+    // TODO: embedded-graphics optional constraints
+    #[cfg(feature = "embedded-graphics")]
     fn draw<W: WidgetCtx>(
         &self,
         content: &str,
         _props: AbsoluteFontProps,
-        bounds: Rectangle,
+        bounds: Rect,
         color: W::Color,
         renderer: &mut W::Renderer,
-    ) -> Option<RenderResult> {
+    ) -> Option<RenderResult>
+    where
+        W::Color: embedded_graphics::prelude::PixelColor,
+        W::Renderer: embedded_graphics::prelude::DrawTarget<Color = W::Color, Error = ()>,
+    {
+        use embedded_graphics::Drawable as _;
+        let eg_bounds: embedded_graphics::primitives::Rectangle = bounds.into();
         match self {
             FixedFont::EGMonoFont(mono_font) => Some(
                 embedded_text::TextBox::new(
                     &content,
-                    bounds,
+                    eg_bounds,
                     embedded_graphics::mono_font::MonoTextStyleBuilder::new()
                         .font(mono_font)
                         .text_color(color)
                         .build(),
                 )
-                .render(renderer),
+                .draw(renderer)
+                .map(|_| ())
+                .map_err(|_| ()),
             ),
+            #[cfg(feature = "u8g2-fonts")]
             FixedFont::U8G2(u8g2_font) => {
                 let _ = u8g2_font.render_aligned(
                     content,
-                    bounds.top_left,
+                    embedded_graphics::prelude::Point::new(
+                        bounds.top_left.x,
+                        bounds.top_left.y,
+                    ),
                     u8g2_fonts::types::VerticalPosition::Top,
                     u8g2_fonts::types::HorizontalAlignment::Left,
                     u8g2_fonts::types::FontColor::Transparent(color),
@@ -113,8 +126,11 @@ impl FontHandler for FixedFont {
 impl Display for FixedFont {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            #[cfg(feature = "embedded-graphics")]
             FixedFont::EGMonoFont(_) => write!(f, "EG"),
+            #[cfg(feature = "u8g2-fonts")]
             FixedFont::U8G2(_) => write!(f, "u8g2"),
+            _ => unreachable!(),
         }
     }
 }
@@ -122,10 +138,12 @@ impl Display for FixedFont {
 impl PartialEq for FixedFont {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
+            #[cfg(feature = "embedded-graphics")]
             (FixedFont::EGMonoFont(lhs), FixedFont::EGMonoFont(rhs)) => {
                 embedded_graphics::mono_font::MonoFont::eq(lhs, rhs)
             },
             // TODO: Is pointer comparison right?
+            #[cfg(feature = "u8g2-fonts")]
             (&FixedFont::U8G2(lhs), &FixedFont::U8G2(rhs)) => core::ptr::eq(
                 lhs as *const u8g2_fonts::FontRenderer,
                 rhs as *const u8g2_fonts::FontRenderer,
@@ -151,14 +169,19 @@ impl FontHandler for FixedFontCollection {
         self.with(props, |font| font.measure_text_size(content, props))
     }
 
+    #[cfg(feature = "embedded-graphics")]
     fn draw<W: WidgetCtx>(
         &self,
         content: &str,
         props: AbsoluteFontProps,
-        bounds: Rectangle,
+        bounds: Rect,
         color: W::Color,
         renderer: &mut W::Renderer,
-    ) -> Option<RenderResult> {
+    ) -> Option<RenderResult>
+    where
+        W::Color: embedded_graphics::prelude::PixelColor,
+        W::Renderer: embedded_graphics::prelude::DrawTarget<Color = W::Color, Error = ()>,
+    {
         self.with(props, |font| {
             font.draw::<W>(content, props, bounds, color, renderer)
         })

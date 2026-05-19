@@ -1,6 +1,9 @@
 use core::ops::Add;
 
-use embedded_graphics::geometry::{AnchorPoint, AnchorX, AnchorY, Point};
+use crate::geometry::{
+    anchor::{AnchorPoint, AnchorX, AnchorY},
+    point::Point,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(::defmt::Format))]
@@ -62,6 +65,19 @@ impl Axis {
         }
     }
 }
+
+// #[derive(Clone, Copy)]
+// pub enum AxisAnchorPoint {
+//     MainStart,
+//     MainCenter,
+//     MainEnd,
+//     CenterLeft,
+//     Center,
+//     CenterEnd,
+//     CrossStart,
+//     CrossCenter,
+//     CrossEnd,
+// }
 
 pub trait Axial {
     type Data;
@@ -205,6 +221,7 @@ impl Axial for Point {
     }
 }
 
+#[cfg(feature = "embedded-graphics")]
 impl Axial for embedded_graphics_core::geometry::Size {
     type Data = u32;
 
@@ -224,6 +241,34 @@ impl Axial for embedded_graphics_core::geometry::Size {
 
     fn y_mut(&mut self) -> &mut Self::Data {
         &mut self.height
+    }
+
+    #[inline]
+    fn axial_new(x: Self::Data, y: Self::Data) -> Self {
+        Self::new(x, y)
+    }
+}
+
+#[cfg(feature = "embedded-graphics")]
+impl Axial for embedded_graphics_core::geometry::Point {
+    type Data = i32;
+
+    #[inline]
+    fn x(&self) -> Self::Data {
+        self.x
+    }
+
+    #[inline]
+    fn y(&self) -> Self::Data {
+        self.y
+    }
+
+    fn x_mut(&mut self) -> &mut Self::Data {
+        &mut self.x
+    }
+
+    fn y_mut(&mut self) -> &mut Self::Data {
+        &mut self.y
     }
 
     #[inline]
@@ -320,9 +365,9 @@ impl Into<AnchorX> for Anchor {
 impl Into<AnchorY> for Anchor {
     fn into(self) -> AnchorY {
         match self {
-            Anchor::Start => embedded_graphics::geometry::AnchorY::Top,
-            Anchor::Center => embedded_graphics::geometry::AnchorY::Center,
-            Anchor::End => embedded_graphics::geometry::AnchorY::Bottom,
+            Anchor::Start => AnchorY::Top,
+            Anchor::Center => AnchorY::Center,
+            Anchor::End => AnchorY::Bottom,
         }
     }
 }
@@ -366,8 +411,7 @@ impl Axial for AxisAnchorPoint {
 #[cfg(test)]
 mod tests {
     use super::{Axial, Axis};
-    use crate::prelude::Size;
-    use embedded_graphics::geometry::Point;
+    use crate::geometry::{Size, point::Point};
 
     #[test]
     fn x() {

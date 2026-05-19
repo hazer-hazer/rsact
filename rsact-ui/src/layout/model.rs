@@ -1,19 +1,14 @@
+use crate::geometry::*;
 use crate::{
-    font::{FontCtx, FontProps},
+    font::FontProps,
     layout::{
         Align, ContainerLayout, ContentLayout, DevHoveredLayout, LayoutCtx,
-        LayoutKind, Limits, ScrollableLayout,
-        flex::model_flex,
-        node::Layout,
-        padding::Padding,
-        size::{Length, Size},
+        LayoutKind, Limits, ScrollableLayout, flex::model_flex, length::Length,
+        node::Layout, padding::Padding,
     },
 };
 use alloc::vec::Vec;
 use core::fmt::Debug;
-use embedded_graphics::{
-    geometry::Point, primitives::Rectangle, transform::Transform as _,
-};
 use rsact_reactive::prelude::*;
 
 #[cfg(feature = "debug-info")]
@@ -21,8 +16,8 @@ use crate::layout::{DevLayout, DevLayoutKind};
 
 /// Layout tree representation with real position in viewport
 pub struct LayoutModelNode<'a> {
-    pub outer: Rectangle,
-    pub inner: Rectangle,
+    pub outer: Rect,
+    pub inner: Rect,
     model: &'a LayoutModel,
 }
 
@@ -76,8 +71,8 @@ impl<'a> LayoutModelNode<'a> {
 /// Layout tree representation with relative positions
 #[derive(Debug, PartialEq)]
 pub struct LayoutModel {
-    outer: Rectangle,
-    inner: Rectangle,
+    outer: Rect,
+    inner: Rect,
 
     font_props: Option<FontProps>,
 
@@ -96,8 +91,8 @@ impl LayoutModel {
         #[cfg(feature = "debug-info")] dev: DevLayout,
     ) -> Self {
         Self {
-            outer: Rectangle::new(Point::zero(), inner_size.into()),
-            inner: Rectangle::new(Point::zero(), inner_size.into()),
+            outer: Rect::new(Point::zero(), inner_size),
+            inner: Rect::new(Point::zero(), inner_size),
             children,
             font_props: None,
             #[cfg(feature = "debug-info")]
@@ -116,10 +111,8 @@ impl LayoutModel {
 
         self.inner = self.inner.translate(full_padding.top_left());
 
-        self.outer = self.outer.resized(
-            self.outer.size + padding_size.into(),
-            embedded_graphics::geometry::AnchorPoint::TopLeft,
-        );
+        let new_size = self.outer.size + padding_size;
+        self.outer = Rect::new(self.outer.top_left, new_size);
         self
     }
 
@@ -127,7 +120,7 @@ impl LayoutModel {
         LayoutModelNode { outer: self.outer, inner: self.inner, model: self }
     }
 
-    fn node(&self, parent_inner: Rectangle) -> LayoutModelNode<'_> {
+    fn node(&self, parent_inner: Rect) -> LayoutModelNode<'_> {
         LayoutModelNode {
             outer: self.outer.translate(parent_inner.top_left),
             inner: self.inner.translate(parent_inner.top_left),
@@ -137,8 +130,8 @@ impl LayoutModel {
 
     pub fn zero() -> Self {
         Self {
-            outer: Rectangle::zero(),
-            inner: Rectangle::zero(),
+            outer: Rect::zero(),
+            inner: Rect::zero(),
             children: vec![],
             font_props: None,
             #[cfg(feature = "debug-info")]
@@ -147,7 +140,7 @@ impl LayoutModel {
     }
 
     pub fn outer_size(&self) -> Size {
-        self.outer.size.into()
+        self.outer.size
     }
 
     // pub fn move_mut(&mut self, to: impl Into<Point> + Copy) -> &mut Self {
@@ -161,9 +154,9 @@ impl LayoutModel {
     //     self
     // }
 
-    pub fn translate_mut(&mut self, by: impl Into<Point> + Copy) -> &mut Self {
-        self.outer.top_left += by.into();
-        self.inner.top_left += by.into();
+    pub fn translate_mut(&mut self, by: Point) -> &mut Self {
+        self.outer.top_left += by;
+        self.inner.top_left += by;
         self
     }
 

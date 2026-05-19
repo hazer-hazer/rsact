@@ -8,8 +8,8 @@ use embedded_graphics_simulator::{
 use rsact_ui::{
     col,
     event::simulator::simulator_single_encoder,
-    layout::size::Size,
     page::id::SinglePage,
+    prelude::*,
     prelude::{IntoInert, Select, SignalMap, create_signal},
     render::{AntiAliasing, RendererOptions},
     row,
@@ -60,13 +60,13 @@ fn main() {
     let widget_view = widget.map(|widget| {});
 
     let page = row![
+        col![select_widget],
         col![
-            select_widget
-        ],
-        col![
-            Container::new(content)
+            // Container::new(content)
         ]
-    ].center().fill();
+    ]
+    .center()
+    .fill();
 
     let mut ui = UI::new_with_buffer_renderer(
         display.bounding_box().size.inert(),

@@ -5,14 +5,16 @@
     "std",
     "rsact-icons/common",
     "rsact-reactive/debug-info",
-    "debug-info"
+    "debug-info",
+    "tiny-skia"
   ],
   "rust-analyzer.cargo.features": [
     "simulator",
     "std",
     "rsact-icons/common",
     "rsact-reactive/debug-info",
-    "debug-info"
+    "debug-info",
+    "tiny-skia"
   ],
   "rust-analyzer.cargo.noDefaultFeatures": true,
   "cSpell.words": [

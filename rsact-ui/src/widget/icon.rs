@@ -1,7 +1,11 @@
-use super::{Size, layout::ContentLayout};
+use super::layout::ContentLayout;
 use crate::widget::prelude::*;
 use core::marker::PhantomData;
+#[cfg(feature = "embedded-graphics")]
 use embedded_graphics::{pixelcolor::raw::BigEndian, prelude::DrawTarget};
+#[cfg(not(feature = "embedded-graphics"))]
+use rsact_icons::EmptyIconSet;
+#[cfg(feature = "embedded-graphics")]
 use rsact_icons::{EmptyIconSet, IconRaw, IconSet};
 use rsact_reactive::prelude::*;
 
@@ -138,14 +142,19 @@ impl<W: WidgetCtx, I: IconSet + 'static, R: ReactivityMarker> Widget<W>
                 },
             };
 
-            let icon = rsact_icons::Icon::new(
-                icon_raw,
-                ctx.layout.inner.top_left,
-                style.background.get(),
-                style.color.get(),
-            );
-
-            ctx.renderer().draw_iter(icon.iter()).ok().unwrap();
+            #[cfg(feature = "embedded-graphics")]
+            {
+                use embedded_graphics::prelude::DrawTarget as _;
+                let eg_top_left: embedded_graphics::geometry::Point =
+                    ctx.layout.inner.top_left.into();
+                let icon = rsact_icons::Icon::new(
+                    icon_raw,
+                    eg_top_left,
+                    style.background.get(),
+                    style.color.get(),
+                );
+                ctx.renderer().draw_iter(icon.iter()).ok().unwrap();
+            }
 
             Ok(())
         })

@@ -8,8 +8,8 @@ use embedded_graphics_simulator::{
 use rsact_ui::{
     col,
     event::simulator::simulator_single_encoder,
-    layout::size::Size,
     page::id::SinglePage,
+    prelude::*,
     prelude::{IntoInert, Select, create_signal},
     render::{AntiAliasing, RendererOptions},
     row,

@@ -1,10 +1,9 @@
 use super::{
-    axis::{Axial, Axis},
+    length::{DeterministicLength, Length},
     padding::Padding,
-    size::{DeterministicLength, Length, Size},
 };
+use crate::geometry::{Axial as _, Axis, Size};
 use core::{fmt::Display, u32};
-use embedded_graphics::primitives::Rectangle;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Limits {
@@ -185,8 +184,9 @@ impl Display for Limits {
     }
 }
 
-impl From<Rectangle> for Limits {
-    fn from(value: Rectangle) -> Self {
+#[cfg(feature = "embedded-graphics")]
+impl From<embedded_graphics::primitives::Rectangle> for Limits {
+    fn from(value: embedded_graphics::primitives::Rectangle) -> Self {
         Self::new(Size::zero(), value.size.into())
     }
 }

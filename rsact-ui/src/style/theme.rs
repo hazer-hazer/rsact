@@ -1,9 +1,9 @@
 use crate::{
     render::color::Color,
     widget::{
-        bar::BarStyle, button::ButtonStyle, checkbox::CheckboxStyle,
-        icon::IconStyle, knob::KnobStyle, scrollable::ScrollableStyle,
-        select::SelectStyle, slider::SliderStyle, text::TextStyle,
+        bar::BarStyle, button::ButtonStyle, knob::KnobStyle,
+        scrollable::ScrollableStyle, select::SelectStyle, slider::SliderStyle,
+        text::TextStyle,
     },
 };
 
@@ -15,8 +15,10 @@ use crate::{
 pub struct Theme<C: Color> {
     pub bar: BarStyle<C>,
     pub button: ButtonStyle<C>,
-    pub checkbox: CheckboxStyle<C>,
-    pub icon: IconStyle<C>,
+    #[cfg(feature = "embedded-graphics")]
+    pub checkbox: crate::widget::checkbox::CheckboxStyle<C>,
+    #[cfg(feature = "embedded-graphics")]
+    pub icon: crate::widget::icon::IconStyle<C>,
     pub knob: KnobStyle<C>,
     pub scrollable: ScrollableStyle<C>,
     pub select: SelectStyle<C>,
@@ -29,8 +31,10 @@ impl<C: Color> Default for Theme<C> {
         Self {
             bar: BarStyle::base(),
             button: ButtonStyle::base(),
-            checkbox: CheckboxStyle::base(),
-            icon: IconStyle::base(),
+            #[cfg(feature = "embedded-graphics")]
+            checkbox: crate::widget::checkbox::CheckboxStyle::base(),
+            #[cfg(feature = "embedded-graphics")]
+            icon: crate::widget::icon::IconStyle::base(),
             knob: KnobStyle::base(),
             scrollable: ScrollableStyle::base(),
             select: SelectStyle::base(),
@@ -41,10 +45,13 @@ impl<C: Color> Default for Theme<C> {
 }
 
 impl<C: Color> Theme<C> {
+    // TODO: Flutter-like seed color
+
     /// Apply an accent colour to all widgets that support it.
     pub fn with_accent(mut self, accent: C) -> Self {
         self.bar.color.set_high_priority(Some(accent));
         self.button.container.border.color.set_high_priority(Some(accent));
+        #[cfg(feature = "embedded-graphics")]
         self.checkbox.container.border.color.set_high_priority(Some(accent));
         self.knob.color.set_high_priority(Some(accent));
         self

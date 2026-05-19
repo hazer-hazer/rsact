@@ -5,18 +5,12 @@ use super::{
 use crate::{
     declare_widget_style,
     layout::{LayoutKind, model::LayoutModelNode},
-    render::Renderable,
     style::ColorStyle,
     widget::{Meta, MetaTree, prelude::*},
 };
 use alloc::string::ToString;
 use core::{cell::RefCell, fmt::Display, marker::PhantomData};
-use embedded_graphics::{
-    prelude::{Point, Transform},
-    primitives::Rectangle,
-};
 use itertools::Itertools as _;
-use layout::{axis::Anchor, size::RectangleExt};
 use rsact_reactive::prelude::*;
 
 #[derive(Clone, Copy)]
@@ -33,7 +27,7 @@ impl SelectState {
 
     fn options_offset(
         &self,
-        inner: Rectangle,
+        inner: Rect,
         children_layouts: &[LayoutModelNode<'_>],
     ) -> (Point, Option<usize>) {
         if let Some(selected) = self.selected {

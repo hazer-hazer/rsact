@@ -1,4 +1,5 @@
 use crate::{
+    geometry::*,
     el::{El, ElId},
     event::{
         Capture, Event, EventResponse, FocusEvent, MouseEvent, Propagate,
@@ -8,7 +9,6 @@ use crate::{
     layout::{
         LayoutCtx, Limits,
         model::{LayoutModel, model_layout},
-        size::Size,
     },
     render::color::Color,
     style::{TreeStyle, theme::Theme},
@@ -16,10 +16,8 @@ use crate::{
 };
 use alloc::vec::Vec;
 use dev::{DevHoveredEl, DevTools};
-use embedded_graphics::{
-    Drawable as _,
-    prelude::{DrawTarget, Point},
-};
+#[cfg(feature = "embedded-graphics")]
+use embedded_graphics::{Drawable as _, prelude::DrawTarget};
 use log::{debug, info};
 use rsact_reactive::prelude::*;
 
@@ -174,10 +172,20 @@ impl<W: WidgetCtx> Page<W> {
     // }
 
     pub fn clear(&mut self) -> &mut Self {
+        let viewport = self.viewport.get();
         self.style.with(|style| {
             // TODO: Will not work without background, must always have a background
             if let Some(bg) = style.background_color {
-                self.renderer.update_untracked(|r| r.clear(bg)).ok().unwrap();
+                self.renderer
+                    .update_untracked(|r| {
+                        crate::render::Renderer::fill_solid(
+                            r,
+                            &Rect::new(Point::zero(), viewport),
+                            bg,
+                        )
+                    })
+                    .ok()
+                    .unwrap();
             }
         });
         self
@@ -338,11 +346,16 @@ impl<W: WidgetCtx> Page<W> {
         unhandled
     }
 
+    #[cfg(feature = "embedded-graphics")]
     pub fn render(
         &mut self,
         target: &mut impl DrawTarget<Color = W::Color>,
-    ) -> bool {
+    ) -> bool
+    where
+        W::Renderer: embedded_graphics::Drawable<Color = W::Color, Output = ()>,
+    {
         self.use_renderer(|renderer| {
+            use embedded_graphics::Drawable as _;
             renderer.draw(target).ok().unwrap();
         })
     }
@@ -371,7 +384,12 @@ impl<W: WidgetCtx> Page<W> {
                                     "Clear page {:?} with color {:?}",
                                     self.id, background_color
                                 );
-                                renderer.clear(background_color)
+                                let viewport = self.viewport.get();
+                                crate::render::Renderer::fill_solid(
+                                    renderer,
+                                    &Rect::new(Point::zero(), viewport),
+                                    background_color,
+                                )
                             } else {
                                 Ok(())
                             }
@@ -430,8 +448,8 @@ mod tests {
     use crate::{
         el::El,
         font::FontCtx,
-        prelude::{Size, Text},
-        render::{NullDrawTarget, NullRenderer},
+        prelude::*,
+        render::NullRenderer,
         style::theme::Theme,
         widget::{Widget, ctx::*},
     };
@@ -461,21 +479,21 @@ mod tests {
         assert_eq!(page.take_draw_calls(), 0);
 
         // First draw request without changes subscribes to reactive values inside drawing context.
-        page.render(&mut NullDrawTarget::default());
+        page.use_renderer(|_| {});
         assert_eq!(page.take_draw_calls(), 1);
 
         // Nothing changed inside drawing context
-        page.render(&mut NullDrawTarget::default());
+        page.use_renderer(|_| {});
         assert_eq!(page.take_draw_calls(), 0);
 
         // Something's changed
         redraw_signal_data.update(|string| string.push_str("kek"));
-        page.render(&mut NullDrawTarget::default());
+        page.use_renderer(|_| {});
         assert_eq!(page.take_draw_calls(), 1);
 
-        page.render(&mut NullDrawTarget::default());
+        page.use_renderer(|_| {});
         assert_eq!(page.take_draw_calls(), 0);
-        page.render(&mut NullDrawTarget::default());
+        page.use_renderer(|_| {});
         assert_eq!(page.take_draw_calls(), 0);
     }
 }

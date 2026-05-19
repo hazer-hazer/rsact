@@ -1,20 +1,20 @@
 use embedded_graphics::{
     pixelcolor::Rgb888,
-    prelude::{Angle, Dimensions, Point, RgbColor, WebColors as _},
-    primitives::{PrimitiveStyleBuilder, Rectangle, StyledDrawable as _},
+    prelude::{Dimensions, RgbColor, WebColors as _},
+    primitives::{PrimitiveStyleBuilder, StyledDrawable as _},
     transform::Transform as _,
 };
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
 use rsact_ui::{
+    eg::alpha::StyledAlphaDrawable as _,
     event::simulator::simulator_single_encoder,
-    layout::size::Size,
+    geometry::{Angle, Point, Size},
     page::id::SinglePage,
-    prelude::{BorderRadius, IntoInert},
+    prelude::{BorderRadius, IntoInert, *},
     render::{
         AntiAliasing, RendererOptions,
-        alpha::StyledAlphaDrawable as _,
         primitives::{
             arc::Arc, circle::Circle, ellipse::Ellipse, line::Line,
             polygon::Polygon, rounded_rect::RoundedRect, sector::Sector,
@@ -34,8 +34,9 @@ fn main() {
 
     let mut window = Window::new("SANDBOX", &output_settings);
 
-    let mut display =
-        SimulatorDisplay::<Rgb888>::new(Size::new(480, 270).into());
+    let mut display = SimulatorDisplay::<Rgb888>::new(
+        embedded_graphics::geometry::Size::new(480, 270).into(),
+    );
 
     window.update(&display);
 
@@ -104,11 +105,8 @@ fn main() {
         .stroke_width(1)
         .build();
     let rounded_rect = RoundedRect::new(
-        Rectangle::new(
-            Point::new(320, 200),
-            embedded_graphics::geometry::Size::new(60, 40),
-        ),
-        BorderRadius::new_equal(10.into()),
+        Rect::new(Point::new(320, 200), Size::new(60, 40)),
+        CornerRadii::new_equal(10.into()),
     );
 
     // let polygon_edges = 5;
@@ -132,7 +130,7 @@ fn main() {
         .stroke_color(Rgb888::BLACK)
         .fill_color(Rgb888::MAGENTA)
         .build();
-    let polygon = Polygon::new(polygon_vertices);
+    let polygon = Polygon::new(Point::zero(), polygon_vertices);
 
     let mut fps = 0;
     let mut last_time = Instant::now();
