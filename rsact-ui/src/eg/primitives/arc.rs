@@ -55,8 +55,8 @@ impl<C: Color + embedded_graphics::prelude::PixelColor>
         embedded_graphics::primitives::Arc::new(
             self.top_left.into(),
             self.diameter,
-            self.start_angle.into(),
-            self.sweep_angle.into(),
+            self.start.into(),
+            self.sweep.into(),
         )
         .draw_styled(style, target)
     }
@@ -96,8 +96,8 @@ impl<C: Color + embedded_graphics::prelude::PixelColor>
             },
         };
 
-        let start_radians = self.start_angle.to_radians();
-        let sweep_radians = self.sweep_angle.to_radians();
+        let start_radians = self.start.to_radians();
+        let sweep_radians = self.sweep.to_radians();
         let end_radians = start_radians + sweep_radians;
 
         let draw_radius = r_outer.ceil() as i32;

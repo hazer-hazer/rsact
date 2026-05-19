@@ -29,7 +29,7 @@ impl Transform for Polygon {
     fn translate(&self, by: embedded_graphics::prelude::Point) -> Self {
         let by: Point = by.into();
         Self::new(
-            self.top_left + by,
+            self.translation + by,
             self.vertices.iter().copied().map(|p| p + by),
         )
     }
@@ -170,8 +170,8 @@ impl Polygon {
 
     pub fn contains(&self, point: Point) -> bool {
         self.lines().fold(0, |winding_number, line| {
-            let ls: Point = line.start.into();
-            let le: Point = line.end.into();
+            let ls: Point = line.from.into();
+            let le: Point = line.to.into();
             if ls.y <= point.y {
                 if le.y > point.y && (le - ls).determinant(point - ls) > 0 {
                     winding_number + 1

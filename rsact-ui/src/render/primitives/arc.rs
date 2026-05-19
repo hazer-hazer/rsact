@@ -4,23 +4,18 @@ use crate::geometry::*;
 pub struct Arc {
     pub top_left: Point,
     pub diameter: u32,
-    pub start_angle: Angle,
-    pub sweep_angle: Angle,
+    pub start: Angle,
+    pub sweep: Angle,
 }
 
 impl Arc {
     pub fn new(
         top_left: Point,
         diameter: u32,
-        start_angle: Angle,
-        sweep_angle: Angle,
+        start: Angle,
+        sweep: Angle,
     ) -> Self {
-        Self {
-            top_left: top_left.into(),
-            diameter,
-            start_angle: start_angle.into(),
-            sweep_angle: sweep_angle.into(),
-        }
+        Self { top_left, diameter, start, sweep }
     }
 
     pub fn translate(&self, by: Point) -> Self {

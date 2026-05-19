@@ -55,8 +55,8 @@ impl<C: Color + embedded_graphics::prelude::PixelColor>
         embedded_graphics::primitives::Sector::new(
             self.top_left.into(),
             self.diameter,
-            self.start_angle.into(),
-            self.sweep_angle.into(),
+            self.start.into(),
+            self.sweep.into(),
         )
         .draw_styled(style, target)
     }
@@ -92,8 +92,8 @@ impl<C: Color + embedded_graphics::prelude::PixelColor>
             },
         };
 
-        let start_radians = self.start_angle.to_radians();
-        let sweep_radians = self.sweep_angle.to_radians();
+        let start_radians = self.start.to_radians();
+        let sweep_radians = self.sweep.to_radians();
         let end_angle = Angle::from_radians(start_radians + sweep_radians);
         let end_radians = end_angle.to_radians();
 
@@ -165,7 +165,7 @@ impl<C: Color + embedded_graphics::prelude::PixelColor>
         if style.stroke_color.is_some() && style.stroke_width > 0 {
             Line::with_angle(center.into(), end_angle.into(), r)
                 .draw_styled_alpha(style, target)?;
-            Line::with_angle(center.into(), self.start_angle.into(), r)
+            Line::with_angle(center.into(), self.start.into(), r)
                 .draw_styled_alpha(style, target)?;
         }
 

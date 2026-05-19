@@ -15,10 +15,10 @@ use num::Float as _;
 impl Dimensions for Line {
     fn bounding_box(&self) -> embedded_graphics::primitives::Rectangle {
         embedded_graphics::primitives::Rectangle::new(
-            self.start.into(),
+            self.from.into(),
             embedded_graphics::geometry::Size::new(
-                (self.end.x - self.start.x).abs() as u32,
-                (self.end.y - self.start.y).abs() as u32,
+                (self.to.x - self.from.x).abs() as u32,
+                (self.to.y - self.from.y).abs() as u32,
             ),
         )
     }
@@ -29,14 +29,14 @@ impl Primitive for Line {}
 impl Transform for Line {
     fn translate(&self, by: EgPoint) -> Self {
         let mut new = *self;
-        new.start += by.into();
-        new.end += by.into();
+        new.from += by.into();
+        new.to += by.into();
         new
     }
 
     fn translate_mut(&mut self, by: EgPoint) -> &mut Self {
-        self.start += by.into();
-        self.end += by.into();
+        self.from += by.into();
+        self.to += by.into();
         self
     }
 }
@@ -56,8 +56,8 @@ impl<C: Color + embedded_graphics::prelude::PixelColor>
         D: embedded_graphics::prelude::DrawTarget<Color = Self::Color>,
     {
         embedded_graphics::primitives::Line::new(
-            self.start.into(),
-            self.end.into(),
+            self.from.into(),
+            self.to.into(),
         )
         .draw_styled(style, target)
     }
@@ -81,8 +81,8 @@ impl<C: Color + embedded_graphics::prelude::PixelColor>
             return Ok(());
         }
 
-        let mut start = self.start;
-        let mut end = self.end;
+        let mut start = self.from;
+        let mut end = self.to;
         let mut draw_pixel = |point, blend| {
             target.pixel_alpha(Pixel(point, style.stroke_color.unwrap()), blend)
         };

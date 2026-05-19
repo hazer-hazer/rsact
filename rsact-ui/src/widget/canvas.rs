@@ -1,6 +1,12 @@
 use crate::{
     geometry::*,
-    render::{DrawStyle, Renderer},
+    render::{
+        DrawStyle, Renderer,
+        primitives::{
+            Primitive, arc::Arc, circle::Circle, ellipse::Ellipse, line::Line,
+            polygon::Polygon, rounded_rect::RoundedRect, sector::Sector,
+        },
+    },
     widget::prelude::*,
 };
 use alloc::collections::vec_deque::VecDeque;
@@ -8,52 +14,13 @@ use alloc::collections::vec_deque::VecDeque;
 // TODO: CanvasDrawable trait? - No, cause gives two different ways to implement one thing. CanvasDrawable would lead us to use dynamic dispatch and boxes that I avoided using DrawCommand enum.
 
 // TODO: Replace with box dyn primitive?
+// TODO: Maybe better add IntoDrawCommand for primitives
 #[derive(Clone, PartialEq, Debug)]
 pub enum DrawCommand<C: Color> {
     /// Actually useless for now as we clear the whole screen each frame :(
     Clear(C),
     ClearRect(Rect, C),
-    Arc {
-        top_left: Point,
-        diameter: u32,
-        start: Angle,
-        sweep: Angle,
-        style: DrawStyle<C>,
-    },
-    Circle {
-        top_left: Point,
-        diameter: u32,
-        style: DrawStyle<C>,
-    },
-    Ellipse {
-        bounding_box: Rect,
-        style: DrawStyle<C>,
-    },
-    Line {
-        from: Point,
-        to: Point,
-        style: DrawStyle<C>,
-    },
-    Polygon {
-        points: alloc::vec::Vec<Point>,
-        style: DrawStyle<C>,
-    },
-    Rect {
-        rect: Rect,
-        style: DrawStyle<C>,
-    },
-    RoundedRect {
-        rect: Rect,
-        corners: CornerRadii,
-        style: DrawStyle<C>,
-    },
-    Sector {
-        top_left: Point,
-        diameter: u32,
-        start: Angle,
-        sweep: Angle,
-        style: DrawStyle<C>,
-    },
+    Primitive(Primitive, DrawStyle<C>),
 }
 
 // TODO: Different color in DrawQueue mapped to renderer target color?
@@ -84,85 +51,94 @@ impl<C: Color> DrawQueue<C> {
         self
     }
 
-    pub fn arc(
+    pub fn primitive(
         self,
-        top_left: Point,
-        diameter: u32,
-        start: Angle,
-        sweep: Angle,
+        primitive: impl Into<Primitive>,
         style: DrawStyle<C>,
     ) -> Self {
-        self.draw_once(DrawCommand::Arc {
-            top_left,
-            diameter,
-            start,
-            sweep,
-            style,
-        });
+        self.draw_once(DrawCommand::Primitive(primitive.into(), style));
         self
     }
 
-    pub fn circle(
-        self,
-        top_left: Point,
-        diameter: u32,
-        style: DrawStyle<C>,
-    ) -> Self {
-        self.draw_once(DrawCommand::Circle { top_left, diameter, style });
-        self
-    }
+    // pub fn arc(
+    //     self,
+    //     top_left: Point,
+    //     diameter: u32,
+    //     start: Angle,
+    //     sweep: Angle,
+    //     style: DrawStyle<C>,
+    // ) -> Self {
+    //     self.draw_once(DrawCommand::Arc {
+    //         top_left,
+    //         diameter,
+    //         start,
+    //         sweep,
+    //         style,
+    //     });
+    //     self
+    // }
 
-    pub fn ellipse(self, bounding_box: Rect, style: DrawStyle<C>) -> Self {
-        self.draw_once(DrawCommand::Ellipse { bounding_box, style });
-        self
-    }
+    // pub fn circle(
+    //     self,
+    //     top_left: Point,
+    //     diameter: u32,
+    //     style: DrawStyle<C>,
+    // ) -> Self {
+    //     self.draw_once(DrawCommand::Circle { top_left, diameter, style });
+    //     self
+    // }
 
-    pub fn line(self, from: Point, to: Point, style: DrawStyle<C>) -> Self {
-        self.draw_once(DrawCommand::Line { from, to, style });
-        self
-    }
+    // pub fn ellipse(self, bounding_box: Rect, style: DrawStyle<C>) -> Self {
+    //     self.draw_once(DrawCommand::Ellipse { bounding_box, style });
+    //     self
+    // }
 
-    pub fn polygon(
-        self,
-        points: alloc::vec::Vec<Point>,
-        style: DrawStyle<C>,
-    ) -> Self {
-        self.draw_once(DrawCommand::Polygon { points, style });
-        self
-    }
+    // pub fn line(self, from: Point, to: Point, style: DrawStyle<C>) -> Self {
+    //     self.draw_once(DrawCommand::Line { from, to, style });
+    //     self
+    // }
 
-    pub fn rect(self, rect: Rect, style: DrawStyle<C>) -> Self {
-        self.draw_once(DrawCommand::Rect { rect, style });
-        self
-    }
+    // pub fn polygon(
+    //     self,
+    //     points: alloc::vec::Vec<Point>,
+    //     style: DrawStyle<C>,
+    // ) -> Self {
+    //     self.draw_once(DrawCommand::Polygon { points, style });
+    //     self
+    // }
 
-    pub fn rounded_rect(
-        self,
-        rect: Rect,
-        corners: CornerRadii,
-        style: DrawStyle<C>,
-    ) -> Self {
-        self.draw_once(DrawCommand::RoundedRect { rect, corners, style });
-        self
-    }
+    // pub fn rect(self, rect: Rect, style: DrawStyle<C>) -> Self {
+    //     self.draw_once(DrawCommand::Rect { rect, style });
+    //     self
+    // }
 
-    pub fn sector(
-        self,
-        top_left: Point,
-        diameter: u32,
-        start: Angle,
-        sweep: Angle,
-        style: DrawStyle<C>,
-    ) -> Self {
-        self.draw_once(DrawCommand::Sector {
-            top_left,
-            diameter,
-            start,
-            sweep,
-            style,
-        });
-        self
-    }
+    // pub fn rounded_rect(
+    //     self,
+    //     rect: Rect,
+    //     corners: CornerRadii,
+    //     style: DrawStyle<C>,
+    // ) -> Self {
+    //     self.draw_once(DrawCommand::RoundedRect { rect, corners, style });
+    //     self
+    // }
+
+    // pub fn sector(
+    //     self,
+    //     top_left: Point,
+    //     diameter: u32,
+    //     start: Angle,
+    //     sweep: Angle,
+    //     style: DrawStyle<C>,
+    // ) -> Self {
+    //     self.draw_once(DrawCommand::Sector {
+    //         top_left,
+    //         diameter,
+    //         start,
+    //         sweep,
+    //         style,
+    //     });
+    //     self
+    // }
 
     /// Delegate DrawQueue as settable signal for single command
     pub fn draw(mut self, commands: Memo<Vec<DrawCommand<C>>>) -> Self {
@@ -217,47 +193,58 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
                     DrawCommand::ClearRect(rect, color) => {
                         ctx.renderer().fill_solid(&rect, color)?;
                     },
-                    DrawCommand::Arc {
-                        top_left,
-                        diameter,
-                        start,
-                        sweep,
-                        style,
-                    } => {
-                        ctx.renderer().draw_arc(
-                            top_left, diameter, start, sweep, style,
-                        )?;
-                    },
-                    DrawCommand::Circle { top_left, diameter, style } => {
-                        ctx.renderer()
-                            .draw_circle(top_left, diameter, style)?;
-                    },
-                    DrawCommand::Ellipse { bounding_box, style } => {
-                        ctx.renderer().draw_ellipse(bounding_box, style)?;
-                    },
-                    DrawCommand::Line { from, to, style } => {
-                        ctx.renderer().draw_line(from, to, style)?;
-                    },
-                    DrawCommand::Polygon { points, style } => {
-                        ctx.renderer().draw_polygon(&points, style)?;
-                    },
-                    DrawCommand::Rect { rect, style } => {
-                        ctx.renderer().draw_rect(rect, style)?;
-                    },
-                    DrawCommand::RoundedRect { rect, corners, style } => {
-                        ctx.renderer()
-                            .draw_rounded_rect(rect, corners, style)?;
-                    },
-                    DrawCommand::Sector {
-                        top_left,
-                        diameter,
-                        start,
-                        sweep,
-                        style,
-                    } => {
-                        ctx.renderer().draw_sector(
-                            top_left, diameter, start, sweep, style,
-                        )?;
+                    DrawCommand::Primitive(primitive, style) => match primitive
+                    {
+                        Primitive::Arc(Arc {
+                            top_left,
+                            diameter,
+                            start,
+                            sweep,
+                        }) => {
+                            ctx.renderer().draw_arc(
+                                top_left, diameter, start, sweep, style,
+                            )?;
+                        },
+                        Primitive::Circle(Circle { top_left, diameter }) => {
+                            ctx.renderer()
+                                .draw_circle(top_left, diameter, style)?;
+                        },
+                        Primitive::Ellipse(Ellipse { top_left, size }) => {
+                            ctx.renderer().draw_ellipse(
+                                Rect::new(top_left, size),
+                                style,
+                            )?;
+                        },
+                        Primitive::Line(Line { from, to }) => {
+                            ctx.renderer().draw_line(from, to, style)?;
+                        },
+                        Primitive::Polygon(Polygon {
+                            // TODO
+                            translation,
+                            vertices,
+                        }) => {
+                            ctx.renderer().draw_polygon(&vertices, style)?;
+                        },
+                        Primitive::Rect(rect) => {
+                            ctx.renderer().draw_rect(rect, style)?;
+                        },
+                        Primitive::RoundedRect(RoundedRect {
+                            rect,
+                            corners,
+                        }) => {
+                            ctx.renderer()
+                                .draw_rounded_rect(rect, corners, style)?;
+                        },
+                        Primitive::Sector(Sector {
+                            top_left,
+                            diameter,
+                            start,
+                            sweep,
+                        }) => {
+                            ctx.renderer().draw_sector(
+                                top_left, diameter, start, sweep, style,
+                            )?;
+                        },
                     },
                 }
             }

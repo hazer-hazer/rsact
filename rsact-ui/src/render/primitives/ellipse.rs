@@ -1,5 +1,6 @@
 use crate::geometry::*;
 
+// TODO: Should ellipse just store a Rect?
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Ellipse {
     pub top_left: Point,
