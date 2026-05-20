@@ -10,8 +10,8 @@ pub mod edge;
 pub mod flex;
 #[cfg(feature = "embedded-graphics")]
 pub mod icon;
-#[cfg(feature = "embedded-graphics")]
-pub mod image;
+// #[cfg(feature = "embedded-graphics")]
+// pub mod image;
 pub mod knob;
 pub mod scrollable;
 pub mod select;
@@ -20,12 +20,13 @@ pub mod slider;
 pub mod space;
 pub mod text;
 
-use crate::font::{Font, FontProps};
+use crate::{
+    font::{Font, FontProps, FontSize, FontStyle},
+    layout::length::LengthSize,
+};
 use bitflags::bitflags;
 use prelude::*;
 use rsact_reactive::prelude::*;
-
-pub type RenderResult = Result<(), ()>;
 
 bitflags! {
     #[derive(Clone, Copy, PartialEq)]
@@ -143,11 +144,12 @@ where
 /// disallow user to set size or box model properties.
 pub trait SizedWidget<W: WidgetCtx>: Widget<W> {
     // TODO: MaybeReactive!
-    fn size(self, size: Size<Length>) -> Self
+    fn size(self, size: impl Into<LengthSize>) -> Self
     where
         Self: Sized + 'static,
     {
-        self.width(size.width).height(size.height)
+        let size = size.into();
+        self.width(size.width()).height(size.height())
     }
 
     fn fill(self) -> Self
@@ -179,7 +181,7 @@ pub trait SizedWidget<W: WidgetCtx>: Widget<W> {
         Self: Sized + 'static,
     {
         self.layout().setter(width.maybe_reactive(), |layout, &width| {
-            layout.size.width = width.into();
+            layout.size.set_width(width.into());
         });
         self
     }
@@ -192,7 +194,7 @@ pub trait SizedWidget<W: WidgetCtx>: Widget<W> {
         Self: Sized + 'static,
     {
         self.layout().setter(height.maybe_reactive(), |layout, &height| {
-            layout.size.height = height.into();
+            layout.size.set_height(height.into());
         });
         self
     }
@@ -287,28 +289,25 @@ pub trait FontSettingWidget<W: WidgetCtx>: Widget<W> + Sized + 'static {
 }
 
 pub mod prelude {
+    pub use crate::render::prelude::*;
     pub use crate::{
         el::{El, ElId},
         event::{
             Capture, Event, EventResponse, FocusEvent, Propagate,
             message::UiMessage,
         },
-        font::{FontSize, FontStyle},
-        geometry::{
-            Anchor, AnchorPoint, Angle, Axial, AxialData, Axis, ColDir,
-            CornerRadii, Direction, Point, PointExt, Rect, RectExt, RowDir,
-            Size, SizeExt,
+        font::{
+            Font, FontCtx, FontFamily, FontHandler, FontId, FontImport,
+            FontProps, FontSize, FontStyle,
         },
         layout::{
             self, Align, ContainerLayout, FlexLayout, LayoutKind, Limits,
-            block_model::BlockModel, length::Length, node::Layout,
-            padding::Padding,
+            length::Length, node::Layout,
         },
-        render::{Block, Border, Renderer, color::Color},
-        style::{ColorStyle, block::*, declare_widget_style},
+        style::declare_widget_style,
         widget::{
-            BlockModelWidget, FontSettingWidget, Meta, MetaTree, RenderResult,
-            SizedWidget, Widget, ctx::*,
+            BlockModelWidget, FontSettingWidget, Meta, MetaTree, SizedWidget,
+            Widget, ctx::*,
         },
     };
     pub use alloc::{boxed::Box, string::String, vec::Vec};

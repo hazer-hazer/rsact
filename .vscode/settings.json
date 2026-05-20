@@ -1,6 +1,6 @@
 {
   // "rust-analyzer.check.allTargets": false,
-  "rust-analyzer.cargo.allTargets": false,
+  "rust-analyzer.cargo.allTargets": true,
   "cSpell.words": [
     "Deque",
     "dirten",
@@ -28,14 +28,14 @@
     "layout-diagnostics",
     "defmt"
   ],
-  // "rust-analyzer.check.noDefaultFeatures": true,
-  // "rust-analyzer.check.features": [
-  //   "single-thread",
-  //   "debug-info",
-  //   "simulator",
-  //   "tiny-skia"
-  //   // "async"
-  // ],
+  "rust-analyzer.check.noDefaultFeatures": true,
+  "rust-analyzer.check.features": [
+    "single-thread",
+    "debug-info",
+    "simulator"
+    // "tiny-skia"
+    // "async"
+  ],
   "rust-analyzer.testExplorer": true,
   "rust-analyzer.checkOnSave": true,
   "search.exclude": {

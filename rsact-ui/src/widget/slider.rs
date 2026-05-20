@@ -1,7 +1,5 @@
 use crate::{
     declare_widget_style,
-    render::{DrawStyle, StrokeAlignment},
-    style::ColorStyle,
     widget::{Meta, MetaTree, prelude::*},
 };
 use core::{marker::PhantomData, ops::RangeInclusive};

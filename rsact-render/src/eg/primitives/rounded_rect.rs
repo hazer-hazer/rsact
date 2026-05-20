@@ -1,9 +1,11 @@
 use crate::{
-    eg::alpha::{AlphaDrawTarget, StyledAlphaDrawable},
+    color::Color,
+    eg::{
+        alpha::{AlphaDrawTarget, StyledAlphaDrawable},
+    },
+        renderer::RenderResult,
     geometry::*,
-    prelude::Color,
-    render::primitives::{line::Line, rounded_rect::RoundedRect},
-    utils::min_max_range_incl,
+    primitives::{line::Line, rounded_rect::RoundedRect},
 };
 use embedded_graphics::{
     Pixel,
@@ -11,6 +13,16 @@ use embedded_graphics::{
     primitives::{PrimitiveStyle, StyledDrawable},
 };
 use num::Float as _;
+
+fn min_max_range_incl<T: Ord + Copy>(
+    p1: T,
+    p2: T,
+) -> core::ops::RangeInclusive<T> {
+    let min = core::cmp::min(p1, p2);
+    let max = core::cmp::max(p1, p2);
+
+    min..=max
+}
 
 impl Dimensions for RoundedRect {
     fn bounding_box(&self) -> embedded_graphics::primitives::Rectangle {
@@ -68,7 +80,7 @@ impl<C: Color + embedded_graphics::prelude::PixelColor>
         &self,
         style: &PrimitiveStyle<C>,
         target: &mut D,
-    ) -> crate::prelude::RenderResult
+    ) -> RenderResult
     where
         D: AlphaDrawTarget<Color = Self::Color>,
     {

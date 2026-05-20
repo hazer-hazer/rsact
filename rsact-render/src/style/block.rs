@@ -1,6 +1,4 @@
-use super::{ColorStyle, WidgetStyle};
-use crate::geometry::*;
-use crate::render::color::Color;
+use crate::{color::Color, geometry::*, style::ColorStyle};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Radius {
@@ -56,7 +54,7 @@ impl From<(f32, f32)> for Radius {
     }
 }
 
-// TODO: Merge with CornerRadii.
+/// Block border radius, unlike absolute [`CornerRadii`] radius can be a value relevant to block size defined by layout model.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BorderRadius {
     pub top_left: Radius,
@@ -161,10 +159,6 @@ impl<C: Color> BorderStyle<C> {
 pub struct BlockStyle<C: Color> {
     pub background_color: ColorStyle<C>,
     pub border: BorderStyle<C>,
-}
-
-impl<C: Color> WidgetStyle for BlockStyle<C> {
-    type Color = C;
 }
 
 impl<C: Color> Clone for BlockStyle<C> {

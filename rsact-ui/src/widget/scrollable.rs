@@ -1,7 +1,5 @@
 use crate::{
     declare_widget_style,
-    render::{DrawStyle, StrokeAlignment},
-    style::ColorStyle,
     widget::{Meta, MetaTree, SizedWidget, prelude::*},
 };
 use core::marker::PhantomData;
@@ -153,8 +151,9 @@ impl<W: WidgetCtx> SizedWidget<W> for Scrollable<W, RowDir> {
         Self: Sized + 'static,
     {
         self.layout().setter(width.maybe_reactive(), |layout, &width| {
-            layout.size.width =
-                Length::InfiniteWindow(width.into().try_into().unwrap());
+            layout.size.set_width(Length::InfiniteWindow(
+                width.into().try_into().unwrap(),
+            ));
         });
         self
     }
@@ -169,8 +168,9 @@ impl<W: WidgetCtx> SizedWidget<W> for Scrollable<W, ColDir> {
         Self: Sized + 'static,
     {
         self.layout().setter(height.maybe_reactive(), |layout, &height| {
-            layout.size.height =
-                Length::InfiniteWindow(height.into().try_into().unwrap());
+            layout.size.set_height(Length::InfiniteWindow(
+                height.into().try_into().unwrap(),
+            ));
         });
         self
     }

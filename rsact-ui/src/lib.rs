@@ -8,10 +8,8 @@ pub mod anim;
 pub mod el;
 pub mod event;
 pub mod font;
-pub mod geometry;
 pub mod layout;
 pub mod page;
-pub mod render;
 pub mod style;
 pub mod ui;
 pub mod utils;
@@ -24,10 +22,11 @@ pub mod eg;
 // #[macro_use]
 extern crate log;
 
+use rsact_render as render;
+
 pub mod prelude {
     pub use crate::font::FontImport;
     pub use crate::{
-        geometry::*,
         page::id::{PageId, SinglePage},
         style::{declare_widget_style, theme::Theme},
         ui::UI,
@@ -37,7 +36,12 @@ pub mod prelude {
         },
     };
     #[cfg(feature = "embedded-graphics")]
-    pub use crate::{widget::checkbox::*, widget::icon::*, widget::image::*};
+    pub use crate::{
+        widget::checkbox::*,
+        widget::icon::*,
+        // widget::image::*
+    };
     #[cfg(feature = "embedded-graphics")]
     pub use rsact_icons::{IconRaw, IconSet};
+    pub use rsact_render::prelude::*;
 }

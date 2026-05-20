@@ -1,9 +1,8 @@
+use crate::render::prelude::*;
 use crate::{
-    geometry::*,
     layout::DevHoveredLayout,
-    prelude::{BlockModel, BlockStyle, BorderStyle},
-    render::{Block, Border, Renderer, color::Color},
-    widget::RenderResult,
+    prelude::{BlockStyle, BorderStyle},
+    render::color::Color,
 };
 
 #[derive(Default)]

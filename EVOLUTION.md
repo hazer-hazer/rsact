@@ -33,3 +33,4 @@ This are the actions to be done by me or LLM. When LLM completes one, it should 
 - [] Fully get rid of embedded_graphics as a required dependency and implement generic proxies for rendering.
 - [] Remove embedded-graphics dependencies from rsact-icons like endianness. Remove feature flag for rsact-icons
 - [] Remove embedded-graphics dependencies from Image widget.
+- [] Move rendering to a separate crate. Split implementations for EG, tiny-skia and custom. rsact-ui and rsact-icons should depend on rsact-render. rsact-render should contain structures for images, primitives.

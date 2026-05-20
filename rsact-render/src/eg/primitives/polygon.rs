@@ -1,15 +1,16 @@
 use crate::{
+    color::Color,
     eg::alpha::{AlphaDrawTarget, StyledAlphaDrawable},
     geometry::{Point, PointExt as _},
-    prelude::Color,
-    render::primitives::{line::Line, polygon::Polygon},
+    primitives::{line::Line, polygon::Polygon},
+    renderer::RenderResult,
 };
-use alloc::vec::Vec;
 use embedded_graphics::{
     Pixel,
     prelude::{Dimensions, Primitive, Transform},
     primitives::{PrimitiveStyle, StyledDrawable},
 };
+
 impl Dimensions for Polygon {
     fn bounding_box(&self) -> embedded_graphics::primitives::Rectangle {
         let (min, max) = self.bounds();
@@ -95,7 +96,7 @@ impl<C: Color + embedded_graphics::prelude::PixelColor>
         &self,
         style: &PrimitiveStyle<C>,
         target: &mut D,
-    ) -> crate::prelude::RenderResult
+    ) -> RenderResult
     where
         D: AlphaDrawTarget<Color = Self::Color>,
     {

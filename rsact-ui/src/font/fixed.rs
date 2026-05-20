@@ -1,11 +1,9 @@
 use super::{AbsoluteFontProps, FontHandler, FontStyle};
-use crate::geometry::*;
-use crate::{
-    layout::Limits,
-    widget::{RenderResult, ctx::WidgetCtx},
-};
+use crate::render::prelude::*;
+use crate::{layout::Limits, widget::ctx::WidgetCtx};
 use alloc::collections::btree_map::BTreeMap;
 use core::fmt::Display;
+
 /// Fixed-size fonts
 #[derive(Clone, Copy, Debug)]
 pub enum FixedFont {

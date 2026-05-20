@@ -1,8 +1,7 @@
-use super::{
-    length::{DeterministicLength, Length},
-    padding::Padding,
-};
-use crate::geometry::{Axial as _, Axis, Size};
+use rsact_render::geometry::padding::Padding;
+
+use super::length::{DeterministicLength, Length};
+use crate::{layout::length::LengthSize, render::prelude::*};
 use core::{fmt::Display, u32};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -56,12 +55,12 @@ impl Limits {
         Self::new(self.min, max)
     }
 
-    pub fn child_limits(self, size: impl Into<Size<Length>>) -> Self {
+    pub fn child_limits(self, size: impl Into<LengthSize>) -> Self {
         let size = size.into();
 
-        self.limit_axis(Axis::X, size.width, true).limit_axis(
+        self.limit_axis(Axis::X, size.width(), true).limit_axis(
             Axis::Y,
-            size.height,
+            size.height(),
             true,
         )
     }
@@ -104,10 +103,10 @@ impl Limits {
     }
 
     /// Unlike `child_limits` won't produce "infinite" limit for `InfiniteWindow` length
-    pub fn self_limits(self, size: Size<Length>) -> Self {
-        self.limit_axis(Axis::X, size.width, false).limit_axis(
+    pub fn self_limits(self, size: LengthSize) -> Self {
+        self.limit_axis(Axis::X, size.width(), false).limit_axis(
             Axis::Y,
-            size.height,
+            size.height(),
             false,
         )
     }
@@ -121,7 +120,7 @@ impl Limits {
     fn resolve_axis(
         &self,
         axis: Axis,
-        container_size: Size<Length>,
+        container_size: LengthSize,
         content_size: Size,
     ) -> u32 {
         match container_size.main(axis) {
@@ -149,7 +148,7 @@ impl Limits {
 
     pub fn resolve_size(
         &self,
-        size: Size<Length>,
+        size: LengthSize,
         content_size: Size<u32>,
         full_padding: Option<Padding>,
     ) -> Size<u32> {

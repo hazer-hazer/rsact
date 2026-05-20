@@ -8,18 +8,9 @@ use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
 use rsact_ui::{
-    eg::alpha::StyledAlphaDrawable as _,
     event::simulator::simulator_single_encoder,
-    geometry::{Angle, Point, Size},
     page::id::SinglePage,
-    prelude::{BorderRadius, IntoInert, *},
-    render::{
-        AntiAliasing, RendererOptions,
-        primitives::{
-            arc::Arc, circle::Circle, ellipse::Ellipse, line::Line,
-            polygon::Polygon, rounded_rect::RoundedRect, sector::Sector,
-        },
-    },
+    prelude::*,
     style::theme::Theme,
     ui::UI,
     widget::{SizedWidget, Widget as _, flex::Flex},

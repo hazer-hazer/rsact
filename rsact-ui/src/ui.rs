@@ -1,7 +1,6 @@
 #[cfg(feature = "embedded-graphics")]
 use crate::font::FontImport;
 use crate::{
-    geometry::Size,
     el::El,
     event::{
         Event, UnhandledEvent,
@@ -9,7 +8,7 @@ use crate::{
     },
     font::FontCtx,
     page::{Page, dev::DevTools, id::PageId},
-    render::{Renderer, color::Color},
+    render::prelude::*,
     style::theme::Theme,
     widget::ctx::*,
 };
@@ -47,6 +46,7 @@ pub struct UI<W: WidgetCtx, P: HasPages> {
     // Note: Theme is Inert by design as we don't still support dynamic themes. But do be noted Inert make data 'static and only freed on reactive scope drop, so it is better to somehow run UI inside new reactive runtime, but this requires user signals to be created inside it.
     theme: Inert<Theme<W::Color>>,
     dev_tools: Signal<DevTools>,
+    // TODO: Inert renderer. I don't think it is hardly needed to have reactive renderer options (this is the only reactive dependency).
     renderer: Signal<W::Renderer>,
     message_queue: Option<UiQueue<W>>,
     options: UiOptions,
@@ -76,7 +76,6 @@ where
     I: PageId + 'static,
     E: Debug + 'static,
 {
-    // TODO: Maybe just use embedded_graphics Size to avoid conversion and marking value as inert
     fn new(
         viewport: MaybeReactive<Size>,
         theme: Theme<<R as Renderer>::Color>,
@@ -121,7 +120,6 @@ where
     I: PageId + 'static,
     E: Debug + 'static,
 {
-    // TODO: Maybe just use embedded_graphics Size to avoid conversion and marking value as inert
     pub(crate) fn new(
         viewport: MaybeReactive<Size>,
         theme: Theme<<R as Renderer>::Color>,
@@ -383,7 +381,7 @@ impl<W: WidgetCtx> UI<W, WithPages> {
     //     self.current_page().draw_buffer(f)
     // }
 
-    pub fn draw_with_renderer(&mut self, f: impl FnOnce(&W::Renderer)) -> bool {
-        self.current_page().use_renderer(f)
-    }
+    // pub fn draw_with_renderer(&mut self, f: impl FnOnce(&W::Renderer)) -> bool {
+    //     self.current_page().use_renderer(f)
+    // }
 }

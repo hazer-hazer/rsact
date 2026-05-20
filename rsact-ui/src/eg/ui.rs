@@ -1,6 +1,4 @@
 use crate::{
-    eg::{framebuf::PackedColor, renderer::EGRenderer},
-    geometry::Size,
     page::id::PageId,
     render::color::Color,
     style::theme::Theme,
@@ -9,6 +7,10 @@ use crate::{
 };
 use core::fmt::Debug;
 use rsact_reactive::prelude::*;
+use rsact_render::{
+    eg::{framebuf::PackedColor, renderer::EGRenderer},
+    prelude::*,
+};
 
 impl<C, I, E> UI<Wtf<EGRenderer<C>, I, E>, NoPages>
 where

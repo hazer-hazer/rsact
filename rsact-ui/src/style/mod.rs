@@ -1,81 +1,8 @@
-use crate::render::color::Color;
+use crate::render::prelude::*;
+use alloc::boxed::Box;
 
-pub mod block;
 pub mod primary_gray;
 pub mod theme;
-
-/**
- * Prioritized extended Option type for colors.
- * [`ColorStyle::Unset`], [`ColorStyle::LowPriority`] and
- * `ColorStyle::Default*` are low-priority option, which are overwritten by
- * any new non-Unset color. HighPriority and Transparent are only
- * overwritten by new high-priority color.
- * Unset and Default* are the lowest priority
- * variant which cannot be set, and only must be used as initial value.
- */
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ColorStyle<C: Color> {
-    /// Color is unset
-    Unset,
-    /// Color is set to transparent. High priority
-    Transparent,
-    /// Color set with low priority
-    LowPriority(C),
-    /// Color set with high priority
-    HighPriority(C),
-    /// Color is unset and will fallback to default foreground
-    DefaultForeground,
-    /// Color is unset and will fallback to default background
-    DefaultBackground,
-}
-
-impl<C: Color> ColorStyle<C> {
-    pub fn get(self) -> Option<C> {
-        match self {
-            ColorStyle::Unset => None,
-            ColorStyle::Transparent => None,
-            ColorStyle::LowPriority(color)
-            | ColorStyle::HighPriority(color) => Some(color),
-            ColorStyle::DefaultForeground => Some(C::default_foreground()),
-            ColorStyle::DefaultBackground => Some(C::default_background()),
-        }
-    }
-
-    pub fn expect(self) -> C {
-        self.get().expect("Color must be set at this point")
-    }
-
-    pub fn set_low_priority(&mut self, new: Option<C>) {
-        if let Some(new) = new {
-            match self {
-                Self::DefaultBackground
-                | Self::DefaultForeground
-                | Self::LowPriority(_)
-                | Self::Unset => *self = Self::LowPriority(new),
-                _ => {},
-            }
-        }
-    }
-
-    pub fn set_high_priority(&mut self, new: Option<C>) {
-        match new {
-            Some(color) => {
-                *self = Self::HighPriority(color);
-            },
-            None => {
-                *self = Self::Transparent;
-            },
-        }
-    }
-
-    pub fn set_transparent(&mut self) {
-        *self = Self::Transparent
-    }
-}
-
-pub trait WidgetStyle: PartialEq + Clone {
-    type Color: Color;
-}
 
 pub type WidgetStyleFn<S> = Option<Box<dyn Fn(S) -> S>>;
 
@@ -124,10 +51,6 @@ macro_rules! declare_widget_style {
                 }
             )*
         }
-
-        impl<C: $crate::render::color::Color> $crate::style::WidgetStyle for $name<C> {
-            type Color = C;
-        }
     };
 
     (@opt_method_list $field: ident: $ty: ident $({
@@ -143,7 +66,7 @@ macro_rules! declare_widget_style {
 
     // Color //
     (@ty color) => {
-        $crate::style::ColorStyle<C>
+        $crate::render::prelude::ColorStyle<C>
     };
 
     (@method $field: ident: color $({
@@ -246,14 +169,14 @@ macro_rules! declare_widget_style {
 
     // BlockStyle //
     (@ty container) => {
-        $crate::style::block::BlockStyle<C>
+        $crate::render::prelude::BlockStyle<C>
     };
 
     (@method $field: ident: container $({
         $($opt_method_name: ident: $opt_method_ty: ident),*
         $(,)?
     })?) => {
-        pub fn $field(mut self, $field: $crate::style::block::BlockStyle<C>) -> Self {
+        pub fn $field(mut self, $field: $crate::render::prelude::BlockStyle<C>) -> Self {
             self.$field = $field;
             self
         }
@@ -286,7 +209,7 @@ macro_rules! declare_widget_style {
         }
     };
     (@opt_method $field: ident: container $border_radius: ident: border_radius) => {
-        pub fn $border_radius(mut self, border_radius: impl Into<$crate::style::block::BorderRadius>) -> Self {
+        pub fn $border_radius(mut self, border_radius: impl Into<$crate::render::prelude::BorderRadius>) -> Self {
             self.$field.border.radius = border_radius.into();
             self
         }
@@ -304,5 +227,4 @@ macro_rules! declare_widget_style {
     };
 }
 
-use alloc::boxed::Box;
 pub use declare_widget_style;

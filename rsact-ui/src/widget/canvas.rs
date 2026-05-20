@@ -1,11 +1,8 @@
 use crate::{
-    geometry::*,
-    render::{
-        DrawStyle, Renderer,
-        primitives::{
-            Primitive, arc::Arc, circle::Circle, ellipse::Ellipse, line::Line,
-            polygon::Polygon, rounded_rect::RoundedRect, sector::Sector,
-        },
+    layout::length::LengthSize,
+    render::primitives::{
+        Primitive, arc::Arc, circle::Circle, ellipse::Ellipse, line::Line,
+        polygon::Polygon, rounded_rect::RoundedRect, sector::Sector,
     },
     widget::prelude::*,
 };
@@ -164,7 +161,10 @@ pub struct Canvas<W: WidgetCtx> {
 
 impl<W: WidgetCtx> Canvas<W> {
     pub fn new(queue: DrawQueue<W::Color>) -> Self {
-        Self { queue, layout: Layout::edge(Size::new_equal(Length::fill())) }
+        Self {
+            queue,
+            layout: Layout::edge(LengthSize::new_equal(Length::fill())),
+        }
     }
 }
 

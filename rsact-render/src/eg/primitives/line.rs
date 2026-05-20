@@ -1,8 +1,8 @@
 use crate::{
+    color::Color,
     eg::alpha::{AlphaDrawTarget, StyledAlphaDrawable},
     geometry::PointExt as _,
-    prelude::Color,
-    render::primitives::line::Line,
+    primitives::line::Line, renderer::RenderResult,
 };
 use embedded_graphics::{
     Pixel,
@@ -73,7 +73,7 @@ impl<C: Color + embedded_graphics::prelude::PixelColor>
         &self,
         style: &PrimitiveStyle<C>,
         target: &mut D,
-    ) -> crate::prelude::RenderResult
+    ) -> RenderResult
     where
         D: AlphaDrawTarget<Color = Self::Color>,
     {

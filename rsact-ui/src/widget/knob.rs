@@ -1,8 +1,6 @@
 use super::prelude::*;
 use crate::{
-    geometry::*,
-    render::{DrawStyle, StrokeAlignment},
-    value::RangeValue,
+    layout::length::LengthSize, render::geometry::*, value::RangeValue,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -58,7 +56,7 @@ pub struct Knob<W: WidgetCtx, V: RangeValue> {
 impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
     pub fn new(value: Signal<V>) -> Self {
         Self {
-            layout: Layout::edge(Size::new_equal(Length::Fixed(25))),
+            layout: Layout::edge(LengthSize::new_equal(Length::Fixed(25))),
             value,
             state: KnobState::none().signal(),
             style: None,
@@ -74,7 +72,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
 
     pub fn size(mut self, size: impl Into<u32>) -> Self {
         self.layout.update_untracked(|layout| {
-            layout.size = Size::new_equal(Length::Fixed(size.into()));
+            layout.size = LengthSize::new_equal(Length::Fixed(size.into()));
         });
         self
     }

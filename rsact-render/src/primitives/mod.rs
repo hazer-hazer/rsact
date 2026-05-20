@@ -5,6 +5,7 @@ pub mod line;
 pub mod polygon;
 pub mod rounded_rect;
 pub mod sector;
+pub mod block;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Primitive {

@@ -1,10 +1,10 @@
 use super::{FlexLayout, LayoutCtx, Limits, length::Length};
-use crate::geometry::*;
 use crate::layout::{
     Align,
-    length::{DivFactors, SubTake as _},
+    length::{DivFactors, LengthSize},
     model::{LayoutModel, model_layout},
 };
+use crate::render::prelude::*;
 use alloc::vec::Vec;
 use itertools::Itertools as _;
 use rsact_reactive::prelude::*;
@@ -60,7 +60,7 @@ pub fn model_flex(
     // TODO: Replace with parent max size as parent_limits.min is not used at all.
     parent_limits: Limits,
     flex_layout: &FlexLayout,
-    size: Size<Length>, // viewport: Memo<Size>,
+    size: LengthSize, // viewport: Memo<Size>,
 ) -> LayoutModel {
     let &FlexLayout {
         wrap,

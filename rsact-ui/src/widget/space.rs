@@ -4,9 +4,7 @@ use crate::{
     el::El,
     event::EventResponse,
     layout::length::Length,
-    widget::{
-        EventCtx, RenderCtx, RenderResult, Widget, WidgetCtx, prelude::*,
-    },
+    widget::{EventCtx, RenderCtx, Widget, WidgetCtx, prelude::*},
 };
 use core::marker::PhantomData;
 

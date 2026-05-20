@@ -1,0 +1,25 @@
+[package]
+name = "rsact-render"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+embedded-graphics = { workspace = true, optional = true }
+tiny-skia = { workspace = true, optional = true }
+num = { workspace = true }
+rsact-reactive = { workspace = true }
+defmt = { workspace = true, optional = true }
+embedded-text = { workspace = true, optional = true }
+embedded-graphics-simulator = { workspace = true, optional = true }
+
+[features]
+tiny-skia = ["dep:tiny-skia"]
+embedded-graphics = ["dep:embedded-graphics", "dep:embedded-text"]
+defmt = ["dep:defmt"]
+simulator = ["dep:embedded-graphics-simulator", "embedded-graphics"]
+
+[lints]
+workspace = true

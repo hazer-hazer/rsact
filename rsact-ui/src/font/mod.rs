@@ -1,8 +1,4 @@
-use crate::geometry::*;
-use crate::{
-    layout::Limits,
-    widget::{RenderResult, ctx::WidgetCtx},
-};
+use crate::{layout::Limits, render::prelude::*, widget::ctx::WidgetCtx};
 use alloc::collections::btree_map::BTreeMap;
 use core::{
     fmt::{Debug, Display},

@@ -89,10 +89,7 @@ where
     }
 
     #[track_caller]
-    fn render(
-        &self,
-        ctx: &mut RenderCtx<'_, W>,
-    ) -> crate::widget::RenderResult {
+    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
         self.widget.render(ctx)
     }
 

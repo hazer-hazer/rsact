@@ -1,8 +1,4 @@
-use crate::{
-    render::{DrawStyle, StrokeAlignment},
-    value::RangeValue,
-    widget::prelude::*,
-};
+use crate::{value::RangeValue, widget::prelude::*};
 use core::marker::PhantomData;
 use rsact_reactive::prelude::*;
 

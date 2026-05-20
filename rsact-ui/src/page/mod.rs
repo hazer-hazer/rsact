@@ -1,5 +1,4 @@
 use crate::{
-    geometry::*,
     el::{El, ElId},
     event::{
         Capture, Event, EventResponse, FocusEvent, MouseEvent, Propagate,
@@ -10,7 +9,7 @@ use crate::{
         LayoutCtx, Limits,
         model::{LayoutModel, model_layout},
     },
-    render::color::Color,
+    render::prelude::*,
     style::{TreeStyle, theme::Theme},
     widget::{Behavior, Widget, ctx::*},
 };
@@ -178,7 +177,7 @@ impl<W: WidgetCtx> Page<W> {
             if let Some(bg) = style.background_color {
                 self.renderer
                     .update_untracked(|r| {
-                        crate::render::Renderer::fill_solid(
+                        Renderer::fill_solid(
                             r,
                             &Rect::new(Point::zero(), viewport),
                             bg,
@@ -385,7 +384,7 @@ impl<W: WidgetCtx> Page<W> {
                                     self.id, background_color
                                 );
                                 let viewport = self.viewport.get();
-                                crate::render::Renderer::fill_solid(
+                                Renderer::fill_solid(
                                     renderer,
                                     &Rect::new(Point::zero(), viewport),
                                     background_color,
@@ -449,7 +448,6 @@ mod tests {
         el::El,
         font::FontCtx,
         prelude::*,
-        render::NullRenderer,
         style::theme::Theme,
         widget::{Widget, ctx::*},
     };

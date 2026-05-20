@@ -11,7 +11,6 @@ use rsact_ui::{
     page::id::SinglePage,
     prelude::*,
     prelude::{IntoInert, Select, SignalMap, create_signal},
-    render::{AntiAliasing, RendererOptions},
     row,
     style::theme::Theme,
     ui::UI,

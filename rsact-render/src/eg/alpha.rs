@@ -1,4 +1,4 @@
-use crate::{render::color::Color, widget::RenderResult};
+use crate::{color::Color, renderer::RenderResult};
 use embedded_graphics::{
     Drawable, Pixel,
     image::{Image, ImageDrawable},

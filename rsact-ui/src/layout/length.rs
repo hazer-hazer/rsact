@@ -1,24 +1,9 @@
-use crate::{geometry::*, layout::padding::Padding};
+use crate::render::prelude::*;
 use core::{
     fmt::Display,
     ops::{Add, AddAssign, Div, Mul, Rem, Sub},
 };
 use rsact_reactive::prelude::*;
-
-pub trait SubTake<Rhs = Self> {
-    fn sub_take(&mut self, sub: Rhs) -> Self;
-}
-
-impl SubTake for u32 {
-    fn sub_take(&mut self, sub: Self) -> Self {
-        if *self >= sub {
-            *self -= sub;
-            sub
-        } else {
-            0
-        }
-    }
-}
 
 #[derive(Clone, Copy, Debug)]
 pub struct DivFactors {
@@ -102,6 +87,63 @@ impl Div for DivFactors {
             self.width.checked_div(rhs.width).unwrap_or(0),
             self.height.checked_div(rhs.height).unwrap_or(0),
         )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LengthSize(Size<Length>);
+
+impl From<Size<Length>> for LengthSize {
+    fn from(value: Size<Length>) -> Self {
+        Self(value)
+    }
+}
+
+impl Axial for LengthSize {
+    type Data = Length;
+
+    fn x(&self) -> Self::Data {
+        self.width()
+    }
+
+    fn y(&self) -> Self::Data {
+        self.height()
+    }
+
+    fn x_mut(&mut self) -> &mut Self::Data {
+        &mut self.0.width
+    }
+
+    fn y_mut(&mut self) -> &mut Self::Data {
+        &mut self.0.height
+    }
+
+    fn axial_new(x: Self::Data, y: Self::Data) -> Self {
+        Self::new(x, y)
+    }
+}
+
+impl LengthSize {
+    pub fn fixed_zero() -> Self {
+        Self::new(Length::Fixed(0), Length::Fixed(0))
+    }
+
+    #[inline(always)]
+    pub fn width(&self) -> Length {
+        self.0.width
+    }
+
+    #[inline(always)]
+    pub fn height(&self) -> Length {
+        self.0.height
+    }
+
+    pub fn set_width(&mut self, width: Length) {
+        self.0.width = width;
+    }
+
+    pub fn set_height(&mut self, height: Length) {
+        self.0.height = height;
     }
 }
 
@@ -338,13 +380,29 @@ impl From<u32> for Length {
 }
 
 #[cfg(feature = "embedded-graphics")]
-impl From<embedded_graphics_core::geometry::Size> for Size<Length> {
+impl From<embedded_graphics_core::geometry::Size> for LengthSize {
     fn from(value: embedded_graphics_core::geometry::Size) -> Self {
         Self::new(Length::Fixed(value.width), Length::Fixed(value.height))
     }
 }
 
-impl Size<Length> {
+impl LengthSize {
+    fn new(width: Length, height: Length) -> Self {
+        Self(Size::new(width, height))
+    }
+
+    pub fn fixed_length(width: u32, height: u32) -> Self {
+        Self::new(Length::Fixed(width), Length::Fixed(height))
+    }
+
+    pub fn shrink() -> Self {
+        Self::new(Length::Shrink, Length::Shrink)
+    }
+
+    pub fn fill() -> Self {
+        Self::new(Length::Div(1), Length::Div(1))
+    }
+
     // pub fn is_fixed(&self) -> bool {
     //     self.width.is_fixed() && self.height.is_fixed()
     // }
@@ -355,58 +413,42 @@ impl Size<Length> {
 
     pub fn in_parent(self, parent: Self) -> Self {
         Self::new(
-            self.width.in_parent(parent.width),
-            self.height.in_parent(parent.height),
+            self.0.width.in_parent(parent.0.width),
+            self.0.height.in_parent(parent.0.height),
         )
     }
 
     pub fn div_factors(&self) -> DivFactors {
         DivFactors {
-            width: self.width.div_factor().unwrap_or(0),
-            height: self.height.div_factor().unwrap_or(0),
+            width: self.0.width.div_factor().unwrap_or(0),
+            height: self.0.height.div_factor().unwrap_or(0),
         }
     }
 
     pub fn max_fixed(&self, fixed: Size, max_size: Size) -> Size {
         Size::new(
-            self.width.max_fixed(fixed.width, max_size.width),
-            self.height.max_fixed(fixed.height, max_size.height),
+            self.0.width.max_fixed(fixed.width, max_size.width),
+            self.0.height.max_fixed(fixed.height, max_size.height),
         )
     }
 
     pub fn into_fixed(&self, base_divs: Size) -> Size {
         Size::new(
-            self.width.into_fixed(base_divs.width),
-            self.height.into_fixed(base_divs.height),
+            self.0.width.into_fixed(base_divs.width),
+            self.0.height.into_fixed(base_divs.height),
         )
     }
 }
 
-impl Size<u32> {
-    pub fn as_fixed_length(self) -> Size<Length> {
-        Size::new(Length::Fixed(self.width), Length::Fixed(self.height))
+impl Into<LengthSize> for Size {
+    fn into(self) -> LengthSize {
+        LengthSize::new(Length::Fixed(self.width), Length::Fixed(self.height))
     }
 }
 
-impl Display for Size<Length> {
+impl Display for LengthSize {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}x{}", self.width, self.height)
-    }
-}
-
-impl Add<Padding> for Size {
-    type Output = Self;
-
-    fn add(self, rhs: Padding) -> Self::Output {
-        self + Into::<Size>::into(rhs)
-    }
-}
-
-impl Sub<Padding> for Size {
-    type Output = Self;
-
-    fn sub(self, rhs: Padding) -> Self::Output {
-        self - Into::<Size>::into(rhs)
+        write!(f, "{}x{}", self.0.width, self.0.height)
     }
 }
 
@@ -450,25 +492,5 @@ impl Mul<DivFactors> for Size<u32> {
             self.width * rhs.width as u32,
             self.height * rhs.height as u32,
         )
-    }
-}
-
-impl Size<Length> {
-    pub fn fixed_length(width: u32, height: u32) -> Self {
-        Self { width: Length::Fixed(width), height: Length::Fixed(height) }
-    }
-
-    pub fn shrink() -> Self {
-        Self { width: Length::Shrink, height: Length::Shrink }
-    }
-
-    pub fn fill() -> Self {
-        Self { width: Length::Div(1), height: Length::Div(1) }
-    }
-}
-
-impl Into<Size<Length>> for Size {
-    fn into(self) -> Size<Length> {
-        Size::new(Length::Fixed(self.width), Length::Fixed(self.height))
     }
 }

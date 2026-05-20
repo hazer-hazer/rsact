@@ -88,6 +88,14 @@ pub trait Axial {
     fn y_mut(&mut self) -> &mut Self::Data;
     fn axial_new(x: Self::Data, y: Self::Data) -> Self;
 
+    fn new_equal(v: Self::Data) -> Self
+    where
+        Self: Sized,
+        Self::Data: Copy,
+    {
+        Self::axial_new(v, v)
+    }
+
     fn axial_map<F, U>(&self, f: F) -> (U, U)
     where
         Self: Sized,
@@ -196,87 +204,6 @@ pub trait Axial {
     // }
 }
 
-impl Axial for Point {
-    type Data = i32;
-
-    fn x(&self) -> Self::Data {
-        self.x
-    }
-
-    fn y(&self) -> Self::Data {
-        self.y
-    }
-
-    fn x_mut(&mut self) -> &mut Self::Data {
-        &mut self.x
-    }
-
-    fn y_mut(&mut self) -> &mut Self::Data {
-        &mut self.y
-    }
-
-    #[inline]
-    fn axial_new(x: Self::Data, y: Self::Data) -> Self {
-        Self::new(x, y)
-    }
-}
-
-#[cfg(feature = "embedded-graphics")]
-impl Axial for embedded_graphics_core::geometry::Size {
-    type Data = u32;
-
-    #[inline]
-    fn x(&self) -> Self::Data {
-        self.width
-    }
-
-    #[inline]
-    fn y(&self) -> Self::Data {
-        self.height
-    }
-
-    fn x_mut(&mut self) -> &mut Self::Data {
-        &mut self.width
-    }
-
-    fn y_mut(&mut self) -> &mut Self::Data {
-        &mut self.height
-    }
-
-    #[inline]
-    fn axial_new(x: Self::Data, y: Self::Data) -> Self {
-        Self::new(x, y)
-    }
-}
-
-#[cfg(feature = "embedded-graphics")]
-impl Axial for embedded_graphics_core::geometry::Point {
-    type Data = i32;
-
-    #[inline]
-    fn x(&self) -> Self::Data {
-        self.x
-    }
-
-    #[inline]
-    fn y(&self) -> Self::Data {
-        self.y
-    }
-
-    fn x_mut(&mut self) -> &mut Self::Data {
-        &mut self.x
-    }
-
-    fn y_mut(&mut self) -> &mut Self::Data {
-        &mut self.y
-    }
-
-    #[inline]
-    fn axial_new(x: Self::Data, y: Self::Data) -> Self {
-        Self::new(x, y)
-    }
-}
-
 impl<T: Copy> Axial for (T, T) {
     type Data = T;
 
@@ -345,6 +272,7 @@ impl Direction for ColDir {
     const AXIS: Axis = Axis::Y;
 }
 
+// TODO: Move to anchor.rs?
 #[derive(Clone, Copy)]
 pub enum Anchor {
     Start,
@@ -372,6 +300,7 @@ impl Into<AnchorY> for Anchor {
     }
 }
 
+// TODO: Move to anchor.rs?
 #[derive(Clone, Copy)]
 pub struct AxisAnchorPoint {
     x: Anchor,

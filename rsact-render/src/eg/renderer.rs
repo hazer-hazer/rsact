@@ -1,20 +1,20 @@
 use crate::{
+    color::Color,
     eg::{
         alpha::{AlphaDrawTarget, StyledAlphaDrawable as _},
         framebuf::{Framebuf as _, PackedColor, PackedFramebuf},
     },
     geometry::*,
-    render::{
-        AntiAliasing, DrawStyle, LayerRenderer, Renderer, RendererOptions,
-        StrokeAlignment, Viewport, ViewportKind,
-        color::Color,
-        path::{Path, PathSegment},
-        primitives::{
-            arc::Arc, circle::Circle, ellipse::Ellipse, line::Line,
-            rounded_rect::RoundedRect, sector::Sector,
-        },
+    path::{Path, PathSegment},
+    primitives::{
+        arc::Arc, circle::Circle, ellipse::Ellipse, line::Line,
+        rounded_rect::RoundedRect, sector::Sector,
     },
-    widget::RenderResult,
+    renderer::{
+        AntiAliasing, LayerRenderer, RenderResult, Renderer, RendererOptions,
+        Viewport, ViewportKind,
+    },
+    style::{DrawStyle, StrokeAlignment},
 };
 use alloc::{collections::BTreeMap, vec::Vec};
 use embedded_graphics::{

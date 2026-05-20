@@ -1,4 +1,4 @@
-use crate::geometry::size::Size;
+use crate::geometry::{Axial, size::Size};
 use core::{
     fmt::Display,
     num::TryFromIntError,
@@ -22,9 +22,58 @@ impl Point {
     pub fn zero() -> Self {
         Self::new(0, 0)
     }
+}
 
-    pub fn new_equal(v: i32) -> Self {
-        Self::new(v, v)
+impl Axial for Point {
+    type Data = i32;
+
+    fn x(&self) -> Self::Data {
+        self.x
+    }
+
+    fn y(&self) -> Self::Data {
+        self.y
+    }
+
+    fn x_mut(&mut self) -> &mut Self::Data {
+        &mut self.x
+    }
+
+    fn y_mut(&mut self) -> &mut Self::Data {
+        &mut self.y
+    }
+
+    #[inline]
+    fn axial_new(x: Self::Data, y: Self::Data) -> Self {
+        Self::new(x, y)
+    }
+}
+
+#[cfg(feature = "embedded-graphics")]
+impl Axial for embedded_graphics::geometry::Point {
+    type Data = i32;
+
+    #[inline]
+    fn x(&self) -> Self::Data {
+        self.x
+    }
+
+    #[inline]
+    fn y(&self) -> Self::Data {
+        self.y
+    }
+
+    fn x_mut(&mut self) -> &mut Self::Data {
+        &mut self.x
+    }
+
+    fn y_mut(&mut self) -> &mut Self::Data {
+        &mut self.y
+    }
+
+    #[inline]
+    fn axial_new(x: Self::Data, y: Self::Data) -> Self {
+        Self::new(x, y)
     }
 }
 
@@ -99,14 +148,14 @@ impl TryFrom<Size> for Point {
 }
 
 #[cfg(feature = "embedded-graphics")]
-impl From<embedded_graphics_core::geometry::Point> for Point {
-    fn from(p: embedded_graphics_core::geometry::Point) -> Self {
+impl From<embedded_graphics::geometry::Point> for Point {
+    fn from(p: embedded_graphics::geometry::Point) -> Self {
         Self::new(p.x, p.y)
     }
 }
 
 #[cfg(feature = "embedded-graphics")]
-impl From<Point> for embedded_graphics_core::geometry::Point {
+impl From<Point> for embedded_graphics::geometry::Point {
     #[inline(always)]
     fn from(p: Point) -> Self {
         Self::new(p.x, p.y)
@@ -228,7 +277,7 @@ impl PointExt for Point {
 
 // Allow embedded_graphics Point to use PointExt methods inside the EG backend.
 #[cfg(feature = "embedded-graphics")]
-impl PointExt for embedded_graphics_core::geometry::Point {
+impl PointExt for embedded_graphics::geometry::Point {
     fn new_rounded(x: f32, y: f32) -> Self {
         Self::new(x.round() as i32, y.round() as i32)
     }

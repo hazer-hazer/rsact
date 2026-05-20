@@ -1,28 +1,26 @@
+use crate::layout::length::LengthSize;
+use crate::render::prelude::*;
 use crate::{
-    geometry::*,
     font::{FontCtx, FontProps, FontSize},
     layout::node::Layout,
 };
 use alloc::{string::String, vec::Vec};
-use block_model::BlockModel;
 use core::{
     fmt::{Debug, Display},
     u32,
 };
 use length::Length;
-pub use limits::Limits;
 use num::traits::SaturatingAdd;
-use padding::Padding;
 use rsact_reactive::prelude::*;
 
-pub mod block_model;
+pub use limits::Limits;
+
 pub mod flex;
 pub mod grid;
 pub mod length;
 pub mod limits;
 pub mod model;
 pub mod node;
-pub mod padding;
 
 #[derive(Clone, Copy)]
 pub struct LayoutCtx<'a> {
@@ -276,17 +274,17 @@ pub struct DevFlexLayout {
 /// DevLayout preserves some initial layout properties that are not required in LayoutModel.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DevLayout {
-    pub size: Size<Length>,
+    pub size: LengthSize,
     pub kind: DevLayoutKind,
 }
 
 impl DevLayout {
-    pub fn new(size: Size<Length>, kind: DevLayoutKind) -> Self {
+    pub fn new(size: LengthSize, kind: DevLayoutKind) -> Self {
         Self { size, kind }
     }
 
     pub fn zero() -> Self {
-        Self { size: Size::shrink(), kind: DevLayoutKind::Zero }
+        Self { size: LengthSize::shrink(), kind: DevLayoutKind::Zero }
     }
 }
 
@@ -429,7 +427,7 @@ pub enum LayoutKind {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LayoutData {
     kind: LayoutKind,
-    pub size: Size<Length>,
+    pub size: LengthSize,
     show: Option<Memo<bool>>,
 }
 
@@ -540,19 +538,19 @@ impl LayoutData {
 }
 
 impl Layout {
-    pub fn new(kind: LayoutKind, size: Size<Length>) -> Self {
+    pub fn new(kind: LayoutKind, size: LengthSize) -> Self {
         Self::inert(LayoutData { kind, size, show: None })
     }
 
     pub fn zero() -> Self {
-        Self::new(LayoutKind::Zero, Size::zero().into())
+        Self::new(LayoutKind::Zero, LengthSize::fixed_zero())
     }
 
     pub fn shrink(kind: LayoutKind) -> Self {
-        Self::new(kind, Size::shrink())
+        Self::new(kind, LengthSize::shrink())
     }
 
-    pub fn edge(size: Size<Length>) -> Self {
+    pub fn edge(size: LengthSize) -> Self {
         Self::new(LayoutKind::Edge, size)
     }
 
@@ -586,7 +584,7 @@ impl Layout {
         self.update_untracked(|l| l.show = Some(show));
     }
 
-    pub fn size(mut self, size: Size<Length>) -> Self {
+    pub fn size(mut self, size: LengthSize) -> Self {
         self.update_untracked(|l| l.size = size);
         self
     }

@@ -1,10 +1,11 @@
-use crate::geometry::*;
+use crate::layout::length::LengthSize;
+use crate::render::prelude::*;
 use crate::{
     font::FontProps,
     layout::{
         Align, ContainerLayout, ContentLayout, DevHoveredLayout, LayoutCtx,
         LayoutKind, Limits, ScrollableLayout, flex::model_flex, length::Length,
-        node::Layout, padding::Padding,
+        node::Layout,
     },
 };
 use alloc::vec::Vec;
@@ -207,7 +208,7 @@ pub fn model_layout(
     ctx: &LayoutCtx,
     layout: Layout,
     parent_limits: Limits,
-    parent_size: Size<Length>, // viewport: Memo<Size>,
+    parent_size: LengthSize, // viewport: Memo<Size>,
 ) -> LayoutModel {
     layout.with(|layout| {
         if !layout.show.map(|show| show.get()).unwrap_or(true) {

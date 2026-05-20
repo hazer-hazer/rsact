@@ -1,14 +1,24 @@
+use crate::geometry::{axis::Axial, padding::Padding, point::Point};
 use core::{
     fmt::Display,
     ops::{Add, AddAssign, Mul, Sub, SubAssign},
 };
-
 use rsact_reactive::prelude::IntoMaybeReactive;
 
-use crate::{
-    geometry::{axis::Axial, point::Point},
-    layout::length::SubTake,
-};
+pub trait SubTake<Rhs = Self> {
+    fn sub_take(&mut self, sub: Rhs) -> Self;
+}
+
+impl SubTake for u32 {
+    fn sub_take(&mut self, sub: Self) -> Self {
+        if *self >= sub {
+            *self -= sub;
+            sub
+        } else {
+            0
+        }
+    }
+}
 
 #[derive(
     Clone,
@@ -244,22 +254,38 @@ impl<S: core::cmp::Ord + core::cmp::Eq + Copy> SizeExt for Size<S> {
     }
 }
 
+impl Add<Padding> for Size {
+    type Output = Self;
+
+    fn add(self, rhs: Padding) -> Self::Output {
+        self + Into::<Size>::into(rhs)
+    }
+}
+
+impl Sub<Padding> for Size {
+    type Output = Self;
+
+    fn sub(self, rhs: Padding) -> Self::Output {
+        self - Into::<Size>::into(rhs)
+    }
+}
+
 #[cfg(feature = "embedded-graphics")]
-impl From<embedded_graphics_core::geometry::Size> for Size {
-    fn from(value: embedded_graphics_core::geometry::Size) -> Self {
+impl From<embedded_graphics::geometry::Size> for Size {
+    fn from(value: embedded_graphics::geometry::Size) -> Self {
         Self::new(value.width, value.height)
     }
 }
 
 #[cfg(feature = "embedded-graphics")]
-impl Into<embedded_graphics_core::geometry::Size> for Size {
-    fn into(self) -> embedded_graphics_core::geometry::Size {
-        embedded_graphics_core::geometry::Size::new(self.width, self.height)
+impl Into<embedded_graphics::geometry::Size> for Size {
+    fn into(self) -> embedded_graphics::geometry::Size {
+        embedded_graphics::geometry::Size::new(self.width, self.height)
     }
 }
 
 #[cfg(feature = "embedded-graphics")]
-impl SizeExt for embedded_graphics_core::geometry::Size {
+impl SizeExt for embedded_graphics::geometry::Size {
     type Data = u32;
 
     #[inline]
@@ -274,5 +300,33 @@ impl SizeExt for embedded_graphics_core::geometry::Size {
 
     fn max_square(self) -> Self {
         Self::new_equal(self.width().min(self.height()))
+    }
+}
+
+#[cfg(feature = "embedded-graphics")]
+impl Axial for embedded_graphics::geometry::Size {
+    type Data = u32;
+
+    #[inline]
+    fn x(&self) -> Self::Data {
+        self.width
+    }
+
+    #[inline]
+    fn y(&self) -> Self::Data {
+        self.height
+    }
+
+    fn x_mut(&mut self) -> &mut Self::Data {
+        &mut self.width
+    }
+
+    fn y_mut(&mut self) -> &mut Self::Data {
+        &mut self.height
+    }
+
+    #[inline]
+    fn axial_new(x: Self::Data, y: Self::Data) -> Self {
+        Self::new(x, y)
     }
 }

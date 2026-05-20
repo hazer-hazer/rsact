@@ -1,6 +1,5 @@
-use super::{RenderResult, Widget, prelude::Color};
+use super::Widget;
 use crate::{
-    geometry::*,
     el::{El, ElId, WithElId},
     event::{
         Capture, CaptureData, Event, EventResponse, FocusEvent, Propagate,
@@ -8,7 +7,7 @@ use crate::{
     font::{AbsoluteFontProps, Font, FontCtx, FontProps},
     layout::model::LayoutModelNode,
     page::{PageStyle, id::PageId},
-    render::{Block, Border, Renderer},
+    render::prelude::*,
     style::{TreeStyle, theme::Theme},
 };
 use alloc::vec::Vec;
@@ -25,6 +24,7 @@ use rsact_reactive::{
 
 // TODO: Not an actual context, rename to something like `WidgetTypeFamily`
 pub trait WidgetCtx: Sized + PartialEq + Clone + 'static {
+    // TODO: Get rid of embedded-graphics dependency, add custom DrawTarget like trait, implement it for EG DrawTarget
     #[cfg(not(feature = "embedded-graphics"))]
     type Renderer: Renderer<Color = Self::Color>;
     #[cfg(feature = "embedded-graphics")]

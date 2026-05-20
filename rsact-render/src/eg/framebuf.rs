@@ -1,4 +1,3 @@
-use crate::{prelude::Size, render::color::Color};
 use alloc::boxed::Box;
 use embedded_graphics::{
     Pixel,
@@ -10,6 +9,8 @@ use embedded_graphics::{
     primitives::Rectangle,
 };
 use num::Integer;
+
+use crate::{color::Color, geometry::Size};
 
 pub trait PackedColor: Sized {
     type Storage: Clone + Send + Sync + 'static;
@@ -34,7 +35,7 @@ macro_rules! rgb_packed_color_impl {
             }
 
             fn into_storage(&self) -> Self::Storage {
-                embedded_graphics_core::pixelcolor::IntoStorage::into_storage(*self)
+                embedded_graphics::pixelcolor::IntoStorage::into_storage(*self)
             }
 
             fn as_color(packed: &Self::Storage, offset: usize) -> Self {
@@ -70,7 +71,7 @@ impl PackedColor for BinaryColor {
     }
 
     fn into_storage(&self) -> Self::Storage {
-        embedded_graphics_core::pixelcolor::IntoStorage::into_storage(*self)
+        embedded_graphics::pixelcolor::IntoStorage::into_storage(*self)
     }
 
     fn as_color(packed: &Self::Storage, offset: usize) -> Self {
@@ -305,7 +306,7 @@ impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor>
 #[cfg(test)]
 mod tests {
     use super::{Framebuf, PackedFramebuf};
-    use crate::prelude::Size;
+    use crate::geometry::Size;
     use embedded_graphics::{
         pixelcolor::{BinaryColor, Rgb888},
         prelude::{Point, RgbColor},

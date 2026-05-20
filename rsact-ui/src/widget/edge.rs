@@ -1,4 +1,5 @@
 use crate::{
+    layout::length::LengthSize,
     style::WidgetStyleFn,
     widget::{Meta, MetaTree, prelude::*},
 };
@@ -11,7 +12,7 @@ pub struct Edge<W: WidgetCtx> {
 impl<W: WidgetCtx + 'static> Edge<W> {
     pub fn new() -> Self {
         Self {
-            layout: Layout::shrink(LayoutKind::Edge).size(Size::fill()),
+            layout: Layout::shrink(LayoutKind::Edge).size(LengthSize::fill()),
             style: None,
         }
     }

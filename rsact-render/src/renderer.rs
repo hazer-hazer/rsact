@@ -1,19 +1,15 @@
 use crate::{
-    geometry::*,
-    layout::{block_model::BlockModel, padding::Padding},
-    render::color::Color,
-    style::block::{BlockStyle, BorderRadius, BorderStyle},
-    widget::RenderResult,
+    color::Color,
+    geometry::{block_model::BlockModel, border::Border, *},
+    path::Path,
+    style::{
+        DrawStyle, StrokeAlignment,
+        block::{BlockStyle, BorderRadius, BorderStyle},
+    },
 };
-use path::Path;
 use rsact_reactive::prelude::IntoMaybeReactive;
 
-pub mod color;
-pub mod path;
-pub mod primitives;
-
-#[cfg(feature = "tiny-skia")]
-pub mod tiny_skia;
+pub type RenderResult = Result<(), ()>;
 
 #[derive(PartialEq, Clone)]
 pub enum AntiAliasing {
@@ -35,49 +31,6 @@ impl RendererOptions {
     pub fn anti_aliasing(mut self, aa: AntiAliasing) -> Self {
         self.anti_aliasing = Some(aa);
         self
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum StrokeAlignment {
-    Inside,
-    Center,
-    Outside,
-}
-
-impl Default for StrokeAlignment {
-    fn default() -> Self {
-        Self::Inside
-    }
-}
-
-/// Unified style for drawing filled/stroked primitives.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct DrawStyle<C: Color> {
-    pub fill: Option<C>,
-    pub stroke: Option<C>,
-    pub stroke_width: u32,
-    pub stroke_alignment: StrokeAlignment,
-}
-
-impl<C: Color> Default for DrawStyle<C> {
-    fn default() -> Self {
-        Self {
-            fill: None,
-            stroke: None,
-            stroke_width: 0,
-            stroke_alignment: StrokeAlignment::Inside,
-        }
-    }
-}
-
-impl<C: Color> DrawStyle<C> {
-    pub fn filled(color: C) -> Self {
-        Self { fill: Some(color), ..Default::default() }
-    }
-
-    pub fn stroked(color: C, width: u32) -> Self {
-        Self { stroke: Some(color), stroke_width: width, ..Default::default() }
     }
 }
 
@@ -194,106 +147,6 @@ pub trait LayerRenderer {
     ) -> RenderResult;
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Border<C: Color> {
-    pub color: Option<C>,
-    pub width: u32,
-    pub radius: BorderRadius,
-}
-
-impl<C: Color> Border<C> {
-    pub fn new(block_style: BlockStyle<C>, block_model: BlockModel) -> Self {
-        Self {
-            color: block_style.border.color.get(),
-            width: block_model.border_width,
-            radius: block_style.border.radius,
-        }
-    }
-
-    pub fn zero() -> Self {
-        Self { color: None, width: 0, radius: 0.into() }
-    }
-
-    pub fn color(mut self, color: Option<C>) -> Self {
-        self.color = color;
-        self
-    }
-
-    pub fn width(mut self, width: u32) -> Self {
-        self.width = width;
-        self
-    }
-
-    pub fn radius(mut self, radius: impl Into<BorderRadius>) -> Self {
-        self.radius = radius.into();
-        self
-    }
-
-    /// Make Block for border used as outline. Background color is always
-    /// removed to avoid drawing above element.
-    pub fn into_outline(self, bounds: Rect) -> Block<C> {
-        Block { rect: bounds, background: None, border: self }
-    }
-
-    pub fn into_block(self, bounds: Rect, background: Option<C>) -> Block<C> {
-        Block { rect: bounds, background, border: self }
-    }
-}
-
-impl<C: Color> Into<Padding> for Border<C> {
-    fn into(self) -> Padding {
-        self.width.into()
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct Block<C: Color> {
-    pub border: Border<C>,
-    pub rect: Rect,
-    pub background: Option<C>,
-}
-
-impl<C: Color> Block<C> {
-    /// Render this block using the renderer's primitive drawing methods.
-    pub fn render<R: Renderer<Color = C>>(
-        &self,
-        renderer: &mut R,
-    ) -> RenderResult {
-        renderer.draw_rounded_rect(
-            self.rect,
-            self.border.radius.into_corner_radii(self.rect.size),
-            DrawStyle {
-                fill: self.background,
-                stroke: self.border.color,
-                stroke_width: self.border.width,
-                stroke_alignment: StrokeAlignment::Inside,
-            },
-        )
-    }
-
-    // TODO: Find better way to construct Block. border width inside layout
-    // makes it complex
-    #[inline]
-    pub fn from_layout_style(
-        outer: Rect,
-        BlockModel { border_width, padding: _ }: BlockModel,
-        BlockStyle {
-            background_color,
-            border: BorderStyle { color: border_color, radius },
-        }: BlockStyle<C>,
-    ) -> Self {
-        Self {
-            border: Border {
-                color: border_color.get(),
-                width: border_width,
-                radius,
-            },
-            rect: outer,
-            background: background_color.get(),
-        }
-    }
-}
-
 /// Minimal color type for use in NullRenderer (no embedded_graphics needed).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct NullColor;
@@ -322,11 +175,11 @@ impl Color for NullColor {
 
 /// Stub renderer for tests.
 #[derive(Default)]
-pub(crate) struct NullRenderer;
+pub struct NullRenderer;
 
 #[cfg(feature = "embedded-graphics")]
 impl embedded_graphics::prelude::PixelColor for NullColor {
-    type Raw = embedded_graphics_core::pixelcolor::raw::RawU8;
+    type Raw = embedded_graphics::pixelcolor::raw::RawU8;
 }
 
 #[cfg(feature = "embedded-graphics")]

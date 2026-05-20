@@ -1,8 +1,9 @@
 use crate::{
+    color::Color,
     eg::alpha::{AlphaDrawTarget, StyledAlphaDrawable},
-    geometry::{Point, PointExt as _},
-    prelude::{Color, Size},
-    render::primitives::{circle::Circle, ellipse::Ellipse},
+    geometry::{Point, PointExt as _, Size},
+    primitives::{circle::Circle, ellipse::Ellipse},
+    renderer::RenderResult,
 };
 use embedded_graphics::{
     Pixel,
@@ -10,7 +11,7 @@ use embedded_graphics::{
     prelude::{Dimensions, Primitive, Transform},
     primitives::{PrimitiveStyle, StyledDrawable},
 };
-use num::Float;
+use num::Float as _;
 
 impl Primitive for Ellipse {}
 
@@ -66,7 +67,7 @@ impl<C: Color + embedded_graphics::prelude::PixelColor>
         &self,
         style: &PrimitiveStyle<C>,
         target: &mut D,
-    ) -> crate::prelude::RenderResult
+    ) -> RenderResult
     where
         D: AlphaDrawTarget<Color = Self::Color>,
     {

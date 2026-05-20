@@ -1,5 +1,5 @@
 use super::layout::ContentLayout;
-use crate::widget::prelude::*;
+use crate::{font::FontSize, widget::prelude::*};
 use core::marker::PhantomData;
 #[cfg(feature = "embedded-graphics")]
 use embedded_graphics::{pixelcolor::raw::BigEndian, prelude::DrawTarget};
