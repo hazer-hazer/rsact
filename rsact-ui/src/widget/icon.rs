@@ -147,13 +147,14 @@ impl<W: WidgetCtx, I: IconSet + 'static, R: ReactivityMarker> Widget<W>
                 use embedded_graphics::prelude::DrawTarget as _;
                 let eg_top_left: embedded_graphics::geometry::Point =
                     ctx.layout.inner.top_left.into();
-                let icon = rsact_icons::Icon::new(
-                    icon_raw,
-                    eg_top_left,
-                    style.background.get(),
-                    style.color.get(),
-                );
-                ctx.renderer().draw_iter(icon.iter()).ok().unwrap();
+                todo!()
+                // let icon = rsact_icons::Icon::new(
+                //     icon_raw,
+                //     eg_top_left,
+                //     style.background.get(),
+                //     style.color.get(),
+                // );
+                // ctx.renderer().draw_iter(icon.iter()).ok().unwrap();
             }
 
             Ok(())

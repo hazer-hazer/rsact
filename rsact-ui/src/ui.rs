@@ -18,9 +18,6 @@ use log::info;
 use rsact_reactive::prelude::*;
 use tinyvec::TinyVec;
 
-#[cfg(feature = "embedded-graphics")]
-use embedded_graphics::prelude::DrawTarget;
-
 pub struct UiOptions {
     auto_focus: bool,
     // TODO: Event interpretation
@@ -47,6 +44,7 @@ pub struct UI<W: WidgetCtx, P: HasPages> {
     theme: Inert<Theme<W::Color>>,
     dev_tools: Signal<DevTools>,
     // TODO: Inert renderer. I don't think it is hardly needed to have reactive renderer options (this is the only reactive dependency).
+    // The problem is that Inert is a readonly value, while we need a mutable reference to the renderer
     renderer: Signal<W::Renderer>,
     message_queue: Option<UiQueue<W>>,
     options: UiOptions,
@@ -54,77 +52,16 @@ pub struct UI<W: WidgetCtx, P: HasPages> {
     fonts: Signal<FontCtx>,
 }
 
-// LayeringRenderer is DrawTarget layering wrapper which is the only Renderer supported for now.
-impl<W: WidgetCtx> UI<W, WithPages> {
-    // TODO: Move `MapColor` mapping to separate drawing variant to avoid specifying generic for `C`
-    #[cfg(feature = "embedded-graphics")]
-    pub fn render(
-        &mut self,
-        target: &mut impl DrawTarget<Color = W::Color>,
-    ) -> bool
-    where
-        W::Renderer: embedded_graphics::Drawable<Color = W::Color, Output = ()>,
-    {
-        self.current_page().render(target)
-    }
-}
-
-#[cfg(not(feature = "embedded-graphics"))]
 impl<R, I, E> UI<Wtf<R, I, E>, NoPages>
 where
     R: Renderer + 'static,
     I: PageId + 'static,
     E: Debug + 'static,
 {
-    fn new(
-        viewport: MaybeReactive<Size>,
-        theme: Theme<<R as Renderer>::Color>,
-        renderer: R,
-    ) -> Self {
-        let dev_tools =
-            create_signal(DevTools { enabled: false, hovered: None });
+    // TODO: For now I made viewport inert, but it is possible for the viewport to change (e.g. window resize, etc). But as now we targeting embedded devices with fixed displays and don't support any windowing, I hold it.
+    pub fn new(theme: Theme<<R as Renderer>::Color>, renderer: R) -> Self {
+        let viewport = renderer.size().inert().maybe_reactive();
 
-        let fonts = create_signal(FontCtx::new());
-
-        Self {
-            page_history: Default::default(),
-            viewport,
-            pages: BTreeMap::new(),
-            on_exit: None,
-            theme: theme.inert(),
-            dev_tools,
-            // TODO: Reactive viewport in Renderer
-            renderer: renderer.signal(),
-            message_queue: None,
-            options: Default::default(),
-            has_pages: PhantomData,
-            fonts,
-        }
-    }
-
-    pub fn auto_focus(mut self) -> Self {
-        self.options.auto_focus = true;
-        self
-    }
-}
-
-#[cfg(feature = "embedded-graphics")]
-impl<R, I, E> UI<Wtf<R, I, E>, NoPages>
-where
-    R: Renderer
-        + embedded_graphics::prelude::DrawTarget<
-            Color = <R as Renderer>::Color,
-            Error = (),
-        > + 'static,
-    <R as Renderer>::Color: embedded_graphics::prelude::PixelColor,
-    I: PageId + 'static,
-    E: Debug + 'static,
-{
-    pub(crate) fn new(
-        viewport: MaybeReactive<Size>,
-        theme: Theme<<R as Renderer>::Color>,
-        renderer: R,
-    ) -> Self {
         let dev_tools =
             create_signal(DevTools { enabled: false, hovered: None });
 
@@ -164,17 +101,6 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
     /// Add ExitEvent handler that eats exit event
     pub fn on_exit(mut self, on_exit: impl Fn() + 'static) -> Self {
         self.on_exit = Some(Box::new(on_exit));
-        self
-    }
-
-    /// Set rendering options
-    pub fn with_renderer_options(
-        mut self,
-        options: impl IntoMaybeReactive<<W::Renderer as Renderer>::Options>,
-    ) -> Self {
-        self.renderer.setter(options.maybe_reactive(), |renderer, options| {
-            renderer.set_options(options.clone().into())
-        });
         self
     }
 
@@ -254,6 +180,13 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
 }
 
 impl<W: WidgetCtx> UI<W, WithPages> {
+    pub fn render(
+        &mut self,
+        target: &mut impl RenderTarget<Color = W::Color>,
+    ) -> bool {
+        self.current_page().render(target)
+    }
+
     /// Get mutable reference to currently active [`Page`]. You likely don't need to get pages.
     pub fn current_page(&mut self) -> &mut Page<W> {
         self.pages

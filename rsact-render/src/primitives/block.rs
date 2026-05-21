@@ -10,6 +10,7 @@ use crate::{
 
 #[derive(Clone, Copy)]
 pub struct Block<C: Color> {
+    // TODO: Directly store [`DrawStyle`]?
     pub border: Border<C>,
     pub rect: Rect,
     pub background: Option<C>,
@@ -21,10 +22,10 @@ impl<C: Color> Block<C> {
         &self,
         renderer: &mut R,
     ) -> RenderResult {
-        renderer.draw_rounded_rect(
-            self.rect,
+        renderer.rounded_rect(
+            &self.rect,
             self.border.radius.into_corner_radii(self.rect.size),
-            DrawStyle {
+            &DrawStyle {
                 fill: self.background,
                 stroke: self.border.color,
                 stroke_width: self.border.width,

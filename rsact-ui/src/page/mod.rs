@@ -15,8 +15,6 @@ use crate::{
 };
 use alloc::vec::Vec;
 use dev::{DevHoveredEl, DevTools};
-#[cfg(feature = "embedded-graphics")]
-use embedded_graphics::{Drawable as _, prelude::DrawTarget};
 use log::{debug, info};
 use rsact_reactive::prelude::*;
 
@@ -77,7 +75,7 @@ impl<W: WidgetCtx> Page<W> {
         renderer: Signal<W::Renderer>,
         fonts: Signal<FontCtx>,
     ) -> Self {
-        let mut root: El<W> = root.into();
+        let root: El<W> = root.into();
         let state = PageState::new().signal().name("Page state");
 
         let force_redraw = create_trigger().name("Force redraw");
@@ -345,25 +343,20 @@ impl<W: WidgetCtx> Page<W> {
         unhandled
     }
 
-    #[cfg(feature = "embedded-graphics")]
     pub fn render(
         &mut self,
-        target: &mut impl DrawTarget<Color = W::Color>,
-    ) -> bool
-    where
-        W::Renderer: embedded_graphics::Drawable<Color = W::Color, Output = ()>,
-    {
+        target: &mut impl RenderTarget<Color = W::Color>,
+    ) -> bool {
         self.use_renderer(|renderer| {
-            use embedded_graphics::Drawable as _;
-            renderer.draw(target).ok().unwrap();
+            renderer.output(target);
         })
     }
 
-    pub fn use_renderer(&mut self, f: impl FnOnce(&W::Renderer)) -> bool {
+    pub fn use_renderer(&mut self, f: impl FnOnce(&mut W::Renderer)) -> bool {
         let mut renderer = self.renderer;
         let drawn = observe(("render_page", self.id), || {
             info!(
-                "Render page {:?} (calls: {})",
+                "Render page {:?} (call: {})",
                 self.id,
                 self.render_calls + 1
             );
@@ -432,7 +425,7 @@ impl<W: WidgetCtx> Page<W> {
         });
 
         if drawn.is_some() {
-            self.renderer.with(|renderer| f(renderer));
+            self.renderer.update_untracked(|renderer| f(renderer));
 
             true
         } else {

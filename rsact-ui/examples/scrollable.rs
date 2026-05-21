@@ -39,10 +39,9 @@ fn main() {
     .fill()
     .el();
 
-    let mut ui = UI::new_with_buffer_renderer(
-        display.bounding_box().size.inert(),
+    let mut ui = UI::new(
         Theme::default(),
-        BinaryColor::Off,
+        EGRenderer::new(display.bounding_box().size.into()),
     )
     .auto_focus()
     .on_exit(|| std::process::exit(0))

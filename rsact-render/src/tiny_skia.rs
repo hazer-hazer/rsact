@@ -1,24 +1,10 @@
-use tiny_skia::Pixmap;
-
 use crate::render::Renderer;
+use tiny_skia::Pixmap;
 
 pub struct TinySkiaRenderer {
     pixmap: Pixmap,
     width: u32,
     height: u32,
-}
-
-impl DrawTarget for TinySkiaRenderer {
-    type Color = Rgb888;
-
-    type Error = core::convert::Infallible;
-
-    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
-    where
-        I: IntoIterator<Item = embedded_graphics::prelude::Pixel<Self::Color>>,
-    {
-        todo!()
-    }
 }
 
 // impl Renderer for TinySkiaRenderer {

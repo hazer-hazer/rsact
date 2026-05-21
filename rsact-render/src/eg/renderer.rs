@@ -1,26 +1,27 @@
 use crate::{
     color::Color,
     eg::{
-        alpha::{AlphaDrawTarget, StyledAlphaDrawable as _},
         framebuf::{Framebuf as _, PackedColor, PackedFramebuf},
+        primitives::EgPrimitive,
     },
     geometry::*,
+    output::{RenderTarget, pixel::Pixel},
     path::{Path, PathSegment},
     primitives::{
         arc::Arc, circle::Circle, ellipse::Ellipse, line::Line,
         rounded_rect::RoundedRect, sector::Sector,
     },
     renderer::{
-        AntiAliasing, LayerRenderer, RenderResult, Renderer, RendererOptions,
-        Viewport, ViewportKind,
+        AntiAliasing, AntiAliasingDisabled, AntiAliasingEnabled, RenderResult,
+        Renderer, Viewport, ViewportKind,
     },
     style::{DrawStyle, StrokeAlignment},
 };
 use alloc::{collections::BTreeMap, vec::Vec};
+use core::marker::PhantomData;
 use embedded_graphics::{
-    Drawable, Pixel,
     draw_target::DrawTargetExt,
-    prelude::{Dimensions, DrawTarget},
+    prelude::{Dimensions, DrawTarget, PixelColor},
     primitives::{PrimitiveStyle, PrimitiveStyleBuilder, StyledDrawable},
 };
 
@@ -40,7 +41,7 @@ impl Into<embedded_graphics::primitives::StrokeAlignment> for StrokeAlignment {
     }
 }
 
-impl<C: Color + embedded_graphics::prelude::PixelColor> DrawStyle<C> {
+impl<C: Color + PixelColor> DrawStyle<C> {
     pub fn into_primitive_style(self) -> PrimitiveStyle<C> {
         let mut builder = PrimitiveStyleBuilder::new()
             .stroke_width(self.stroke_width)
@@ -55,17 +56,15 @@ impl<C: Color + embedded_graphics::prelude::PixelColor> DrawStyle<C> {
     }
 }
 
-// ── Layer ──────────────────────────────────────────────────────────────────
-
 // Note: Real alpha channel is not supported. Now, alpha channel is more like
 // blending parameter for drawing on a single layer, so each layer is not
 // transparent and alpha parameter only affects blending on current layer.
 // TODO: Real alpha-channel
-struct Layer<C: Color + PackedColor + embedded_graphics::prelude::PixelColor> {
+struct Layer<C: Color + PackedColor> {
     canvas: PackedFramebuf<C>,
 }
 
-impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor> Layer<C> {
+impl<C: Color + PackedColor> Layer<C> {
     fn fullscreen(size: Size) -> Self {
         Self { canvas: PackedFramebuf::new(size, C::default_background()) }
     }
@@ -76,27 +75,25 @@ impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor> Layer<C> {
 ///
 /// Preserves PackedColor framebuffer optimization, alpha channel blending,
 /// anti-aliasing, and layering support.
-pub struct EGRenderer<
-    C: Color + PackedColor + embedded_graphics::prelude::PixelColor,
-> {
+pub struct EGRenderer<C: Color + PackedColor, AA: AntiAliasing> {
     viewport_stack: Vec<Viewport>,
     layers: BTreeMap<usize, Layer<C>>,
     main_viewport: Size,
-    options: RendererOptions,
+    aa: PhantomData<AA>,
 }
 
-impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor>
-    EGRenderer<C>
-{
+impl<C: Color + PackedColor> EGRenderer<C, AntiAliasingDisabled> {
     pub fn new(viewport: Size) -> Self {
         Self {
             viewport_stack: vec![Viewport::root()],
             layers: BTreeMap::from([(0, Layer::fullscreen(viewport))]),
             main_viewport: viewport,
-            options: RendererOptions::default(),
+            aa: PhantomData,
         }
     }
+}
 
+impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> EGRenderer<C, AA> {
     fn current_viewport(&self) -> Viewport {
         self.viewport_stack.last().copied().unwrap()
     }
@@ -119,32 +116,90 @@ impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor>
         self.layers.get(&0).unwrap().canvas.draw_buffer(f);
     }
 
-    fn aa_enabled(&self) -> bool {
-        matches!(self.options.anti_aliasing, Some(AntiAliasing::Enabled))
+    pub fn pixel_alpha(&mut self, pixel: Pixel<C>, blend: f32) -> RenderResult {
+        let canvas = self.current_canvas();
+        let color = canvas
+            .pixel(pixel.0)
+            .map(|current| current.mix(blend, pixel.1))
+            .unwrap_or(pixel.1);
+        self.draw_pixels(core::iter::once(Pixel(pixel.0, color)))
     }
 
-    fn draw_pixels(
+    pub fn draw_pixels(
         &mut self,
-        viewport: Viewport,
         pixels: impl IntoIterator<Item = Pixel<C>>,
     ) -> Result<(), ()> {
+        let viewport = self.current_viewport();
         let canvas = &mut self.layers.get_mut(&viewport.layer).unwrap().canvas;
+        let eg_pixels = pixels
+            .into_iter()
+            .map(|p| embedded_graphics::prelude::Pixel(p.0.into(), p.1));
         match viewport.kind {
-            ViewportKind::Fullscreen => canvas.draw_iter(pixels),
+            ViewportKind::Fullscreen => canvas.draw_iter(eg_pixels),
             ViewportKind::Clipped(area) => {
-                canvas.clipped(&area.into()).draw_iter(pixels)
+                canvas.clipped(&area.into()).draw_iter(eg_pixels)
             },
             ViewportKind::Cropped(area) => {
-                canvas.cropped(&area.into()).draw_iter(pixels)
+                canvas.cropped(&area.into()).draw_iter(eg_pixels)
             },
         }
         .unwrap();
         Ok(())
     }
+
+    // Renderer common implementations
+    fn renderer_output(&self, target: &mut impl RenderTarget<Color = C>) {
+        self.layers.values().for_each(|layer| layer.canvas.output(target))
+    }
+
+    fn renderer_clipped(
+        &mut self,
+        area: &Rect,
+        f: impl FnOnce(&mut Self) -> RenderResult,
+    ) -> RenderResult {
+        self.viewport_stack
+            .push(self.sub_viewport(ViewportKind::Clipped(*area)));
+        let result = f(self);
+        self.viewport_stack.pop();
+        result
+    }
 }
 
-impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor> Dimensions
-    for EGRenderer<C>
+// TODO: Layer handling for Renderer in common?
+// TODO: z-index is common
+// impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor>
+//     LayerRenderer for EGRenderer<C>
+// {
+//     fn on_layer(
+//         &mut self,
+//         index: usize,
+//         f: impl FnOnce(&mut Self) -> RenderResult,
+//     ) -> RenderResult {
+//         self.layers.insert(index, Layer::fullscreen(self.main_viewport));
+//         self.viewport_stack
+//             .push(Viewport { layer: index, kind: ViewportKind::Fullscreen });
+//         let result = f(self);
+//         self.viewport_stack.pop();
+//         result
+//     }
+// }
+
+impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> DrawTarget
+    for EGRenderer<C, AA>
+{
+    type Color = C;
+    type Error = ();
+
+    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
+    where
+        I: IntoIterator<Item = embedded_graphics::prelude::Pixel<Self::Color>>,
+    {
+        self.draw_pixels(pixels.into_iter().map(|p| Pixel(p.0.into(), p.1)))
+    }
+}
+
+impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> Dimensions
+    for EGRenderer<C, AA>
 {
     fn bounding_box(&self) -> embedded_graphics::primitives::Rectangle {
         embedded_graphics::primitives::Rectangle::new(
@@ -154,261 +209,126 @@ impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor> Dimensions
     }
 }
 
-impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor> DrawTarget
-    for EGRenderer<C>
+// TODO: Generalize AA and non-AA Renderer implementations
+
+impl<C: Color + PackedColor + PixelColor> Renderer
+    for EGRenderer<C, AntiAliasingDisabled>
 {
     type Color = C;
-    type Error = ();
+    type Options = ();
 
-    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
-    where
-        I: IntoIterator<Item = Pixel<Self::Color>>,
-    {
-        let viewport = self.current_viewport();
-        self.draw_pixels(viewport, pixels)
+    fn output(&self, target: &mut impl RenderTarget<Color = Self::Color>) {
+        self.renderer_output(target);
     }
-}
 
-impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor>
-    AlphaDrawTarget for EGRenderer<C>
-{
-    fn pixel_alpha(
-        &mut self,
-        pixel: Pixel<<Self as DrawTarget>::Color>,
-        blend: f32,
-    ) -> RenderResult {
-        let viewport = self.current_viewport();
-        let canvas = &mut self.layers.get_mut(&viewport.layer).unwrap().canvas;
-        let color = canvas
-            .pixel(pixel.0)
-            .map(|current| current.mix(blend, pixel.1))
-            .unwrap_or(pixel.1);
-        match viewport.kind {
-            ViewportKind::Fullscreen => {
-                canvas.draw_iter(core::iter::once(Pixel(pixel.0, color)))
-            },
-            ViewportKind::Clipped(area) => canvas
-                .clipped(&area.into())
-                .draw_iter(core::iter::once(Pixel(pixel.0, color))),
-            ViewportKind::Cropped(area) => canvas
-                .cropped(&area.into())
-                .draw_iter(core::iter::once(Pixel(pixel.0, color))),
-        }
-        .unwrap();
-        Ok(())
-    }
-}
+    fn set_options(&mut self, _options: Self::Options) {}
 
-impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor> Drawable
-    for EGRenderer<C>
-{
-    type Color = C;
-    type Output = ();
-
-    fn draw<D>(&self, target: &mut D) -> Result<Self::Output, D::Error>
-    where
-        D: DrawTarget<Color = Self::Color>,
-    {
-        self.layers.values().try_for_each(|layer| layer.canvas.draw(target))
-    }
-}
-
-impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor>
-    LayerRenderer for EGRenderer<C>
-{
-    fn on_layer(
-        &mut self,
-        index: usize,
-        f: impl FnOnce(&mut Self) -> RenderResult,
-    ) -> RenderResult {
-        self.layers.insert(index, Layer::fullscreen(self.main_viewport));
-        self.viewport_stack
-            .push(Viewport { layer: index, kind: ViewportKind::Fullscreen });
-        let result = f(self);
-        self.viewport_stack.pop();
-        result
-    }
-}
-
-impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor> Renderer
-    for EGRenderer<C>
-where
-    C: From<<C as embedded_graphics::prelude::PixelColor>::Raw>,
-{
-    type Color = C;
-    type Options = RendererOptions;
-
-    fn set_options(&mut self, options: Self::Options) {
-        self.options = options;
+    fn size(&self) -> Size {
+        self.main_viewport
     }
 
     fn clipped(
         &mut self,
-        area: Rect,
+        area: &Rect,
         f: impl FnOnce(&mut Self) -> RenderResult,
     ) -> RenderResult {
-        self.viewport_stack
-            .push(self.sub_viewport(ViewportKind::Clipped(area)));
-        let result = f(self);
-        self.viewport_stack.pop();
-        result
+        self.renderer_clipped(area, f)
     }
 
     fn fill_solid(&mut self, rect: &Rect, color: Self::Color) -> RenderResult {
-        let rect: embedded_graphics::primitives::Rectangle = (*rect).into();
-        DrawTarget::fill_solid(self, &rect, color).ok().unwrap();
-        Ok(())
+        self.rect(
+            rect,
+            &DrawStyle {
+                fill: Some(color),
+                stroke: None,
+                stroke_width: 0,
+                stroke_alignment: StrokeAlignment::Inside,
+            },
+        )
     }
 
-    fn draw_line(
+    fn line(
         &mut self,
         from: Point,
         to: Point,
-        style: DrawStyle<Self::Color>,
+        style: &DrawStyle<C>,
     ) -> RenderResult {
-        let style = style.into_primitive_style();
-        if self.aa_enabled() {
-            Line::new(from.into(), to.into()).draw_styled_alpha(&style, self)
-        } else {
-            Line::new(from, to).draw_styled(&style, self).ok().unwrap();
-            Ok(())
-        }
+        Line::new(from, to).draw(self, *style)
     }
 
-    fn draw_rect(
+    fn rect(
         &mut self,
-        rect: Rect,
-        style: DrawStyle<Self::Color>,
+        rect: &Rect,
+        style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        let eg_rect: embedded_graphics::primitives::Rectangle = rect.into();
-        let eg_style = style.into_primitive_style();
-        eg_rect.draw_styled(&eg_style, self).ok().unwrap();
+        let eg_rect: embedded_graphics::primitives::Rectangle = (*rect).into();
+        eg_rect.draw_styled(&style.into_primitive_style(), self).ok().unwrap();
         Ok(())
     }
 
-    fn draw_rounded_rect(
+    fn rounded_rect(
         &mut self,
-        rect: Rect,
+        rect: &Rect,
         corners: CornerRadii,
-        style: DrawStyle<Self::Color>,
+        style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        let style = style.into_primitive_style();
-        if self.aa_enabled() {
-            RoundedRect::new(rect, corners).draw_styled_alpha(&style, self)
-        } else {
-            RoundedRect::new(rect, corners)
-                .draw_styled(&style, self)
-                .ok()
-                .unwrap();
-            Ok(())
-        }
+        RoundedRect::new(*rect, corners).draw(self, *style)
     }
 
-    fn draw_circle(
+    fn circle(
         &mut self,
         top_left: Point,
         diameter: u32,
-        style: DrawStyle<Self::Color>,
+        style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        let style = style.into_primitive_style();
-        if self.aa_enabled() {
-            Circle::new(top_left, diameter).draw_styled_alpha(&style, self)
-        } else {
-            Circle::new(top_left, diameter)
-                .draw_styled(&style, self)
-                .ok()
-                .unwrap();
-            Ok(())
-        }
+        Circle::new(top_left, diameter).draw(self, *style)
     }
 
-    fn draw_arc(
+    fn arc(
         &mut self,
         top_left: Point,
         diameter: u32,
         start: Angle,
         sweep: Angle,
-        style: DrawStyle<Self::Color>,
+        style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        let style = style.into_primitive_style();
-        if self.aa_enabled() {
-            Arc::new(top_left, diameter, start, sweep)
-                .draw_styled_alpha(&style, self)
-        } else {
-            Arc::new(top_left, diameter, start, sweep)
-                .draw_styled(&style, self)
-                .ok()
-                .unwrap();
-            Ok(())
-        }
+        Arc::new(top_left, diameter, start, sweep).draw(self, *style)
     }
 
-    fn draw_ellipse(
+    fn ellipse(
         &mut self,
-        bounding_box: Rect,
-        style: DrawStyle<Self::Color>,
+        bounding_box: &Rect,
+        style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        let top_left = bounding_box.top_left;
-        let size = bounding_box.size;
-        let style = style.into_primitive_style();
-        if self.aa_enabled() {
-            Ellipse::new(top_left, size).draw_styled_alpha(&style, self)
-        } else {
-            Ellipse::new(top_left, size)
-                .draw_styled(&style, self)
-                .ok()
-                .unwrap();
-            Ok(())
-        }
+        Ellipse::new(bounding_box.top_left, bounding_box.size)
+            .draw(self, *style)
     }
 
-    fn draw_sector(
+    fn sector(
         &mut self,
         top_left: Point,
         diameter: u32,
         start: Angle,
         sweep: Angle,
-        style: DrawStyle<Self::Color>,
+        style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        let style = style.into_primitive_style();
-        if self.aa_enabled() {
-            Sector::new(top_left, diameter, start, sweep)
-                .draw_styled_alpha(&style, self)
-        } else {
-            Sector::new(top_left, diameter, start, sweep)
-                .draw_styled(&style, self)
-                .ok()
-                .unwrap();
-            Ok(())
-        }
+        Sector::new(top_left, diameter, start, sweep).draw(self, *style)
     }
 
-    fn draw_polygon(
+    fn polygon(
         &mut self,
         points: &[Point],
-        style: DrawStyle<Self::Color>,
+        style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
         // TODO: I don't want to allocate a vector for conversion between my Point and EG Point, so better use custom primitive Polygon and implement AA and non-AA rendering for it.
         todo!()
-        // let style = style.into_primitive_style();
-        // if self.aa_enabled() {
-        //     Polyline::new(points.iter())
-        //         .draw_styled_alpha(&style, self)
-        // } else {
-        //     super::primitives::polygon::Polygon::new(points.iter().copied())
-        //         .draw_styled(&style, self)
-        //         .ok()
-        //         .unwrap();
-        //     Ok(())
-        // }
     }
 
-    fn draw_path(
+    fn path(
         &mut self,
         path: &Path,
-        style: DrawStyle<Self::Color>,
+        style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        let style = style.into_primitive_style();
         let mut current_pos = Point::zero();
         for segment in path.segments() {
             match segment {
@@ -416,10 +336,7 @@ where
                     current_pos = *p;
                 },
                 PathSegment::LineTo(p) => {
-                    Line::new(current_pos.into(), (*p).into())
-                        .draw_styled(&style, self)
-                        .ok()
-                        .unwrap();
+                    self.line(current_pos, *p, style)?;
                     current_pos = *p;
                 },
                 PathSegment::ArcTo { center: _, radius, start, sweep } => {
@@ -428,15 +345,151 @@ where
                         current_pos.x - *radius as i32,
                         current_pos.y - *radius as i32,
                     );
-                    Arc::new(
-                        top_left.into(),
-                        diameter,
-                        (*start).into(),
-                        (*sweep).into(),
-                    )
-                    .draw_styled(&style, self)
-                    .ok()
-                    .unwrap();
+                    self.arc(top_left, diameter, *start, *sweep, style)?;
+                },
+                PathSegment::Close => {},
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<C: Color + PackedColor + PixelColor> Renderer
+    for EGRenderer<C, AntiAliasingEnabled>
+{
+    type Color = C;
+    type Options = ();
+
+    fn output(&self, target: &mut impl RenderTarget<Color = Self::Color>) {
+        self.renderer_output(target);
+    }
+
+    fn set_options(&mut self, _options: Self::Options) {}
+
+    fn size(&self) -> Size {
+        self.main_viewport
+    }
+
+    fn clipped(
+        &mut self,
+        area: &Rect,
+        f: impl FnOnce(&mut Self) -> RenderResult,
+    ) -> RenderResult {
+        self.renderer_clipped(area, f)
+    }
+
+    fn fill_solid(&mut self, rect: &Rect, color: Self::Color) -> RenderResult {
+        self.rect(
+            rect,
+            &DrawStyle {
+                fill: Some(color),
+                stroke: None,
+                stroke_width: 0,
+                stroke_alignment: StrokeAlignment::Inside,
+            },
+        )
+    }
+
+    fn line(
+        &mut self,
+        from: Point,
+        to: Point,
+        style: &DrawStyle<C>,
+    ) -> RenderResult {
+        Line::new(from, to).draw_aa(self, *style)
+    }
+
+    fn rect(
+        &mut self,
+        rect: &Rect,
+        style: &DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        let eg_rect: embedded_graphics::primitives::Rectangle = (*rect).into();
+        eg_rect.draw_styled(&style.into_primitive_style(), self).ok().unwrap();
+        Ok(())
+    }
+
+    fn rounded_rect(
+        &mut self,
+        rect: &Rect,
+        corners: CornerRadii,
+        style: &DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        RoundedRect::new(*rect, corners).draw_aa(self, *style)
+    }
+
+    fn circle(
+        &mut self,
+        top_left: Point,
+        diameter: u32,
+        style: &DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        Circle::new(top_left, diameter).draw_aa(self, *style)
+    }
+
+    fn arc(
+        &mut self,
+        top_left: Point,
+        diameter: u32,
+        start: Angle,
+        sweep: Angle,
+        style: &DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        Arc::new(top_left, diameter, start, sweep).draw_aa(self, *style)
+    }
+
+    fn ellipse(
+        &mut self,
+        bounding_box: &Rect,
+        style: &DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        Ellipse::new(bounding_box.top_left, bounding_box.size)
+            .draw_aa(self, *style)
+    }
+
+    fn sector(
+        &mut self,
+        top_left: Point,
+        diameter: u32,
+        start: Angle,
+        sweep: Angle,
+        style: &DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        Sector::new(top_left, diameter, start, sweep).draw_aa(self, *style)
+    }
+
+    fn polygon(
+        &mut self,
+        points: &[Point],
+        style: &DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        // TODO: I don't want to allocate a vector for conversion between my Point and EG Point, so better use custom primitive Polygon and implement AA and non-AA rendering for it.
+        todo!()
+    }
+
+    fn path(
+        &mut self,
+        path: &Path,
+        style: &DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        let mut current_pos = Point::zero();
+        for segment in path.segments() {
+            match segment {
+                PathSegment::MoveTo(p) => {
+                    current_pos = *p;
+                },
+                PathSegment::LineTo(p) => {
+                    self.line(current_pos, *p, style)?;
+                    current_pos = *p;
+                },
+                PathSegment::ArcTo { center: _, radius, start, sweep } => {
+                    let diameter = radius * 2;
+                    let top_left = Point::new(
+                        current_pos.x - *radius as i32,
+                        current_pos.y - *radius as i32,
+                    );
+                    Arc::new(top_left, diameter, *start, *sweep)
+                        .draw_aa(self, *style)?;
                 },
                 PathSegment::Close => {},
             }

@@ -78,7 +78,7 @@ impl<T: PartialEq> Size<T> {
 }
 
 impl Size<u32> {
-    pub fn zero() -> Self {
+    pub const fn zero() -> Self {
         Self { width: 0, height: 0 }
     }
 
@@ -88,7 +88,7 @@ impl Size<u32> {
         Self::new_equal(min)
     }
 
-    pub fn is_zero(&self) -> bool {
+    pub const fn is_zero(&self) -> bool {
         self.width == 0 || self.height == 0
     }
 }

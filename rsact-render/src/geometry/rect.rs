@@ -1,7 +1,8 @@
 use crate::geometry::{
     anchor::{AnchorPoint, AnchorX, AnchorY},
     axis::{Anchor, Axis},
-    point::Point, size::Size,
+    point::Point,
+    size::Size,
 };
 
 /// First-class 2D axis-aligned rectangle.
@@ -16,8 +17,26 @@ impl Rect {
         Self { top_left, size }
     }
 
-    pub fn zero() -> Self {
+    pub const fn zero() -> Self {
         Self { top_left: Point::zero(), size: Size::zero() }
+    }
+
+    pub const fn is_zero_sized(&self) -> bool {
+        self.size.is_zero()
+    }
+
+    pub fn columns(&self) -> core::ops::Range<i32> {
+        // TODO: EG-like SaturatingAs
+        self.top_left.x..self.top_left.x.saturating_add(self.size.width as i32)
+    }
+
+    pub fn rows(&self) -> core::ops::Range<i32> {
+        // TODO: EG-like SaturatingAs
+        self.top_left.y..self.top_left.y.saturating_add(self.size.height as i32)
+    }
+
+    pub fn points(&self) -> Points {
+        Points::new(self)
     }
 
     pub fn center(&self) -> Point {
@@ -28,7 +47,7 @@ impl Rect {
     }
 
     pub fn bottom_right(&self) -> Option<Point> {
-        if self.size.width == 0 || self.size.height == 0 {
+        if self.is_zero_sized() {
             None
         } else {
             Some(Point::new(
@@ -164,5 +183,46 @@ impl RectExt for Rect {
             Axis::X => self.resized_width(value, anchor.into()),
             Axis::Y => self.resized_height(value, anchor.into()),
         }
+    }
+}
+
+pub struct Points {
+    x: core::ops::Range<i32>,
+    y: core::ops::Range<i32>,
+    x_start: i32,
+}
+
+impl Iterator for Points {
+    type Item = Point;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while !self.y.is_empty() {
+            if let Some(x) = self.x.next() {
+                return Some(Point::new(x, self.y.start));
+            }
+
+            self.y.next();
+            self.x.start = self.x_start;
+        }
+
+        None
+    }
+}
+
+impl Points {
+    pub const fn empty() -> Self {
+        Self { x: 0..0, y: 0..0, x_start: 0 }
+    }
+
+    fn new(rect: &Rect) -> Self {
+        if rect.is_zero_sized() {
+            return Self::empty();
+        }
+
+        let x = rect.columns();
+        let y = rect.rows();
+        let x_start = x.start;
+
+        Self { x, y, x_start }
     }
 }

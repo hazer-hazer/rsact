@@ -16,9 +16,6 @@ pub mod utils;
 pub mod value;
 pub mod widget;
 
-#[cfg(feature = "embedded-graphics")]
-pub mod eg;
-
 // #[macro_use]
 extern crate log;
 

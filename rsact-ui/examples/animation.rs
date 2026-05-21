@@ -45,7 +45,7 @@ fn main() {
     let canvas_queue = DrawQueue::new();
     let page = Canvas::new(canvas_queue).fill().el();
 
-    let mut ui = UI::new_with_buffer_renderer(
+    let mut ui = UI::new_eg(
         display.bounding_box().size.inert(),
         Theme::default(),
         Rgb888::WHITE,

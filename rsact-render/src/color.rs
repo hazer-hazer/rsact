@@ -28,12 +28,12 @@ pub trait Color: Copy + Default + PartialEq + Debug {
     }
 }
 
-pub trait RgbExt: Sized + Color {
+pub trait RgbColor: Color {
     fn rgb(r: u8, g: u8, b: u8) -> Self;
 
-    // fn r(&self) -> u8;
-    // fn g(&self) -> u8;
-    // fn b(&self) -> u8;
+    fn r(&self) -> u8;
+    fn g(&self) -> u8;
+    fn b(&self) -> u8;
 
     #[inline]
     fn hex(hex: u32) -> Self {
@@ -59,4 +59,10 @@ pub trait RgbExt: Sized + Color {
     //         (this as f32 * this_alpha + other as f32 * alpha) as u8
     //     })
     // }
+}
+
+pub trait RgbaColor: RgbColor {
+    fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self;
+
+    fn a(&self) -> u8;
 }

@@ -33,7 +33,7 @@ fn main() {
 
     let page = Flex::row([]).fill();
 
-    let mut ui = UI::new_with_buffer_renderer(
+    let mut ui = UI::new_eg(
         display.bounding_box().size.inert(),
         Theme::default().with_accent(Rgb888::RED),
         Rgb888::WHITE,

@@ -250,10 +250,10 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Scrollable<W, Dir> {
                     Dir::AXIS.canon(0, -((style.scrollbar_width as i32) / 2));
 
                 // Draw track
-                ctx.renderer().draw_line(
+                ctx.renderer().line(
                     track_start + scrollbar_translation,
                     track_end + scrollbar_translation,
-                    style.track_draw_style(),
+                    &style.track_draw_style(),
                 )?;
 
                 let thumb_len = ((scrollable_length as f32)
@@ -267,12 +267,12 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Scrollable<W, Dir> {
                 let thumb_start = track_start
                     + Dir::AXIS.canon::<Point>(thumb_offset as i32, 0);
 
-                ctx.renderer().draw_line(
+                ctx.renderer().line(
                     thumb_start + scrollbar_translation,
                     thumb_start
                         + Dir::AXIS.canon::<Point>(thumb_len as i32, 0)
                         + scrollbar_translation,
-                    style.thumb_draw_style(),
+                    &style.thumb_draw_style(),
                 )?;
             }
 

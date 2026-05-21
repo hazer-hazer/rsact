@@ -4,6 +4,7 @@ use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
 use rsact_icons::{common::CommonIcon, system::SystemIcon, IconSet};
+use rsact_render::eg::renderer::EGRenderer;
 use rsact_ui::{
     page::id::SinglePage, prelude::{Flex, Icon, IntoInert, Size, Text}, style::theme::Theme, ui::UI, widget::{SizedWidget, Widget}
 };
@@ -35,10 +36,9 @@ fn main() {
         .map(|kind| Icon::new(kind).size(ICON_SIZE).el())
         .collect::<Vec<_>>();
 
-    let mut ui = UI::new_with_buffer_renderer(
-        display.bounding_box().size.inert(),
+    let mut ui = UI::new(
         Theme::default(),
-        Rgb888::WHITE,
+        EGRenderer::new(display.bounding_box().size.into())
     ).no_events().with_page(SinglePage, 
         Flex::col([
             Text::new("System icons").el(),

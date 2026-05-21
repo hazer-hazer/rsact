@@ -1,90 +1,46 @@
 use crate::{
     color::Color,
-    eg::alpha::{AlphaDrawTarget, StyledAlphaDrawable},
+    eg::{framebuf::PackedColor, primitives::EgPrimitive},
     geometry::PointExt as _,
-    primitives::line::Line, renderer::RenderResult,
+    output::pixel::Pixel,
+    primitives::line::Line,
+    renderer::{AntiAliasingDisabled, AntiAliasingEnabled, RenderResult},
 };
 use embedded_graphics::{
-    Pixel,
     geometry::Point as EgPoint,
-    prelude::{Angle, Dimensions, Primitive, Transform},
+    pixelcolor::PixelColor,
+    prelude::{Dimensions, Primitive, Transform},
     primitives::{PrimitiveStyle, StyledDrawable},
 };
 use num::Float as _;
 
-impl Dimensions for Line {
-    fn bounding_box(&self) -> embedded_graphics::primitives::Rectangle {
-        embedded_graphics::primitives::Rectangle::new(
-            self.from.into(),
-            embedded_graphics::geometry::Size::new(
-                (self.to.x - self.from.x).abs() as u32,
-                (self.to.y - self.from.y).abs() as u32,
-            ),
-        )
-    }
-}
-
-impl Primitive for Line {}
-
-impl Transform for Line {
-    fn translate(&self, by: EgPoint) -> Self {
-        let mut new = *self;
-        new.from += by.into();
-        new.to += by.into();
-        new
-    }
-
-    fn translate_mut(&mut self, by: EgPoint) -> &mut Self {
-        self.from += by.into();
-        self.to += by.into();
-        self
-    }
-}
-
-impl<C: Color + embedded_graphics::prelude::PixelColor>
-    StyledDrawable<PrimitiveStyle<C>> for Line
-{
-    type Color = C;
-    type Output = ();
-
-    fn draw_styled<D>(
+impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Line {
+    fn draw(
         &self,
-        style: &PrimitiveStyle<C>,
-        target: &mut D,
-    ) -> Result<Self::Output, D::Error>
-    where
-        D: embedded_graphics::prelude::DrawTarget<Color = Self::Color>,
-    {
+        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingDisabled>,
+        style: crate::prelude::DrawStyle<C>,
+    ) -> RenderResult {
         embedded_graphics::primitives::Line::new(
             self.from.into(),
             self.to.into(),
         )
-        .draw_styled(style, target)
+        .draw_styled(&style.into_primitive_style(), renderer)
     }
-}
 
-impl<C: Color + embedded_graphics::prelude::PixelColor>
-    StyledAlphaDrawable<PrimitiveStyle<C>> for Line
-{
-    type Color = C;
-    type Output = ();
-
-    fn draw_styled_alpha<D>(
+    fn draw_aa(
         &self,
-        style: &PrimitiveStyle<C>,
-        target: &mut D,
-    ) -> RenderResult
-    where
-        D: AlphaDrawTarget<Color = Self::Color>,
-    {
-        if style.stroke_color.is_none() || style.stroke_width == 0 {
+        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingEnabled>,
+        style: crate::prelude::DrawStyle<C>,
+    ) -> RenderResult {
+        if style.stroke.is_none() || style.stroke_width == 0 {
             return Ok(());
         }
 
         let mut start = self.from;
         let mut end = self.to;
-        let mut draw_pixel = |point, blend| {
-            target.pixel_alpha(Pixel(point, style.stroke_color.unwrap()), blend)
+        let mut draw_pixel = |point: EgPoint, blend| {
+            renderer
+                .pixel_alpha(Pixel(point.into(), style.stroke.unwrap()), blend)
         };
 
         let steep = (end.y - start.y).abs() > (end.x - start.x).abs();

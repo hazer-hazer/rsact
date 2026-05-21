@@ -19,7 +19,7 @@ impl Point {
         Self { x, y }
     }
 
-    pub fn zero() -> Self {
+    pub const fn zero() -> Self {
         Self::new(0, 0)
     }
 }

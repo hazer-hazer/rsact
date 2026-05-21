@@ -67,15 +67,11 @@ fn main() {
     .center()
     .fill();
 
-    let mut ui = UI::new_with_buffer_renderer(
-        display.bounding_box().size.inert(),
-        Theme::default().with_accent(Rgb888::RED),
-        Rgb888::WHITE,
+    let mut ui = UI::new(
+        Theme::default(),
+        EGRenderer::new(display.bounding_box().size.into()),
     )
     .with_page(SinglePage, page.el())
-    .with_renderer_options(
-        RendererOptions::new().anti_aliasing(AntiAliasing::Enabled),
-    )
     .on_exit(|| std::process::exit(0));
 
     let mut fps = 0;

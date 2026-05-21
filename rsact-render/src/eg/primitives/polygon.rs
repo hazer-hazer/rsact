@@ -1,146 +1,14 @@
 use crate::{
     color::Color,
-    eg::alpha::{AlphaDrawTarget, StyledAlphaDrawable},
+    eg::{framebuf::PackedColor, primitives::EgPrimitive},
     geometry::{Point, PointExt as _},
+    output::pixel::Pixel,
     primitives::{line::Line, polygon::Polygon},
-    renderer::RenderResult,
+    renderer::{
+        AntiAliasingDisabled, AntiAliasingEnabled, RenderResult, Renderer,
+    },
 };
-use embedded_graphics::{
-    Pixel,
-    prelude::{Dimensions, Primitive, Transform},
-    primitives::{PrimitiveStyle, StyledDrawable},
-};
-
-impl Dimensions for Polygon {
-    fn bounding_box(&self) -> embedded_graphics::primitives::Rectangle {
-        let (min, max) = self.bounds();
-        embedded_graphics::primitives::Rectangle::new(
-            min.into(),
-            embedded_graphics::geometry::Size::new(
-                (max.x - min.x).abs() as u32,
-                (max.y - min.y).abs() as u32,
-            ),
-        )
-    }
-}
-
-impl Primitive for Polygon {}
-
-impl Transform for Polygon {
-    fn translate(&self, by: embedded_graphics::prelude::Point) -> Self {
-        let by: Point = by.into();
-        Self::new(
-            self.translation + by,
-            self.vertices.iter().copied().map(|p| p + by),
-        )
-    }
-
-    fn translate_mut(
-        &mut self,
-        by: embedded_graphics::prelude::Point,
-    ) -> &mut Self {
-        let by: Point = by.into();
-        self.vertices.iter_mut().for_each(|p| *p += by);
-        self
-    }
-}
-
-impl<C: Color + embedded_graphics::prelude::PixelColor>
-    StyledDrawable<PrimitiveStyle<C>> for Polygon
-{
-    type Color = C;
-    type Output = ();
-
-    fn draw_styled<D>(
-        &self,
-        style: &PrimitiveStyle<C>,
-        target: &mut D,
-    ) -> Result<Self::Output, D::Error>
-    where
-        D: embedded_graphics::prelude::DrawTarget<Color = Self::Color>,
-    {
-        if let Some(fill_color) = style.fill_color {
-            let (min, max) = self.bounds();
-            let fill = (min.y..=max.y)
-                .map(|y| {
-                    (min.x..=max.x).filter_map(move |x| {
-                        let point = Point::new(x, y);
-                        if self.contains(point) {
-                            Some(Pixel(point.into(), fill_color))
-                        } else {
-                            None
-                        }
-                    })
-                })
-                .flatten();
-
-            target.draw_iter(fill)?;
-        }
-
-        if style.stroke_color.is_some() && style.stroke_width > 0 {
-            self.lines()
-                .try_for_each(|line| line.draw_styled(style, target))?;
-        }
-
-        Ok(())
-    }
-}
-
-impl<C: Color + embedded_graphics::prelude::PixelColor>
-    StyledAlphaDrawable<PrimitiveStyle<C>> for Polygon
-{
-    type Color = C;
-    type Output = ();
-
-    fn draw_styled_alpha<D>(
-        &self,
-        style: &PrimitiveStyle<C>,
-        target: &mut D,
-    ) -> RenderResult
-    where
-        D: AlphaDrawTarget<Color = Self::Color>,
-    {
-        if let Some(fill_color) = style.fill_color {
-            let (min, max) = self.bounds();
-
-            for y in min.y..=max.y {
-                for x in min.x..=max.x {
-                    let point = Point::new(x, y);
-                    if self.contains(point) {
-                        target.pixel_alpha(
-                            Pixel(point.into(), fill_color),
-                            1.0,
-                        )?;
-                    } else if style.stroke_color.is_none()
-                        || style.stroke_width == 0
-                    {
-                        // Note: Anti-aliasing happens here
-                        // TODO: Can optimize?
-                        self.lines().try_for_each(|line| {
-                            let distance = line.dist_to(point.into());
-
-                            if distance < 1.0 {
-                                let alpha = 1.0 - distance;
-                                target.pixel_alpha(
-                                    Pixel(point.into(), fill_color),
-                                    alpha,
-                                )?;
-                            }
-                            Ok(())
-                        })?;
-                    }
-                }
-            }
-        }
-
-        if style.stroke_color.is_some() && style.stroke_width > 0 {
-            self.lines()
-                .try_for_each(|line| line.draw_styled_alpha(style, target))?;
-        }
-
-        Ok(())
-    }
-}
+use embedded_graphics::pixelcolor::PixelColor;
 
 impl Polygon {
     pub fn bounds(&self) -> (Point, Point) {
@@ -185,6 +53,80 @@ impl Polygon {
                 winding_number
             }
         }) != 0
+    }
+}
+
+impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Polygon {
+    // TODO: Review this implementation
+    fn draw(
+        &self,
+        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingDisabled>,
+        style: crate::prelude::DrawStyle<C>,
+    ) -> RenderResult {
+        if let Some(fill_color) = style.fill {
+            let (min, max) = self.bounds();
+            let fill = (min.y..=max.y).flat_map(|y| {
+                (min.x..=max.x).filter_map(move |x| {
+                    let point = Point::new(x, y);
+                    if self.contains(point) {
+                        Some(Pixel(point.into(), fill_color))
+                    } else {
+                        None
+                    }
+                })
+            });
+
+            renderer.draw_pixels(fill)?;
+        }
+
+        if style.stroke.is_some() && style.stroke_width > 0 {
+            self.lines().try_for_each(|line| {
+                renderer.line(line.from, line.to, &style)
+            })?;
+        }
+
+        Ok(())
+    }
+
+    fn draw_aa(
+        &self,
+        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingEnabled>,
+        style: crate::prelude::DrawStyle<C>,
+    ) -> RenderResult {
+        if let Some(fill_color) = style.fill {
+            let (min, max) = self.bounds();
+
+            for y in min.y..=max.y {
+                for x in min.x..=max.x {
+                    let point = Point::new(x, y);
+                    if self.contains(point) {
+                        renderer.pixel_alpha(Pixel(point, fill_color), 1.0)?;
+                    } else if style.stroke.is_none() || style.stroke_width == 0
+                    {
+                        // Note: Anti-aliasing happens here
+                        // TODO: Can optimize?
+                        self.lines().try_for_each(|line| {
+                            let distance = line.dist_to(point.into());
+
+                            if distance < 1.0 {
+                                let alpha = 1.0 - distance;
+                                renderer.pixel_alpha(
+                                    Pixel(point, fill_color),
+                                    alpha,
+                                )?;
+                            }
+                            Ok(())
+                        })?;
+                    }
+                }
+            }
+        }
+
+        if style.stroke.is_some() && style.stroke_width > 0 {
+            self.lines().try_for_each(|line| line.draw_aa(renderer, style))?;
+        }
+
+        Ok(())
     }
 }
 

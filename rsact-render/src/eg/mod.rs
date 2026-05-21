@@ -1,5 +1,5 @@
-pub mod alpha;
 pub mod color;
 pub mod framebuf;
-pub mod renderer;
+pub mod output;
 pub mod primitives;
+pub mod renderer;

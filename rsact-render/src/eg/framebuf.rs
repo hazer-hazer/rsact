@@ -1,18 +1,22 @@
+use crate::{
+    color::Color,
+    geometry::{Point, Rect, Size},
+    output::{RenderTarget, pixel::Pixel},
+};
 use alloc::boxed::Box;
 use embedded_graphics::{
-    Pixel,
+    geometry::OriginDimensions,
     pixelcolor::{
         BinaryColor, Rgb555, Rgb565, Rgb666, Rgb888,
         raw::{RawData, RawU1},
     },
-    prelude::{Dimensions, DrawTarget, IntoStorage, Point, PointsIter},
-    primitives::Rectangle,
+    prelude::DrawTarget,
 };
 use num::Integer;
 
-use crate::{color::Color, geometry::Size};
+// TODO: Maybe PackedColor and Framebuf in common are not specific to the eg.
 
-pub trait PackedColor: Sized {
+pub trait PackedColor {
     type Storage: Clone + Send + Sync + 'static;
 
     /// Pixels-per-storage for a specific color (e.g. BinaryColor is one bit and 8 of it can be stored inside a single byte)
@@ -111,10 +115,7 @@ impl PackedColor for BinaryColor {
     }
 }
 
-pub trait Framebuf<
-    C: Color + PackedColor + embedded_graphics::prelude::PixelColor,
->: Dimensions + DrawTarget
-{
+pub trait Framebuf<C: Color + PackedColor> {
     fn data(&self) -> &[C::Storage];
     fn data_mut(&mut self) -> &mut [C::Storage];
     // fn pack(&self, pack: usize) -> &C::Storage;
@@ -124,6 +125,8 @@ pub trait Framebuf<
         self.point_to_subpart(point)
             .map(|(pack, offset)| C::as_color(&self.data()[pack], offset))
     }
+
+    fn viewport(&self) -> Rect;
 
     // fn reset_pixel(&mut self, point: Point) {
     //     self.point_to_subpart(point).map(|(pack, offset)| {
@@ -137,21 +140,21 @@ pub trait Framebuf<
         });
     }
 
-    fn draw<D>(&self, target: &mut D) -> Result<(), D::Error>
+    fn output<T>(&self, target: &mut T)
     where
-        D: DrawTarget<Color = C>,
+        T: RenderTarget<Color = C>,
     {
         // TODO: Is this optimal?
         let pixels = self
-            .bounding_box()
+            .viewport()
             .points()
             .map(|point| self.pixel(point).map(|color| Pixel(point, color)))
             .filter_map(|pixel| pixel);
-        target.draw_iter(pixels)
+        target.draw(pixels);
     }
 
     fn point_to_subpart(&self, point: Point) -> Option<(usize, usize)> {
-        let size = self.bounding_box().size;
+        let size = self.viewport().size;
         if point.x < 0
             || point.x >= size.width as i32
             || point.y < 0
@@ -172,11 +175,15 @@ pub trait Framebuf<
     }
 }
 
-pub struct PackedFramebuf<
-    C: Color + PackedColor + embedded_graphics::prelude::PixelColor,
-> {
+pub struct PackedFramebuf<C: Color + PackedColor> {
     size: Size,
     pixels: Box<[C::Storage]>,
+}
+
+impl<C: Color + PackedColor> OriginDimensions for PackedFramebuf<C> {
+    fn size(&self) -> embedded_graphics::prelude::Size {
+        self.size.into()
+    }
 }
 
 impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor> DrawTarget
@@ -187,19 +194,19 @@ impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor> DrawTarget
 
     fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
     where
-        I: IntoIterator<Item = Pixel<Self::Color>>,
+        I: IntoIterator<Item = embedded_graphics::prelude::Pixel<Self::Color>>,
     {
-        pixels.into_iter().for_each(|Pixel(point, color)| {
-            self.set_pixel(point, color);
-        });
+        pixels.into_iter().for_each(
+            |embedded_graphics::prelude::Pixel(point, color)| {
+                self.set_pixel(point.into(), color);
+            },
+        );
 
         Ok(())
     }
 }
 
-impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor>
-    Framebuf<C> for PackedFramebuf<C>
-{
+impl<C: Color + PackedColor> Framebuf<C> for PackedFramebuf<C> {
     fn data(&self) -> &[C::Storage] {
         self.pixels.as_ref()
     }
@@ -207,19 +214,13 @@ impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor>
     fn data_mut(&mut self) -> &mut [C::Storage] {
         self.pixels.as_mut()
     }
-}
 
-impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor> Dimensions
-    for PackedFramebuf<C>
-{
-    fn bounding_box(&self) -> embedded_graphics::primitives::Rectangle {
-        Rectangle::new(Point::zero(), self.size.into())
+    fn viewport(&self) -> Rect {
+        Rect::new(Point::zero(), self.size)
     }
 }
 
-impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor>
-    PackedFramebuf<C>
-{
+impl<C: Color + PackedColor> PackedFramebuf<C> {
     pub fn new(size: Size, initial_color: C) -> Self {
         // TODO: Not really, unused space is possible, just choose least sufficient framebuf size
         assert!(
@@ -306,10 +307,10 @@ impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor>
 #[cfg(test)]
 mod tests {
     use super::{Framebuf, PackedFramebuf};
-    use crate::geometry::Size;
+    use crate::geometry::{Point, Size};
     use embedded_graphics::{
         pixelcolor::{BinaryColor, Rgb888},
-        prelude::{Point, RgbColor},
+        prelude::RgbColor,
     };
 
     #[test]

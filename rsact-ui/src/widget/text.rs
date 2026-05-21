@@ -114,13 +114,14 @@ impl<W: WidgetCtx> Widget<W> for Text<W> {
                     let font = props.font();
                     let props = props.resolve(ctx.viewport.get());
 
-                    ctx.render_font(
-                        font,
-                        content,
-                        props,
-                        ctx.layout.inner,
-                        style.color.expect(),
-                    )
+                    todo!()
+                    // ctx.render_font(
+                    //     font,
+                    //     content,
+                    //     props,
+                    //     ctx.layout.inner,
+                    //     style.color.expect(),
+                    // )
                 })
             }
             #[cfg(not(feature = "embedded-graphics"))]

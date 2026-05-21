@@ -100,12 +100,12 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Widget<W> for Knob<W, V> {
 
             let top_left = ctx.layout.inner.top_left;
             let diameter = ctx.layout.inner.size.max_square().width;
-            ctx.renderer().draw_sector(
+            ctx.renderer().sector(
                 top_left,
                 diameter,
                 style.angle_start,
                 value_angle,
-                style.sector_draw_style(),
+                &style.sector_draw_style(),
             )?;
 
             // TODO: Round focus outline

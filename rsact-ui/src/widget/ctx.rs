@@ -24,18 +24,8 @@ use rsact_reactive::{
 
 // TODO: Not an actual context, rename to something like `WidgetTypeFamily`
 pub trait WidgetCtx: Sized + PartialEq + Clone + 'static {
-    // TODO: Get rid of embedded-graphics dependency, add custom DrawTarget like trait, implement it for EG DrawTarget
-    #[cfg(not(feature = "embedded-graphics"))]
     type Renderer: Renderer<Color = Self::Color>;
-    #[cfg(feature = "embedded-graphics")]
-    type Renderer: Renderer<Color = Self::Color>
-        + embedded_graphics::prelude::DrawTarget<Color = Self::Color, Error = ()>;
-
-    #[cfg(not(feature = "embedded-graphics"))]
     type Color: Color;
-    #[cfg(feature = "embedded-graphics")]
-    type Color: Color + embedded_graphics::prelude::PixelColor;
-
     type PageId: PageId;
     type CustomEvent: Debug;
 
@@ -85,28 +75,9 @@ where
     }
 }
 
-#[cfg(not(feature = "embedded-graphics"))]
 impl<R, I, E> WidgetCtx for Wtf<R, I, E>
 where
     R: Renderer + 'static,
-    I: PageId + 'static,
-    E: Debug + 'static,
-{
-    type Renderer = R;
-    type Color = <R as Renderer>::Color;
-    type PageId = I;
-    type CustomEvent = E;
-}
-
-#[cfg(feature = "embedded-graphics")]
-impl<R, I, E> WidgetCtx for Wtf<R, I, E>
-where
-    R: Renderer
-        + embedded_graphics::prelude::DrawTarget<
-            Color = <R as Renderer>::Color,
-            Error = (),
-        > + 'static,
-    <R as Renderer>::Color: embedded_graphics::prelude::PixelColor,
     I: PageId + 'static,
     E: Debug + 'static,
 {
@@ -264,7 +235,7 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
         &mut self,
         f: impl FnOnce(&mut RenderCtx<'_, W, S>) -> RenderResult,
     ) -> RenderResult {
-        self.renderer.clipped(self.layout.inner, |renderer| {
+        self.renderer.clipped(&self.layout.inner, |renderer| {
             f(&mut (RenderCtx {
                 id: self.id,
                 state: self.state,

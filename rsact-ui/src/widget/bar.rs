@@ -105,10 +105,10 @@ impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction> Widget<W>
                 Anchor::Start,
             );
 
-            ctx.renderer().draw_rounded_rect(
-                bar_area,
+            ctx.renderer().rounded_rect(
+                &bar_area,
                 style.container.border.radius.into_corner_radii(bar_area.size),
-                style.bar_draw_style(),
+                &style.bar_draw_style(),
             )?;
 
             // ctx.renderer().line(

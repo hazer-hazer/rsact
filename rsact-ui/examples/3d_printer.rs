@@ -357,11 +357,9 @@ fn main() {
     .fill()
     .el();
 
-    let mut ui = UI::new_with_buffer_renderer(
-        display.bounding_box().size.inert(),
+    let mut ui = UI::new(
         Theme::default(),
-        BinaryColor::Off
-        // AccentStyler::new(Rgb888::RED),
+        EGRenderer::new(display.bounding_box().size.into())
     )
         // .with_renderer_options(
         //     LayeringRendererOptions::new().anti_aliasing(AntiAliasing::Enabled),

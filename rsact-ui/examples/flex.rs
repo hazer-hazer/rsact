@@ -17,7 +17,7 @@ use rsact_ui::{
         Button, Checkbox, Container, Edge, Flex, IntoInert, Length, Select,
         SignalMap, Size, Slider, Space, Text, TextStyle, create_signal,
     },
-    render::color::RgbExt,
+    render::color::RgbColor,
     style::theme::Theme,
     ui::UI,
     widget::{BlockModelWidget, SizedWidget, Widget, ctx::*},
@@ -157,7 +157,7 @@ fn main() {
     static DEFAULT_FONT: FontRenderer =
         FontRenderer::new::<u8g2_fonts::fonts::u8g2_font_profont22_mf>();
 
-    let mut ui = UI::new_with_buffer_renderer(
+    let mut ui = UI::new_eg(
         display.bounding_box().size.inert(),
         Theme::default(),
         Rgb888::WHITE,

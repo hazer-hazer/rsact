@@ -1,38 +1,44 @@
 use crate::{
     color::Color,
-    geometry::{block_model::BlockModel, border::Border, *},
+    geometry::*,
+    output::{RenderTarget, pixel::Pixel},
     path::Path,
-    style::{
-        DrawStyle, StrokeAlignment,
-        block::{BlockStyle, BorderRadius, BorderStyle},
-    },
+    style::DrawStyle,
 };
 use rsact_reactive::prelude::IntoMaybeReactive;
 
 pub type RenderResult = Result<(), ()>;
 
-#[derive(PartialEq, Clone)]
-pub enum AntiAliasing {
-    Disabled,
-    Enabled,
-}
+// #[derive(PartialEq, Clone)]
+// pub enum AntiAliasing {
+//     Disabled,
+//     Enabled,
+// }
 
-#[derive(Default, Clone, PartialEq, IntoMaybeReactive)]
-pub struct RendererOptions {
-    pub anti_aliasing: Option<AntiAliasing>,
-}
+// #[derive(Default, Clone, PartialEq, IntoMaybeReactive)]
+// pub struct RendererOptions {
+//     pub anti_aliasing: Option<AntiAliasing>,
+// }
 
-impl RendererOptions {
-    pub fn new() -> Self {
-        Self { anti_aliasing: None }
-    }
+// impl RendererOptions {
+//     pub fn new() -> Self {
+//         Self { anti_aliasing: None }
+//     }
 
-    // TODO: Simple `with_anti_aliasing` method shortcut
-    pub fn anti_aliasing(mut self, aa: AntiAliasing) -> Self {
-        self.anti_aliasing = Some(aa);
-        self
-    }
-}
+//     // TODO: Simple `with_anti_aliasing` method shortcut
+//     pub fn anti_aliasing(mut self, aa: AntiAliasing) -> Self {
+//         self.anti_aliasing = Some(aa);
+//         self
+//     }
+// }
+
+pub trait AntiAliasing {}
+
+pub struct AntiAliasingEnabled;
+impl AntiAliasing for AntiAliasingEnabled {}
+
+pub struct AntiAliasingDisabled;
+impl AntiAliasing for AntiAliasingDisabled {}
 
 #[derive(Clone, Copy, Debug)]
 pub enum ViewportKind {
@@ -63,79 +69,83 @@ impl Viewport {
 /// embedded_graphics.
 pub trait Renderer {
     type Color: Color;
-    type Options: PartialEq + Clone + Default;
+    type Options;
+
+    fn output(&self, target: &mut impl RenderTarget<Color = Self::Color>);
 
     fn set_options(&mut self, options: Self::Options);
 
+    fn size(&self) -> Size;
+
     fn clipped(
         &mut self,
-        area: Rect,
+        area: &Rect,
         f: impl FnOnce(&mut Self) -> RenderResult,
     ) -> RenderResult;
 
     fn fill_solid(&mut self, rect: &Rect, color: Self::Color) -> RenderResult;
 
-    fn draw_line(
+    fn line(
         &mut self,
         from: Point,
         to: Point,
-        style: DrawStyle<Self::Color>,
+        style: &DrawStyle<Self::Color>,
     ) -> RenderResult;
 
-    fn draw_rect(
+    fn rect(
         &mut self,
-        rect: Rect,
-        style: DrawStyle<Self::Color>,
+        rect: &Rect,
+        style: &DrawStyle<Self::Color>,
     ) -> RenderResult;
 
-    fn draw_rounded_rect(
+    fn rounded_rect(
         &mut self,
-        rect: Rect,
+        rect: &Rect,
         corners: CornerRadii,
-        style: DrawStyle<Self::Color>,
+        style: &DrawStyle<Self::Color>,
     ) -> RenderResult;
 
-    fn draw_circle(
+    fn circle(
         &mut self,
         top_left: Point,
         diameter: u32,
-        style: DrawStyle<Self::Color>,
+        style: &DrawStyle<Self::Color>,
     ) -> RenderResult;
 
-    fn draw_arc(
-        &mut self,
-        top_left: Point,
-        diameter: u32,
-        start: Angle,
-        sweep: Angle,
-        style: DrawStyle<Self::Color>,
-    ) -> RenderResult;
-
-    fn draw_ellipse(
-        &mut self,
-        bounding_box: Rect,
-        style: DrawStyle<Self::Color>,
-    ) -> RenderResult;
-
-    fn draw_sector(
+    fn arc(
         &mut self,
         top_left: Point,
         diameter: u32,
         start: Angle,
         sweep: Angle,
-        style: DrawStyle<Self::Color>,
+        style: &DrawStyle<Self::Color>,
     ) -> RenderResult;
 
-    fn draw_polygon(
+    fn ellipse(
+        &mut self,
+        bounding_box: &Rect,
+        style: &DrawStyle<Self::Color>,
+    ) -> RenderResult;
+
+    fn sector(
+        &mut self,
+        top_left: Point,
+        diameter: u32,
+        start: Angle,
+        sweep: Angle,
+        style: &DrawStyle<Self::Color>,
+    ) -> RenderResult;
+
+    fn polygon(
         &mut self,
         points: &[Point],
-        style: DrawStyle<Self::Color>,
+        style: &DrawStyle<Self::Color>,
     ) -> RenderResult;
 
-    fn draw_path(
+    fn path(
         &mut self,
         path: &Path,
-        style: DrawStyle<Self::Color>,
+        style: &DrawStyle<Self::Color>,
     ) -> RenderResult;
 }
 
@@ -147,7 +157,7 @@ pub trait LayerRenderer {
     ) -> RenderResult;
 }
 
-/// Minimal color type for use in NullRenderer (no embedded_graphics needed).
+/// Minimal color type for use in NullRenderer.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct NullColor;
 
@@ -177,28 +187,13 @@ impl Color for NullColor {
 #[derive(Default)]
 pub struct NullRenderer;
 
-#[cfg(feature = "embedded-graphics")]
-impl embedded_graphics::prelude::PixelColor for NullColor {
-    type Raw = embedded_graphics::pixelcolor::raw::RawU8;
-}
-
-#[cfg(feature = "embedded-graphics")]
-impl embedded_graphics::prelude::Dimensions for NullRenderer {
-    fn bounding_box(&self) -> embedded_graphics::primitives::Rectangle {
-        embedded_graphics::primitives::Rectangle::zero()
-    }
-}
-
-#[cfg(feature = "embedded-graphics")]
-impl embedded_graphics::prelude::DrawTarget for NullRenderer {
+impl RenderTarget for NullRenderer {
     type Color = NullColor;
-    type Error = ();
 
-    fn draw_iter<I>(&mut self, _pixels: I) -> Result<(), Self::Error>
-    where
-        I: IntoIterator<Item = embedded_graphics::Pixel<Self::Color>>,
-    {
-        Ok(())
+    fn draw(
+        &mut self,
+        _pixels: impl Iterator<Item = crate::output::pixel::Pixel<Self::Color>>,
+    ) {
     }
 }
 
@@ -206,11 +201,19 @@ impl Renderer for NullRenderer {
     type Color = NullColor;
     type Options = ();
 
+    fn output(&self, target: &mut impl RenderTarget<Color = Self::Color>) {
+        let _ = target;
+    }
+
     fn set_options(&mut self, _options: Self::Options) {}
+
+    fn size(&self) -> Size {
+        Size::zero()
+    }
 
     fn clipped(
         &mut self,
-        _area: Rect,
+        _area: &Rect,
         f: impl FnOnce(&mut Self) -> RenderResult,
     ) -> RenderResult {
         f(self)
@@ -224,83 +227,83 @@ impl Renderer for NullRenderer {
         Ok(())
     }
 
-    fn draw_line(
+    fn line(
         &mut self,
         _from: Point,
         _to: Point,
-        _style: DrawStyle<Self::Color>,
+        _style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
         Ok(())
     }
 
-    fn draw_rect(
+    fn rect(
         &mut self,
-        _rect: Rect,
-        _style: DrawStyle<Self::Color>,
+        _rect: &Rect,
+        _style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
         Ok(())
     }
 
-    fn draw_rounded_rect(
+    fn rounded_rect(
         &mut self,
-        _rect: Rect,
+        _rect: &Rect,
         _corners: CornerRadii,
-        _style: DrawStyle<Self::Color>,
+        _style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
         Ok(())
     }
 
-    fn draw_circle(
+    fn circle(
         &mut self,
         _top_left: Point,
         _diameter: u32,
-        _style: DrawStyle<Self::Color>,
+        _style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
         Ok(())
     }
 
-    fn draw_arc(
-        &mut self,
-        _top_left: Point,
-        _diameter: u32,
-        _start: Angle,
-        _sweep: Angle,
-        _style: DrawStyle<Self::Color>,
-    ) -> RenderResult {
-        Ok(())
-    }
-
-    fn draw_ellipse(
-        &mut self,
-        _bounding_box: Rect,
-        _style: DrawStyle<Self::Color>,
-    ) -> RenderResult {
-        Ok(())
-    }
-
-    fn draw_sector(
+    fn arc(
         &mut self,
         _top_left: Point,
         _diameter: u32,
         _start: Angle,
         _sweep: Angle,
-        _style: DrawStyle<Self::Color>,
+        _style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
         Ok(())
     }
 
-    fn draw_polygon(
+    fn ellipse(
+        &mut self,
+        _bounding_box: &Rect,
+        _style: &DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        Ok(())
+    }
+
+    fn sector(
+        &mut self,
+        _top_left: Point,
+        _diameter: u32,
+        _start: Angle,
+        _sweep: Angle,
+        _style: &DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        Ok(())
+    }
+
+    fn polygon(
         &mut self,
         _points: &[Point],
-        _style: DrawStyle<Self::Color>,
+        _style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
         Ok(())
     }
 
-    fn draw_path(
+    fn path(
         &mut self,
         _path: &Path,
-        _style: DrawStyle<Self::Color>,
+        _style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
         Ok(())
     }

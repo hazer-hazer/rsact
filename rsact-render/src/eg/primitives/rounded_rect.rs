@@ -1,16 +1,15 @@
 use crate::{
     color::Color,
-    eg::{
-        alpha::{AlphaDrawTarget, StyledAlphaDrawable},
-    },
-        renderer::RenderResult,
+    eg::{framebuf::PackedColor, primitives::EgPrimitive},
     geometry::*,
+    output::pixel::Pixel,
     primitives::{line::Line, rounded_rect::RoundedRect},
+    renderer::{AntiAliasingDisabled, AntiAliasingEnabled, RenderResult},
 };
 use embedded_graphics::{
-    Pixel,
+    pixelcolor::PixelColor,
     prelude::{Dimensions, Primitive, Transform},
-    primitives::{PrimitiveStyle, StyledDrawable},
+    primitives::StyledDrawable,
 };
 use num::Float as _;
 
@@ -24,72 +23,30 @@ fn min_max_range_incl<T: Ord + Copy>(
     min..=max
 }
 
-impl Dimensions for RoundedRect {
-    fn bounding_box(&self) -> embedded_graphics::primitives::Rectangle {
-        self.rect.into()
-    }
-}
-
-impl Primitive for RoundedRect {}
-
-impl Transform for RoundedRect {
-    fn translate(&self, by: embedded_graphics::prelude::Point) -> Self {
-        let our_by: Point = by.into();
-        Self::new(self.rect.translate(our_by), self.corners)
-    }
-
-    fn translate_mut(
-        &mut self,
-        by: embedded_graphics::prelude::Point,
-    ) -> &mut Self {
-        let our_by: Point = by.into();
-        self.rect.translate_mut(our_by);
-        self
-    }
-}
-
-impl<C: Color + embedded_graphics::prelude::PixelColor>
-    StyledDrawable<PrimitiveStyle<C>> for RoundedRect
-{
-    type Color = C;
-    type Output = ();
-
-    fn draw_styled<D>(
+impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for RoundedRect {
+    fn draw(
         &self,
-        style: &PrimitiveStyle<C>,
-        target: &mut D,
-    ) -> Result<Self::Output, D::Error>
-    where
-        D: embedded_graphics::prelude::DrawTarget<Color = Self::Color>,
-    {
+        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingDisabled>,
+        style: crate::prelude::DrawStyle<C>,
+    ) -> RenderResult {
         embedded_graphics::primitives::RoundedRectangle::new(
             self.rect.into(),
             self.corners.into(),
         )
-        .draw_styled(style, target)
+        .draw_styled(&style.into_primitive_style(), renderer)
     }
-}
 
-impl<C: Color + embedded_graphics::prelude::PixelColor>
-    StyledAlphaDrawable<PrimitiveStyle<C>> for RoundedRect
-{
-    type Color = C;
-    type Output = ();
-
-    fn draw_styled_alpha<D>(
+    fn draw_aa(
         &self,
-        style: &PrimitiveStyle<C>,
-        target: &mut D,
-    ) -> RenderResult
-    where
-        D: AlphaDrawTarget<Color = Self::Color>,
-    {
+        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingEnabled>,
+        style: crate::prelude::DrawStyle<C>,
+    ) -> RenderResult {
         let corner_radii = self.corners;
 
         // TODO: Bad ellipse drawing with stroke_width > 1
 
         // There must be a better way to fill this cross
-        if let Some(fill_color) = style.fill_color {
+        if let Some(fill_color) = style.fill {
             let width = self.rect.size.width;
             let height = self.rect.size.height;
             let top = corner_radii.top_left.width
@@ -111,11 +68,10 @@ impl<C: Color + embedded_graphics::prelude::PixelColor>
                     if [top, right, bottom, left].iter().filter(|c| **c).count()
                         > 1
                     {
-                        target.pixel_alpha(
+                        renderer.pixel_alpha(
                             Pixel(
-                                (self.rect.top_left
-                                    + Point::new(w as i32, h as i32))
-                                .into(),
+                                self.rect.top_left
+                                    + Point::new(w as i32, h as i32),
                                 fill_color,
                             ),
                             1.0,
@@ -153,9 +109,7 @@ impl<C: Color + embedded_graphics::prelude::PixelColor>
                         * -1,
                 ),
             )
-            .draw_styled(style, target)
-            .ok()
-            .unwrap();
+            .draw_aa(renderer, style)?;
 
             if start_corner_radius.width == 0 || start_corner_radius.height == 0
             {
@@ -173,26 +127,22 @@ impl<C: Color + embedded_graphics::prelude::PixelColor>
                 let y =
                     r.y as f32 * (1.0 - x.pow(2) as f32 / r_sq.x as f32).sqrt();
 
-                if let Some(fill_color) = style.fill_color {
+                if let Some(fill_color) = style.fill {
                     for h in 0..=y.floor() as i32 {
-                        target.pixel_alpha(
-                            Pixel(
-                                (center + Point::new(x, h * y_v)).into(),
-                                fill_color,
-                            ),
+                        renderer.pixel_alpha(
+                            Pixel(center + Point::new(x, h * y_v), fill_color),
                             1.0,
                         )?;
                     }
 
-                    if style.stroke_color.is_none() {
-                        target.pixel_alpha(
+                    if style.stroke.is_none() {
+                        renderer.pixel_alpha(
                             Pixel(
-                                (center
+                                center
                                     + Point::new(
                                         x,
                                         (y.floor() as i32 + 1) * y_v,
-                                    ))
-                                .into(),
+                                    ),
                                 fill_color,
                             ),
                             y.fract(),
@@ -200,27 +150,27 @@ impl<C: Color + embedded_graphics::prelude::PixelColor>
                     }
                 }
 
-                if let Some(stroke_color) = style.stroke_color {
+                if let Some(stroke_color) = style.stroke {
                     let point = center
                         + Point::new(
                             x,
                             (y.floor() as i32 - stroke_offset) * y_v,
                         );
 
-                    target.pixel_alpha(
-                        Pixel(point.into(), stroke_color),
+                    renderer.pixel_alpha(
+                        Pixel(point, stroke_color),
                         1.0 - y.fract(),
                     )?;
 
                     for y in 1..w {
-                        target.pixel_alpha(
-                            Pixel(point.add_y(y * y_v).into(), stroke_color),
+                        renderer.pixel_alpha(
+                            Pixel(point.add_y(y * y_v), stroke_color),
                             1.0,
                         )?;
                     }
 
-                    target.pixel_alpha(
-                        Pixel(point.add_y(w * y_v).into(), stroke_color),
+                    renderer.pixel_alpha(
+                        Pixel(point.add_y(w * y_v), stroke_color),
                         y.fract(),
                     )?;
                 }
@@ -230,26 +180,22 @@ impl<C: Color + embedded_graphics::prelude::PixelColor>
                 let x =
                     r.x as f32 * (1.0 - y.pow(2) as f32 / r_sq.y as f32).sqrt();
 
-                if let Some(fill_color) = style.fill_color {
+                if let Some(fill_color) = style.fill {
                     for w in 0..=x.floor() as i32 {
-                        target.pixel_alpha(
-                            Pixel(
-                                (center + Point::new(w * y_v, y)).into(),
-                                fill_color,
-                            ),
+                        renderer.pixel_alpha(
+                            Pixel(center + Point::new(w * y_v, y), fill_color),
                             1.0,
                         )?;
                     }
 
-                    if style.stroke_color.is_none() {
-                        target.pixel_alpha(
+                    if style.stroke.is_none() {
+                        renderer.pixel_alpha(
                             Pixel(
-                                (center
+                                center
                                     + Point::new(
                                         (x.floor() as i32 + 1) * x_v,
                                         y,
-                                    ))
-                                .into(),
+                                    ),
                                 fill_color,
                             ),
                             x.fract(),
@@ -257,27 +203,27 @@ impl<C: Color + embedded_graphics::prelude::PixelColor>
                     }
                 }
 
-                if let Some(stroke_color) = style.stroke_color {
+                if let Some(stroke_color) = style.stroke {
                     let point = center
                         + Point::new(
                             (x.floor() as i32 - stroke_offset) * x_v,
                             y,
                         );
 
-                    target.pixel_alpha(
-                        Pixel(point.into(), stroke_color),
+                    renderer.pixel_alpha(
+                        Pixel(point, stroke_color),
                         1.0 - x.fract(),
                     )?;
 
                     for x in 1..w {
-                        target.pixel_alpha(
-                            Pixel(point.add_x(x * x_v).into(), stroke_color),
+                        renderer.pixel_alpha(
+                            Pixel(point.add_x(x * x_v), stroke_color),
                             1.0,
                         )?;
                     }
 
-                    target.pixel_alpha(
-                        Pixel(point.add_x(w * x_v).into(), stroke_color),
+                    renderer.pixel_alpha(
+                        Pixel(point.add_x(w * x_v), stroke_color),
                         x.fract(),
                     )?;
                 }

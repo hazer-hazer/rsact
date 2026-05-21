@@ -201,39 +201,37 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
                             start,
                             sweep,
                         }) => {
-                            ctx.renderer().draw_arc(
-                                top_left, diameter, start, sweep, style,
+                            ctx.renderer().arc(
+                                top_left, diameter, start, sweep, &style,
                             )?;
                         },
                         Primitive::Circle(Circle { top_left, diameter }) => {
                             ctx.renderer()
-                                .draw_circle(top_left, diameter, style)?;
+                                .circle(top_left, diameter, &style)?;
                         },
                         Primitive::Ellipse(Ellipse { top_left, size }) => {
-                            ctx.renderer().draw_ellipse(
-                                Rect::new(top_left, size),
-                                style,
-                            )?;
+                            ctx.renderer()
+                                .ellipse(&Rect::new(top_left, size), &style)?;
                         },
                         Primitive::Line(Line { from, to }) => {
-                            ctx.renderer().draw_line(from, to, style)?;
+                            ctx.renderer().line(from, to, &style)?;
                         },
                         Primitive::Polygon(Polygon {
                             // TODO
                             translation,
                             vertices,
                         }) => {
-                            ctx.renderer().draw_polygon(&vertices, style)?;
+                            ctx.renderer().polygon(&vertices, &style)?;
                         },
                         Primitive::Rect(rect) => {
-                            ctx.renderer().draw_rect(rect, style)?;
+                            ctx.renderer().rect(&rect, &style)?;
                         },
                         Primitive::RoundedRect(RoundedRect {
                             rect,
                             corners,
                         }) => {
                             ctx.renderer()
-                                .draw_rounded_rect(rect, corners, style)?;
+                                .rounded_rect(&rect, corners, &style)?;
                         },
                         Primitive::Sector(Sector {
                             top_left,
@@ -241,8 +239,8 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
                             start,
                             sweep,
                         }) => {
-                            ctx.renderer().draw_sector(
-                                top_left, diameter, start, sweep, style,
+                            ctx.renderer().sector(
+                                top_left, diameter, start, sweep, &style,
                             )?;
                         },
                     },
