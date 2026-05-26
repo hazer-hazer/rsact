@@ -34,3 +34,6 @@ This are the actions to be done by me or LLM. When LLM completes one, it should 
 - [] Remove embedded-graphics dependencies from rsact-icons like endianness. Remove feature flag for rsact-icons
 - [] Remove embedded-graphics dependencies from Image widget.
 - [] Move rendering to a separate crate. Split implementations for EG, tiny-skia and custom. rsact-ui and rsact-icons should depend on rsact-render. rsact-render should contain structures for images, primitives.
+- [] Check that all primitives have common rendering behavior among all renderers.
+  - Arc must start and sweep at the same points for EG and tiny-skia
+- [] Learn more about kurbo library, it contains a lot of features to work with curves, maybe we can get some algorithms from there or even use it as a library adding interoperability with tiny-skia

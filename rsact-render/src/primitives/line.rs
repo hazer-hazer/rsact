@@ -1,4 +1,5 @@
-use crate::geometry::*;
+use crate::{geometry::*, primitives::Primitive};
+
 #[allow(unused)]
 use num::Float as _;
 
@@ -73,5 +74,17 @@ impl Line {
             //     )
             //     .sqrt()
         }
+    }
+}
+
+impl Primitive for Line {
+    fn into_kind(self) -> crate::prelude::PrimitiveKind {
+        crate::prelude::PrimitiveKind::Line(self)
+    }
+
+    fn translate_mut(&mut self, by: Point) -> &mut Self {
+        self.from += by;
+        self.to += by;
+        self
     }
 }

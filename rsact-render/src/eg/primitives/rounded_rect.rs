@@ -6,12 +6,7 @@ use crate::{
     primitives::{line::Line, rounded_rect::RoundedRect},
     renderer::{AntiAliasingDisabled, AntiAliasingEnabled, RenderResult},
 };
-use embedded_graphics::{
-    pixelcolor::PixelColor,
-    prelude::{Dimensions, Primitive, Transform},
-    primitives::StyledDrawable,
-};
-use num::Float as _;
+use embedded_graphics::{pixelcolor::PixelColor, primitives::StyledDrawable};
 
 fn min_max_range_incl<T: Ord + Copy>(
     p1: T,

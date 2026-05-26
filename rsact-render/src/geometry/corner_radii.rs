@@ -1,4 +1,5 @@
 use crate::geometry::{
+    Sided,
     size::Size,
     vector::{ByUnitV2, UnitV2},
 };
@@ -28,6 +29,73 @@ impl CornerRadii {
             top_right: size,
             bottom_right: size,
             bottom_left: size,
+        }
+    }
+
+    pub fn new_equal_radius(radius: u32) -> Self {
+        Self::new_equal(Size::new(radius, radius))
+    }
+
+    pub fn map(&self, f: impl Fn(Size) -> Size) -> Self {
+        Self {
+            top_left: f(self.top_left),
+            top_right: f(self.top_right),
+            bottom_right: f(self.bottom_right),
+            bottom_left: f(self.bottom_left),
+        }
+    }
+
+    /// Clamp radius for a rect of the given size, ensuring that radii do not overlap.
+    pub fn clamp_for(&self, size: Size) -> Self {
+        let w = size.width;
+        let h = size.height;
+
+        let mut tl = self.top_left;
+        let mut tr = self.top_right;
+        let mut br = self.bottom_right;
+        let mut bl = self.bottom_left;
+
+        let top_sum = tl.width + tr.width;
+        if top_sum > w {
+            let factor = w / top_sum;
+            tl.width *= factor;
+            tr.width *= factor;
+        }
+        let bottom_sum = bl.width + br.width;
+        if bottom_sum > w {
+            let factor = w / bottom_sum;
+            bl.width *= factor;
+            br.width *= factor;
+        }
+
+        let left_sum = tl.height + bl.height;
+        if left_sum > h {
+            let factor = h / left_sum;
+            tl.height *= factor;
+            bl.height *= factor;
+        }
+        let right_sum = tr.height + br.height;
+        if right_sum > h {
+            let factor = h / right_sum;
+            tr.height *= factor;
+            br.height *= factor;
+        }
+
+        Self { top_left: tl, top_right: tr, bottom_right: br, bottom_left: bl }
+    }
+}
+
+impl Sided<u32> for CornerRadii {
+    fn side(&self, side: crate::prelude::Side) -> u32 {
+        match side {
+            super::Side::Top => self.top_left.width + self.top_right.width,
+            super::Side::Right => {
+                self.top_right.height + self.bottom_right.height
+            },
+            super::Side::Bottom => {
+                self.bottom_left.width + self.bottom_right.width
+            },
+            super::Side::Left => self.top_left.height + self.bottom_left.height,
         }
     }
 }

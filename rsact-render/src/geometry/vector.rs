@@ -115,6 +115,10 @@ impl UnitV2 {
     pub fn destruct(self) -> (i32, i32) {
         (self.x.into(), self.y.into())
     }
+
+    pub fn each() -> impl Iterator<Item = Self> {
+        [Self::LEFT, Self::RIGHT, Self::UP, Self::DOWN].into_iter()
+    }
 }
 
 impl Neg for UnitV2 {

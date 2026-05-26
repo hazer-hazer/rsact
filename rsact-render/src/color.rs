@@ -1,6 +1,6 @@
 use core::fmt::Debug;
 
-pub trait Color: Copy + Default + PartialEq + Debug {
+pub trait Color: Copy + PartialEq + Debug {
     fn default_foreground() -> Self;
     fn default_background() -> Self;
     fn accents() -> [Self; 6];

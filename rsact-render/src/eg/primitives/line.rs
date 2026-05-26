@@ -7,12 +7,9 @@ use crate::{
     renderer::{AntiAliasingDisabled, AntiAliasingEnabled, RenderResult},
 };
 use embedded_graphics::{
-    geometry::Point as EgPoint,
-    pixelcolor::PixelColor,
-    prelude::{Dimensions, Primitive, Transform},
-    primitives::{PrimitiveStyle, StyledDrawable},
+    geometry::Point as EgPoint, pixelcolor::PixelColor,
+    primitives::StyledDrawable,
 };
-use num::Float as _;
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Line {
     fn draw(

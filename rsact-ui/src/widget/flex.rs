@@ -84,7 +84,7 @@ impl<W: WidgetCtx + 'static> Flex<W, ColDir> {
 
 impl<W: WidgetCtx + 'static, Dir: Direction> Flex<W, Dir> {
     #[track_caller]
-    pub fn new(children: impl IntoChildren<W>) -> Self {
+    fn new(children: impl IntoChildren<W>) -> Self {
         let children = children.into_children();
 
         let layout_children = children.map(|children| {

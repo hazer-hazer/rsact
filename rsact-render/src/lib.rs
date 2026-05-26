@@ -2,6 +2,7 @@
 
 pub mod color;
 pub mod geometry;
+pub mod layer;
 pub mod output;
 pub mod path;
 pub mod primitives;
@@ -24,10 +25,10 @@ pub mod prelude {
             Rect, Size, block_model::BlockModel, border::Border,
             padding::Padding, *,
         },
-        output::RenderTarget,
+        output::{ColorMapper, FinishRender, MapColor, RenderTarget},
         path::*,
         primitives::{
-            Primitive, arc::Arc, block::Block, circle::Circle,
+            PrimitiveKind, arc::Arc, block::Block, circle::Circle,
             ellipse::Ellipse, line::Line, polygon::Polygon,
             rounded_rect::RoundedRect, sector::Sector,
         },

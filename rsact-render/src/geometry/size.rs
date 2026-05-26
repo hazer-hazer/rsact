@@ -154,6 +154,12 @@ impl From<u32> for Size {
     }
 }
 
+impl Into<Size<f32>> for Size<u32> {
+    fn into(self) -> Size<f32> {
+        Size::new(self.width as f32, self.height as f32)
+    }
+}
+
 impl Add<Size<u32>> for Point {
     type Output = Self;
 
@@ -197,6 +203,22 @@ impl Mul<Size<f32>> for Size<u32> {
             (self.width as f32 * rhs.width) as u32,
             (self.height as f32 * rhs.height) as u32,
         )
+    }
+}
+
+impl Mul<Size<f32>> for Size<f32> {
+    type Output = Self;
+
+    fn mul(self, rhs: Size<f32>) -> Self::Output {
+        Self::new(self.width * rhs.width, self.height * rhs.height)
+    }
+}
+
+impl Mul<f32> for Size<f32> {
+    type Output = Self;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        Self::new(self.width * rhs, self.height * rhs)
     }
 }
 

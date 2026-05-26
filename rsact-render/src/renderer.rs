@@ -1,11 +1,10 @@
 use crate::{
     color::Color,
     geometry::*,
-    output::{RenderTarget, pixel::Pixel},
+    output::{FinishRender, MapColor, RenderTarget},
     path::Path,
     style::DrawStyle,
 };
-use rsact_reactive::prelude::IntoMaybeReactive;
 
 pub type RenderResult = Result<(), ()>;
 
@@ -71,19 +70,17 @@ pub trait Renderer {
     type Color: Color;
     type Options;
 
-    fn output(&self, target: &mut impl RenderTarget<Color = Self::Color>);
-
     fn set_options(&mut self, options: Self::Options);
 
     fn size(&self) -> Size;
 
     fn clipped(
         &mut self,
-        area: &Rect,
+        area: Rect,
         f: impl FnOnce(&mut Self) -> RenderResult,
     ) -> RenderResult;
 
-    fn fill_solid(&mut self, rect: &Rect, color: Self::Color) -> RenderResult;
+    fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult;
 
     fn line(
         &mut self,
@@ -94,13 +91,13 @@ pub trait Renderer {
 
     fn rect(
         &mut self,
-        rect: &Rect,
+        rect: Rect,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult;
 
     fn rounded_rect(
         &mut self,
-        rect: &Rect,
+        rect: Rect,
         corners: CornerRadii,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult;
@@ -123,7 +120,7 @@ pub trait Renderer {
 
     fn ellipse(
         &mut self,
-        bounding_box: &Rect,
+        bounding_box: Rect,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult;
 
@@ -197,13 +194,15 @@ impl RenderTarget for NullRenderer {
     }
 }
 
+impl<C> FinishRender<C> for NullRenderer {
+    fn finish_frame(&mut self, target: &mut impl RenderTarget<Color = C>) {
+        let _ = target;
+    }
+}
+
 impl Renderer for NullRenderer {
     type Color = NullColor;
     type Options = ();
-
-    fn output(&self, target: &mut impl RenderTarget<Color = Self::Color>) {
-        let _ = target;
-    }
 
     fn set_options(&mut self, _options: Self::Options) {}
 
@@ -213,17 +212,13 @@ impl Renderer for NullRenderer {
 
     fn clipped(
         &mut self,
-        _area: &Rect,
+        _area: Rect,
         f: impl FnOnce(&mut Self) -> RenderResult,
     ) -> RenderResult {
         f(self)
     }
 
-    fn fill_solid(
-        &mut self,
-        _rect: &Rect,
-        _color: Self::Color,
-    ) -> RenderResult {
+    fn fill_solid(&mut self, _rect: Rect, _color: Self::Color) -> RenderResult {
         Ok(())
     }
 
@@ -238,7 +233,7 @@ impl Renderer for NullRenderer {
 
     fn rect(
         &mut self,
-        _rect: &Rect,
+        _rect: Rect,
         _style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
         Ok(())
@@ -246,7 +241,7 @@ impl Renderer for NullRenderer {
 
     fn rounded_rect(
         &mut self,
-        _rect: &Rect,
+        _rect: Rect,
         _corners: CornerRadii,
         _style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
@@ -275,7 +270,7 @@ impl Renderer for NullRenderer {
 
     fn ellipse(
         &mut self,
-        _bounding_box: &Rect,
+        _bounding_box: Rect,
         _style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
         Ok(())

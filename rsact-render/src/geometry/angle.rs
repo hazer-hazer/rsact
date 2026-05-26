@@ -26,6 +26,20 @@ impl Angle {
     pub fn to_radians(self) -> f32 {
         self.radians
     }
+
+    pub fn is_zero(&self) -> bool {
+        self.radians.abs() < f32::EPSILON
+    }
+
+    pub fn sign(&self) -> f32 {
+        if self.radians > 0.0 {
+            1.0
+        } else if self.radians < 0.0 {
+            -1.0
+        } else {
+            0.0
+        }
+    }
 }
 
 impl Add for Angle {

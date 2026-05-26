@@ -200,7 +200,7 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Slider<W, Dir> {
                     let rect =
                         Rect::new(thumb_pos, Size::new_equal(style.thumb_size));
                     ctx.renderer().rounded_rect(
-                        &rect,
+                        rect,
                         style.thumb.border.radius.into_corner_radii(rect.size),
                         &thumb_draw_style,
                     )
@@ -211,7 +211,7 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Slider<W, Dir> {
                     &thumb_draw_style,
                 ),
                 SliderThumbShape::Square => ctx.renderer().rect(
-                    &Rect::new(thumb_pos, Size::new_equal(style.thumb_size)),
+                    Rect::new(thumb_pos, Size::new_equal(style.thumb_size)),
                     &thumb_draw_style,
                 ),
             }

@@ -5,7 +5,7 @@ use crate::{
         primitives::EgPrimitive,
     },
     geometry::*,
-    output::{RenderTarget, pixel::Pixel},
+    output::{FinishRender, MapColor, RenderTarget, pixel::Pixel},
     path::{Path, PathSegment},
     primitives::{
         arc::Arc, circle::Circle, ellipse::Ellipse, line::Line,
@@ -60,6 +60,7 @@ impl<C: Color + PixelColor> DrawStyle<C> {
 // blending parameter for drawing on a single layer, so each layer is not
 // transparent and alpha parameter only affects blending on current layer.
 // TODO: Real alpha-channel
+// TODO: Use common [`Layering`]
 struct Layer<C: Color + PackedColor> {
     canvas: PackedFramebuf<C>,
 }
@@ -148,25 +149,26 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> EGRenderer<C, AA> {
     }
 
     // Renderer common implementations
-    fn renderer_output(&self, target: &mut impl RenderTarget<Color = C>) {
+    fn renderer_output<TC>(&self, target: &mut impl RenderTarget<Color = TC>)
+    where
+        C: MapColor<TC>,
+    {
         self.layers.values().for_each(|layer| layer.canvas.output(target))
     }
 
     fn renderer_clipped(
         &mut self,
-        area: &Rect,
+        area: Rect,
         f: impl FnOnce(&mut Self) -> RenderResult,
     ) -> RenderResult {
         self.viewport_stack
-            .push(self.sub_viewport(ViewportKind::Clipped(*area)));
+            .push(self.sub_viewport(ViewportKind::Clipped(area)));
         let result = f(self);
         self.viewport_stack.pop();
         result
     }
 }
 
-// TODO: Layer handling for Renderer in common?
-// TODO: z-index is common
 // impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor>
 //     LayerRenderer for EGRenderer<C>
 // {
@@ -209,6 +211,15 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> Dimensions
     }
 }
 
+// TODO: Other colors mapping
+impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> FinishRender<C>
+    for EGRenderer<C, AA>
+{
+    fn finish_frame(&mut self, target: &mut impl RenderTarget<Color = C>) {
+        self.renderer_output(target);
+    }
+}
+
 // TODO: Generalize AA and non-AA Renderer implementations
 
 impl<C: Color + PackedColor + PixelColor> Renderer
@@ -216,10 +227,6 @@ impl<C: Color + PackedColor + PixelColor> Renderer
 {
     type Color = C;
     type Options = ();
-
-    fn output(&self, target: &mut impl RenderTarget<Color = Self::Color>) {
-        self.renderer_output(target);
-    }
 
     fn set_options(&mut self, _options: Self::Options) {}
 
@@ -229,13 +236,13 @@ impl<C: Color + PackedColor + PixelColor> Renderer
 
     fn clipped(
         &mut self,
-        area: &Rect,
+        area: Rect,
         f: impl FnOnce(&mut Self) -> RenderResult,
     ) -> RenderResult {
         self.renderer_clipped(area, f)
     }
 
-    fn fill_solid(&mut self, rect: &Rect, color: Self::Color) -> RenderResult {
+    fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult {
         self.rect(
             rect,
             &DrawStyle {
@@ -258,21 +265,21 @@ impl<C: Color + PackedColor + PixelColor> Renderer
 
     fn rect(
         &mut self,
-        rect: &Rect,
+        rect: Rect,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        let eg_rect: embedded_graphics::primitives::Rectangle = (*rect).into();
+        let eg_rect: embedded_graphics::primitives::Rectangle = rect.into();
         eg_rect.draw_styled(&style.into_primitive_style(), self).ok().unwrap();
         Ok(())
     }
 
     fn rounded_rect(
         &mut self,
-        rect: &Rect,
+        rect: Rect,
         corners: CornerRadii,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        RoundedRect::new(*rect, corners).draw(self, *style)
+        RoundedRect::new(rect, corners).draw(self, *style)
     }
 
     fn circle(
@@ -297,7 +304,7 @@ impl<C: Color + PackedColor + PixelColor> Renderer
 
     fn ellipse(
         &mut self,
-        bounding_box: &Rect,
+        bounding_box: Rect,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
         Ellipse::new(bounding_box.top_left, bounding_box.size)
@@ -360,10 +367,6 @@ impl<C: Color + PackedColor + PixelColor> Renderer
     type Color = C;
     type Options = ();
 
-    fn output(&self, target: &mut impl RenderTarget<Color = Self::Color>) {
-        self.renderer_output(target);
-    }
-
     fn set_options(&mut self, _options: Self::Options) {}
 
     fn size(&self) -> Size {
@@ -372,13 +375,13 @@ impl<C: Color + PackedColor + PixelColor> Renderer
 
     fn clipped(
         &mut self,
-        area: &Rect,
+        area: Rect,
         f: impl FnOnce(&mut Self) -> RenderResult,
     ) -> RenderResult {
         self.renderer_clipped(area, f)
     }
 
-    fn fill_solid(&mut self, rect: &Rect, color: Self::Color) -> RenderResult {
+    fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult {
         self.rect(
             rect,
             &DrawStyle {
@@ -401,21 +404,21 @@ impl<C: Color + PackedColor + PixelColor> Renderer
 
     fn rect(
         &mut self,
-        rect: &Rect,
+        rect: Rect,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        let eg_rect: embedded_graphics::primitives::Rectangle = (*rect).into();
+        let eg_rect: embedded_graphics::primitives::Rectangle = rect.into();
         eg_rect.draw_styled(&style.into_primitive_style(), self).ok().unwrap();
         Ok(())
     }
 
     fn rounded_rect(
         &mut self,
-        rect: &Rect,
+        rect: Rect,
         corners: CornerRadii,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        RoundedRect::new(*rect, corners).draw_aa(self, *style)
+        RoundedRect::new(rect, corners).draw_aa(self, *style)
     }
 
     fn circle(
@@ -440,7 +443,7 @@ impl<C: Color + PackedColor + PixelColor> Renderer
 
     fn ellipse(
         &mut self,
-        bounding_box: &Rect,
+        bounding_box: Rect,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
         Ellipse::new(bounding_box.top_left, bounding_box.size)

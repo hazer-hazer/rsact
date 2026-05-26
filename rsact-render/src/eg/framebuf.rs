@@ -1,7 +1,7 @@
 use crate::{
     color::Color,
     geometry::{Point, Rect, Size},
-    output::{RenderTarget, pixel::Pixel},
+    output::{MapColor, RenderTarget, pixel::Pixel},
 };
 use alloc::boxed::Box;
 use embedded_graphics::{
@@ -12,7 +12,6 @@ use embedded_graphics::{
     },
     prelude::DrawTarget,
 };
-use num::Integer;
 
 // TODO: Maybe PackedColor and Framebuf in common are not specific to the eg.
 
@@ -79,7 +78,7 @@ impl PackedColor for BinaryColor {
     }
 
     fn as_color(packed: &Self::Storage, offset: usize) -> Self {
-        assert!(offset < 8);
+        debug_assert!(offset < 8);
 
         // let color = (*packed >> (3 - offset) * 2) & 0b11;
 
@@ -96,7 +95,7 @@ impl PackedColor for BinaryColor {
     }
 
     fn set_color(packed: &mut Self::Storage, offset: usize, color: Self) {
-        assert!(offset < 8);
+        debug_assert!(offset < 8);
 
         // let value = match color {
         //     Some(color) => match color {
@@ -142,13 +141,16 @@ pub trait Framebuf<C: Color + PackedColor> {
 
     fn output<T>(&self, target: &mut T)
     where
-        T: RenderTarget<Color = C>,
+        T: RenderTarget,
+        C: MapColor<T::Color>,
     {
         // TODO: Is this optimal?
         let pixels = self
             .viewport()
             .points()
-            .map(|point| self.pixel(point).map(|color| Pixel(point, color)))
+            .map(|point| {
+                self.pixel(point).map(|color| Pixel(point, color.map_color()))
+            })
             .filter_map(|pixel| pixel);
         target.draw(pixels);
     }
@@ -164,9 +166,8 @@ pub trait Framebuf<C: Color + PackedColor> {
         } else {
             let index =
                 point.y as usize * size.width as usize + point.x as usize;
-            let (pack, offset) = index.div_rem(&C::pps());
 
-            Some((pack, offset))
+            Some((index / C::pps(), index % C::pps()))
         }
     }
 

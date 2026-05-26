@@ -1,8 +1,11 @@
-use crate::geometry::{
-    anchor::{AnchorPoint, AnchorX, AnchorY},
-    axis::{Anchor, Axis},
-    point::Point,
-    size::Size,
+use crate::{
+    geometry::{
+        anchor::{AnchorPoint, AnchorX, AnchorY},
+        axis::{Anchor, Axis},
+        point::Point,
+        size::Size,
+    },
+    primitives::Primitive,
 };
 
 /// First-class 2D axis-aligned rectangle.
@@ -151,6 +154,17 @@ impl Rect {
     }
 }
 
+impl Primitive for Rect {
+    fn into_kind(self) -> crate::prelude::PrimitiveKind {
+        crate::prelude::PrimitiveKind::Rect(self)
+    }
+
+    fn translate_mut(&mut self, by: Point) -> &mut Self {
+        self.top_left = self.top_left + by;
+        self
+    }
+}
+
 #[cfg(feature = "embedded-graphics")]
 impl From<embedded_graphics::primitives::Rectangle> for Rect {
     fn from(r: embedded_graphics::primitives::Rectangle) -> Self {
@@ -224,5 +238,26 @@ impl Points {
         let x_start = x.start;
 
         Self { x, y, x_start }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    Top,
+    Right,
+    Bottom,
+    Left,
+}
+
+pub trait Sided<T> {
+    fn side(&self, side: Side) -> T;
+}
+
+impl Sided<u32> for Rect {
+    fn side(&self, side: Side) -> u32 {
+        match side {
+            Side::Top | Side::Bottom => self.size.width,
+            Side::Left | Side::Right => self.size.height,
+        }
     }
 }

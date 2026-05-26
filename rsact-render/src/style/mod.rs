@@ -92,12 +92,27 @@ impl<C: Color> Default for DrawStyle<C> {
 }
 
 impl<C: Color> DrawStyle<C> {
-    pub fn filled(color: C) -> Self {
-        Self { fill: Some(color), ..Default::default() }
+    // pub fn filled(color: C) -> Self {
+    //     Self { fill: Some(color), ..Default::default() }
+    // }
+
+    // pub fn stroked(color: C, width: u32) -> Self {
+    //     Self { stroke: Some(color), stroke_width: width, ..Default::default() }
+    // }
+
+    pub fn fill(mut self, color: C) -> Self {
+        self.fill = Some(color);
+        self
     }
 
-    pub fn stroked(color: C, width: u32) -> Self {
-        Self { stroke: Some(color), stroke_width: width, ..Default::default() }
+    pub fn stroke(mut self, color: C) -> Self {
+        self.stroke = Some(color);
+        self
+    }
+
+    pub fn stroke_width(mut self, width: u32) -> Self {
+        self.stroke_width = width;
+        self
     }
 }
 

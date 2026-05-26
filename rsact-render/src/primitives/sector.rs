@@ -1,4 +1,4 @@
-use crate::geometry::*;
+use crate::{geometry::*, primitives::Primitive};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Sector {
@@ -25,6 +25,17 @@ impl Sector {
     }
 
     pub fn translate_mut(&mut self, by: Point) -> &mut Self {
+        self.top_left += by;
+        self
+    }
+}
+
+impl Primitive for Sector {
+    fn into_kind(self) -> crate::prelude::PrimitiveKind {
+        crate::prelude::PrimitiveKind::Sector(self)
+    }
+
+    fn translate_mut(&mut self, by: Point) -> &mut Self {
         self.top_left += by;
         self
     }

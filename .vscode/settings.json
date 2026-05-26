@@ -2,14 +2,17 @@
   // "rust-analyzer.check.allTargets": false,
   "rust-analyzer.cargo.allTargets": true,
   "cSpell.words": [
+    "colorspace",
     "Deque",
     "dirten",
     "downcasting",
     "Framebuf",
     "fullscreen",
     "pixelcolor",
+    "Pixmap",
     "renderable",
     "rsact",
+    "signum",
     "Skia",
     "Uninit",
     "vals",
@@ -22,7 +25,7 @@
     "debug-info",
     "simulator",
     "async",
-    // "tiny-skia",
+    "tiny-skia",
     "embedded-graphics",
     "u8g2-fonts",
     "layout-diagnostics",
@@ -32,8 +35,8 @@
   "rust-analyzer.check.features": [
     "single-thread",
     "debug-info",
-    "simulator"
-    // "tiny-skia"
+    "simulator",
+    "tiny-skia"
     // "async"
   ],
   "rust-analyzer.testExplorer": true,

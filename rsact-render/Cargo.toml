@@ -8,7 +8,7 @@ version.workspace = true
 
 [dependencies]
 embedded-graphics = { workspace = true, optional = true }
-tiny-skia = { workspace = true, optional = true }
+tiny-skia = { workspace = true, optional = true, features = ["no-std-float"] }
 num = { workspace = true }
 rsact-reactive = { workspace = true }
 defmt = { workspace = true, optional = true }
@@ -19,7 +19,6 @@ embedded-graphics-simulator = { workspace = true, optional = true }
 tiny-skia = ["dep:tiny-skia"]
 embedded-graphics = ["dep:embedded-graphics", "dep:embedded-text"]
 defmt = ["dep:defmt"]
-simulator = ["dep:embedded-graphics-simulator", "embedded-graphics"]
 
 [lints]
 workspace = true

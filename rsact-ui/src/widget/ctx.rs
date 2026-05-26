@@ -235,7 +235,7 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
         &mut self,
         f: impl FnOnce(&mut RenderCtx<'_, W, S>) -> RenderResult,
     ) -> RenderResult {
-        self.renderer.clipped(&self.layout.inner, |renderer| {
+        self.renderer.clipped(self.layout.inner, |renderer| {
             f(&mut (RenderCtx {
                 id: self.id,
                 state: self.state,
@@ -392,7 +392,7 @@ impl<'a, W: WidgetCtx + 'static> RenderCtx<'a, W, CtxUnready> {
     fn clear_outer(&mut self) -> RenderResult {
         self.page_style.with(|style| {
             if let Some(bg) = style.background_color {
-                self.renderer.fill_solid(&self.layout.outer, bg).map_err(|_| ())
+                self.renderer.fill_solid(self.layout.outer, bg).map_err(|_| ())
             } else {
                 Ok(())
             }

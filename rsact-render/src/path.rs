@@ -6,14 +6,15 @@ use alloc::vec::Vec;
 pub enum PathSegment {
     MoveTo(Point),
     LineTo(Point),
+    // TODO: If we get better at our own arc drawing we should support full SVG-like arc functionality.
     ArcTo { center: Point, radius: u32, start: Angle, sweep: Angle },
     Close,
 }
 
-/// An immutable path composed of line/arc segments.
+/// An immutable path composed of segments.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Path {
-    pub(crate) segments: Vec<PathSegment>,
+    pub segments: Vec<PathSegment>,
 }
 
 impl Path {

@@ -180,10 +180,10 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
 }
 
 impl<W: WidgetCtx> UI<W, WithPages> {
-    pub fn render(
-        &mut self,
-        target: &mut impl RenderTarget<Color = W::Color>,
-    ) -> bool {
+    pub fn render<T: RenderTarget>(&mut self, target: &mut T) -> bool
+    where
+        W::Renderer: FinishRender<T::Color>,
+    {
         self.current_page().render(target)
     }
 

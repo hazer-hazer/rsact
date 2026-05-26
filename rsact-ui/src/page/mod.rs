@@ -177,7 +177,7 @@ impl<W: WidgetCtx> Page<W> {
                     .update_untracked(|r| {
                         Renderer::fill_solid(
                             r,
-                            &Rect::new(Point::zero(), viewport),
+                            Rect::new(Point::zero(), viewport),
                             bg,
                         )
                     })
@@ -343,12 +343,12 @@ impl<W: WidgetCtx> Page<W> {
         unhandled
     }
 
-    pub fn render(
-        &mut self,
-        target: &mut impl RenderTarget<Color = W::Color>,
-    ) -> bool {
+    pub fn render<T: RenderTarget>(&mut self, target: &mut T) -> bool
+    where
+        W::Renderer: FinishRender<T::Color>,
+    {
         self.use_renderer(|renderer| {
-            renderer.output(target);
+            renderer.finish_frame(target);
         })
     }
 
@@ -379,7 +379,7 @@ impl<W: WidgetCtx> Page<W> {
                                 let viewport = self.viewport.get();
                                 Renderer::fill_solid(
                                     renderer,
-                                    &Rect::new(Point::zero(), viewport),
+                                    Rect::new(Point::zero(), viewport),
                                     background_color,
                                 )
                             } else {

@@ -1,4 +1,4 @@
-use crate::geometry::Point;
+use crate::{geometry::Point, primitives::Primitive};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Circle {
@@ -18,6 +18,17 @@ impl Circle {
     }
 
     pub fn translate_mut(&mut self, by: Point) -> &mut Self {
+        self.top_left += by;
+        self
+    }
+}
+
+impl Primitive for Circle {
+    fn into_kind(self) -> crate::prelude::PrimitiveKind {
+        crate::prelude::PrimitiveKind::Circle(self)
+    }
+
+    fn translate_mut(&mut self, by: Point) -> &mut Self {
         self.top_left += by;
         self
     }

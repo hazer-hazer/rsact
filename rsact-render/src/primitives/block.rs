@@ -23,7 +23,7 @@ impl<C: Color> Block<C> {
         renderer: &mut R,
     ) -> RenderResult {
         renderer.rounded_rect(
-            &self.rect,
+            self.rect,
             self.border.radius.into_corner_radii(self.rect.size),
             &DrawStyle {
                 fill: self.background,

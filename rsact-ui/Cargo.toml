@@ -37,6 +37,7 @@ rand = "0.9"
 paw = { path = "../../paw" }
 env_logger = { workspace = true }
 embedded-graphics-simulator = { workspace = true }
+
 [features]
 default = []
 

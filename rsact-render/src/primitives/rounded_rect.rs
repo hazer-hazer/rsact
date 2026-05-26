@@ -1,4 +1,4 @@
-use crate::geometry::*;
+use crate::{geometry::*, primitives::Primitive};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RoundedRect {
@@ -10,14 +10,14 @@ impl RoundedRect {
     pub fn new(rect: Rect, corners: CornerRadii) -> Self {
         Self { rect, corners }
     }
+}
 
-    pub fn translate(&self, by: Point) -> Self {
-        let mut new = *self;
-        new.rect.top_left += by;
-        new
+impl Primitive for RoundedRect {
+    fn into_kind(self) -> crate::prelude::PrimitiveKind {
+        crate::prelude::PrimitiveKind::RoundedRect(self)
     }
 
-    pub fn translate_mut(&mut self, by: Point) -> &mut Self {
+    fn translate_mut(&mut self, by: Point) -> &mut Self {
         self.rect.top_left += by;
         self
     }

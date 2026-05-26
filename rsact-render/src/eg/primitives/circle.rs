@@ -8,7 +8,6 @@ use crate::{
     style::StrokeAlignment,
 };
 use embedded_graphics::{pixelcolor::PixelColor, primitives::StyledDrawable};
-use num::Float as _;
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Circle {
     fn draw(

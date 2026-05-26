@@ -11,7 +11,6 @@ use core::f32;
 use embedded_graphics::{
     pixelcolor::PixelColor, prelude::Angle, primitives::StyledDrawable,
 };
-use num::Float as _;
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Sector {
     fn draw(

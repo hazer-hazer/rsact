@@ -22,6 +22,10 @@ impl Point {
     pub const fn zero() -> Self {
         Self::new(0, 0)
     }
+
+    pub const fn sign(&self) -> Self {
+        Self::new(self.x.signum(), self.y.signum())
+    }
 }
 
 impl Axial for Point {

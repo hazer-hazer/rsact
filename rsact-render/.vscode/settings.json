@@ -1,0 +1,4 @@
+// {
+//   "rust-analyzer.cargo.features": ["embedded-graphics"],
+//   "rust-analyzer.cargo.noDefaultFeatures": true
+// }

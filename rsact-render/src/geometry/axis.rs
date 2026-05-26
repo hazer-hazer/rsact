@@ -1,9 +1,5 @@
+use crate::geometry::anchor::{AnchorPoint, AnchorX, AnchorY};
 use core::ops::Add;
-
-use crate::geometry::{
-    anchor::{AnchorPoint, AnchorX, AnchorY},
-    point::Point,
-};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(::defmt::Format))]
@@ -104,40 +100,41 @@ pub trait Axial {
         (f(self.x()), f(self.y()))
     }
 
-    fn destruct(&self, axis: Axis) -> (Self::Data, Self::Data) {
-        match axis {
+    // TODO: Rename to `destruct_by_axis`, add `destruct` to destruct by main axis
+    fn destruct(&self, main: Axis) -> (Self::Data, Self::Data) {
+        match main {
             Axis::X => (self.x(), self.y()),
             Axis::Y => (self.y(), self.x()),
         }
     }
 
     #[inline]
-    fn main(&self, axis: Axis) -> Self::Data {
-        match axis {
+    fn main(&self, main: Axis) -> Self::Data {
+        match main {
             Axis::X => self.x(),
             Axis::Y => self.y(),
         }
     }
 
     #[inline]
-    fn cross(&self, axis: Axis) -> Self::Data {
-        match axis {
+    fn cross(&self, cross: Axis) -> Self::Data {
+        match cross {
             Axis::X => self.y(),
             Axis::Y => self.x(),
         }
     }
 
     #[inline]
-    fn main_mut(&mut self, axis: Axis) -> &mut Self::Data {
-        match axis {
+    fn main_mut(&mut self, main: Axis) -> &mut Self::Data {
+        match main {
             Axis::X => self.x_mut(),
             Axis::Y => self.y_mut(),
         }
     }
 
     #[inline]
-    fn cross_mut(&mut self, axis: Axis) -> &mut Self::Data {
-        match axis {
+    fn cross_mut(&mut self, cross: Axis) -> &mut Self::Data {
+        match cross {
             Axis::X => self.y_mut(),
             Axis::Y => self.x_mut(),
         }

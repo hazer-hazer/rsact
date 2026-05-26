@@ -1,7 +1,7 @@
 use crate::{
     layout::length::LengthSize,
     render::primitives::{
-        Primitive, arc::Arc, circle::Circle, ellipse::Ellipse, line::Line,
+        PrimitiveKind, arc::Arc, circle::Circle, ellipse::Ellipse, line::Line,
         polygon::Polygon, rounded_rect::RoundedRect, sector::Sector,
     },
     widget::prelude::*,
@@ -17,7 +17,7 @@ pub enum DrawCommand<C: Color> {
     /// Actually useless for now as we clear the whole screen each frame :(
     Clear(C),
     ClearRect(Rect, C),
-    Primitive(Primitive, DrawStyle<C>),
+    Primitive(PrimitiveKind, DrawStyle<C>),
 }
 
 // TODO: Different color in DrawQueue mapped to renderer target color?
@@ -50,7 +50,7 @@ impl<C: Color> DrawQueue<C> {
 
     pub fn primitive(
         self,
-        primitive: impl Into<Primitive>,
+        primitive: impl Into<PrimitiveKind>,
         style: DrawStyle<C>,
     ) -> Self {
         self.draw_once(DrawCommand::Primitive(primitive.into(), style));
@@ -137,7 +137,6 @@ impl<C: Color> DrawQueue<C> {
     //     self
     // }
 
-    /// Delegate DrawQueue as settable signal for single command
     pub fn draw(mut self, commands: Memo<Vec<DrawCommand<C>>>) -> Self {
         self.queue.setter(commands, |queue, commands| {
             commands.iter().cloned().for_each(|command| {
@@ -188,14 +187,14 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
                 match command {
                     DrawCommand::Clear(color) => {
                         let outer = ctx.layout.outer;
-                        ctx.renderer().fill_solid(&outer, color)?;
+                        ctx.renderer().fill_solid(outer, color)?;
                     },
                     DrawCommand::ClearRect(rect, color) => {
-                        ctx.renderer().fill_solid(&rect, color)?;
+                        ctx.renderer().fill_solid(rect, color)?;
                     },
                     DrawCommand::Primitive(primitive, style) => match primitive
                     {
-                        Primitive::Arc(Arc {
+                        PrimitiveKind::Arc(Arc {
                             top_left,
                             diameter,
                             start,
@@ -205,35 +204,35 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
                                 top_left, diameter, start, sweep, &style,
                             )?;
                         },
-                        Primitive::Circle(Circle { top_left, diameter }) => {
+                        PrimitiveKind::Circle(Circle { top_left, diameter }) => {
                             ctx.renderer()
                                 .circle(top_left, diameter, &style)?;
                         },
-                        Primitive::Ellipse(Ellipse { top_left, size }) => {
+                        PrimitiveKind::Ellipse(Ellipse { top_left, size }) => {
                             ctx.renderer()
-                                .ellipse(&Rect::new(top_left, size), &style)?;
+                                .ellipse(Rect::new(top_left, size), &style)?;
                         },
-                        Primitive::Line(Line { from, to }) => {
+                        PrimitiveKind::Line(Line { from, to }) => {
                             ctx.renderer().line(from, to, &style)?;
                         },
-                        Primitive::Polygon(Polygon {
+                        PrimitiveKind::Polygon(Polygon {
                             // TODO
                             translation,
                             vertices,
                         }) => {
                             ctx.renderer().polygon(&vertices, &style)?;
                         },
-                        Primitive::Rect(rect) => {
-                            ctx.renderer().rect(&rect, &style)?;
+                        PrimitiveKind::Rect(rect) => {
+                            ctx.renderer().rect(rect, &style)?;
                         },
-                        Primitive::RoundedRect(RoundedRect {
+                        PrimitiveKind::RoundedRect(RoundedRect {
                             rect,
                             corners,
                         }) => {
                             ctx.renderer()
-                                .rounded_rect(&rect, corners, &style)?;
+                                .rounded_rect(rect, corners, &style)?;
                         },
-                        Primitive::Sector(Sector {
+                        PrimitiveKind::Sector(Sector {
                             top_left,
                             diameter,
                             start,

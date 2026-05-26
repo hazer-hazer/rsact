@@ -7,13 +7,7 @@ use crate::{
     renderer::{AntiAliasingDisabled, AntiAliasingEnabled, RenderResult},
     style::StrokeAlignment,
 };
-use embedded_graphics::{
-    geometry::Point as EgPoint,
-    pixelcolor::PixelColor,
-    prelude::{Dimensions, Primitive, Transform},
-    primitives::StyledDrawable,
-};
-use num::Float as _;
+use embedded_graphics::{pixelcolor::PixelColor, primitives::StyledDrawable};
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Ellipse {
     fn draw(
