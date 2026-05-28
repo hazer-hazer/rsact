@@ -4,7 +4,6 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use resvg::tiny_skia::Pixmap;
 use std::{
-    collections::BTreeMap,
     fs::{self, OpenOptions},
     io::Write,
     path::Path,
@@ -55,12 +54,12 @@ const BUILD_SIZES: &[u32] = build_sizes![
 const BASE_SIZE: f32 = 24.0;
 const OUTPUT_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/rendered");
 
-const BYTE_ORDER_EG: &str = "BigEndian";
+const BYTE_ORDER: &str = "BigEndian";
 type Bits = BitVec<u8, Msb0>;
 
 fn byte_order() -> TokenStream {
-    let bo = format_ident!("{BYTE_ORDER_EG}");
-    quote! {embedded_graphics::pixelcolor::raw::#bo}
+    let bo = format_ident!("{BYTE_ORDER}");
+    quote! {rsact_render::color::#bo}
 }
 
 fn icon_type() -> TokenStream {
@@ -412,7 +411,7 @@ fn main() {
         fs::create_dir(OUTPUT_DIR).unwrap();
     }
 
-    let sets_names = [
+    let sets_names: &[&str] = &[
         #[cfg(feature = "system")]
         SystemIcon::mod_name(),
         #[cfg(feature = "common")]

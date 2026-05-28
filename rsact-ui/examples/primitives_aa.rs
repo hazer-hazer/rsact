@@ -21,7 +21,7 @@ fn main() {
     env_logger::init();
 
     let output_settings =
-        OutputSettingsBuilder::new().max_fps(10000).scale(3).build();
+        OutputSettingsBuilder::new().scale(3).build();
 
     let mut window = Window::new("SANDBOX", &output_settings);
 

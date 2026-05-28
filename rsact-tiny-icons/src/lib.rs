@@ -1,22 +1,22 @@
 #![no_std]
 
 use core::marker::PhantomData;
-use embedded_graphics::{
-    Drawable, Pixel,
-    pixelcolor::raw::{BigEndian, ByteOrder},
-    prelude::{PixelColor, PixelIteratorExt, Point},
-    primitives::Rectangle,
+pub use rendered::*;
+use rsact_render::{
+    color::{BigEndian, ByteOrder, Color},
+    geometry::Point,
+    output::pixel::Pixel,
 };
 
 mod rendered;
-pub use rendered::*;
 
 // TODO: Should constants be private to crate so user is not distracted with
 // thousands of constants with the same name for different icon sizes modules?
 
+pub type DefaultByteOrder = BigEndian;
+
 #[derive(Clone, Copy)]
-// TODO: Really use ByteOrder to get bit offset in `bit` method
-pub struct IconRaw<BO: ByteOrder> {
+pub struct IconRaw<BO: ByteOrder = DefaultByteOrder> {
     pub data: &'static [u8],
     pub size: u32,
     bo: PhantomData<BO>,
@@ -27,6 +27,7 @@ impl<BO: ByteOrder> IconRaw<BO> {
         Self { data, size, bo: PhantomData }
     }
 
+    // TODO: Really use byte order.
     fn bit(&self, x: u32, y: u32) -> bool {
         let index = x + y * self.size;
         (self.data[index as usize / 8] & (0b1000_0000 >> index % 8)) != 0
@@ -34,14 +35,14 @@ impl<BO: ByteOrder> IconRaw<BO> {
 }
 
 #[derive(Clone, Copy)]
-pub struct Icon<C: PixelColor, BO: ByteOrder> {
+pub struct Icon<C: Color, BO: ByteOrder> {
     raw: IconRaw<BO>,
     position: Point,
     background: Option<C>,
     foreground: Option<C>,
 }
 
-impl<C: PixelColor, BO: ByteOrder> Icon<C, BO> {
+impl<C: Color, BO: ByteOrder> Icon<C, BO> {
     pub fn new(
         raw: IconRaw<BO>,
         position: Point,
@@ -72,38 +73,14 @@ impl<C: PixelColor, BO: ByteOrder> Icon<C, BO> {
     }
 }
 
-impl<C: PixelColor, BO: ByteOrder> Drawable for Icon<C, BO> {
-    type Color = C;
-    type Output = ();
-
-    fn draw<D>(&self, target: &mut D) -> Result<Self::Output, D::Error>
-    where
-        D: embedded_graphics::prelude::DrawTarget<Color = Self::Color>,
-    {
-        // for y in 0..self.raw.size {
-        //     for x in 0..self.raw.size {
-        //         if let Some(color) = self.color(self.raw.bit(x, y)) {
-        //             Pixel(
-        //                 Point::new(x as i32, y as i32) + self.position,
-        //                 color,
-        //             )
-        //             .draw(target)?;
-        //         }
-        //     }
-        // }
-
-        target.draw_iter(self.iter())
-    }
-}
-
-pub trait IconSet<BO: embedded_graphics::pixelcolor::raw::ByteOrder = BigEndian>:
+pub trait IconSet<BO: ByteOrder = DefaultByteOrder>:
     PartialEq + Sized + 'static
 {
     const KINDS: &[Self];
 
     const SIZES: &[u32];
 
-    fn size(&self, size: u32) -> crate::IconRaw<BigEndian>;
+    fn size(&self, size: u32) -> crate::IconRaw<BO>;
 }
 
 // TODO: Real Endianness
@@ -111,12 +88,12 @@ pub trait IconSet<BO: embedded_graphics::pixelcolor::raw::ByteOrder = BigEndian>
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct EmptyIconSet;
 
-impl IconSet<BigEndian> for EmptyIconSet {
+impl IconSet<DefaultByteOrder> for EmptyIconSet {
     const KINDS: &[Self] = &[];
 
     const SIZES: &[u32] = &[];
 
-    fn size(&self, _size: u32) -> crate::IconRaw<BigEndian> {
+    fn size(&self, _size: u32) -> crate::IconRaw<DefaultByteOrder> {
         panic!("Cannot use empty icon set")
     }
 }

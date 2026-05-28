@@ -5,6 +5,7 @@ use crate::{
         primitives::EgPrimitive,
     },
     geometry::*,
+    image::{DrawImage, ImageOwned, ImageRef},
     output::{FinishRender, MapColor, RenderTarget, pixel::Pixel},
     path::{Path, PathSegment},
     primitives::{
@@ -20,6 +21,7 @@ use crate::{
 use alloc::{collections::BTreeMap, vec::Vec};
 use core::marker::PhantomData;
 use embedded_graphics::{
+    Drawable,
     draw_target::DrawTargetExt,
     prelude::{Dimensions, DrawTarget, PixelColor},
     primitives::{PrimitiveStyle, PrimitiveStyleBuilder, StyledDrawable},
@@ -167,6 +169,15 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> EGRenderer<C, AA> {
         self.viewport_stack.pop();
         result
     }
+
+    fn renderer_image<'a>(&mut self, image: DrawImage<'a, C>) -> RenderResult {
+        embedded_graphics::image::Image::new(
+            image.image(),
+            image.position().into(),
+        )
+        .draw(self)?;
+        Ok(())
+    }
 }
 
 // impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor>
@@ -252,6 +263,10 @@ impl<C: Color + PackedColor + PixelColor> Renderer
                 stroke_alignment: StrokeAlignment::Inside,
             },
         )
+    }
+
+    fn pixel(&mut self, point: Point, color: Self::Color) -> RenderResult {
+        embedded_graphics::Pixel(point.into(), color).draw(self)
     }
 
     fn line(
@@ -359,6 +374,10 @@ impl<C: Color + PackedColor + PixelColor> Renderer
         }
         Ok(())
     }
+
+    fn image<'a>(&mut self, image: DrawImage<'a, Self::Color>) -> RenderResult {
+        self.renderer_image(image)
+    }
 }
 
 impl<C: Color + PackedColor + PixelColor> Renderer
@@ -391,6 +410,10 @@ impl<C: Color + PackedColor + PixelColor> Renderer
                 stroke_alignment: StrokeAlignment::Inside,
             },
         )
+    }
+
+    fn pixel(&mut self, point: Point, color: Self::Color) -> RenderResult {
+        embedded_graphics::Pixel(point.into(), color).draw(self)
     }
 
     fn line(
@@ -498,5 +521,9 @@ impl<C: Color + PackedColor + PixelColor> Renderer
             }
         }
         Ok(())
+    }
+
+    fn image<'a>(&mut self, image: DrawImage<'a, Self::Color>) -> RenderResult {
+        self.renderer_image(image)
     }
 }

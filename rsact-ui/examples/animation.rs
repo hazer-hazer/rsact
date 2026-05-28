@@ -31,7 +31,7 @@ use std::{
 fn main() {
     env_logger::init();
 
-    let output_settings = OutputSettingsBuilder::new().max_fps(10000).build();
+    let output_settings = OutputSettingsBuilder::new().build();
 
     let mut window = Window::new("SANDBOX", &output_settings);
 

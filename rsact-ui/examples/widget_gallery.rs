@@ -43,7 +43,7 @@ impl Display for WidgetTab {
 fn main() {
     env_logger::init();
 
-    let output_settings = OutputSettingsBuilder::new().max_fps(10000).build();
+    let output_settings = OutputSettingsBuilder::new().build();
 
     let mut window = Window::new("Widget gallery", &output_settings);
 

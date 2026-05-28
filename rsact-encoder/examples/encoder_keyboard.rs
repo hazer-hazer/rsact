@@ -7,8 +7,8 @@ use rsact_ui::{
     event::simulator::simulator_single_encoder,
     page::id::SinglePage,
     prelude::{
-        create_signal, Button, Container, Flex, IntoInert as _, Length,
-        MonoText, Scrollable, SignalMap, Size,
+        Button, Container, Flex, IntoInert as _, Length, MonoText, Scrollable,
+        SignalMap, Size, create_signal,
     },
     render::draw_target::{AntiAliasing, LayeringRendererOptions},
     style::NullStyler,
@@ -17,8 +17,7 @@ use rsact_ui::{
 };
 
 fn main() {
-    let output_settings =
-        OutputSettingsBuilder::new().max_fps(10000).scale(3).build();
+    let output_settings = OutputSettingsBuilder::new().scale(3).build();
 
     let mut window = Window::new("SANDBOX", &output_settings);
 

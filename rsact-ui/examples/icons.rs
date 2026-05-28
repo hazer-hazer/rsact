@@ -3,7 +3,7 @@ use embedded_graphics::{pixelcolor::Rgb888, prelude::{Dimensions, RgbColor}};
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
-use rsact_icons::{common::CommonIcon, system::SystemIcon, IconSet};
+use rsact_tiny_icons::{common::CommonIcon, system::SystemIcon, IconSet};
 use rsact_render::eg::renderer::EGRenderer;
 use rsact_ui::{
     page::id::SinglePage, prelude::{Flex, Icon, IntoInert, Size, Text}, style::theme::Theme, ui::UI, widget::{SizedWidget, Widget}
@@ -13,7 +13,7 @@ fn main() {
     env_logger::init();
 
     let output_settings =
-        OutputSettingsBuilder::new().scale(1).max_fps(10000).build();
+        OutputSettingsBuilder::new().scale(1).build();
 
     let mut window = Window::new("SANDBOX", &output_settings);
 

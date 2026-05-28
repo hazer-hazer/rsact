@@ -2,6 +2,7 @@
 
 pub mod color;
 pub mod geometry;
+pub mod image;
 pub mod layer;
 pub mod output;
 pub mod path;
@@ -20,7 +21,7 @@ pub mod tiny_skia;
 
 pub mod prelude {
     pub use crate::{
-        color::{Color, RgbColor as _},
+        color::{BigEndian, ByteOrder, Color, LittleEndian, RgbColor as _},
         geometry::{
             Rect, Size, block_model::BlockModel, border::Border,
             padding::Padding, *,
@@ -28,7 +29,7 @@ pub mod prelude {
         output::{ColorMapper, FinishRender, MapColor, RenderTarget},
         path::*,
         primitives::{
-            PrimitiveKind, arc::Arc, block::Block, circle::Circle,
+            Primitive, PrimitiveKind, arc::Arc, block::Block, circle::Circle,
             ellipse::Ellipse, line::Line, polygon::Polygon,
             rounded_rect::RoundedRect, sector::Sector,
         },
@@ -45,4 +46,7 @@ pub mod prelude {
         primitives::*,
         renderer::EGRenderer,
     };
+
+    #[cfg(feature = "tiny-skia")]
+    pub use crate::tiny_skia::TinySkiaRenderer;
 }

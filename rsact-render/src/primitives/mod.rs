@@ -44,6 +44,7 @@ impl_into_primitive!(
     sector::Sector => Sector
 );
 
+// TODO: Is image a primitive?
 pub trait Primitive {
     fn into_kind(self) -> PrimitiveKind;
 

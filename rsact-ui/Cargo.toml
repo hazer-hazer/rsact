@@ -18,7 +18,7 @@ embedded-time = { workspace = true }
 itertools = { version = "0.14.0", default-features = false }
 log = { workspace = true }
 num = { workspace = true }
-rsact-icons = { workspace = true, features = [
+rsact-tiny-icons = { workspace = true, features = [
     "common",
     "all-sizes",
 ], optional = true }
@@ -27,6 +27,7 @@ rsact-render = { workspace = true }
 tinyvec = { workspace = true }
 u8g2-fonts = { workspace = true, optional = true }
 tiny-skia = { workspace = true, optional = true }
+slotmap = { workspace = true }
 
 [dev-dependencies]
 embedded-graphics = { workspace = true }
@@ -52,12 +53,12 @@ embedded-graphics = [
     "dep:embedded-graphics",
     "dep:embedded-graphics-core",
     "dep:embedded-text",
-    "dep:rsact-icons",
     "rsact-render/embedded-graphics",
 ]
+tiny-icons = ["dep:rsact-tiny-icons"]
 u8g2-fonts = ["dep:u8g2-fonts", "embedded-graphics"]
 single-thread = ["rsact-reactive/single-thread"]
-std = ["log/std", "rsact-reactive/std"]
+std = ["log/std", "rsact-reactive/std", "tiny-skia/png-format"]
 # TODO: Print pretty blocks in terminal showing layout problems: overflows, insufficient sizes, etc.
 layout-diagnostics = []
 tiny-skia = ["dep:tiny-skia", "rsact-render/tiny-skia"]
@@ -73,6 +74,22 @@ required-features = ["std", "simulator", "embedded-graphics"]
 [[example]]
 name = "primitives_aa"
 required-features = ["std", "simulator", "embedded-graphics"]
+
+[[example]]
+name = "3d_printer"
+required-features = ["std", "simulator", "embedded-graphics", "tiny-icons"]
+
+[[example]]
+name = "mem_usage_display_240_240"
+required-features = ["std", "simulator", "embedded-graphics", "tiny-icons"]
+
+[[example]]
+name = "tiny_skia"
+required-features = ["std", "simulator", "tiny-skia"]
+
+[[example]]
+name = "icons"
+required-features = ["std", "simulator", "embedded-graphics", "tiny-icons"]
 
 [lints]
 workspace = true

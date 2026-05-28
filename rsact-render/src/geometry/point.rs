@@ -26,6 +26,11 @@ impl Point {
     pub const fn sign(&self) -> Self {
         Self::new(self.x.signum(), self.y.signum())
     }
+
+    // pub const fn assert_positive(&self) -> Self {
+    //     assert!(self.x >= 0 && self.y >= 0);
+    //     *self
+    // }
 }
 
 impl Axial for Point {

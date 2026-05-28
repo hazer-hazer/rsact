@@ -14,7 +14,7 @@ fn main() {
     env_logger::init();
 
     let output_settings =
-        OutputSettingsBuilder::new().max_fps(10000).scale(5).build();
+        OutputSettingsBuilder::new().scale(5).build();
 
     let mut window = Window::new("FLEX", &output_settings);
 

@@ -10,10 +10,12 @@
     "fullscreen",
     "pixelcolor",
     "Pixmap",
+    "premultiply",
     "renderable",
     "rsact",
     "signum",
     "Skia",
+    "slotmap",
     "Uninit",
     "vals",
     "viewports"
@@ -21,6 +23,7 @@
   "rust-analyzer.runnables.extraTestBinaryArgs": ["--test-threads=1"],
   "rust-analyzer.cargo.noDefaultFeatures": true,
   "rust-analyzer.cargo.features": [
+    "std",
     "single-thread",
     "debug-info",
     "simulator",
@@ -29,7 +32,8 @@
     "embedded-graphics",
     "u8g2-fonts",
     "layout-diagnostics",
-    "defmt"
+    "defmt",
+    "tiny-icons"
   ],
   "rust-analyzer.check.noDefaultFeatures": true,
   "rust-analyzer.check.features": [

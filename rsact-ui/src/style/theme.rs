@@ -15,9 +15,9 @@ use crate::{
 pub struct Theme<C: Color> {
     pub bar: BarStyle<C>,
     pub button: ButtonStyle<C>,
-    #[cfg(feature = "embedded-graphics")]
+    #[cfg(feature = "tiny-icons")]
     pub checkbox: crate::widget::checkbox::CheckboxStyle<C>,
-    #[cfg(feature = "embedded-graphics")]
+    #[cfg(feature = "tiny-icons")]
     pub icon: crate::widget::icon::IconStyle<C>,
     pub knob: KnobStyle<C>,
     pub scrollable: ScrollableStyle<C>,
@@ -31,9 +31,9 @@ impl<C: Color> Default for Theme<C> {
         Self {
             bar: BarStyle::base(),
             button: ButtonStyle::base(),
-            #[cfg(feature = "embedded-graphics")]
+            #[cfg(feature = "tiny-icons")]
             checkbox: crate::widget::checkbox::CheckboxStyle::base(),
-            #[cfg(feature = "embedded-graphics")]
+            #[cfg(feature = "tiny-icons")]
             icon: crate::widget::icon::IconStyle::base(),
             knob: KnobStyle::base(),
             scrollable: ScrollableStyle::base(),
@@ -51,7 +51,7 @@ impl<C: Color> Theme<C> {
     pub fn with_accent(mut self, accent: C) -> Self {
         self.bar.color.set_high_priority(Some(accent));
         self.button.container.border.color.set_high_priority(Some(accent));
-        #[cfg(feature = "embedded-graphics")]
+        #[cfg(feature = "tiny-icons")]
         self.checkbox.container.border.color.set_high_priority(Some(accent));
         self.knob.color.set_high_priority(Some(accent));
         self

@@ -12,7 +12,7 @@
 
 ## Screenshots
 
-### [`rsact-icons`](../rsact-icons)
+### [`rsact-tiny-icons`](../rsact-tiny-icons)
 
 All icons from `SystemIcon` and `CommonIcon`
 ![Icons](assets/icons.png)

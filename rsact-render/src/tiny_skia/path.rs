@@ -18,7 +18,12 @@ pub trait PathBuilderExt {
     // /// The [`radius`] is expected to be pre-clamped to the size of the corner, so that it doesn't exceed the size of the rectangle.
     // fn corner(&mut self, start: Point, length: u32, radius: Size) -> &mut Self;
 
-    fn arc_to(&mut self, from: Point, to: Point, radii: Size) -> &mut Self;
+    fn single_quad_arc(
+        &mut self,
+        from: Point,
+        to: Point,
+        radii: Size,
+    ) -> &mut Self;
 
     fn rounded_rect(&mut self, rect: Rect, corners: CornerRadii) -> &mut Self;
 }
@@ -28,8 +33,8 @@ impl PathBuilderExt for tiny_skia::PathBuilder {
     // // TODO: Normalize angles?
     fn arc(
         &mut self,
-        center: Point,
-        radius: u32,
+        top_left: Point,
+        diameter: u32,
         start: Angle,
         sweep: Angle,
     ) -> &mut Self {
@@ -42,7 +47,12 @@ impl PathBuilderExt for tiny_skia::PathBuilder {
 
         const MAX_SEGMENT_ANGLE: f32 = core::f32::consts::FRAC_PI_2;
 
-        let radius = radius as f32;
+        let radius = diameter as f32 / 2.0;
+        let center = tiny_skia::Point::from_xy(
+            top_left.x as f32 + radius,
+            top_left.y as f32 + radius,
+        );
+
         let sweep_abs = sweep.radians.abs();
         let num_segments = (sweep_abs / MAX_SEGMENT_ANGLE).ceil() as u32;
         let segment_sweep = sweep_abs / num_segments as f32;
@@ -51,8 +61,8 @@ impl PathBuilderExt for tiny_skia::PathBuilder {
         // TODO: Optimize: re-use first sin/cos
         let (sin_start, cos_start) = start.radians.sin_cos();
         let start_p = tiny_skia::Point::from_xy(
-            center.x as f32 + radius * cos_start,
-            center.y as f32 + radius * sin_start,
+            center.x + radius * cos_start,
+            center.y + radius * sin_start,
         );
         self.move_to(start_p.x, start_p.y);
 
@@ -66,12 +76,12 @@ impl PathBuilderExt for tiny_skia::PathBuilder {
             let tng_end = (-sin_b, cos_b);
 
             let p1 = tiny_skia::Point::from_xy(
-                center.x as f32 + radius * cos_a,
-                center.y as f32 + radius * sin_a,
+                center.x + radius * cos_a,
+                center.y + radius * sin_a,
             );
             let p2 = tiny_skia::Point::from_xy(
-                center.x as f32 + radius * cos_b,
-                center.y as f32 + radius * sin_b,
+                center.x + radius * cos_b,
+                center.y + radius * sin_b,
             );
             let c1 = tiny_skia::Point::from_xy(
                 p1.x + alpha * radius * tng_start.0,
@@ -90,14 +100,19 @@ impl PathBuilderExt for tiny_skia::PathBuilder {
         self
     }
 
-    fn arc_to(&mut self, start: Point, end: Point, radii: Size) -> &mut Self {
+    fn single_quad_arc(
+        &mut self,
+        start: Point,
+        end: Point,
+        radii: Size,
+    ) -> &mut Self {
         let delta = end - start;
         let quad = delta.x * delta.y;
         let sign_x = delta.x.signum();
         let sign_y = delta.y.signum();
 
         let start = tiny_skia::Point::from_xy(start.x as f32, start.y as f32);
-        self.move_to(start.x, start.y);
+        let end = tiny_skia::Point::from_xy(end.x as f32, end.y as f32);
 
         let radii = Into::<Size<f32>>::into(radii)
             * Size::new(sign_x as f32, sign_y as f32)
@@ -106,25 +121,25 @@ impl PathBuilderExt for tiny_skia::PathBuilder {
         let (cp1, cp2) = if quad > 0 {
             (
                 tiny_skia::Point::from_xy(start.x + radii.width, start.y),
-                tiny_skia::Point::from_xy(start.x, start.y + radii.height),
+                tiny_skia::Point::from_xy(end.x, end.y - radii.height),
             )
         } else {
             (
                 tiny_skia::Point::from_xy(start.x, start.y + radii.height),
-                tiny_skia::Point::from_xy(start.x + radii.width, start.y),
+                tiny_skia::Point::from_xy(end.x - radii.width, end.y),
             )
         };
 
-        self.cubic_to(cp1.x, cp1.y, cp2.x, cp2.y, end.x as f32, end.y as f32);
+        self.cubic_to(cp1.x, cp1.y, cp2.x, cp2.y, end.x, end.y);
 
         self
     }
 
     fn rounded_rect(&mut self, rect: Rect, corners: CornerRadii) -> &mut Self {
-        let x = rect.top_left.x as f32;
-        let y = rect.top_left.y as f32;
-        let w = rect.size.width as f32;
-        let h = rect.size.height as f32;
+        let x = rect.top_left.x;
+        let y = rect.top_left.y;
+        let w = rect.size.width as i32;
+        let h = rect.size.height as i32;
         let right = x + w;
         let bottom = y + h;
 
@@ -133,74 +148,63 @@ impl PathBuilderExt for tiny_skia::PathBuilder {
         let br = corners.bottom_right;
         let bl = corners.bottom_left;
 
-        // Top right
-        let tr_x = tr.width as f32;
-        let tr_y = tr.height as f32;
-        let tr_end_x = right;
-        let tr_end_y = y + tr_y;
+        let start_x = x + tl.width as i32;
+        self.move_to(start_x as f32, y as f32);
 
-        let start_x = x + tl.width as f32;
-        self.move_to(start_x, y);
-
-        if w - tl.width as f32 - tr.width as f32 > 0.0 {
-            self.line_to(right - tr_x, y);
+        if w - tl.width as i32 - tr.width as i32 > 0 {
+            self.line_to((right - tr.width as i32) as f32, y as f32);
         }
 
         if !tr.is_zero() {
-            let cp1 = tiny_skia::Point::from_xy(right - tr_x * KAPPA, y);
-            let cp2 = tiny_skia::Point::from_xy(right, y + tr_y * KAPPA);
-
-            self.cubic_to(cp1.x, cp1.y, cp2.x, cp2.y, tr_end_x, tr_end_y);
+            self.single_quad_arc(
+                Point::new(right - tr.width as i32, y),
+                Point::new(right, y + tr.height as i32),
+                tr,
+            );
         } else {
-            self.line_to(tr_end_x, tr_end_y);
+            self.line_to(right as f32, (y + tr.height as i32) as f32);
         }
 
         // Bottom right
-        let br_x = br.width as f32;
-        let br_y = br.height as f32;
-        let br_end_x = right - br_x;
-        let br_end_y = bottom;
-        self.line_to(right, bottom - br_y);
+        self.line_to(right as f32, (bottom - br.height as i32) as f32);
 
         if !br.is_zero() {
-            let cp1 = tiny_skia::Point::from_xy(right, bottom - br_y * KAPPA);
-            let cp2 = tiny_skia::Point::from_xy(right - br_x * KAPPA, bottom);
-
-            self.cubic_to(cp1.x, cp1.y, cp2.x, cp2.y, br_end_x, br_end_y);
+            self.single_quad_arc(
+                Point::new(right, bottom - br.height as i32),
+                Point::new(right - br.width as i32, bottom),
+                br,
+            );
         } else {
-            self.line_to(br_end_x, br_end_y);
+            self.line_to(
+                (right - br.width as i32) as f32,
+                (bottom - br.height as i32) as f32,
+            );
         }
 
         // Bottom left
-        let bl_x = bl.width as f32;
-        let bl_y = bl.height as f32;
-        let bl_end_x = x;
-        let bl_end_y = bottom - bl_y;
-        self.line_to(x + bl_x, bottom);
+        self.line_to((x + bl.width as i32) as f32, bottom as f32);
 
         if !bl.is_zero() {
-            let cp1 = tiny_skia::Point::from_xy(x + bl_x * KAPPA, bottom);
-            let cp2 = tiny_skia::Point::from_xy(x, bottom - bl_y * KAPPA);
-
-            self.cubic_to(cp1.x, cp1.y, cp2.x, cp2.y, bl_end_x, bl_end_y);
+            self.single_quad_arc(
+                Point::new(x + bl.width as i32, bottom),
+                Point::new(x, bottom - bl.height as i32),
+                bl,
+            );
         } else {
-            self.line_to(bl_end_x, bl_end_y);
+            self.line_to(x as f32, (bottom - bl.height as i32) as f32);
         }
 
         // Top left
-        let tl_x = tl.width as f32;
-        let tl_y = tl.height as f32;
-        let tl_end_x = x + tl_x;
-        let tl_end_y = y;
-        self.line_to(x, y + tl_y);
+        self.line_to(x as f32, (y + tl.height as i32) as f32);
 
         if !tl.is_zero() {
-            let cp1 = tiny_skia::Point::from_xy(x, y + tl_y * KAPPA);
-            let cp2 = tiny_skia::Point::from_xy(x + tl_x * KAPPA, y);
-
-            self.cubic_to(cp1.x, cp1.y, cp2.x, cp2.y, tl_end_x, tl_end_y);
+            self.single_quad_arc(
+                Point::new(x, y + tl.height as i32),
+                Point::new(x + tl.width as i32, y),
+                tl,
+            );
         } else {
-            self.line_to(tl_end_x, tl_end_y);
+            self.line_to((x + tl.width as i32) as f32, y as f32);
         }
 
         self

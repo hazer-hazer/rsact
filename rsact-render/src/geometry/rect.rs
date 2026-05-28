@@ -60,11 +60,13 @@ impl Rect {
         }
     }
 
+    pub fn translate_mut(&mut self, by: Point) -> &mut Self {
+        self.top_left = self.top_left + by;
+        self
+    }
+
     pub fn translate(&self, by: Point) -> Self {
-        Self::new(
-            Point::new(self.top_left.x + by.x, self.top_left.y + by.y),
-            self.size,
-        )
+        Self::new(self.top_left + by, self.size)
     }
 
     pub fn contains(&self, point: Point) -> bool {
@@ -115,11 +117,6 @@ impl Rect {
             Point::new(self.top_left.x, new_y),
             Size::new(self.size.width, new_height),
         )
-    }
-
-    pub fn translate_mut(&mut self, by: Point) -> &mut Self {
-        self.top_left = self.top_left + by;
-        self
     }
 
     /// Return the point corresponding to the given anchor within this rect.

@@ -7,7 +7,7 @@ use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
 use rand::{Rng, rng};
-use rsact_icons::{common::CommonIcon, system::SystemIcon};
+use rsact_tiny_icons::{common::CommonIcon, system::SystemIcon};
 use rsact_reactive::runtime::current_runtime_profile;
 use rsact_ui::{
     event::{message::UiQueue, simulator::simulator_single_encoder},
@@ -39,8 +39,7 @@ static GLOBAL: Cap<System> = Cap::new(System, usize::MAX);
 fn main() {
     env_logger::init();
 
-    let output_settings =
-        OutputSettingsBuilder::new().max_fps(10000).scale(5).build();
+    let output_settings = OutputSettingsBuilder::new().scale(5).build();
 
     let mut window = Window::new("SANDBOX", &output_settings);
 

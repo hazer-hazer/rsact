@@ -57,28 +57,28 @@ impl CornerRadii {
 
         let top_sum = tl.width + tr.width;
         if top_sum > w {
-            let factor = w / top_sum;
-            tl.width *= factor;
-            tr.width *= factor;
+            let factor = w as f32 / top_sum as f32;
+            tl.width = (tl.width as f32 * factor) as u32;
+            tr.width = (tr.width as f32 * factor) as u32;
         }
         let bottom_sum = bl.width + br.width;
         if bottom_sum > w {
-            let factor = w / bottom_sum;
-            bl.width *= factor;
-            br.width *= factor;
+            let factor = w as f32 / bottom_sum as f32;
+            bl.width = (bl.width as f32 * factor) as u32;
+            br.width = (br.width as f32 * factor) as u32;
         }
 
         let left_sum = tl.height + bl.height;
         if left_sum > h {
-            let factor = h / left_sum;
-            tl.height *= factor;
-            bl.height *= factor;
+            let factor = h as f32 / left_sum as f32;
+            tl.height = (tl.height as f32 * factor) as u32;
+            bl.height = (bl.height as f32 * factor) as u32;
         }
         let right_sum = tr.height + br.height;
         if right_sum > h {
-            let factor = h / right_sum;
-            tr.height *= factor;
-            br.height *= factor;
+            let factor = h as f32 / right_sum as f32;
+            tr.height = (tr.height as f32 * factor) as u32;
+            br.height = (br.height as f32 * factor) as u32;
         }
 
         Self { top_left: tl, top_right: tr, bottom_right: br, bottom_left: bl }

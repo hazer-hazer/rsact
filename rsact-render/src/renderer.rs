@@ -1,6 +1,7 @@
 use crate::{
     color::Color,
     geometry::*,
+    image::{DrawImage, ImageOwned, ImageRef},
     output::{FinishRender, MapColor, RenderTarget},
     path::Path,
     style::DrawStyle,
@@ -82,6 +83,8 @@ pub trait Renderer {
 
     fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult;
 
+    fn pixel(&mut self, point: Point, color: Self::Color) -> RenderResult;
+
     fn line(
         &mut self,
         from: Point,
@@ -144,15 +147,17 @@ pub trait Renderer {
         path: &Path,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult;
+
+    fn image<'a>(&mut self, image: DrawImage<'a, Self::Color>) -> RenderResult;
 }
 
-pub trait LayerRenderer {
-    fn on_layer(
-        &mut self,
-        index: usize,
-        f: impl FnOnce(&mut Self) -> RenderResult,
-    ) -> RenderResult;
-}
+// pub trait LayerRenderer {
+//     fn on_layer(
+//         &mut self,
+//         index: usize,
+//         f: impl FnOnce(&mut Self) -> RenderResult,
+//     ) -> RenderResult;
+// }
 
 /// Minimal color type for use in NullRenderer.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -219,6 +224,10 @@ impl Renderer for NullRenderer {
     }
 
     fn fill_solid(&mut self, _rect: Rect, _color: Self::Color) -> RenderResult {
+        Ok(())
+    }
+
+    fn pixel(&mut self, _point: Point, _color: Self::Color) -> RenderResult {
         Ok(())
     }
 
@@ -299,6 +308,13 @@ impl Renderer for NullRenderer {
         &mut self,
         _path: &Path,
         _style: &DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        Ok(())
+    }
+
+    fn image<'a>(
+        &mut self,
+        _image: DrawImage<'a, Self::Color>,
     ) -> RenderResult {
         Ok(())
     }

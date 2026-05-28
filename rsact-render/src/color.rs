@@ -66,3 +66,13 @@ pub trait RgbaColor: RgbColor {
 
     fn a(&self) -> u8;
 }
+
+pub trait ByteOrder {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BigEndian {}
+impl ByteOrder for BigEndian {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LittleEndian {}
+impl ByteOrder for LittleEndian {}

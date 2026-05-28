@@ -1,14 +1,14 @@
 pub mod bar;
 pub mod button;
 pub mod canvas;
-#[cfg(feature = "embedded-graphics")]
+#[cfg(feature = "tiny-icons")]
 pub mod checkbox;
 pub mod combinators;
 pub mod container;
 pub mod ctx;
 pub mod edge;
 pub mod flex;
-#[cfg(feature = "embedded-graphics")]
+#[cfg(feature = "tiny-icons")]
 pub mod icon;
 // #[cfg(feature = "embedded-graphics")]
 // pub mod image;

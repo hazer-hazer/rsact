@@ -31,9 +31,12 @@ This are the actions to be done by me or LLM. When LLM completes one, it should 
 - [] ??? I think that now we can get rid of using MemoChain for styles in each widget. Let's replace them and make a perfect reactive dependency style inheritance in render pass.
 - [] Add full mouse support. Start with simple traversal + maybe path cache for non-reactive element paths. Maybe move to more complex hit testing.
 - [] Fully get rid of embedded_graphics as a required dependency and implement generic proxies for rendering.
-- [] Remove embedded-graphics dependencies from rsact-icons like endianness. Remove feature flag for rsact-icons
+- [] Remove embedded-graphics dependencies from rsact-tiny-icons like endianness. Remove feature flag for rsact-tiny-icons
 - [] Remove embedded-graphics dependencies from Image widget.
-- [] Move rendering to a separate crate. Split implementations for EG, tiny-skia and custom. rsact-ui and rsact-icons should depend on rsact-render. rsact-render should contain structures for images, primitives.
+- [] Move rendering to a separate crate. Split implementations for EG, tiny-skia and custom. rsact-ui and rsact-tiny-icons should depend on rsact-render. rsact-render should contain structures for images, primitives.
 - [] Check that all primitives have common rendering behavior among all renderers.
   - Arc must start and sweep at the same points for EG and tiny-skia
 - [] Learn more about kurbo library, it contains a lot of features to work with curves, maybe we can get some algorithms from there or even use it as a library adding interoperability with tiny-skia
+- [] Think how to deal with a problem that we need radius for complex drawing still we targeting embedded where diameter is preferred because on small displays we often want precise size of an element, i.e. cannot express a circle element of size 5x5 pixels by its radius (because we use integers for the Size). It's okay to convert diameter to f32 radius for tiny-skia because it works with f32 anyway, but we should be correct here anyway.
+- [] Rename rsact-icons to rsact-tiny-icons as it is only about super small icon sizes?
+- [] If we plan to move from embedded graphics as a renderer and leave it only as a target, we need to implement a lot of rendering algorithms. I'm interested in effective algorithms with integer math to render everything tiny-skia can (or at least the most significant subset of it).

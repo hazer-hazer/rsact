@@ -14,7 +14,7 @@ exclude = ["examples"]
 members = [
   "rsact-ui",
   "rsact-reactive", # "rsact-encoder",
-  "rsact-icons",    # "rsact-widgets",
+  "rsact-tiny-icons",    # "rsact-widgets",
   "rsact-macros",
   "rsact-render",
 ]
@@ -29,24 +29,24 @@ version = "0.1.0"
 
 [workspace.dependencies]
 # rsact-encoder = {path = "./rsact-encoder", }
-rsact-icons = { path = "./rsact-icons" }
+rsact-tiny-icons = { path = "./rsact-tiny-icons" }
 rsact-macros = { path = "./rsact-macros" }
 rsact-reactive = { path = "./rsact-reactive" }
 rsact-ui = { path = "./rsact-ui" }
 rsact-render = { path = "./rsact-render" }
 # rsact-widgets = {path = "./rsact-widgets", }
 
-bitflags = { version = "2.9.0" }
+bitflags = { version = "2.11.1" }
 defmt = { version = "0.3.8" }
 derivative = { version = "2.2.0", default-features = false, features = [
   "use_core",
 ] }
 embedded-graphics = { version = "0.8.1", features = ["defmt"] }
 embedded-graphics-core = { version = "0.4.0", features = ["defmt"] }
-embedded-graphics-simulator = { version = "0.7.0" }
+embedded-graphics-simulator = { version = "0.8.0" }
 embedded-text = "0.7.2"
 embedded-time = { version = "0.12.1" }
-log = { version = "0.4.22", default-features = false, features = [] }
+log = { version = "0.4.30", default-features = false, features = [] }
 # TODO: feature-gated
 micromath = { version = "2.1.0", features = ["num-traits"] }
 num = { version = "0.4.3", default-features = false, features = ["libm"] }
@@ -61,8 +61,10 @@ tinyvec = { version = "1.9.0", features = ["alloc"] }
 u8g2-fonts = "0.6.0"
 env_logger = "0.11.10"
 cap = "0.1.2"
-tiny-skia = { version = "0.12.0", default-features = false }
-kurbo = { version = "0.13.1", default-features = false, features = ["libm"] }
+tiny-skia = { version = "0.12.0", default-features = false, features = [
+  "simd",
+] }
+bytemuck = { version = "1.25.0" }
 
 [workspace.lints]
 

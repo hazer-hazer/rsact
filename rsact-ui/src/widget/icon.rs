@@ -1,13 +1,8 @@
 use super::layout::ContentLayout;
 use crate::{font::FontSize, widget::prelude::*};
 use core::marker::PhantomData;
-#[cfg(feature = "embedded-graphics")]
-use embedded_graphics::{pixelcolor::raw::BigEndian, prelude::DrawTarget};
-#[cfg(not(feature = "embedded-graphics"))]
-use rsact_icons::EmptyIconSet;
-#[cfg(feature = "embedded-graphics")]
-use rsact_icons::{EmptyIconSet, IconRaw, IconSet};
 use rsact_reactive::prelude::*;
+use rsact_tiny_icons::{EmptyIconSet, IconRaw, IconSet};
 
 declare_widget_style! {
     IconStyle () {
@@ -28,7 +23,7 @@ impl<C: Color> IconStyle<C> {
 #[derive(Clone)]
 pub enum IconValue<I: IconSet> {
     // Static icon of fixed size
-    Fixed(IconRaw<BigEndian>),
+    Fixed(IconRaw),
     // Dynamically sized icon with dynamic icon kind
     Relative(Signal<FontSize>, MaybeReactive<I>),
 }
@@ -49,7 +44,7 @@ impl<W: WidgetCtx, I: IconSet, R: ReactivityMarker> Icon<W, I, R> {
 }
 
 impl<W: WidgetCtx> Icon<W, EmptyIconSet, IsInert> {
-    pub fn inert(icon: IconRaw<BigEndian>) -> Self {
+    pub fn inert(icon: IconRaw) -> Self {
         let layout = Layout::shrink(LayoutKind::Content(ContentLayout::fixed(
             Size::new_equal(icon.size),
         )));

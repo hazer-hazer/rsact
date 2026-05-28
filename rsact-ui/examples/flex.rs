@@ -46,7 +46,7 @@ fn main() {
     env_logger::init();
 
     let output_settings = OutputSettingsBuilder::new()
-        .max_fps(10000)
+        
         // .theme(embedded_graphics_simulator::BinaryColorTheme::OledWhite)
         .build();
 

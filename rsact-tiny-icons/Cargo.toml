@@ -1,5 +1,5 @@
 [dependencies]
-embedded-graphics = { workspace = true }
+rsact-render = { workspace = true }
 rsact-reactive = { workspace = true }
 
 [build-dependencies]
@@ -14,7 +14,7 @@ usvg = "0.45.0"
 
 [package]
 edition.workspace = true
-name = "rsact-icons"
+name = "rsact-tiny-icons"
 version.workspace = true
 
 build = "./build/main.rs"
@@ -25,6 +25,11 @@ exclude = ["./icon-libs"]
 default = ["common", "all-sizes"]
 
 # Icon sizes
+5px = []
+6px = []
+7px = []
+8px = []
+9px = []
 10px = []
 11px = []
 12px = []
@@ -40,11 +45,6 @@ default = ["common", "all-sizes"]
 22px = []
 23px = []
 24px = []
-5px = []
-6px = []
-7px = []
-8px = []
-9px = []
 
 all-sizes = [
   "5px",

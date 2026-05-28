@@ -114,6 +114,24 @@ impl<C: Color> DrawStyle<C> {
         self.stroke_width = width;
         self
     }
+
+    // pub fn fill_only(&self) -> Self {
+    //     Self {
+    //         fill: self.fill,
+    //         stroke: None,
+    //         stroke_width: 0,
+    //         stroke_alignment: Default::default(),
+    //     }
+    // }
+
+    // pub fn stroke_only(&self) -> Self {
+    //     Self {
+    //         fill: None,
+    //         stroke: self.stroke,
+    //         stroke_width: self.stroke_width,
+    //         stroke_alignment: self.stroke_alignment,
+    //     }
+    // }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

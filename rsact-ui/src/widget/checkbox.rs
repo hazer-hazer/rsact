@@ -3,7 +3,7 @@ use super::{
     icon::{Icon, IconStyle},
 };
 use crate::widget::prelude::*;
-use rsact_icons::{IconSet, system::SystemIcon};
+use rsact_tiny_icons::{IconSet, system::SystemIcon};
 use rsact_reactive::prelude::*;
 
 #[derive(Clone, Copy)]

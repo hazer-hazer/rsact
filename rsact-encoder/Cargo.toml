@@ -1,5 +1,5 @@
 [dependencies]
-rsact-icons = {workspace = true, features = ["all-sizes", "system"]}
+rsact-tiny-icons = {workspace = true, features = ["all-sizes", "system"]}
 rsact-ui = {workspace = true}
 
 [package]

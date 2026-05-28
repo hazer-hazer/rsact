@@ -32,13 +32,11 @@ pub mod prelude {
             scrollable::*, select::*, slider::*, space::*, text::*,
         },
     };
-    #[cfg(feature = "embedded-graphics")]
-    pub use crate::{
-        widget::checkbox::*,
-        widget::icon::*,
-        // widget::image::*
-    };
-    #[cfg(feature = "embedded-graphics")]
-    pub use rsact_icons::{IconRaw, IconSet};
+
+    #[cfg(feature = "tiny-icons")]
+    pub use crate::{widget::checkbox::*, widget::icon::*};
+
     pub use rsact_render::prelude::*;
+    #[cfg(feature = "tiny-icons")]
+    pub use rsact_tiny_icons::{IconRaw, IconSet};
 }

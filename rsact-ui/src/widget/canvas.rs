@@ -7,17 +7,54 @@ use crate::{
     widget::prelude::*,
 };
 use alloc::collections::vec_deque::VecDeque;
+use rsact_render::image::{
+    DrawImage, Image, ImageOwned, ImageRef, storage::ImageStorage,
+};
+
+slotmap::new_key_type! {
+    pub struct CanvasImageId;
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct CanvasImage<'a, C: Color> {
+    image: Image<'a, CanvasImageId, C>,
+    position: Point,
+}
+
+impl<'a, C: Color> CanvasImage<'a, C> {
+    pub fn new(
+        image: impl Into<Image<'a, CanvasImageId, C>>,
+        position: Point,
+    ) -> Self {
+        Self { image: image.into(), position }
+    }
+
+    pub const fn image(&self) -> &Image<'a, CanvasImageId, C> {
+        &self.image
+    }
+
+    pub const fn position(&self) -> Point {
+        self.position
+    }
+
+    pub fn translate_mut(&mut self, offset: Point) -> &mut Self {
+        self.position += offset;
+        self
+    }
+}
 
 // TODO: CanvasDrawable trait? - No, cause gives two different ways to implement one thing. CanvasDrawable would lead us to use dynamic dispatch and boxes that I avoided using DrawCommand enum.
 
-// TODO: Replace with box dyn primitive?
+// TODO: Replace with box dyn primitive? - No, performance drawbacks, we know all values and don't plan to support custom ones.
 // TODO: Maybe better add IntoDrawCommand for primitives
 #[derive(Clone, PartialEq, Debug)]
-pub enum DrawCommand<C: Color> {
+pub enum DrawCommand<C: Color + 'static> {
     /// Actually useless for now as we clear the whole screen each frame :(
     Clear(C),
     ClearRect(Rect, C),
     Primitive(PrimitiveKind, DrawStyle<C>),
+    // TODO: Image as resources with ID stored in some storage inside UI context?
+    Image(CanvasImage<'static, C>),
 }
 
 // TODO: Different color in DrawQueue mapped to renderer target color?
@@ -25,34 +62,46 @@ pub enum DrawCommand<C: Color> {
 #[derive(Clone, Copy)]
 pub struct DrawQueue<C: Color + 'static> {
     queue: Signal<VecDeque<DrawCommand<C>>>,
+    // TODO: We don't need Signal here I think. Just a mutable stored value
+    image_storage: Signal<ImageStorage<CanvasImageId, C>>,
 }
 
 impl<C: Color> DrawQueue<C> {
     pub fn new() -> Self {
-        Self { queue: create_signal(VecDeque::new()) }
+        Self {
+            queue: create_signal(VecDeque::new()),
+            image_storage: ImageStorage::new().signal(),
+        }
     }
 
-    pub fn draw_once(mut self, command: impl Into<DrawCommand<C>>) -> Self {
+    pub fn add_image(&mut self, image: ImageOwned<C>) -> CanvasImageId {
+        self.image_storage.update_untracked(|storage| storage.add(image))
+    }
+
+    pub fn draw_once(
+        &mut self,
+        command: impl Into<DrawCommand<C>>,
+    ) -> &mut Self {
         // TODO: update_untracked?
         self.queue.update(|queue| queue.push_back(command.into()));
         self
     }
 
-    pub fn clear(self, color: C) -> Self {
+    pub fn clear(&mut self, color: C) -> &mut Self {
         self.draw_once(DrawCommand::Clear(color));
         self
     }
 
-    pub fn clear_rect(self, rect: Rect, color: C) -> Self {
+    pub fn clear_rect(&mut self, rect: Rect, color: C) -> &mut Self {
         self.draw_once(DrawCommand::ClearRect(rect, color));
         self
     }
 
     pub fn primitive(
-        self,
+        &mut self,
         primitive: impl Into<PrimitiveKind>,
         style: DrawStyle<C>,
-    ) -> Self {
+    ) -> &mut Self {
         self.draw_once(DrawCommand::Primitive(primitive.into(), style));
         self
     }
@@ -137,13 +186,12 @@ impl<C: Color> DrawQueue<C> {
     //     self
     // }
 
-    pub fn draw(mut self, commands: Memo<Vec<DrawCommand<C>>>) -> Self {
+    pub fn draw(&mut self, commands: Memo<Vec<DrawCommand<C>>>) {
         self.queue.setter(commands, |queue, commands| {
             commands.iter().cloned().for_each(|command| {
                 queue.push_back(command);
             });
         });
-        self
     }
 
     fn pop(mut self) -> Option<DrawCommand<C>> {
@@ -204,7 +252,10 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
                                 top_left, diameter, start, sweep, &style,
                             )?;
                         },
-                        PrimitiveKind::Circle(Circle { top_left, diameter }) => {
+                        PrimitiveKind::Circle(Circle {
+                            top_left,
+                            diameter,
+                        }) => {
                             ctx.renderer()
                                 .circle(top_left, diameter, &style)?;
                         },
@@ -241,6 +292,28 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
                             ctx.renderer().sector(
                                 top_left, diameter, start, sweep, &style,
                             )?;
+                        },
+                    },
+                    DrawCommand::Image(image) => match image.image() {
+                        Image::Owned(image_owned) => {
+                            ctx.renderer().image(DrawImage::new(
+                                image_owned.as_ref(),
+                                image.position(),
+                            ))?;
+                        },
+                        &Image::Ref(image_ref) => {
+                            ctx.renderer().image(DrawImage::new(
+                                image_ref,
+                                image.position(),
+                            ))?;
+                        },
+                        &Image::Id(image_id) => {
+                            self.queue.image_storage.with(|storage| {
+                                ctx.renderer().image(DrawImage::new(
+                                    storage.get(image_id).ok_or(())?,
+                                    image.position(),
+                                ))
+                            })?;
                         },
                     },
                 }

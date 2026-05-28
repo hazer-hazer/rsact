@@ -6,7 +6,8 @@ use crate::{
 };
 use core::marker::PhantomData;
 use tiny_skia::{
-    IntSize, Paint, Pixmap, PixmapPaint, PremultipliedColorU8, Transform,
+    IntSize, Paint, Pixmap, PixmapPaint, PixmapRef, PremultipliedColorU8,
+    Transform,
 };
 
 #[allow(unused)]
@@ -15,18 +16,6 @@ use num::Float as _;
 pub mod color;
 pub mod geometry;
 pub mod path;
-
-// TODO: Generic Layer + Viewport stack structure
-
-// impl<'a> Into<Paint<'a>> for DrawStyle<tiny_skia::Color> {
-//     fn into(self) -> Paint<'a> {
-//         let mut paint = Paint::default();
-
-//         paint.set_color(self.fill.unwrap_or(tiny_skia::Color::WHITE));
-
-//         paint
-//     }
-// }
 
 impl Surface for Pixmap {
     fn new(size: Size) -> Self {
@@ -42,8 +31,6 @@ impl Surface for Pixmap {
     }
 }
 
-// TODO: Renderer settings: arc tolerance
-
 pub struct TinySkiaRenderer<C> {
     layers: Layering<Pixmap>,
     size: Size,
@@ -55,6 +42,11 @@ impl TinySkiaRenderer<tiny_skia::Color> {
         Self { layers: Layering::new(size), size, _color: PhantomData }
     }
 
+    fn bounding_box(&self) -> Rect {
+        Rect::new(Point::zero(), self.size)
+    }
+
+    // TODO: Add `current_paint`/`current_transform` used via callbacks like Renderer::with_transform(transform, |renderer| ...). But before this we need to move from EG to our implementation of Path.
     fn base_paint<'a>(&self) -> Paint<'a> {
         let paint = Paint::default();
         // TODO: Renderer options: anti-aliasing, colorspace, etc.
@@ -85,6 +77,7 @@ impl TinySkiaRenderer<tiny_skia::Color> {
 
             let mut paint = self.base_paint();
             paint.set_color(stroke);
+            paint.blend_mode = tiny_skia::BlendMode::SourceOver;
 
             let mut stroke = tiny_skia::Stroke::default();
             stroke.width = style.stroke_width as f32;
@@ -176,6 +169,23 @@ impl Renderer for TinySkiaRenderer<tiny_skia::Color> {
         Ok(())
     }
 
+    fn pixel(&mut self, point: Point, color: Self::Color) -> RenderResult {
+        // TODO: Replace with a distinct `contains` method to avoid creating a Rect each time.
+        if !self.bounding_box().contains(point) {
+            return Ok(());
+        }
+
+        let pixel_mut = &mut self.layers.surface_mut().pixels_mut()[(point.y
+            as usize
+            * self.size.width as usize
+            + point.x as usize)
+            * 4];
+
+        *pixel_mut = color.premultiply().to_color_u8();
+
+        Ok(())
+    }
+
     // TODO: Shouldn't line only have stroke and no fill? tiny-skia allows line to have both which seems incorrect.
     fn line(
         &mut self,
@@ -212,7 +222,7 @@ impl Renderer for TinySkiaRenderer<tiny_skia::Color> {
         Ok(())
     }
 
-    // TODO: Pre-clamped corner radius?
+    // TODO: Pre-clamped corner radius type?
     fn rounded_rect(
         &mut self,
         rect: Rect,
@@ -229,7 +239,6 @@ impl Renderer for TinySkiaRenderer<tiny_skia::Color> {
         Ok(())
     }
 
-    // TODO: Shouldn't circle be center-based?
     fn circle(
         &mut self,
         top_left: Point,
@@ -257,13 +266,7 @@ impl Renderer for TinySkiaRenderer<tiny_skia::Color> {
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
         let mut path = tiny_skia::PathBuilder::new();
-        let radius = diameter / 2;
-        path.arc(
-            top_left + Point::new_equal(radius as i32),
-            radius,
-            start,
-            sweep,
-        );
+        path.arc(top_left, diameter, start, sweep);
 
         self.tiny_skia_path(&path.finish().unwrap(), style);
 
@@ -291,8 +294,6 @@ impl Renderer for TinySkiaRenderer<tiny_skia::Color> {
         Ok(())
     }
 
-    // TODO: Wait, isn't sector just an arc?
-    // No, arc fills between start and end angles, while sector also fills between center and arc, so it is more like a pie slice.
     fn sector(
         &mut self,
         top_left: Point,
@@ -301,7 +302,24 @@ impl Renderer for TinySkiaRenderer<tiny_skia::Color> {
         sweep: Angle,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
+        let radius = diameter as f32 / 2.0;
+        let center = tiny_skia::Point::from_xy(
+            top_left.x as f32 + radius,
+            top_left.y as f32 + radius,
+        );
+
         let mut path = tiny_skia::PathBuilder::new();
+
+        path.move_to(center.x, center.y);
+        path.line_to(
+            center.x + radius * start.radians.cos(),
+            center.y + radius * start.radians.sin(),
+        );
+        path.arc(top_left, diameter, start, sweep);
+        path.line_to(center.x, center.y);
+        path.close();
+
+        self.tiny_skia_path(&path.finish().unwrap(), style);
 
         Ok(())
     }
@@ -331,6 +349,30 @@ impl Renderer for TinySkiaRenderer<tiny_skia::Color> {
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
         self.tiny_skia_path(&path.clone().into(), style);
+
+        Ok(())
+    }
+
+    fn image<'a>(
+        &mut self,
+        image: crate::image::DrawImage<'a, Self::Color>,
+    ) -> RenderResult {
+        let draw_box = self.bounding_box().intersection(&image.bounding_box());
+        let image_pixmap = PixmapRef::from_bytes(
+            image.data(),
+            image.size().width,
+            image.size().height,
+        )
+        .ok_or(())?;
+        let paint = PixmapPaint::default();
+        self.layers.surface_mut().draw_pixmap(
+            draw_box.top_left.x,
+            draw_box.top_left.y,
+            image_pixmap,
+            &paint,
+            Transform::identity(),
+            None,
+        );
 
         Ok(())
     }

@@ -17,7 +17,7 @@ The project consist of these parts:
 
 - [`rsact_reactive`](./rsact-reactive/README.md) fine-grained reactivity framework.
 - [`rsact_ui`](./rsact-ui/README.md) the core of UI framework.
-- [`rsact_icons`](./rsact-icons/README.md) tuned pre-rendered icons targeting tiny sizes.
+- [`rsact_tiny_icons`](./rsact-tiny-icons/README.md) tuned pre-rendered icons targeting tiny sizes.
 - [`rsact_macros`](./rsact-macros/README.md) proc macros used both for `rsact_ui` and `rsact_reactive`.
 - [`rsact_encoder`](./rsact-encoder/README.md) (planned) widgets specific for platforms with encoder+button control.
 - [`rsact_widgets`](./rsact-widgets/README.md) (planned) high-level widget kinds such as drop-down list, menus, etc.
