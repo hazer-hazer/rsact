@@ -1,7 +1,7 @@
 use crate::{
     layout::length::LengthSize,
     style::WidgetStyleFn,
-    widget::{Meta, MetaTree, prelude::*},
+    widget::{MetaTree, prelude::*},
 };
 
 pub struct Edge<W: WidgetCtx> {

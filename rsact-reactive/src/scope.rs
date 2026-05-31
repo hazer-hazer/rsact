@@ -111,8 +111,9 @@ impl Drop for ScopeHandle {
 #[cfg(test)]
 mod tests {
     use crate::{
-        effect::create_effect, prelude::create_signal, read::ReadSignal,
-        runtime::with_new_runtime, scope::new_scope, write::WriteSignal,
+        ReactiveValue as _, effect::create_effect, prelude::create_signal,
+        read::ReadSignal, runtime::with_new_runtime, scope::new_scope,
+        write::WriteSignal,
     };
     use alloc::rc::Rc;
     use core::cell::Cell;

@@ -191,7 +191,7 @@ use super::prelude::*;
 pub struct Unit;
 
 impl<W: WidgetCtx> Widget<W> for Unit {
-    fn meta(&self, id: ElId) -> MetaTree {
+    fn meta(&self, _id: ElId) -> MetaTree {
         MetaTree::none()
     }
 

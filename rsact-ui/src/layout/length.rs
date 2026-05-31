@@ -1,7 +1,7 @@
 use crate::render::prelude::*;
 use core::{
     fmt::Display,
-    ops::{Add, AddAssign, Div, Mul, Rem, Sub},
+    ops::{Add, AddAssign, Div, Mul, Rem},
 };
 use rsact_reactive::prelude::*;
 

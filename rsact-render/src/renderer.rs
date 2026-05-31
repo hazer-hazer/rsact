@@ -1,8 +1,8 @@
 use crate::{
-    color::Color,
+    color::{Color, Rgba},
     geometry::*,
-    image::{DrawImage, ImageOwned, ImageRef},
-    output::{FinishRender, MapColor, RenderTarget},
+    image::DrawImage,
+    output::{FinishRender, RenderTarget},
     path::Path,
     style::DrawStyle,
 };
@@ -170,6 +170,15 @@ impl Color for NullColor {
 
     fn default_background() -> Self {
         NullColor
+    }
+
+    fn from_rgba(rgba: crate::color::Rgba) -> Self {
+        let _ = rgba;
+        NullColor
+    }
+
+    fn into_rgba(&self) -> crate::color::Rgba {
+        Rgba { r: 0, g: 0, b: 0, a: 0 }
     }
 
     fn accents() -> [Self; 6] {

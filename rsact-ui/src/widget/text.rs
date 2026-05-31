@@ -1,11 +1,8 @@
 use super::{FontSettingWidget, prelude::*};
 use crate::font::{TextHorizontalAlign, TextVerticalAlign};
 use alloc::string::{String, ToString};
-use core::fmt::Display;
 use layout::ContentLayout;
-use rsact_reactive::{
-    maybe::maybe_reactive::SignalMapMaybeReactive, signal::Signal,
-};
+use rsact_reactive::signal::Signal;
 
 declare_widget_style! {
     TextStyle () {
@@ -104,28 +101,22 @@ impl<W: WidgetCtx> Widget<W> for Text<W> {
     #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
         ctx.render_self("Text", |ctx| {
-            #[cfg(feature = "embedded-graphics")]
-            {
-                let content = self.content;
-                let style = ctx.get_style(|t| t.text, self.style.as_deref());
-                let props = ctx.font_props;
+            let content = self.content;
+            let style = ctx.get_style(|t| t.text, self.style.as_deref());
+            let props = ctx.font_props;
 
-                with!(move |content| {
-                    let font = props.font();
-                    let props = props.resolve(ctx.viewport.get());
+            with!(move |content| {
+                let font = props.font();
+                let props = props.resolve(ctx.viewport.get());
 
-                    todo!()
-                    // ctx.render_font(
-                    //     font,
-                    //     content,
-                    //     props,
-                    //     ctx.layout.inner,
-                    //     style.color.expect(),
-                    // )
-                })
-            }
-            #[cfg(not(feature = "embedded-graphics"))]
-            Ok(())
+                ctx.render_font(
+                    font,
+                    content,
+                    props,
+                    ctx.layout.inner,
+                    style.color.expect(),
+                )
+            })
         })
     }
 

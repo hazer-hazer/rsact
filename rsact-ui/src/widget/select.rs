@@ -1,6 +1,6 @@
 use super::{
     container::Container,
-    text::{Text, TextStyle},
+    text::Text,
 };
 use crate::{
     declare_widget_style,

@@ -2,7 +2,7 @@ use cap::Cap;
 use rsact_reactive::{
     runtime::{create_runtime, with_new_runtime},
     signal::{Signal, create_signal},
-    storage::StoredValue,
+    storage::Value,
 };
 use tinyvec::TinyVec;
 use std::{alloc::System, cell::RefCell, collections::BTreeSet, rc::Rc};
@@ -21,7 +21,7 @@ fn with_heap_use(f: impl Fn()) -> usize {
 }
 
 fn main() {
-    println!("StoredValue size: {}B", size_of::<StoredValue>());
+    println!("StoredValue size: {}B", size_of::<Value>());
 
     println!("Unit Signal size: {}b", size_of::<Signal<()>>() * 8);
 

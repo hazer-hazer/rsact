@@ -56,6 +56,7 @@ pub struct Page<W: WidgetCtx> {
     layout: Memo<LayoutModel>,
     state: Signal<PageState<W>>,
     style: Signal<PageStyle<W::Color>>,
+    // TODO: Just use Rc<RefCell<R>> because we don't need to track renderer.
     renderer: Signal<W::Renderer>,
     viewport: MaybeReactive<Size>,
     theme: Inert<Theme<W::Color>>,
@@ -84,6 +85,8 @@ impl<W: WidgetCtx> Page<W> {
 
         // TODO: Multiple behaviors will lead to multiple memos, I am not sure what is more efficient, to recollect all behaviors when any changed or to store multiple memos.
         let focusable = create_memo(move || {
+            info!("Collect page {:?} meta", id);
+
             meta.flat_collect()
                 .iter()
                 .filter_map(|el_meta| {
@@ -124,6 +127,7 @@ impl<W: WidgetCtx> Page<W> {
                 viewport.into(),
             );
 
+            // TODO: Do we need full page redraw on layout change?
             force_redraw.notify();
 
             layout
@@ -151,6 +155,7 @@ impl<W: WidgetCtx> Page<W> {
     }
 
     pub(crate) fn force_redraw(&mut self) -> &mut Self {
+        info!("Force redraw page {:?}", self.id);
         self.force_redraw.notify();
         self
     }
@@ -314,7 +319,7 @@ impl<W: WidgetCtx> Page<W> {
                     dev_tools.hovered = hovered_el;
                 });
                 // TODO: Get rid of force redrawing the whole page when using dev_tools but use dirty rectangles
-                self.force_redraw.notify();
+                self.force_redraw();
                 return None;
             }
         }
@@ -324,11 +329,23 @@ impl<W: WidgetCtx> Page<W> {
 
         match response {
             EventResponse::Continue(propagate) => match propagate {
-                Propagate::Ignored => self.on_unhandled_event(event),
+                Propagate::Ignored => {
+                    info!(
+                        "Event {:?} was ignored, applying global handling",
+                        event
+                    );
+                    self.on_unhandled_event(event)
+                },
             },
             EventResponse::Break(capture) => match capture {
                 // TODO: Captured data may be useful for debugging, for example we can point where on screen user clicked or something
-                Capture::Captured(_capture) => None,
+                Capture::Captured(_capture) => {
+                    info!(
+                        "Event {:?} was captured, stopping propagation",
+                        event
+                    );
+                    None
+                },
             },
         }
     }
@@ -361,33 +378,40 @@ impl<W: WidgetCtx> Page<W> {
                 self.render_calls + 1
             );
 
+            #[cfg(feature = "debug-info")]
+            {
+                rsact_reactive::debug::observer_debug_info().map(|di| {
+                    info!("Rerender debug info: {di}");
+                });
+            }
+
             self.force_redraw.track();
 
             self.render_calls += 1;
 
             renderer
                 .update_untracked(|renderer| {
-                    self.style
-                        .with(|style| {
-                            if let Some(background_color) =
-                                style.background_color
-                            {
-                                debug!(
-                                    "Clear page {:?} with color {:?}",
-                                    self.id, background_color
-                                );
-                                let viewport = self.viewport.get();
-                                Renderer::fill_solid(
-                                    renderer,
-                                    Rect::new(Point::zero(), viewport),
-                                    background_color,
-                                )
-                            } else {
-                                Ok(())
-                            }
-                        })
-                        .ok()
-                        .unwrap();
+                    // self.style
+                    //     .with(|style| {
+                    //         if let Some(background_color) =
+                    //             style.background_color
+                    //         {
+                    //             debug!(
+                    //                 "Clear page {:?} with color {:?}",
+                    //                 self.id, background_color
+                    //             );
+                    //             let viewport = self.viewport.get();
+                    //             Renderer::fill_solid(
+                    //                 renderer,
+                    //                 Rect::new(Point::zero(), viewport),
+                    //                 background_color,
+                    //             )
+                    //         } else {
+                    //             Ok(())
+                    //         }
+                    //     })
+                    //     .ok()
+                    //     .unwrap();
 
                     let layout = self.layout;
                     with!(|layout| {
@@ -421,9 +445,11 @@ impl<W: WidgetCtx> Page<W> {
                     })
                 })
                 .ok()
+                // TODO: What do we do with errors, huh?
                 .unwrap();
         });
 
+        // TODO: Can be put directly into the observe
         if drawn.is_some() {
             self.renderer.update_untracked(|renderer| f(renderer));
 

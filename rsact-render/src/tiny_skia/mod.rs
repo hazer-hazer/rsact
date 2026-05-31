@@ -175,11 +175,8 @@ impl Renderer for TinySkiaRenderer<tiny_skia::Color> {
             return Ok(());
         }
 
-        let pixel_mut = &mut self.layers.surface_mut().pixels_mut()[(point.y
-            as usize
-            * self.size.width as usize
-            + point.x as usize)
-            * 4];
+        let pixel_mut = &mut self.layers.surface_mut().pixels_mut()
+            [point.y as usize * self.size.width as usize + point.x as usize];
 
         *pixel_mut = color.premultiply().to_color_u8();
 

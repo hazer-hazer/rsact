@@ -51,6 +51,7 @@ impl<W: WidgetCtx + 'static> Button<W> {
         Self { layout, content, state, style: None, on_click: None }
     }
 
+    // TODO: Allow function to return some value to be sent to the UI, so user can easily call ui events like goto page, etc.
     pub fn on_click<F: 'static>(mut self, on_click: F) -> Self
     where
         F: FnMut(),

@@ -1,4 +1,3 @@
-#[cfg(feature = "embedded-graphics")]
 use crate::font::FontImport;
 use crate::{
     el::El,
@@ -163,14 +162,12 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
 
     // Fonts //
     /// Adds font import into UI.
-    #[cfg(feature = "embedded-graphics")]
     pub fn with_font(mut self, import: FontImport) -> Self {
         self.fonts.update(|fonts| fonts.insert(import));
         self
     }
 
     // TODO: Can we support reactive default?
-    #[cfg(feature = "embedded-graphics")]
     pub fn with_default_font(mut self, import: FontImport) -> Self {
         self.fonts.update(|fonts| {
             fonts.set_default(import);
@@ -272,6 +269,7 @@ impl<W: WidgetCtx> UI<W, WithPages> {
 
                 if let Event::DevTools(dt_event) = &event {
                     self.dev_tools.update(|dt| {
+                        info!("DevTools event: {:?}", dt_event);
                         dt.enabled = match dt_event {
                             crate::event::DevToolsEvent::Activate => true,
                             crate::event::DevToolsEvent::Deactivate => false,
@@ -284,9 +282,12 @@ impl<W: WidgetCtx> UI<W, WithPages> {
                 if let (Some(on_exit), Event::Exit) =
                     (self.on_exit.as_ref(), &event)
                 {
+                    info!("Exit event received, calling on_exit handler and exiting");
                     on_exit();
                     return None;
                 }
+
+                info!("Unhandled event: {:?}", event);
 
                 Some(UnhandledEvent::Event(event))
             })
@@ -297,8 +298,12 @@ impl<W: WidgetCtx> UI<W, WithPages> {
 
         while let Some(msg) = self.message_queue.map(|q| q.pop()).flatten() {
             match msg {
-                UiMessage::GoTo(page_id) => self.goto(page_id),
+                UiMessage::GoTo(page_id) => {
+                    info!("UI message: Go to page {:?}", page_id);
+                    self.goto(page_id)
+                },
                 UiMessage::PreviousPage => {
+                    info!("UI message: Go to previous page");
                     self.previous_page();
                 },
             }

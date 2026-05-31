@@ -1,5 +1,6 @@
 use crate::{
-    callback::AnyCallback, runtime::with_current_runtime, storage::ValueId,
+    ReactiveValue, callback::AnyCallback, read::ReadSignal,
+    runtime::with_current_runtime, storage::ValueId,
 };
 use alloc::rc::Rc;
 use core::{any::Any, cell::RefCell, marker::PhantomData, panic::Location};
@@ -61,7 +62,23 @@ pub struct Effect<T> {
     ty: PhantomData<T>,
 }
 
-impl<T> Effect<T> {
+impl<T> ReactiveValue for Effect<T> {
+    type Value = T;
+
+    fn id(&self) -> Option<ValueId> {
+        Some(self.id)
+    }
+
+    fn is_alive(&self) -> bool {
+        with_current_runtime(|rt| rt.is_alive(self.id))
+    }
+
+    unsafe fn dispose(self) {
+        with_current_runtime(|rt| unsafe { rt.dispose(self.id) })
+    }
+}
+
+impl<T: 'static> Effect<T> {
     #[track_caller]
     fn new<F>(f: F) -> Self
     where
@@ -74,8 +91,21 @@ impl<T> Effect<T> {
         Self { id: effect, ty: PhantomData }
     }
 
-    pub fn is_alive(self) -> bool {
-        with_current_runtime(|rt| rt.is_alive(self.id))
+    #[track_caller]
+    pub fn with_last_value<U>(self, f: impl FnOnce(&T) -> U) -> U {
+        let caller = Location::caller();
+        with_current_runtime(|rt| {
+            self.id.with_untracked(
+                rt,
+                |value: &Option<T>| {
+                    let value = value
+                        .as_ref()
+                        .expect("Effect value should always be present");
+                    f(value)
+                },
+                caller,
+            )
+        })
     }
 }
 

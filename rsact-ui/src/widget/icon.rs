@@ -127,9 +127,9 @@ impl<W: WidgetCtx, I: IconSet + 'static, R: ReactivityMarker> Widget<W>
             }
 
             let viewport = ctx.viewport;
-            let style = ctx.get_style(|t| t.icon, self.style.as_deref());
+            let _style = ctx.get_style(|t| t.icon, self.style.as_deref());
 
-            let icon_raw = match &self.value {
+            let _icon_raw = match &self.value {
                 &IconValue::Fixed(icon_raw) => icon_raw,
                 IconValue::Relative(size, kind) => {
                     with!(move |size, kind, viewport| kind
@@ -139,8 +139,8 @@ impl<W: WidgetCtx, I: IconSet + 'static, R: ReactivityMarker> Widget<W>
 
             #[cfg(feature = "embedded-graphics")]
             {
-                use embedded_graphics::prelude::DrawTarget as _;
-                let eg_top_left: embedded_graphics::geometry::Point =
+                
+                let _eg_top_left: embedded_graphics::geometry::Point =
                     ctx.layout.inner.top_left.into();
                 todo!()
                 // let icon = rsact_icons::Icon::new(

@@ -1,4 +1,4 @@
-use super::{AbsoluteFontProps, FontHandler, FontStyle};
+use super::{FontHandler, FontStyle, ResolvedFontProps};
 use crate::render::prelude::*;
 use crate::{layout::Limits, widget::ctx::WidgetCtx};
 use alloc::collections::btree_map::BTreeMap;
@@ -19,7 +19,7 @@ impl FontHandler for FixedFont {
     fn measure_text_size(
         &self,
         content: &str,
-        _props: AbsoluteFontProps,
+        _props: ResolvedFontProps,
     ) -> Option<Limits> {
         match self {
             #[cfg(feature = "embedded-graphics")]
@@ -72,36 +72,33 @@ impl FontHandler for FixedFont {
         }
     }
 
-    // TODO: embedded-graphics optional constraints
-    #[cfg(feature = "embedded-graphics")]
     fn draw<W: WidgetCtx>(
         &self,
         content: &str,
-        _props: AbsoluteFontProps,
+        _props: ResolvedFontProps,
         bounds: Rect,
         color: W::Color,
         renderer: &mut W::Renderer,
-    ) -> Option<RenderResult>
-    where
-        W::Color: embedded_graphics::prelude::PixelColor,
-        W::Renderer: embedded_graphics::prelude::DrawTarget<Color = W::Color, Error = ()>,
-    {
-        use embedded_graphics::Drawable as _;
-        let eg_bounds: embedded_graphics::primitives::Rectangle = bounds.into();
+    ) -> Option<RenderResult> {
         match self {
-            FixedFont::EGMonoFont(mono_font) => Some(
+            #[cfg(feature = "embedded-graphics")]
+            FixedFont::EGMonoFont(mono_font) => {
+                use embedded_graphics::Drawable as _;
+                let eg_bounds: embedded_graphics::primitives::Rectangle =
+                    bounds.into();
+                Some(
                 embedded_text::TextBox::new(
                     &content,
                     eg_bounds,
                     embedded_graphics::mono_font::MonoTextStyleBuilder::new()
                         .font(mono_font)
-                        .text_color(color)
+                        .text_color(color.map_through_rgba::<embedded_graphics::pixelcolor::Rgb888>())
                         .build(),
                 )
-                .draw(renderer)
+                .draw(&mut rsact_render::eg::renderer::DrawTargetProxy::new(renderer))
                 .map(|_| ())
-                .map_err(|_| ()),
-            ),
+                .map_err(|_| ()))
+            },
             #[cfg(feature = "u8g2-fonts")]
             FixedFont::U8G2(u8g2_font) => {
                 let _ = u8g2_font.render_aligned(
@@ -112,8 +109,8 @@ impl FontHandler for FixedFont {
                     ),
                     u8g2_fonts::types::VerticalPosition::Top,
                     u8g2_fonts::types::HorizontalAlignment::Left,
-                    u8g2_fonts::types::FontColor::Transparent(color),
-                    renderer,
+                    u8g2_fonts::types::FontColor::Transparent(color.map_through_rgba::<embedded_graphics::pixelcolor::Rgb888>()),
+                    &mut rsact_render::eg::renderer::DrawTargetProxy::new(renderer),
                 );
                 Some(Ok(()))
             },
@@ -162,24 +159,19 @@ impl FontHandler for FixedFontCollection {
     fn measure_text_size(
         &self,
         content: &str,
-        props: AbsoluteFontProps,
+        props: ResolvedFontProps,
     ) -> Option<Limits> {
         self.with(props, |font| font.measure_text_size(content, props))
     }
 
-    #[cfg(feature = "embedded-graphics")]
     fn draw<W: WidgetCtx>(
         &self,
         content: &str,
-        props: AbsoluteFontProps,
+        props: ResolvedFontProps,
         bounds: Rect,
         color: W::Color,
         renderer: &mut W::Renderer,
-    ) -> Option<RenderResult>
-    where
-        W::Color: embedded_graphics::prelude::PixelColor,
-        W::Renderer: embedded_graphics::prelude::DrawTarget<Color = W::Color, Error = ()>,
-    {
+    ) -> Option<RenderResult> {
         self.with(props, |font| {
             font.draw::<W>(content, props, bounds, color, renderer)
         })
@@ -212,7 +204,7 @@ impl FixedFontCollection {
 
     pub fn with<U>(
         &self,
-        props: AbsoluteFontProps,
+        props: ResolvedFontProps,
         with_font: impl FnMut(&FixedFont) -> Option<U>,
     ) -> Option<U> {
         self.sizes_styles

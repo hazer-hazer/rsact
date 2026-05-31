@@ -28,7 +28,7 @@ pub mod prelude {
         style::{declare_widget_style, theme::Theme},
         ui::UI,
         widget::{
-            button::*, container::*, edge::*, flex::*, prelude::*,
+            button::*, container::*, dynamic::*, edge::*, flex::*, prelude::*,
             scrollable::*, select::*, slider::*, space::*, text::*,
         },
     };

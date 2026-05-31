@@ -92,20 +92,20 @@ pub struct Scrollable<W: WidgetCtx, Dir: Direction> {
 }
 
 impl<W: WidgetCtx> Scrollable<W, RowDir> {
-    pub fn horizontal(content: impl Widget<W> + 'static) -> Self {
+    pub fn horizontal(content: impl Into<El<W>>) -> Self {
         Self::new(content)
     }
 }
 
 impl<W: WidgetCtx> Scrollable<W, ColDir> {
-    pub fn vertical(content: impl Widget<W> + 'static) -> Self {
+    pub fn vertical(content: impl Into<El<W>>) -> Self {
         Self::new(content)
     }
 }
 
 impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
-    pub fn new(content: impl Widget<W> + 'static) -> Self {
-        let content = content.el();
+    pub fn new(content: impl Into<El<W>>) -> Self {
+        let content = content.into();
         let state = create_signal(ScrollableState::none());
 
         let layout = Layout::scrollable::<Dir>(content.layout());

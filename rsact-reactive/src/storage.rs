@@ -5,7 +5,7 @@ use crate::{
 use alloc::{boxed::Box, format, rc::Rc};
 use core::{
     any::{Any, type_name},
-    cell::{Cell, RefCell},
+    cell::RefCell,
     fmt::{Debug, Display},
     panic::Location,
 };
@@ -31,6 +31,7 @@ impl Display for ValueId {
 }
 
 impl ValueId {
+    // TODO: In an ideal world I would love track methods in ReadSignal to return `true` if the value is the source of change of the current observer. This would be perfect for debugging.
     // TODO: Add `subscribe_with_current_rt` for simplicity
     pub(crate) fn subscribe(&self, rt: &Runtime) {
         rt.subscribe(*self);
@@ -167,12 +168,15 @@ impl ValueId {
 
 #[derive(Clone, Copy, Debug)]
 pub enum ValueDebugInfoState {
-    Clean(Option<ValueId>),
+    Clean(Option<(ValueId, &'static Location<'static>)>),
     CheckRequested(
         &'static Location<'static>,
-        /** requester */ Option<ValueId>,
+        /** requester */ Option<(ValueId, &'static Location<'static>)>,
     ),
-    Dirten(&'static Location<'static>, /** requester */ Option<ValueId>),
+    Dirten(
+        &'static Location<'static>,
+        /** requester */ Option<(ValueId, &'static Location<'static>)>,
+    ),
 }
 
 impl Display for ValueDebugInfoState {
@@ -189,7 +193,7 @@ impl Display for ValueDebugInfoState {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct ValueDebugInfo {
     pub name: Option<&'static str>,
     pub created_at: &'static Location<'static>,
@@ -214,7 +218,7 @@ impl ValueDebugInfo {
 
 impl core::fmt::Display for ValueDebugInfo {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "Value");
+        write!(f, "Value")?;
         if let Some(name) = self.name {
             write!(f, " '{name}'")?;
         }
@@ -222,7 +226,7 @@ impl core::fmt::Display for ValueDebugInfo {
         write!(f, "Created at {}. ", self.created_at)?;
         match self.state {
             ValueDebugInfoState::Clean(requester) => {
-                if let Some(requester) = requester {
+                if let Some((_, requester)) = requester {
                     writeln!(f, "Cleaned by {requester}")?;
                 } else {
                     writeln!(f, "Clean")?;
@@ -230,13 +234,13 @@ impl core::fmt::Display for ValueDebugInfo {
             },
             ValueDebugInfoState::CheckRequested(location, requester) => {
                 write!(f, "Check requested at {location}")?;
-                if let Some(requester) = requester {
+                if let Some((_, requester)) = requester {
                     writeln!(f, " by {requester}")?;
                 }
             },
             ValueDebugInfoState::Dirten(location, requester) => {
                 write!(f, "Dirten at {location}")?;
-                if let Some(requester) = requester {
+                if let Some((_, requester)) = requester {
                     writeln!(f, " by {requester}")?;
                 }
             },
@@ -322,7 +326,7 @@ impl Display for ValueState {
 }
 
 #[derive(Clone)]
-pub struct StoredValue {
+pub struct Value {
     pub value: Rc<RefCell<dyn Any>>,
     pub kind: ValueKind,
     pub state: ValueState,
@@ -333,7 +337,7 @@ pub struct StoredValue {
     pub debug: ValueDebugInfo,
 }
 
-impl StoredValue {
+impl Value {
     fn mark(&mut self, state: ValueState) {
         self.state = state;
     }
@@ -341,15 +345,15 @@ impl StoredValue {
 
 #[derive(Default)]
 pub struct Storage {
-    pub(crate) values: RefCell<SlotMap<ValueId, StoredValue>>,
+    pub(crate) values: RefCell<SlotMap<ValueId, Value>>,
 }
 
 impl Storage {
-    pub(crate) fn add_value(&self, value: StoredValue) -> ValueId {
+    pub(crate) fn add_value(&self, value: Value) -> ValueId {
         self.values.borrow_mut().insert(value)
     }
 
-    pub(crate) fn get(&self, id: ValueId) -> Option<StoredValue> {
+    pub(crate) fn get(&self, id: ValueId) -> Option<Value> {
         self.values.borrow().get(id).cloned()
     }
 
@@ -380,8 +384,18 @@ impl Storage {
         // Silently skip marking a value that has already been disposed.
         let Some(value) = values.get_mut(id) else { return };
 
+        value.mark(state);
+
         #[cfg(feature = "debug-info")]
         {
+            let requester = requester.and_then(|requester| {
+                values
+                    .get(requester)
+                    .map(|value| (requester, value.debug.created_at))
+            });
+
+            let Some(value) = values.get_mut(id) else { return };
+
             value.debug.state = match state {
                 ValueState::Clean => ValueDebugInfoState::Clean(requester),
                 ValueState::Check => {
@@ -392,8 +406,6 @@ impl Storage {
                 },
             };
         }
-
-        value.mark(state);
     }
 
     #[cfg(feature = "debug-info")]

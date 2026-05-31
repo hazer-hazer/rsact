@@ -10,8 +10,8 @@ pub struct Container<W: WidgetCtx> {
 }
 
 impl<W: WidgetCtx + 'static> Container<W> {
-    pub fn new(content: impl Widget<W> + 'static) -> Self {
-        let content = content.el();
+    pub fn new(content: impl Into<El<W>>) -> Self {
+        let content = content.into();
 
         Self {
             layout: Layout::shrink(LayoutKind::Container(

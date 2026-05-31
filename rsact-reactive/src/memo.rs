@@ -155,7 +155,7 @@ impl<T: PartialEq + 'static> ReactiveValue for Memo<T> {
         }
     }
 
-    unsafe fn dispose(self) {
+    unsafe fn dispose(self) { unsafe {
         match self {
             Memo::Memo { id, ty: _ } => {
                 with_current_runtime(|rt| rt.dispose(id))
@@ -163,7 +163,7 @@ impl<T: PartialEq + 'static> ReactiveValue for Memo<T> {
             Memo::Signal(signal) => signal.dispose(),
             Memo::Inert(inert) => unsafe { inert.dispose() },
         }
-    }
+    }}
 }
 
 impl<T: PartialEq + 'static> ReadSignal<T> for Memo<T> {

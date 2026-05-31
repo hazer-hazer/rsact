@@ -55,7 +55,7 @@ impl FontProps {
         }
     }
 
-    pub fn resolve(&self, viewport: Size) -> AbsoluteFontProps {
+    pub fn resolve(&self, viewport: Size) -> ResolvedFontProps {
         let font_size = self
             .font_size
             .map(|font_size| font_size.get())
@@ -67,7 +67,7 @@ impl FontProps {
             .map(|font_style| font_style.get())
             .unwrap_or_default();
 
-        AbsoluteFontProps { size: font_size, style: font_style }
+        ResolvedFontProps { size: font_size, style: font_style }
     }
 
     pub fn font(&self) -> Font {
@@ -160,7 +160,7 @@ pub enum FontStyle {
 
 /// Resolved font properties
 #[derive(Debug, Clone, Copy)]
-pub struct AbsoluteFontProps {
+pub struct ResolvedFontProps {
     /// Absolute font size, i.e. font height in pixels
     pub size: u32,
     pub style: FontStyle,
@@ -180,7 +180,6 @@ pub enum Font {
     /// Font from library
     Id(FontId),
     /// Fixed-size font
-    #[cfg(feature = "embedded-graphics")]
     Fixed(FixedFont),
 }
 
@@ -189,7 +188,6 @@ impl Display for Font {
         match self {
             Font::Auto => write!(f, "auto"),
             Font::Id(font_id) => write!(f, "font#{font_id}"),
-            #[cfg(feature = "embedded-graphics")]
             Font::Fixed(fixed_font) => write!(f, "{fixed_font}"),
         }
     }
@@ -206,21 +204,17 @@ pub trait FontHandler {
     fn measure_text_size(
         &self,
         content: &str,
-        props: AbsoluteFontProps,
+        props: ResolvedFontProps,
     ) -> Option<Limits>;
 
-    #[cfg(feature = "embedded-graphics")]
     fn draw<W: WidgetCtx>(
         &self,
         content: &str,
-        props: AbsoluteFontProps,
+        props: ResolvedFontProps,
         bounds: Rect,
         color: W::Color,
         renderer: &mut W::Renderer,
-    ) -> Option<RenderResult>
-    where
-        W::Color: embedded_graphics::prelude::PixelColor,
-        W::Renderer: embedded_graphics::prelude::DrawTarget<Color = W::Color, Error = ()>;
+    ) -> Option<RenderResult>;
 }
 
 static FONT_UNIQUE_ID: AtomicUsize = AtomicUsize::new(0);
@@ -253,12 +247,11 @@ pub enum StoredFont {
     FixedCollection(FixedFontCollection),
 }
 
-#[cfg(feature = "embedded-graphics")]
 impl FontHandler for StoredFont {
     fn measure_text_size(
         &self,
         content: &str,
-        props: AbsoluteFontProps,
+        props: ResolvedFontProps,
     ) -> Option<Limits> {
         match self {
             StoredFont::Fixed(fixed_font) => {
@@ -270,19 +263,14 @@ impl FontHandler for StoredFont {
         }
     }
 
-    #[cfg(feature = "embedded-graphics")]
     fn draw<W: WidgetCtx>(
         &self,
         content: &str,
-        props: AbsoluteFontProps,
+        props: ResolvedFontProps,
         bounds: Rect,
         color: W::Color,
         renderer: &mut W::Renderer,
-    ) -> Option<RenderResult>
-    where
-        W::Color: embedded_graphics::prelude::PixelColor,
-        W::Renderer: embedded_graphics::prelude::DrawTarget<Color = W::Color, Error = ()>,
-    {
+    ) -> Option<RenderResult> {
         match self {
             StoredFont::Fixed(fixed_font) => {
                 fixed_font.draw::<W>(content, props, bounds, color, renderer)
@@ -301,12 +289,12 @@ pub struct FontImport {
     data: StoredFont,
 }
 
-#[cfg(feature = "embedded-graphics")]
 impl FontImport {
     fn new(data: StoredFont) -> Self {
         Self { id: FontId::unique(), data }
     }
 
+    #[cfg(feature = "embedded-graphics")]
     pub fn fixed_eg_mono_font(
         font: &'static embedded_graphics::mono_font::MonoFont<'static>,
     ) -> Self {
@@ -333,39 +321,29 @@ impl FontImport {
     }
 }
 
-#[cfg(feature = "embedded-graphics")]
+// TODO: Dynamically pick based on display size.
+fn pick_default_font() -> FontImport {
+    cfg_select! {
+        // u8g2 takes precedence over embedded_graphics as it looks better
+        feature = "u8g2-fonts" => {
+            static DEFAULT_U8G2_FONT: u8g2_fonts::FontRenderer = u8g2_fonts::FontRenderer::new::<u8g2_fonts::fonts::u8g2_font_ncenB14_tr>();
+            FontImport::fixed_u8g2(&DEFAULT_U8G2_FONT)
+        },
+        feature = "embedded-graphics" => {
+            FontImport::fixed_eg_mono_font(&embedded_graphics::mono_font::ascii::FONT_9X15)
+        },
+    }
+}
+
 pub struct FontCtx {
     fonts: BTreeMap<FontId, StoredFont>,
     fallback_font: FontId,
 }
 
-#[cfg(not(feature = "embedded-graphics"))]
-#[derive(Default)]
-pub struct FontCtx;
-
-#[cfg(not(feature = "embedded-graphics"))]
-impl FontCtx {
-    pub fn new() -> Self {
-        Self
-    }
-
-    pub fn measure_text_size(
-        &self,
-        _font: Font,
-        _content: &str,
-        _props: AbsoluteFontProps,
-    ) -> Limits {
-        Limits::new(Size::new(0, 0), Size::new(0, 0))
-    }
-}
-
-#[cfg(feature = "embedded-graphics")]
 impl FontCtx {
     pub fn new() -> Self {
         // TODO: Replace with FixedFontCollection with size relative to viewport
-        let default_fallback = FontImport::fixed_eg_mono_font(
-            &embedded_graphics::mono_font::ascii::FONT_9X15,
-        );
+        let default_fallback = pick_default_font();
 
         let mut this = Self {
             fonts: Default::default(),
@@ -407,14 +385,13 @@ impl FontCtx {
         &self,
         font: Font,
         content: &str,
-        props: AbsoluteFontProps,
+        props: ResolvedFontProps,
     ) -> Limits {
         match font {
             Font::Auto => self.auto_font().measure_text_size(content, props),
             Font::Id(font_id) => {
                 self.expect(font_id).measure_text_size(content, props)
             },
-            #[cfg(feature = "embedded-graphics")]
             Font::Fixed(fixed_font) => {
                 fixed_font.measure_text_size(content, props)
             },
@@ -426,25 +403,19 @@ impl FontCtx {
         })
     }
 
-    #[cfg(feature = "embedded-graphics")]
     pub fn render<W: WidgetCtx>(
         &self,
         font: Font,
         content: &str,
-        props: AbsoluteFontProps,
+        props: ResolvedFontProps,
         bounds: Rect,
         color: W::Color,
         renderer: &mut W::Renderer,
-    ) -> RenderResult
-    where
-        W::Color: embedded_graphics::prelude::PixelColor,
-        W::Renderer: embedded_graphics::prelude::DrawTarget<Color = W::Color, Error = ()>,
-    {
+    ) -> RenderResult {
         match font {
             Font::Auto => self
                 .auto_font()
                 .draw::<W>(content, props, bounds, color, renderer),
-            #[cfg(feature = "embedded-graphics")]
             Font::Fixed(fixed_font) => {
                 fixed_font.draw::<W>(content, props, bounds, color, renderer)
             },

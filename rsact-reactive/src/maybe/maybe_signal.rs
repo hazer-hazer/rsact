@@ -49,10 +49,10 @@ use crate::{
 /// For a **read-only** optionally reactive value see [`MaybeReactive`].
 pub enum MaybeSignal<T: 'static, M: marker::Any = marker::Rw> {
     /// Option needed to deal with conversion from [`Inert`] into [`Signal`]
-    /// Optimize: Can be replaced with MaybeUninit for performance
-    // #[non_exhaustive]
+    /// TODO: Can be replaced with MaybeUninit for performance
+    #[non_exhaustive]
     Inert(Option<T>),
-    // #[non_exhaustive]
+    #[non_exhaustive]
     Signal(Signal<T, M>),
 }
 
@@ -87,7 +87,7 @@ impl<T: 'static, M: marker::Any> ReactiveValue for MaybeSignal<T, M> {
     unsafe fn dispose(self) {
         match self {
             MaybeSignal::Inert(_) => core::mem::drop(self),
-            MaybeSignal::Signal(signal) => signal.dispose(),
+            MaybeSignal::Signal(signal) => unsafe { signal.dispose() },
         }
     }
 }

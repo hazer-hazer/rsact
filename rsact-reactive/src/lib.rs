@@ -30,8 +30,12 @@ pub mod storage;
 mod thread_local;
 pub mod trigger;
 // pub mod versioned;
-pub mod write;
 mod macros;
+pub mod stored;
+pub mod write;
+
+#[cfg(feature = "debug-info")]
+pub mod debug;
 
 pub mod prelude {
     pub use super::{

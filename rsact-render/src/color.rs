@@ -7,6 +7,13 @@ pub trait Color: Copy + PartialEq + Debug {
     fn map(&self, f: impl Fn(u8) -> u8) -> Self;
     fn fold(&self, other: Self, f: impl Fn(u8, u8) -> u8) -> Self;
 
+    fn from_rgba(rgba: Rgba) -> Self;
+    fn into_rgba(&self) -> Rgba;
+
+    fn map_through_rgba<C: Color>(&self) -> C {
+        C::from_rgba(self.into_rgba())
+    }
+
     fn invert(&self) -> Self {
         self.map(|c| 255 - c)
     }
@@ -26,6 +33,14 @@ pub trait Color: Copy + PartialEq + Debug {
             (this as f32 * this_alpha + other as f32 * alpha) as u8
         })
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rgba {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
 }
 
 pub trait RgbColor: Color {

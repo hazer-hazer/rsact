@@ -128,7 +128,7 @@ impl<T: 'static, M: marker::Any> ReactiveValue for Signal<T, M> {
 
     #[track_caller]
     unsafe fn dispose(self) {
-        with_current_runtime(|rt| rt.dispose(self.id))
+        unsafe { with_current_runtime(|rt| rt.dispose(self.id)) }
     }
 }
 
@@ -146,16 +146,6 @@ impl<T: 'static, M: marker::Any> Signal<T, M> {
             ty: PhantomData,
             rw: PhantomData,
         }
-    }
-
-    #[track_caller]
-    pub fn is_alive(self) -> bool {
-        with_current_runtime(|rt| rt.is_alive(self.id))
-    }
-
-    #[track_caller]
-    pub fn dispose(self) {
-        with_current_runtime(|rt| unsafe { rt.dispose(self.id) })
     }
 
     // // TODO: Mark unsafe?

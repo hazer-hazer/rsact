@@ -113,9 +113,9 @@ impl<T: 'static> ReactiveValue for Computed<T> {
         with_current_runtime(|rt| rt.is_alive(self.id))
     }
 
-    unsafe fn dispose(self) {
+    unsafe fn dispose(self) { unsafe {
         with_current_runtime(|rt| rt.dispose(self.id))
-    }
+    }}
 }
 
 impl<T: 'static> ReadSignal<T> for Computed<T> {

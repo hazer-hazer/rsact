@@ -1,4 +1,4 @@
-use crate::color::{Color, RgbColor};
+use crate::color::{Color, RgbColor, Rgba};
 use embedded_graphics::pixelcolor::{
     BinaryColor, Rgb555, Rgb565, Rgb666, Rgb888,
 };
@@ -13,6 +13,19 @@ macro_rules! impl_rgb_colors {
 
                 fn default_background() -> Self {
                     <$color_ty as embedded_graphics::pixelcolor::RgbColor>::WHITE
+                }
+
+                fn from_rgba(rgba: Rgba) -> Self {
+                    Self::rgb(rgba.r, rgba.g, rgba.b)
+                }
+
+                fn into_rgba(&self) -> Rgba {
+                    Rgba {
+                        r: self.r(),
+                        g: self.g(),
+                        b: self.b(),
+                        a: 255,
+                    }
                 }
 
                 fn accents() -> [Self; 6] {
@@ -74,6 +87,21 @@ impl Color for BinaryColor {
 
     fn accents() -> [Self; 6] {
         [Self::On; 6]
+    }
+
+    fn from_rgba(rgba: Rgba) -> Self {
+        if rgba.a > 127 && (rgba.r > 127 || rgba.g > 127 || rgba.b > 127) {
+            Self::On
+        } else {
+            Self::Off
+        }
+    }
+
+    fn into_rgba(&self) -> Rgba {
+        match self {
+            BinaryColor::Off => Rgba { r: 0, g: 0, b: 0, a: 255 },
+            BinaryColor::On => Rgba { r: 255, g: 255, b: 255, a: 255 },
+        }
     }
 
     fn map(&self, f: impl Fn(u8) -> u8) -> Self {

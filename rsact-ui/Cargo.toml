@@ -42,7 +42,7 @@ embedded-graphics-simulator = { workspace = true }
 [features]
 default = []
 
-debug-info = []
+debug-info = ["rsact-reactive/debug-info"]
 defmt = ["dep:defmt"]
 simulator = [
     "dep:embedded-graphics-simulator",

@@ -15,6 +15,20 @@ impl Color for tiny_skia::Color {
         todo!()
     }
 
+    fn from_rgba(rgba: crate::color::Rgba) -> Self {
+        tiny_skia::Color::from_rgba8(rgba.r, rgba.g, rgba.b, rgba.a)
+    }
+
+    fn into_rgba(&self) -> crate::color::Rgba {
+        let u8 = self.to_color_u8();
+        crate::color::Rgba {
+            r: u8.red(),
+            g: u8.green(),
+            b: u8.blue(),
+            a: u8.alpha(),
+        }
+    }
+
     // TODO: Does mapping f32 -> u8 -> f32 lose any precision significant for tiny_skia or it is only required for tiny_skia internals and we are okay operating on u8?
     fn map(&self, f: impl Fn(u8) -> u8) -> Self {
         let u8 = self.to_color_u8();

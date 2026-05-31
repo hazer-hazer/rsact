@@ -27,7 +27,7 @@ impl DevHoveredEl {
         }
     }
 
-    pub fn draw<C: Color, R>(&self, r: &mut R, viewport: Size) -> RenderResult
+    pub fn draw<C: Color, R>(&self, _r: &mut R, _viewport: Size) -> RenderResult
     where
         R: Renderer<Color = C>,
     {

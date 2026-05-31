@@ -8,7 +8,7 @@ use crate::{
 };
 use alloc::collections::vec_deque::VecDeque;
 use rsact_render::image::{
-    DrawImage, Image, ImageOwned, ImageRef, storage::ImageStorage,
+    DrawImage, Image, ImageOwned, storage::ImageStorage,
 };
 
 slotmap::new_key_type! {
@@ -268,7 +268,7 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
                         },
                         PrimitiveKind::Polygon(Polygon {
                             // TODO
-                            translation,
+                            translation: _,
                             vertices,
                         }) => {
                             ctx.renderer().polygon(&vertices, &style)?;

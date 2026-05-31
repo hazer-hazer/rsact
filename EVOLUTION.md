@@ -40,3 +40,4 @@ This are the actions to be done by me or LLM. When LLM completes one, it should 
 - [] Think how to deal with a problem that we need radius for complex drawing still we targeting embedded where diameter is preferred because on small displays we often want precise size of an element, i.e. cannot express a circle element of size 5x5 pixels by its radius (because we use integers for the Size). It's okay to convert diameter to f32 radius for tiny-skia because it works with f32 anyway, but we should be correct here anyway.
 - [] Rename rsact-icons to rsact-tiny-icons as it is only about super small icon sizes?
 - [] If we plan to move from embedded graphics as a renderer and leave it only as a target, we need to implement a lot of rendering algorithms. I'm interested in effective algorithms with integer math to render everything tiny-skia can (or at least the most significant subset of it).
+- [] Add support for `fontdue` crate

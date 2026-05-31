@@ -1,11 +1,11 @@
 use crate::{
-    color::Color,
+    color::{Color, RgbColor},
     eg::{
         framebuf::{Framebuf as _, PackedColor, PackedFramebuf},
         primitives::EgPrimitive,
     },
     geometry::*,
-    image::{DrawImage, ImageOwned, ImageRef},
+    image::DrawImage,
     output::{FinishRender, MapColor, RenderTarget, pixel::Pixel},
     path::{Path, PathSegment},
     primitives::{
@@ -23,9 +23,52 @@ use core::marker::PhantomData;
 use embedded_graphics::{
     Drawable,
     draw_target::DrawTargetExt,
+    geometry::OriginDimensions,
+    pixelcolor::Rgb888,
     prelude::{Dimensions, DrawTarget, PixelColor},
     primitives::{PrimitiveStyle, PrimitiveStyleBuilder, StyledDrawable},
 };
+
+/// Proxy to draw on Renderer as on embedded_graphics DrawTarget, works by mapping any color into embedded_graphics Rgb888.
+pub struct DrawTargetProxy<'a, R: Renderer> {
+    renderer: &'a mut R,
+}
+
+impl<'a, R: Renderer> DrawTargetProxy<'a, R> {
+    pub fn new(renderer: &'a mut R) -> Self {
+        Self { renderer }
+    }
+}
+
+impl<'a, R: Renderer> OriginDimensions for DrawTargetProxy<'a, R> {
+    fn size(&self) -> embedded_graphics::prelude::Size {
+        self.renderer.size().into()
+    }
+}
+
+impl<'a, C: Color, R: Renderer<Color = C>> DrawTarget
+    for DrawTargetProxy<'a, R>
+{
+    type Color = Rgb888;
+    type Error = ();
+
+    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
+    where
+        I: IntoIterator<Item = embedded_graphics::prelude::Pixel<Self::Color>>,
+    {
+        pixels.into_iter().try_for_each(|p| {
+            self.renderer.pixel(
+                p.0.into(),
+                C::from_rgba(crate::color::Rgba {
+                    r: p.1.r(),
+                    g: p.1.g(),
+                    b: p.1.b(),
+                    a: 255,
+                }),
+            )
+        })
+    }
+}
 
 impl Into<embedded_graphics::primitives::StrokeAlignment> for StrokeAlignment {
     fn into(self) -> embedded_graphics::primitives::StrokeAlignment {
@@ -339,8 +382,8 @@ impl<C: Color + PackedColor + PixelColor> Renderer
 
     fn polygon(
         &mut self,
-        points: &[Point],
-        style: &DrawStyle<Self::Color>,
+        _points: &[Point],
+        _style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
         // TODO: I don't want to allocate a vector for conversion between my Point and EG Point, so better use custom primitive Polygon and implement AA and non-AA rendering for it.
         todo!()
@@ -486,8 +529,8 @@ impl<C: Color + PackedColor + PixelColor> Renderer
 
     fn polygon(
         &mut self,
-        points: &[Point],
-        style: &DrawStyle<Self::Color>,
+        _points: &[Point],
+        _style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
         // TODO: I don't want to allocate a vector for conversion between my Point and EG Point, so better use custom primitive Polygon and implement AA and non-AA rendering for it.
         todo!()

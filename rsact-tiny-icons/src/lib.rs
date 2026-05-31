@@ -1,7 +1,6 @@
 #![no_std]
 
 use core::marker::PhantomData;
-pub use rendered::*;
 use rsact_render::{
     color::{BigEndian, ByteOrder, Color},
     geometry::Point,
@@ -9,6 +8,7 @@ use rsact_render::{
 };
 
 mod rendered;
+pub use rendered::*;
 
 // TODO: Should constants be private to crate so user is not distracted with
 // thousands of constants with the same name for different icon sizes modules?

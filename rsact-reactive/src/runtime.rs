@@ -6,7 +6,7 @@ use crate::{
     memo_chain::{MemoChainCallback, MemoChainErr},
     scope::{ScopeData, ScopeHandle, ScopeId},
     storage::{
-        Storage, StoredValue, ValueDebugInfo, ValueDebugInfoState, ValueId,
+        Storage, Value, ValueDebugInfo, ValueDebugInfoState, ValueId,
         ValueKind, ValueState,
     },
 };
@@ -335,7 +335,7 @@ impl Runtime {
             .map(|current| scopes.get_mut(current))
             .flatten();
 
-        let id = self.storage.add_value(StoredValue {
+        let id = self.storage.add_value(Value {
             value: Rc::new(RefCell::new(value)),
             kind,
             state: initial_state,
@@ -380,6 +380,19 @@ impl Runtime {
         }
 
         id
+    }
+
+    pub fn create_stored<T: 'static>(
+        &self,
+        value: T,
+        _caller: &'static Location<'static>,
+    ) -> ValueId {
+        self.add_value::<_, T>(
+            value,
+            ValueKind::Stored,
+            ValueState::Clean,
+            _caller,
+        )
     }
 
     pub fn create_inert<T: 'static>(
@@ -509,8 +522,8 @@ impl Runtime {
         let id =
             *self.static_observers.borrow_mut().entry(hash).or_insert_with(
                 || {
-                    self.add_value::<_, bool>(
-                        true,
+                    self.add_value::<_, ()>(
+                        (),
                         ValueKind::Observer,
                         ValueState::Dirty,
                         location,
@@ -690,7 +703,8 @@ impl Runtime {
                 subs.get(id).cloned().into_iter().flatten()
             };
             for source in sources {
-                self.maybe_update(source, requester, caller);
+                // TODO: Should all sources by updates or we stop at the first change?
+                self.maybe_update(source, Some(source), caller);
                 if self.is(id, ValueState::Dirty) {
                     // TODO: Cache check and use after break
                     break;
@@ -877,6 +891,13 @@ impl Runtime {
         // }
     }
 
+    #[cfg(feature = "debug-info")]
+    pub fn observer_debug_info(&self) -> Option<ValueDebugInfo> {
+        self.observer
+            .get()
+            .and_then(|observer| self.storage.debug_info(observer))
+    }
+
     /// Generate mermaid graph containing all values in runtime.
     /// Be careful, this might be very expensive, use it only for debug purposes.
     #[cfg(feature = "debug-info")]
@@ -962,21 +983,7 @@ impl Runtime {
                         } else {
                             "".to_string()
                         },
-                        if let ValueKind::Observer = &value.kind {
-                            if *value
-                                .value
-                                .borrow()
-                                .downcast_ref::<bool>()
-                                .unwrap()
-                            {
-                                "dirty"
-                            } else {
-                                "clean"
-                            }
-                            .to_string()
-                        } else {
-                            value.state.to_string()
-                        }
+                        value.state.to_string()
                     ),
                     value.debug,
                 )
@@ -993,17 +1000,17 @@ impl Runtime {
         }
 
         let state_change =
-            if let ValueDebugInfoState::CheckRequested(_, Some(requester))
-            | ValueDebugInfoState::Dirten(_, Some(requester))
-            | ValueDebugInfoState::Clean(Some(requester)) = debug_info.state
+            if let ValueDebugInfoState::CheckRequested(_, Some((requester_id, _)))
+            | ValueDebugInfoState::Dirten(_, Some((requester_id, _)))
+            | ValueDebugInfoState::Clean(Some((requester_id, _))) = debug_info.state
             {
                 let (req_name, req_graph) = self.mermaid_subgraph(
-                    requester,
+                    requester_id,
                     depth + 1,
                     max_depth,
                     visited,
                 );
-                let arrow = if requester == id { "--" } else { "===" };
+                let arrow = if requester_id == id { "--" } else { "===" };
                 format!(
                     "{req_graph}\n{req_name} {arrow}> |{}|{name}",
                     debug_info.state

@@ -1,9 +1,9 @@
 use super::{
     ContainerLayout,
-    icon::{Icon, IconStyle},
+    icon::Icon,
 };
 use crate::widget::prelude::*;
-use rsact_tiny_icons::{IconSet, system::SystemIcon};
+use rsact_tiny_icons::system::SystemIcon;
 use rsact_reactive::prelude::*;
 
 #[derive(Clone, Copy)]

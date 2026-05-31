@@ -56,20 +56,20 @@ fn main() {
     let select_widget =
         Select::vertical(widget, WidgetTab::each().collect::<Vec<_>>().inert());
 
-    let widget_view = widget.map(|widget| {});
+    let widget_view = Container::new(
+        dynamic(move || match widget.get() {
+            WidgetTab::Button => Button::new("Button").el(),
+        })
+        .el(),
+    );
 
-    let page = row![
-        col![select_widget],
-        col![
-            // Container::new(content)
-        ]
-    ]
-    .center()
-    .fill();
+    let page = row![col![select_widget].fill(), col![widget_view].fill()]
+        .center()
+        .fill();
 
     let mut ui = UI::new(
         Theme::default(),
-        EGRenderer::new(display.bounding_box().size.into()),
+        TinySkiaRenderer::new(display.bounding_box().size.into()),
     )
     .with_page(SinglePage, page.el())
     .on_exit(|| std::process::exit(0));

@@ -37,7 +37,3 @@ where
         self()
     }
 }
-
-fn foo() {
-    fn f<T, P>(f: impl CallbackFn<T, P>) {}
-}

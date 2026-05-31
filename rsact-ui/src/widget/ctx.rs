@@ -4,7 +4,7 @@ use crate::{
     event::{
         Capture, CaptureData, Event, EventResponse, FocusEvent, Propagate,
     },
-    font::{AbsoluteFontProps, Font, FontCtx, FontProps},
+    font::{Font, FontCtx, FontProps, ResolvedFontProps},
     layout::model::LayoutModelNode,
     page::{PageStyle, id::PageId},
     render::prelude::*,
@@ -139,19 +139,14 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, RenderSelf> {
     }
 
     #[must_use]
-    #[cfg(feature = "embedded-graphics")]
     pub fn render_font(
         &mut self,
         font: Font,
         content: &str,
-        props: AbsoluteFontProps,
+        props: ResolvedFontProps,
         bounds: Rect,
         color: W::Color,
-    ) -> RenderResult
-    where
-        W::Color: embedded_graphics::prelude::PixelColor,
-        W::Renderer: embedded_graphics::prelude::DrawTarget<Color = W::Color, Error = ()>,
-    {
+    ) -> RenderResult {
         self.fonts.with(|fonts| {
             fonts.render::<W>(
                 font,
@@ -295,6 +290,7 @@ impl<'a, W: WidgetCtx + 'static> RenderCtx<'a, W, CtxUnready> {
         }
     }
 
+    /// Render part of the widget that is dependent on some reactive state.
     // Note: Display is required for logs, but as for now, all render_part calls are used with a string to be hashed, so we either require it to always be a string or keep it so, idk.
     pub fn render_part<H: Display + Hash + Copy>(
         &mut self,
@@ -308,8 +304,9 @@ impl<'a, W: WidgetCtx + 'static> RenderCtx<'a, W, CtxUnready> {
         }
 
         observe(render_id, || {
-            debug!("Rendering {} [#{:?}]", hash_source, self.id);
+            debug!("Render {} [#{:?}]", hash_source, self.id);
 
+            // Clear outer only of a dirten child with a clean parent to avoid unnecessary clears of smaller rects.
             if !self.parent_dirty {
                 self.clear_outer()?;
             }
@@ -342,7 +339,8 @@ impl<'a, W: WidgetCtx + 'static> RenderCtx<'a, W, CtxUnready> {
         widget_name: &str,
         f: impl FnOnce(&mut RenderCtx<'_, W, RenderSelf>) -> RenderResult,
     ) -> RenderResult {
-        self.render_part(&format!("{widget_name}_[render_self]"), f)
+        let render_id = format!("{widget_name}_[render_self]");
+        self.render_part(&render_id, f)
     }
 
     #[must_use]
@@ -372,7 +370,10 @@ impl<'a, W: WidgetCtx + 'static> RenderCtx<'a, W, CtxUnready> {
         &mut self,
         children: &MaybeSignal<Vec<El<W>>>,
     ) -> RenderResult {
-        observe(WithElId::new(self.id, "render_children"), || {
+        let render_id = WithElId::new(self.id, "render_children");
+        observe(render_id, || {
+            debug!("Render children [#{:?}]", self.id);
+
             self.force_redraw.track();
 
             children.with(|children| {

@@ -48,8 +48,18 @@ where
     W: WidgetCtx,
 {
     // TODO: If rsact-reactive would support ?Sized as a real smart-pointer we could do MaybeReactive<dyn Widget<W>>, so reactive elements creation would be possible in place. But the problem is that MaybeReactive is a readonly value, while MaybeSignal is owned stack value/Signal, so we either change the MaybeSignal to StoredValue/Signal or create a new MaybeSignal-like value with heap storage.
+    // We can't, Rust does not allow unsized fields in structs, only through internal Box, Rc, etc. So we cannot make a custom arena-allocated smart pointer.
     widget: Box<dyn Widget<W>>,
     id: ElId,
+}
+
+impl<W> PartialEq for El<W>
+where
+    W: WidgetCtx,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
 }
 
 impl<W> El<W>
