@@ -19,7 +19,7 @@ pub mod select;
 pub mod show;
 pub mod slider;
 pub mod space;
-pub mod text;
+pub mod label;
 
 use crate::{
     font::{Font, FontProps, FontSize, FontStyle},
@@ -34,6 +34,7 @@ bitflags! {
     pub struct Behavior: u8 {
         const NONE = 0;
         const FOCUSABLE = 1 << 0;
+        const HOVERABLE = 1 << 1;
     }
 }
 
@@ -56,6 +57,17 @@ impl Meta {
 
     pub fn focusable(id: ElId) -> Self {
         Self { behavior: Behavior::FOCUSABLE, id: Some(id) }
+    }
+
+    pub fn hoverable(id: ElId) -> Self {
+        Self { behavior: Behavior::HOVERABLE, id: Some(id) }
+    }
+
+    pub fn focusable_hoverable(id: ElId) -> Self {
+        Self {
+            behavior: Behavior::FOCUSABLE | Behavior::HOVERABLE,
+            id: Some(id),
+        }
     }
 
     // pub fn with_id(mut self, id: ElId) -> Self {

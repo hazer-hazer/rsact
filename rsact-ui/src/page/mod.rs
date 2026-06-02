@@ -311,20 +311,68 @@ impl<W: WidgetCtx> Page<W> {
         &mut self,
         event: Event<W::CustomEvent>,
     ) -> Option<UnhandledEvent<W>> {
-        // Global, page-level event handling //
-        if self.dev_tools.with(|dt| dt.enabled) {
-            if let Event::Mouse(MouseEvent::MouseMove(point)) = event {
+        // MouseMove: consumed at page level — update cursor pos, run hover pass, dispatch Enter/Leave
+        if let Event::Mouse(MouseEvent::MouseMove(point)) = event {
+            // Update dev tools hover using layout geometry (unchanged)
+            if self.dev_tools.with(|dt| dt.enabled) {
                 let hovered_el = self.find_hovered_el(point);
                 self.dev_tools.update(|dev_tools| {
                     dev_tools.hovered = hovered_el;
                 });
-                // TODO: Get rid of force redrawing the whole page when using dev_tools but use dirty rectangles
+                // TODO: Real rendering requires smarter dirty rectangles as dev tools are overlaying and have absolute position. Clearing whole screen is bad
                 self.force_redraw();
+            }
+
+            // Update persistent cursor position
+            self.state.update(|s| s.pointer.pos = Some(point));
+
+            // Hover pass: dispatch MouseMove through the tree so HOVERABLE widgets can self-report
+            let old_hovered = self.state.with(|s| s.pointer.hovered);
+            self.state.update(|s| s.pointer.hovered = None);
+            let _ = self.send_specific_event(&event);
+
+            // Dispatch Enter/Leave if hovered widget changed
+            let new_hovered = self.state.with(|s| s.pointer.hovered);
+            if old_hovered != new_hovered {
+                if let Some(left) = old_hovered {
+                    let _ = self.send_specific_event(&Event::Mouse(
+                        MouseEvent::MouseLeave { target: left },
+                    ));
+                }
+                if let Some(entered) = new_hovered {
+                    let _ = self.send_specific_event(&Event::Mouse(
+                        MouseEvent::MouseEnter { target: entered },
+                    ));
+                }
+            }
+
+            // MouseMove is always consumed — never an UnhandledEvent
+            return None;
+        }
+
+        // Pointer capture: route mouse button events directly to the capturing widget first
+        let captured_by = self.state.with(|s| s.pointer.captured_by);
+        if let Some(_captured_id) = captured_by {
+            if matches!(
+                event,
+                Event::Mouse(
+                    MouseEvent::ButtonDown(_, _) | MouseEvent::ButtonUp(_, _)
+                )
+            ) {
+                // Route through the normal tree — the capturing widget receives the
+                // event via pass_to_children and uses its own drag state to handle it.
+                let _ = self.send_specific_event(&event);
+
+                // Clear capture on any ButtonUp
+                if matches!(event, Event::Mouse(MouseEvent::ButtonUp(_, _))) {
+                    self.state.update(|s| s.pointer.captured_by = None);
+                }
+
                 return None;
             }
         }
 
-        // Element event handling //
+        // Global, page-level event handling //
         let response = self.send_specific_event(&event);
 
         match response {
@@ -371,6 +419,14 @@ impl<W: WidgetCtx> Page<W> {
 
     pub fn use_renderer(&mut self, f: impl FnOnce(&mut W::Renderer)) -> bool {
         let mut renderer = self.renderer;
+
+        // #[cfg(feature = "debug-info")]
+        // {
+        //     observe(("page_force_redraw", self.id), || {
+        //         debug!("Force redraw page {:?}", self.id);
+        //     });
+        // }
+
         let drawn = observe(("render_page", self.id), || {
             info!(
                 "Render page {:?} (call: {})",
@@ -413,6 +469,8 @@ impl<W: WidgetCtx> Page<W> {
                     //     .ok()
                     //     .unwrap();
 
+                    let fonts = self.fonts.read_only();
+
                     let layout = self.layout;
                     with!(|layout| {
                         self.root.render(&mut RenderCtx::new(
@@ -423,7 +481,7 @@ impl<W: WidgetCtx> Page<W> {
                             TreeStyle::base(),
                             self.style.read_only(),
                             self.viewport,
-                            self.fonts.read_only(),
+                            fonts,
                             self.theme,
                             FontProps {
                                 font: Some(Font::Auto.maybe_reactive()),
@@ -438,7 +496,8 @@ impl<W: WidgetCtx> Page<W> {
                         if dev_tools.enabled {
                             if let Some(hovered) = &dev_tools.hovered {
                                 return hovered
-                                    .draw(renderer, self.viewport.get());
+                                    .draw::<W>(renderer, 
+                                        fonts,self.viewport.get());
                             }
                         }
                         Ok(())
@@ -491,7 +550,7 @@ mod tests {
     fn draw_on_demand() {
         let mut redraw_signal_data = String::new().signal();
 
-        let mut page = create_null_page(Text::new(redraw_signal_data).el());
+        let mut page = create_null_page(Label::new(redraw_signal_data).el());
 
         assert_eq!(page.take_draw_calls(), 0);
 

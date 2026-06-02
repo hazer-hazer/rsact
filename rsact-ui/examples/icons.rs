@@ -6,7 +6,7 @@ use embedded_graphics_simulator::{
 use rsact_tiny_icons::{common::CommonIcon, system::SystemIcon, IconSet};
 use rsact_render::eg::renderer::EGRenderer;
 use rsact_ui::{
-    page::id::SinglePage, prelude::{Flex, Icon, IntoInert, Size, Text}, style::theme::Theme, ui::UI, widget::{SizedWidget, Widget}
+    page::id::SinglePage, prelude::{Flex, Icon, IntoInert, Size, Label}, style::theme::Theme, ui::UI, widget::{SizedWidget, Widget}
 };
 
 fn main() {
@@ -41,11 +41,11 @@ fn main() {
         EGRenderer::new(display.bounding_box().size.into())
     ).no_events().with_page(SinglePage, 
         Flex::col([
-            Text::new("System icons").el(),
+            Label::new("System icons").el(),
             Flex::row(system_icons).wrap(true).gap(5u32).el(),
-            Text::new("Common icons").el(),
+            Label::new("Common icons").el(),
             Flex::row(common_icons).wrap(true).gap(5u32).el(),
-            Text::new(format!("Icons of size {ICON_SIZE}. Auto-generated from Material Design Icons")).el()
+            Label::new(format!("Icons of size {ICON_SIZE}. Auto-generated from Material Design Icons")).el()
         ])
         .center()
         .fill()

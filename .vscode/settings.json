@@ -9,6 +9,7 @@
     "fontdue",
     "Framebuf",
     "fullscreen",
+    "HOVERABLE",
     "pixelcolor",
     "Pixmap",
     "premultiply",

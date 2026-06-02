@@ -1,5 +1,6 @@
 use crate::{
     declare_widget_style,
+    event::{MouseButton, MouseEvent},
     widget::{Meta, MetaTree, SizedWidget, prelude::*},
 };
 use core::marker::PhantomData;
@@ -30,13 +31,15 @@ pub struct ScrollableState {
     pub offset: u32,
     pub focus_pressed: bool,
     pub active: bool,
+    /// Last cursor position when pointer-dragging, for delta calculation
+    pub drag_pos: Option<i32>,
     // TODO: `is_scrolling` state when time source added. Reset it after
     // timeout
 }
 
 impl ScrollableState {
     pub fn none() -> Self {
-        Self { offset: 0, focus_pressed: false, active: false }
+        Self { offset: 0, focus_pressed: false, active: false, drag_pos: None }
     }
 }
 
@@ -318,6 +321,58 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Scrollable<W, Dir> {
 
                         return ctx.capture();
                     }
+                }
+
+                // TODO: Make this configurable.
+                // Mouse drag: ButtonDown starts capture, MouseMove drags, ButtonUp releases
+                match ctx.event {
+                    Event::Mouse(MouseEvent::ButtonDown(
+                        MouseButton::Left,
+                        _,
+                    )) => {
+                        if let Some(pt) = ctx.cursor_pos() {
+                            if ctx.layout.outer.contains(pt) {
+                                let axis_pos = pt.main(Dir::AXIS);
+                                ctx.capture_pointer();
+                                self.state
+                                    .update(|s| s.drag_pos = Some(axis_pos));
+                                return ctx.capture();
+                            }
+                        }
+                    },
+                    Event::Mouse(MouseEvent::MouseMove(_)) => {
+                        if current_state.drag_pos.is_some() {
+                            if let Some(pt) = ctx.cursor_pos() {
+                                let axis_pos = pt.main(Dir::AXIS);
+                                let drag_pos = current_state.drag_pos.unwrap();
+                                let delta = drag_pos - axis_pos;
+                                let max_offset = self.max_offset(&ctx);
+
+                                let new_offset = ((current_state.offset as i64)
+                                    + (delta as i64))
+                                    .clamp(0, max_offset as i64)
+                                    as u32;
+
+                                self.state.update(|s| {
+                                    s.offset = new_offset;
+                                    s.drag_pos = Some(axis_pos);
+                                });
+
+                                return ctx.capture();
+                            }
+                        }
+                    },
+                    Event::Mouse(MouseEvent::ButtonUp(
+                        MouseButton::Left,
+                        _,
+                    )) => {
+                        if current_state.drag_pos.is_some() {
+                            ctx.release_pointer();
+                            self.state.update(|s| s.drag_pos = None);
+                            return ctx.capture();
+                        }
+                    },
+                    _ => {},
                 }
 
                 ctx.handle_focusable(|ctx, pressed| {

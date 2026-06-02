@@ -1,6 +1,6 @@
 use super::{
     container::Container,
-    text::Text,
+    label::Label,
 };
 use crate::{
     declare_widget_style,
@@ -89,7 +89,7 @@ impl<W: WidgetCtx, K: PartialEq> SelectOption<W, K> {
         SelectOption {
             key,
             el: RefCell::new(
-                Container::new(Text::new(string.inert()).el())
+                Container::new(Label::new(string.inert()).el())
                     .padding(5u32)
                     .el(),
             ),

@@ -1,9 +1,13 @@
+use crate::font::FontCtx;
 use crate::render::prelude::*;
+use crate::widget::ctx::WidgetCtx;
 use crate::{
     layout::DevHoveredLayout,
     prelude::{BlockStyle, BorderStyle},
     render::color::Color,
 };
+use log::debug;
+use rsact_reactive::prelude::*;
 
 #[derive(Default)]
 pub struct DevTools {
@@ -27,50 +31,35 @@ impl DevHoveredEl {
         }
     }
 
-    pub fn draw<C: Color, R>(&self, _r: &mut R, _viewport: Size) -> RenderResult
-    where
-        R: Renderer<Color = C>,
-    {
-        todo!()
-        // use embedded_graphics::{
-        //     Drawable as _,
-        //     mono_font::{MonoTextStyleBuilder, ascii::FONT_8X13},
-        //     prelude::Point,
-        // };
-        // use embedded_text::{TextBox, style::TextBoxStyleBuilder};
+    pub fn draw<W: WidgetCtx>(
+        &self,
+        r: &mut W::Renderer,
+        font_ctx: Signal<FontCtx, ReadOnly>,
+        // TODO: Render on bottom right corner of the viewport.
+        viewport: Size,
+    ) -> RenderResult {
+        let area = self.layout.area;
 
-        // let area = self.layout.area;
+        let [text_color, inner_color, padding_color, ..] = W::Color::accents();
 
-        // let [text_color, inner_color, padding_color, ..] = C::accents();
+        Self::model(area, padding_color).render(r)?;
+        if let Some(padding) = self.layout.padding() {
+            Self::model(area - padding, inner_color).render(r)?;
+        }
 
-        // Self::model(area, padding_color).render(r)?;
-        // if let Some(padding) = self.layout.padding() {
-        //     Self::model(area - padding, inner_color).render(r)?;
-        // }
-
-        // // Ignore error, TextBox sometimes fails
-        // let eg_viewport = embedded_graphics::primitives::Rectangle::new(
-        //     Point::zero(),
-        //     viewport.into(),
-        // );
-        // let _ = TextBox::with_textbox_style(
-        //     &format!("{}", self.layout),
-        //     eg_viewport,
-        //     MonoTextStyleBuilder::new()
-        //         .font(&FONT_8X13)
-        //         .text_color(text_color)
-        //         .background_color(C::default_background())
-        //         .build(),
-        //     TextBoxStyleBuilder::new()
-        //         .alignment(embedded_text::alignment::HorizontalAlignment::Right)
-        //         .vertical_alignment(
-        //             embedded_text::alignment::VerticalAlignment::Bottom,
-        //         )
-        //         .build(),
-        // )
-        // .draw(r)
-        // .map_err(|_| ());
-
-        // Ok(())
+        // TODO: Viewport-dependent font props resolution similar to layout computation for text widget.
+        font_ctx.with(|font_ctx| {
+            font_ctx.render::<W>(
+                crate::font::Font::Auto,
+                &format!("{}", self.layout),
+                crate::font::ResolvedFontProps {
+                    size: 12,
+                    style: crate::font::FontStyle::Normal,
+                },
+                area,
+                text_color,
+                r,
+            )
+        })
     }
 }

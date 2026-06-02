@@ -3,7 +3,7 @@ use crate::{
     widget::{
         bar::BarStyle, button::ButtonStyle, knob::KnobStyle,
         scrollable::ScrollableStyle, select::SelectStyle, slider::SliderStyle,
-        text::TextStyle,
+        label::LabelStyle,
     },
 };
 
@@ -23,7 +23,7 @@ pub struct Theme<C: Color> {
     pub scrollable: ScrollableStyle<C>,
     pub select: SelectStyle<C>,
     pub slider: SliderStyle<C>,
-    pub text: TextStyle<C>,
+    pub text: LabelStyle<C>,
 }
 
 impl<C: Color> Default for Theme<C> {
@@ -39,7 +39,7 @@ impl<C: Color> Default for Theme<C> {
             scrollable: ScrollableStyle::base(),
             select: SelectStyle::base(),
             slider: SliderStyle::base(),
-            text: TextStyle::base(),
+            text: LabelStyle::base(),
         }
     }
 }

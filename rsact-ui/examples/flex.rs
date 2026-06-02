@@ -15,7 +15,7 @@ use rsact_ui::{
     page::id::SinglePage,
     prelude::{
         Button, Checkbox, Container, Edge, Flex, IntoInert, Length, Select,
-        SignalMap, Size, Slider, Space, Text, TextStyle, create_signal,
+        SignalMap, Size, Slider, Space, Label, LabelStyle, create_signal,
     },
     render::color::RgbColor,
     style::theme::Theme,
@@ -33,7 +33,7 @@ fn random_size() -> Size<Length> {
 
 fn item<W: WidgetCtx<Color = Rgb888>>(size: Size<Length>) -> El<W>
 {
-    Container::new(Text::new_inert(size))
+    Container::new(Label::new_inert(size))
         .center()
         .size(size)
         .style(|base| {
@@ -68,11 +68,11 @@ fn main() {
     let mut children = create_signal(vec![]);
 
     let props = Flex::col([
-        Text::new(
+        Label::new(
             children.map(|children| format!("Children: {}", children.len())),
         )
         .el(),
-        Text::new_inert("Add item").el(),
+        Label::new_inert("Add item").el(),
         Button::new("Add random size item")
             .on_click(move || {
                 children.update(|children| children.push(item(random_size())))
@@ -101,18 +101,18 @@ fn main() {
                 })
             })
             .el(),
-        Text::new(map!(move |gap_x, gap_y| format!("Gap: {gap_x}x{gap_y}")))
+        Label::new(map!(move |gap_x, gap_y| format!("Gap: {gap_x}x{gap_y}")))
             .el(),
         Slider::horizontal(gap_x, (0.0..=25.0).inert()).el(),
         Slider::horizontal(gap_y, (0.0..=25.0).inert()).el(),
-        Text::new(
+        Label::new(
             wrap.map(|&wrap| {
                 format!("{}", if wrap { "wrap" } else { "no wrap" })
             }),
         )
         .el(),
         Checkbox::new(wrap).el(),
-        Text::new(
+        Label::new(
             horizontal_align
                 .map(|align| format!("Horizontal alignment: {align}")),
         )
@@ -122,7 +122,7 @@ fn main() {
             vec![Align::Start, Align::Center, Align::End].inert(),
         )
         .el(),
-        Text::new(
+        Label::new(
             vertical_align.map(|align| format!("Vertical alignment: {align}")),
         )
         .el(),

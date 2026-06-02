@@ -81,7 +81,7 @@ impl<W: WidgetCtx> FontSettingWidget<W> for Button<W> {}
 
 impl<W: WidgetCtx + 'static> Widget<W> for Button<W> {
     fn meta(&self, id: ElId) -> MetaTree {
-        MetaTree::childless(Meta::focusable(id))
+        MetaTree::childless(Meta::focusable_hoverable(id))
     }
 
     fn layout(&self) -> Layout {
@@ -107,7 +107,8 @@ impl<W: WidgetCtx + 'static> Widget<W> for Button<W> {
     }
 
     fn on_event(&mut self, mut ctx: EventCtx<'_, W>) -> EventResponse {
-        ctx.handle_focusable(|ctx, pressed| {
+        let _ = ctx.handle_hover_move();
+        ctx.handle_focusable_or_clickable(|ctx, pressed| {
             let current_state = self.state.get();
 
             if current_state.pressed != pressed {

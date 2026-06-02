@@ -2,7 +2,8 @@ use super::Widget;
 use crate::{
     el::{El, ElId, WithElId},
     event::{
-        Capture, CaptureData, Event, EventResponse, FocusEvent, Propagate,
+        Capture, CaptureData, Event, EventResponse, FocusEvent, MouseButton,
+        MouseEvent, Propagate,
     },
     font::{Font, FontCtx, FontProps, ResolvedFontProps},
     layout::model::LayoutModelNode,
@@ -87,20 +88,42 @@ where
     type CustomEvent = E;
 }
 
+pub struct PointerState {
+    /// Last known cursor position, updated on every `MouseMove`
+    pub pos: Option<Point>,
+    /// Widget currently holding pointer capture (receives all pointer events until released)
+    pub captured_by: Option<ElId>,
+    /// The deepest `HOVERABLE` widget under the cursor as of the last `MouseMove`
+    pub hovered: Option<ElId>,
+}
+
+impl PointerState {
+    pub fn new() -> Self {
+        Self { pos: None, captured_by: None, hovered: None }
+    }
+}
+
 pub struct PageState<W: WidgetCtx> {
     /// Element id + its absolute tree index among all focusable elements (see [`PageTree`])
     pub focused: Option<(ElId, usize)>,
+
+    /// Page last known pointer state, updated on every `MouseMove` and is basically only needed on platforms like PC where pointer can go outside the window and we preserve last known position.
+    pub pointer: PointerState,
 
     ctx: PhantomData<W>,
 }
 
 impl<W: WidgetCtx> PageState<W> {
     pub fn new() -> Self {
-        Self { focused: None, ctx: PhantomData }
+        Self { focused: None, pointer: PointerState::new(), ctx: PhantomData }
     }
 
     pub fn is_focused(&self, id: ElId) -> bool {
         self.focused.map(|focused| focused.0 == id).unwrap_or(false)
+    }
+
+    pub fn is_hovered(&self, id: ElId) -> bool {
+        self.pointer.hovered == Some(id)
     }
 }
 
@@ -450,6 +473,35 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
         self.page_state.with(|page_state| page_state.is_focused(self.id))
     }
 
+    pub fn is_hovered(&self) -> bool {
+        self.page_state.with(|page_state| page_state.is_hovered(self.id))
+    }
+
+    /// Returns the cursor position for this event, falling back to the last known position.
+    pub fn cursor_pos(&self) -> Option<Point> {
+        self.event
+            .cursor_point()
+            .or_else(|| self.page_state.with(|s| s.pointer.pos))
+    }
+
+    /// Called by `HOVERABLE` widgets during a `MouseMove` pass to claim hover for themselves.
+    /// The last (deepest) widget to call this during a pass wins.
+    pub fn update_hover(&mut self) {
+        self.page_state.update(|s| s.pointer.hovered = Some(self.id));
+    }
+
+    /// Capture the pointer so all subsequent mouse button events are routed directly here,
+    /// regardless of cursor position. Call on `ButtonDown`. Pair with `release_pointer`.
+    pub fn capture_pointer(&mut self) {
+        self.page_state.update(|s| s.pointer.captured_by = Some(self.id));
+    }
+
+    /// Release pointer capture. Call on `ButtonUp`.
+    pub fn release_pointer(&mut self) {
+        self.page_state.update(|s| s.pointer.captured_by = None);
+    }
+
+    // TODO: Automatic handle based on behavior?
     #[must_use]
     pub fn handle_focusable(
         &mut self,
@@ -476,6 +528,120 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
         } else {
             self.ignore()
         }
+    }
+
+    /// Handle a mouse `ButtonDown`/`ButtonUp` where the cursor is within this widget's bounds.
+    /// `press` receives `(ctx, button, is_pressed)`.
+    #[must_use]
+    pub fn handle_clickable(
+        &mut self,
+        press: impl FnOnce(&mut Self, MouseButton, bool) -> EventResponse,
+    ) -> EventResponse {
+        let pos = self.cursor_pos();
+        match self.event {
+            Event::Mouse(MouseEvent::ButtonDown(btn, _)) => {
+                if pos.map(|pt| self.layout.outer.contains(pt)).unwrap_or(false)
+                {
+                    press(self, *btn, true)
+                } else {
+                    self.ignore()
+                }
+            },
+            Event::Mouse(MouseEvent::ButtonUp(btn, _)) => {
+                if pos.map(|pt| self.layout.outer.contains(pt)).unwrap_or(false)
+                {
+                    press(self, *btn, false)
+                } else {
+                    self.ignore()
+                }
+            },
+            _ => self.ignore(),
+        }
+    }
+
+    /// Combines keyboard/encoder focus handling with left-button mouse click.
+    /// Prefer this over `handle_focusable` for interactive widgets that support both input modes.
+    #[must_use]
+    pub fn handle_focusable_or_clickable(
+        &mut self,
+        press: impl FnOnce(&mut Self, bool) -> EventResponse,
+    ) -> EventResponse {
+        // Focus event: capture to establish focus
+        if let &Event::Focus(FocusEvent::Focus(new_focus)) = self.event {
+            if new_focus == self.id {
+                return self.capture();
+            }
+        }
+
+        // Keyboard/encoder press when focused
+        if self.is_focused() {
+            if let Event::Press(press_event) = self.event {
+                let pressed =
+                    matches!(press_event, crate::event::PressEvent::Press);
+                return press(self, pressed);
+            }
+        }
+
+        // Mouse left-button click (in bounds)
+        let pos = self.cursor_pos();
+        match self.event {
+            Event::Mouse(MouseEvent::ButtonDown(MouseButton::Left, _)) => {
+                if pos.map(|pt| self.layout.outer.contains(pt)).unwrap_or(false)
+                {
+                    press(self, true)
+                } else {
+                    self.ignore()
+                }
+            },
+            Event::Mouse(MouseEvent::ButtonUp(MouseButton::Left, _)) => {
+                if pos.map(|pt| self.layout.outer.contains(pt)).unwrap_or(false)
+                {
+                    press(self, false)
+                } else {
+                    self.ignore()
+                }
+            },
+            _ => self.ignore(),
+        }
+    }
+
+    /// Handle `MouseMove` for a `HOVERABLE` widget: if cursor is in bounds, claim hover.
+    /// Call this at the start of `on_event` for any `HOVERABLE` widget. Always returns `ignore()`.
+    pub fn handle_hover_move(&mut self) -> EventResponse {
+        if let Event::Mouse(MouseEvent::MouseMove(pt)) = self.event {
+            if self.layout.outer.contains(*pt) {
+                self.update_hover();
+            }
+        }
+        self.ignore()
+    }
+
+    /// Handle `MouseEnter` targeted at this widget.
+    #[must_use]
+    pub fn handle_mouse_enter(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> EventResponse,
+    ) -> EventResponse {
+        if let Event::Mouse(MouseEvent::MouseEnter { target }) = self.event {
+            if *target == self.id {
+                return f(self);
+            }
+        }
+        self.ignore()
+    }
+
+    /// Handle `MouseLeave` targeted at this widget.
+    #[must_use]
+    pub fn handle_mouse_leave(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> EventResponse,
+    ) -> EventResponse {
+        if let Event::Mouse(MouseEvent::MouseLeave { target }) = self.event {
+            if *target == self.id {
+                return f(self);
+            }
+        }
+        self.ignore()
     }
 
     #[inline]

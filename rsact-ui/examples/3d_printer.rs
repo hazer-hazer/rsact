@@ -11,7 +11,7 @@ use rsact_ui::{
     layout::Align,
     prelude::*,
     prelude::{
-        Button, Icon, IntoInert, ReadSignal, Scrollable, SignalMap, Text,
+        Button, Icon, IntoInert, ReadSignal, Scrollable, SignalMap, Label,
         UiMessage, WriteSignal, create_effect, create_signal,
     },
     style::theme::Theme,
@@ -77,7 +77,7 @@ fn main() {
     let print_page_id = "print";
     let print_page = Flex::col([
         Bar::horizontal(printing_progress).el(),
-        Text::new(
+        Label::new(
             printing_file.map(|filename| format!("Printing {filename}...")),
         )
         .el(),
@@ -182,7 +182,7 @@ fn main() {
     let position_page = Flex::row([
         Flex::col([
             back_button(),
-            Text::new(z_pos.map(|z_pos| format!("{z_pos}Z"))).el(),
+            Label::new(z_pos.map(|z_pos| format!("{z_pos}Z"))).el(),
             Button::new("Home")
                 .padding(2u32)
                 .on_click(move || {
@@ -221,7 +221,7 @@ fn main() {
         .el(),
         Flex::col([
             position_button("Y-", UnitV2::UP),
-            Text::new(position.map(|pos| pos.to_string())).el(),
+            Label::new(position.map(|pos| pos.to_string())).el(),
             position_button("Y+", UnitV2::DOWN),
         ])
         .gap(5u32)
@@ -288,18 +288,18 @@ fn main() {
         .fill()
         .el(),
         Flex::col([
-            Text::new(bed_temp.map(|temp| format!("{temp}C"))).el(),
+            Label::new(bed_temp.map(|temp| format!("{temp}C"))).el(),
             Knob::new(bed_temp).el(),
-            Text::new("Bed").el(),
+            Label::new("Bed").el(),
         ])
         .gap(2u32)
         .center()
         .fill()
         .el(),
         Flex::col([
-            Text::new(nozzle_temp.map(|temp| format!("{temp}C"))).el(),
+            Label::new(nozzle_temp.map(|temp| format!("{temp}C"))).el(),
             Knob::new(nozzle_temp).el(),
-            Text::new("Nozzle").el(),
+            Label::new("Nozzle").el(),
         ])
         .gap(2u32)
         .center()

@@ -519,17 +519,38 @@ impl Runtime {
         location: &'static Location<'static>,
         f: impl FnOnce() -> R,
     ) -> Option<R> {
-        let id =
-            *self.static_observers.borrow_mut().entry(hash).or_insert_with(
-                || {
-                    self.add_value::<_, ()>(
-                        (),
-                        ValueKind::Observer,
-                        ValueState::Dirty,
-                        location,
-                    )
-                },
-            );
+        let id = {
+            let existing =
+                *self.static_observers.borrow_mut().entry(hash).or_insert_with(
+                    || {
+                        self.add_value::<_, ()>(
+                            (),
+                            ValueKind::Observer,
+                            ValueState::Dirty,
+                            location,
+                        )
+                    },
+                );
+
+            // The observer may have been disposed by a parent observer's
+            // cleanup (e.g. render_children re-running disposes owned child
+            // render_part observers). In that case the stale id still exists
+            // in static_observers but is no longer alive, so we must recreate
+            // it; otherwise every subsequent observe call silently returns
+            // None and the subtree is never redrawn.
+            if !self.is_alive(existing) {
+                let new_id = self.add_value::<_, ()>(
+                    (),
+                    ValueKind::Observer,
+                    ValueState::Dirty,
+                    location,
+                );
+                self.static_observers.borrow_mut().insert(hash, new_id);
+                new_id
+            } else {
+                existing
+            }
+        };
 
         self.subscribe(id);
         self.maybe_update(id, Some(id), location);
@@ -860,6 +881,7 @@ impl Runtime {
     //     self.storage.get(id).state == ValueState::Dirty
     // }
 
+    // TODO: Explicitly return Option<ValueState> for disposed values.
     pub(crate) fn state(&self, id: ValueId) -> ValueState {
         self.storage
             .get(id)
@@ -1000,9 +1022,13 @@ impl Runtime {
         }
 
         let state_change =
-            if let ValueDebugInfoState::CheckRequested(_, Some((requester_id, _)))
+            if let ValueDebugInfoState::CheckRequested(
+                _,
+                Some((requester_id, _)),
+            )
             | ValueDebugInfoState::Dirten(_, Some((requester_id, _)))
-            | ValueDebugInfoState::Clean(Some((requester_id, _))) = debug_info.state
+            | ValueDebugInfoState::Clean(Some((requester_id, _))) =
+                debug_info.state
             {
                 let (req_name, req_graph) = self.mermaid_subgraph(
                     requester_id,
@@ -1381,6 +1407,7 @@ mod tests {
         },
         scope::new_scope,
         signal::create_signal,
+        trigger::{Trigger, create_trigger},
         write::WriteSignal,
     };
     use alloc::rc::Rc;
@@ -1590,5 +1617,55 @@ mod tests {
                 "effect re-ran on stale dependency `a`"
             );
         });
+    }
+
+    /// When a parent observer re-runs its closure, `cleanup` disposes all
+    /// reactive values that were *owned* by it (created while it was the active
+    /// observer). Child `observe` calls are identified by a stable hash stored
+    /// in `static_observers`. After cleanup the stored `ValueId` is dead, but
+    /// the hash entry remains. Without an aliveness check `use_observe` would
+    /// silently reuse the dead id, skip re-running the child closure.
+    #[test]
+    fn observe_recreates_disposed_child_observer() {
+        let mut trigger = create_trigger();
+        // Tracks how many times the *inner* observe ran.
+        let inner_runs = Rc::new(Cell::new(0u32));
+
+        let run = |trigger: &mut Trigger, inner_runs: Rc<Cell<u32>>| {
+            // Outer observe – acts like `render_children`.
+            observe_by_location(move || {
+                trigger.track();
+                // Inner observe – acts like a child `render_part`. The id is
+                // derived from the call-site location, which is stable across
+                // repeated invocations of the outer closure.
+                let r = inner_runs.clone();
+                observe_by_location(move || {
+                    r.set(r.get() + 1);
+                });
+            })
+        };
+
+        // First call: both outer and inner run.
+        assert_eq!(run(&mut trigger, inner_runs.clone()), Some(()));
+        assert_eq!(inner_runs.get(), 1);
+
+        // No change – neither outer nor inner should re-run.
+        assert_eq!(run(&mut trigger, inner_runs.clone()), None);
+        assert_eq!(inner_runs.get(), 1);
+
+        // Notify trigger: outer is dirtied, its cleanup disposes the inner
+        // observer. `use_observe` must recreate the inner observer so the
+        // closure runs again.
+        trigger.notify();
+        assert_eq!(run(&mut trigger, inner_runs.clone()), Some(()));
+        assert_eq!(
+            inner_runs.get(),
+            2,
+            "inner observe did not re-run after parent cleanup disposed it"
+        );
+
+        // Stable again after re-run.
+        assert_eq!(run(&mut trigger, inner_runs.clone()), None);
+        assert_eq!(inner_runs.get(), 2);
     }
 }

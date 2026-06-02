@@ -61,7 +61,10 @@ pub mod prelude {
             batch, create_runtime, defer_effects, observe, observe_by_location,
             untrack, with_current_runtime, with_new_runtime,
         },
-        signal::{IntoSignal, RwSignal, Signal, create_signal},
+        signal::{
+            IntoSignal, RwSignal, Signal, create_signal, marker::ReadOnly,
+            marker::Rw, marker::WriteOnly,
+        },
         trigger::{Trigger, create_trigger},
         write::{SignalSetter, UpdateNotification, WriteSignal},
     };

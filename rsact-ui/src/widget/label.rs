@@ -5,7 +5,7 @@ use layout::ContentLayout;
 use rsact_reactive::signal::Signal;
 
 declare_widget_style! {
-    TextStyle () {
+    LabelStyle () {
         color: color {
             transparent: transparent
         },
@@ -14,7 +14,7 @@ declare_widget_style! {
     }
 }
 
-impl<C: Color> TextStyle<C> {
+impl<C: Color> LabelStyle<C> {
     pub fn base() -> Self {
         Self {
             color: ColorStyle::DefaultForeground,
@@ -24,13 +24,13 @@ impl<C: Color> TextStyle<C> {
     }
 }
 
-pub struct Text<W: WidgetCtx> {
+pub struct Label<W: WidgetCtx> {
     content: MaybeReactive<String>,
     layout: Layout,
-    style: Option<Box<dyn Fn(TextStyle<W::Color>) -> TextStyle<W::Color>>>,
+    style: Option<Box<dyn Fn(LabelStyle<W::Color>) -> LabelStyle<W::Color>>>,
 }
 
-impl<W: WidgetCtx> Text<W> {
+impl<W: WidgetCtx> Label<W> {
     // TODO: 'static string optimization, can store &'static str directly without allocating String
     pub fn new(content: impl SignalMapRefMaybeReactive<str, String>) -> Self {
         let content =
@@ -45,7 +45,7 @@ impl<W: WidgetCtx> Text<W> {
 
     pub fn style(
         mut self,
-        styler: impl Fn(TextStyle<W::Color>) -> TextStyle<W::Color> + 'static,
+        styler: impl Fn(LabelStyle<W::Color>) -> LabelStyle<W::Color> + 'static,
     ) -> Self {
         self.style = Some(Box::new(styler));
         self
@@ -87,9 +87,9 @@ impl<W: WidgetCtx> Text<W> {
     // }
 }
 
-impl<W: WidgetCtx> FontSettingWidget<W> for Text<W> {}
+impl<W: WidgetCtx> FontSettingWidget<W> for Label<W> {}
 
-impl<W: WidgetCtx> Widget<W> for Text<W> {
+impl<W: WidgetCtx> Widget<W> for Label<W> {
     fn meta(&self, _: ElId) -> MetaTree {
         MetaTree::none()
     }
@@ -127,18 +127,18 @@ impl<W: WidgetCtx> Widget<W> for Text<W> {
 
 impl<'a, W: WidgetCtx> Into<El<W>> for &'a str {
     fn into(self) -> El<W> {
-        Text::new(self.to_string().inert()).el()
+        Label::new(self.to_string().inert()).el()
     }
 }
 
 impl<W: WidgetCtx> Into<El<W>> for String {
     fn into(self) -> El<W> {
-        Text::new(self.inert()).el()
+        Label::new(self.inert()).el()
     }
 }
 
 impl<W: WidgetCtx> Into<El<W>> for Signal<String> {
     fn into(self) -> El<W> {
-        Text::new(self).el()
+        Label::new(self).el()
     }
 }

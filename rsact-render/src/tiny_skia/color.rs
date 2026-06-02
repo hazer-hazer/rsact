@@ -12,7 +12,14 @@ impl Color for tiny_skia::Color {
     }
 
     fn accents() -> [Self; 6] {
-        todo!()
+        [
+            Self::from_rgba8(255, 0, 0, 255),
+            Self::from_rgba8(0, 255, 0, 255),
+            Self::from_rgba8(0, 0, 255, 255),
+            Self::from_rgba8(255, 255, 0, 255),
+            Self::from_rgba8(0, 255, 255, 255),
+            Self::from_rgba8(255, 0, 255, 255),
+        ]
     }
 
     fn from_rgba(rgba: crate::color::Rgba) -> Self {

@@ -29,7 +29,7 @@ pub mod prelude {
         ui::UI,
         widget::{
             button::*, container::*, dynamic::*, edge::*, flex::*, prelude::*,
-            scrollable::*, select::*, slider::*, space::*, text::*,
+            scrollable::*, select::*, slider::*, space::*, label::*,
         },
     };
 

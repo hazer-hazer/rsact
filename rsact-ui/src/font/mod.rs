@@ -154,9 +154,11 @@ pub enum FontStyle {
     #[default]
     Normal,
     Italic,
+    // TODO: Should be separate font weight
     Bold,
     // Oblique,
 }
+
 
 /// Resolved font properties
 #[derive(Debug, Clone, Copy)]
@@ -403,6 +405,8 @@ impl FontCtx {
         })
     }
 
+    // TODO: Background color!
+    // TODO: Alignment!
     pub fn render<W: WidgetCtx>(
         &self,
         font: Font,

@@ -27,15 +27,45 @@ pub fn simulator_single_encoder(event: SE) -> Option<Event> {
             },
             _ => None,
         },
-        SE::MouseButtonDown { mouse_btn, .. } => match mouse_btn {
+        SE::MouseButtonDown { mouse_btn, point, .. } => match mouse_btn {
             embedded_graphics_simulator::sdl2::MouseButton::Left => {
-                Some(Event::Press(PressEvent::Press))
+                Some(Event::Mouse(MouseEvent::ButtonDown(
+                    super::MouseButton::Left,
+                    Some(point.into()),
+                )))
+            },
+            embedded_graphics_simulator::sdl2::MouseButton::Middle => {
+                Some(Event::Mouse(MouseEvent::ButtonDown(
+                    super::MouseButton::Middle,
+                    Some(point.into()),
+                )))
+            },
+            embedded_graphics_simulator::sdl2::MouseButton::Right => {
+                Some(Event::Mouse(MouseEvent::ButtonDown(
+                    super::MouseButton::Right,
+                    Some(point.into()),
+                )))
             },
             _ => None,
         },
-        SE::MouseButtonUp { mouse_btn, .. } => match mouse_btn {
+        SE::MouseButtonUp { mouse_btn, point, .. } => match mouse_btn {
             embedded_graphics_simulator::sdl2::MouseButton::Left => {
-                Some(Event::Press(PressEvent::Release))
+                Some(Event::Mouse(MouseEvent::ButtonUp(
+                    super::MouseButton::Left,
+                    Some(point.into()),
+                )))
+            },
+            embedded_graphics_simulator::sdl2::MouseButton::Middle => {
+                Some(Event::Mouse(MouseEvent::ButtonUp(
+                    super::MouseButton::Middle,
+                    Some(point.into()),
+                )))
+            },
+            embedded_graphics_simulator::sdl2::MouseButton::Right => {
+                Some(Event::Mouse(MouseEvent::ButtonUp(
+                    super::MouseButton::Right,
+                    Some(point.into()),
+                )))
             },
             _ => None,
         },
