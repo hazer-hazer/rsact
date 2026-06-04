@@ -28,8 +28,8 @@ pub mod prelude {
         style::{declare_widget_style, theme::Theme},
         ui::UI,
         widget::{
-            button::*, container::*, dynamic::*, edge::*, flex::*, prelude::*,
-            scrollable::*, select::*, slider::*, space::*, label::*,
+            button::*, container::*, dynamic::*, edge::*, flex::*, label::*,
+            prelude::*, scrollable::*, select::*, slider::*, space::*,
         },
     };
 

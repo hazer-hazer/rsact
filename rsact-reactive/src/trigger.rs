@@ -54,7 +54,7 @@ impl ReactiveValue for Trigger {
     }
 
     unsafe fn dispose(self) {
-        self.inner.dispose();
+        unsafe { self.inner.dispose() };
     }
 }
 

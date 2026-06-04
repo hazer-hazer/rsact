@@ -39,7 +39,7 @@ impl<W: WidgetCtx> Widget<W> for Show<W> {
     }
 
     #[track_caller]
-    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
+    fn render(&self, ctx: RenderCtx<'_, W>) -> RenderResult {
         // TODO: `observe`?
         if self.show.get() { self.el.render(ctx) } else { Ok(()) }
     }

@@ -17,6 +17,7 @@ use alloc::{
     rc::Rc,
     vec::Vec,
 };
+use log::debug;
 use core::{
     cell::{Cell, RefCell},
     fmt::Display,
@@ -538,7 +539,9 @@ impl Runtime {
             // in static_observers but is no longer alive, so we must recreate
             // it; otherwise every subsequent observe call silently returns
             // None and the subtree is never redrawn.
+            // TODO: This logic is basically wrong. As if parent observer cleanups its owned observers, then we create new dirty observer each time, leading to rerun each time. We need tests for this.
             if !self.is_alive(existing) {
+                debug!("Reviving observe");
                 let new_id = self.add_value::<_, ()>(
                     (),
                     ValueKind::Observer,
@@ -555,25 +558,13 @@ impl Runtime {
         self.subscribe(id);
         self.maybe_update(id, Some(id), location);
 
-        // let dirty = {
-        //     let dirty = self.storage.get(id).unwrap();
-        //     let dirty = dirty.value.borrow_mut();
-        //     *dirty.downcast_ref::<bool>().unwrap()
-        // };
-
         if self.is(id, ValueState::Dirty) {
             let result = self.with_observer(id, |rt| {
-                rt.cleanup(id);
+                // TODO: Cleanup is wrong, we need to delete only values from the previous call, as we might delete nested observer
+                // rt.cleanup(id);
                 f()
             });
             self.mark_clean(id, Some(id), location);
-
-            // {
-            //     let dirty = self.storage.get(id).unwrap();
-            //     let mut dirty = dirty.value.borrow_mut();
-            //     let dirty = dirty.downcast_mut::<bool>().unwrap();
-            //     *dirty = false;
-            // }
 
             Some(result)
         } else {
@@ -1085,8 +1076,6 @@ impl Runtime {
     }
 
     fn cleanup(&self, id: ValueId) {
-        // `sources` and `subscribers` are separate RefCell fields, so we can
-        // hold a shared borrow of `sources` while mutably borrowing `subscribers`.
         {
             let sources = self.sources.borrow();
             if let Some(srcs) = sources.get(id) {

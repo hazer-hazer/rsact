@@ -4,8 +4,8 @@ use rsact_reactive::{
     signal::{Signal, create_signal},
     storage::Value,
 };
-use tinyvec::TinyVec;
 use std::{alloc::System, cell::RefCell, collections::BTreeSet, rc::Rc};
+use tinyvec::TinyVec;
 
 #[global_allocator]
 static GLOBAL: Cap<System> = Cap::new(System, usize::MAX);

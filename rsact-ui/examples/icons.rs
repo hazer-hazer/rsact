@@ -1,19 +1,25 @@
-use std::env;
-use embedded_graphics::{pixelcolor::Rgb888, prelude::{Dimensions, RgbColor}};
+use embedded_graphics::{
+    pixelcolor::Rgb888,
+    prelude::{Dimensions, RgbColor},
+};
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
-use rsact_tiny_icons::{common::CommonIcon, system::SystemIcon, IconSet};
 use rsact_render::eg::renderer::EGRenderer;
+use rsact_tiny_icons::{IconSet, common::CommonIcon, system::SystemIcon};
 use rsact_ui::{
-    page::id::SinglePage, prelude::{Flex, Icon, IntoInert, Size, Label}, style::theme::Theme, ui::UI, widget::{SizedWidget, Widget}
+    page::id::SinglePage,
+    prelude::{Flex, Icon, IntoInert, Label, Size},
+    style::theme::Theme,
+    ui::UI,
+    widget::{SizedWidget, Widget},
 };
+use std::env;
 
 fn main() {
     env_logger::init();
 
-    let output_settings =
-        OutputSettingsBuilder::new().scale(1).build();
+    let output_settings = OutputSettingsBuilder::new().scale(1).build();
 
     let mut window = Window::new("SANDBOX", &output_settings);
 
@@ -39,7 +45,7 @@ fn main() {
     let mut ui = UI::new(
         Theme::default(),
         EGRenderer::new(display.bounding_box().size.into())
-    ).no_events().with_page(SinglePage, 
+    ).no_events().with_page(SinglePage,
         Flex::col([
             Label::new("System icons").el(),
             Flex::row(system_icons).wrap(true).gap(5u32).el(),

@@ -38,8 +38,8 @@ impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
     }
 
     #[track_caller]
-    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
-        ctx.render_self("Edge", |ctx| {
+    fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
+        ctx.render_self("Edge", |mut ctx| {
             let base = BlockStyle::base();
             let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
 

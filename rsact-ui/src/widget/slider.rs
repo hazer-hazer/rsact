@@ -147,8 +147,8 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Slider<W, Dir> {
     }
 
     #[track_caller]
-    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
-        ctx.render_self("Slider", |ctx| {
+    fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
+        ctx.render_self("Slider", |mut ctx| {
             ctx.render_focus_outline(ctx.id)?;
 
             let style = ctx.get_style(|t| t.slider, self.style.as_deref());

@@ -139,7 +139,6 @@ impl<W: WidgetCtx, I: IconSet + 'static, R: ReactivityMarker> Widget<W>
 
             #[cfg(feature = "embedded-graphics")]
             {
-                
                 let _eg_top_left: embedded_graphics::geometry::Point =
                     ctx.layout.inner.top_left.into();
                 todo!()

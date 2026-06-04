@@ -14,6 +14,7 @@ use crate::{
     widget::{Behavior, Widget, ctx::*},
 };
 use alloc::vec::Vec;
+use core::marker::PhantomData;
 use dev::{DevHoveredEl, DevTools};
 use log::{debug, info};
 use rsact_reactive::prelude::*;
@@ -54,6 +55,7 @@ pub struct Page<W: WidgetCtx> {
     meta: PageMeta,
     // TODO: MaybeReactive
     layout: Memo<LayoutModel>,
+    // TODO: State must be a struct of signals, not signal of a struct.
     state: Signal<PageState<W>>,
     style: Signal<PageStyle<W::Color>>,
     // TODO: Just use Rc<RefCell<R>> because we don't need to track renderer.
@@ -61,7 +63,7 @@ pub struct Page<W: WidgetCtx> {
     viewport: MaybeReactive<Size>,
     theme: Inert<Theme<W::Color>>,
     dev_tools: Signal<DevTools>,
-    force_redraw: Trigger,
+    force_redraw: Signal<bool>,
     render_calls: usize,
     fonts: Signal<FontCtx>,
 }
@@ -79,7 +81,7 @@ impl<W: WidgetCtx> Page<W> {
         let root: El<W> = root.into();
         let state = PageState::new().signal().name("Page state");
 
-        let force_redraw = create_trigger().name("Force redraw");
+        let mut force_redraw = create_signal(false).name("Force redraw");
 
         let meta = root.meta(root.id());
 
@@ -128,7 +130,8 @@ impl<W: WidgetCtx> Page<W> {
             );
 
             // TODO: Do we need full page redraw on layout change?
-            force_redraw.notify();
+            // No, we need smart bottom-up propagation to the nearest fixed parent layout.
+            force_redraw.set(true);
 
             layout
         })
@@ -156,7 +159,7 @@ impl<W: WidgetCtx> Page<W> {
 
     pub(crate) fn force_redraw(&mut self) -> &mut Self {
         info!("Force redraw page {:?}", self.id);
-        self.force_redraw.notify();
+        self.force_redraw.set(true);
         self
     }
 
@@ -316,11 +319,17 @@ impl<W: WidgetCtx> Page<W> {
             // Update dev tools hover using layout geometry (unchanged)
             if self.dev_tools.with(|dt| dt.enabled) {
                 let hovered_el = self.find_hovered_el(point);
-                self.dev_tools.update(|dev_tools| {
-                    dev_tools.hovered = hovered_el;
+                let dev_hovered_changed = self.dev_tools.update(|dt| {
+                    let changed = dt.hovered != hovered_el;
+                    dt.hovered = hovered_el;
+                    changed
                 });
-                // TODO: Real rendering requires smarter dirty rectangles as dev tools are overlaying and have absolute position. Clearing whole screen is bad
-                self.force_redraw();
+
+                if dev_hovered_changed {
+                    // TODO: Real rendering requires smarter dirty rectangles as dev tools are overlaying and have absolute position. Clearing whole screen is bad
+
+                    self.force_redraw();
+                }
             }
 
             // Update persistent cursor position
@@ -420,12 +429,14 @@ impl<W: WidgetCtx> Page<W> {
     pub fn use_renderer(&mut self, f: impl FnOnce(&mut W::Renderer)) -> bool {
         let mut renderer = self.renderer;
 
-        // #[cfg(feature = "debug-info")]
-        // {
-        //     observe(("page_force_redraw", self.id), || {
-        //         debug!("Force redraw page {:?}", self.id);
-        //     });
-        // }
+        #[cfg(feature = "debug-info")]
+        {
+            observe(("page_force_redraw", self.id), || {
+                self.force_redraw.track();
+
+                debug!("Force redraw page {:?}", self.id);
+            });
+        }
 
         let drawn = observe(("render_page", self.id), || {
             info!(
@@ -473,30 +484,35 @@ impl<W: WidgetCtx> Page<W> {
 
                     let layout = self.layout;
                     with!(|layout| {
-                        self.root.render(&mut RenderCtx::new(
-                            self.root.id(),
-                            self.state.read_only(),
+                        debug!("Force redraw: {}", self.force_redraw.get());
+                        self.root.render(RenderCtx {
+                            id: self.root.id(),
+                            state: self.state.read_only(),
                             renderer,
-                            &layout.tree_root(),
-                            TreeStyle::base(),
-                            self.style.read_only(),
-                            self.viewport,
+                            layout: &layout.tree_root(),
+                            tree_style: TreeStyle::base(),
+                            page_style: self.style.read_only(),
+                            viewport: self.viewport,
                             fonts,
-                            self.theme,
-                            FontProps {
+                            theme: self.theme,
+                            font_props: FontProps {
                                 font: Some(Font::Auto.maybe_reactive()),
                                 font_size: None,
                                 font_style: None,
                             },
-                            self.force_redraw,
-                        ))
+                            force_redraw: self.force_redraw,
+                            parent_dirty: false,
+                            nesting_level: 0,
+                            call: self.render_calls,
+                            ctx_state: PhantomData,
+                        })
                     })?;
 
                     self.dev_tools.with(|dev_tools| {
                         if dev_tools.enabled {
                             if let Some(hovered) = &dev_tools.hovered {
                                 return hovered
-                                    .draw::<W>(renderer, 
+                                    .draw::<W>(renderer,
                                         fonts,self.viewport.get());
                             }
                         }
@@ -507,6 +523,9 @@ impl<W: WidgetCtx> Page<W> {
                 // TODO: What do we do with errors, huh?
                 .unwrap();
         });
+
+        //
+        self.force_redraw.set_untracked(false);
 
         // TODO: Can be put directly into the observe
         if drawn.is_some() {

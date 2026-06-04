@@ -39,6 +39,7 @@ impl<B, C> UpdateNotification for ControlFlow<B, C> {
 ///
 /// Implemented by: [`crate::signal::Signal`], [`crate::maybe::MaybeSignal`], [`crate::trigger::Trigger`].
 pub trait WriteSignal<T> {
+    // TODO: Must be mutable access
     /// Notify subscribers that signal is updated
     fn notify(&self);
 

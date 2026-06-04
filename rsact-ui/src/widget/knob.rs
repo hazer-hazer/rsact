@@ -88,8 +88,8 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Widget<W> for Knob<W, V> {
     }
 
     #[track_caller]
-    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
-        ctx.render_self("Knob", |ctx| {
+    fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
+        ctx.render_self("Knob", |mut ctx| {
             let style = ctx.get_style(|t| t.knob, self.style.as_deref());
 
             let value_real = self.value.get().real_point();

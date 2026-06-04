@@ -196,13 +196,13 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Scrollable<W, Dir> {
 
     fn render(
         &self,
-        ctx: &mut crate::widget::RenderCtx<'_, W>,
+        mut ctx: crate::widget::RenderCtx<'_, W>,
     ) -> crate::widget::RenderResult {
         // Note: Layouts can be untracked because relayout is full-redraw
         let child_layout = ctx.layout.children().next();
         let child_layout = child_layout.as_ref().unwrap();
 
-        ctx.render_self("Scrollable", |ctx| {
+        ctx.render_self("Scrollable", |mut ctx| {
             let style = ctx.get_style(|t| t.scrollable, self.style.as_deref());
 
             Block::from_layout_style(
@@ -282,10 +282,10 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Scrollable<W, Dir> {
             ctx.render_focus_outline(ctx.id)
         })?;
 
-        ctx.render_part("scroll", |ctx| {
+        ctx.render_part("scroll", |mut ctx| {
             let state = self.state.get();
             // // TODO: Should be clipping outer rect???!??!?
-            ctx.clip_inner(|ctx| {
+            ctx.clip_inner(|mut ctx| {
                 ctx.for_child(
                     self.content.id(),
                     &child_layout

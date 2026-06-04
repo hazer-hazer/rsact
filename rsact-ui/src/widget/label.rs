@@ -99,10 +99,10 @@ impl<W: WidgetCtx> Widget<W> for Label<W> {
     }
 
     #[track_caller]
-    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
-        ctx.render_self("Text", |ctx| {
+    fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
+        ctx.render_self("Text", |mut ctx| {
             let content = self.content;
-            let style = ctx.get_style(|t| t.text, self.style.as_deref());
+            let style = ctx.get_style(|t| t.label, self.style.as_deref());
             let props = ctx.font_props;
 
             with!(move |content| {

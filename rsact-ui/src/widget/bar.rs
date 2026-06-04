@@ -74,8 +74,8 @@ impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction> Widget<W>
     }
 
     #[track_caller]
-    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
-        ctx.render_self("Bar", |ctx| {
+    fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
+        ctx.render_self("Bar", |mut ctx| {
             let style = ctx.get_style(|t| t.bar, self.style.as_deref());
 
             // let start = ctx.layout.area.anchor_point(

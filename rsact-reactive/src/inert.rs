@@ -46,9 +46,9 @@ impl<T: 'static> ReactiveValue for Inert<T> {
         with_current_runtime(|rt| rt.is_alive(self.id))
     }
 
-    unsafe fn dispose(self) { unsafe {
-        with_current_runtime(|rt| rt.dispose(self.id))
-    }}
+    unsafe fn dispose(self) {
+        unsafe { with_current_runtime(|rt| rt.dispose(self.id)) }
+    }
 }
 
 impl<T: 'static> ReadSignal<T> for Inert<T> {

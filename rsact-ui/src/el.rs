@@ -1,7 +1,6 @@
 use crate::widget::prelude::*;
 use alloc::boxed::Box;
 use core::sync::atomic::AtomicUsize;
-use rsact_reactive::prelude::*;
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -100,7 +99,7 @@ where
     }
 
     #[track_caller]
-    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
+    fn render(&self, ctx: RenderCtx<'_, W>) -> RenderResult {
         self.widget.render(ctx)
     }
 

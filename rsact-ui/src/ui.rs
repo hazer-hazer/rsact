@@ -268,14 +268,22 @@ impl<W: WidgetCtx> UI<W, WithPages> {
                 let UnhandledEvent::Event(event) = unhandled;
 
                 if let Event::DevTools(dt_event) = &event {
-                    self.dev_tools.update(|dt| {
+                    let dev_tools_state_changed = self.dev_tools.update(|dt| {
                         info!("DevTools event: {:?}", dt_event);
+                        let was_enabled = dt.enabled;
                         dt.enabled = match dt_event {
                             crate::event::DevToolsEvent::Activate => true,
                             crate::event::DevToolsEvent::Deactivate => false,
                             crate::event::DevToolsEvent::Toggle => !dt.enabled,
-                        }
+                        };
+                        was_enabled != dt.enabled
                     });
+
+                    if dev_tools_state_changed {
+                        info!("DevTools state changed, forcing redraw");
+                        self.current_page().force_redraw();
+                    }
+
                     return None;
                 }
 

@@ -20,8 +20,7 @@ use std::time::{Duration, Instant};
 fn main() {
     env_logger::init();
 
-    let output_settings =
-        OutputSettingsBuilder::new().scale(3).build();
+    let output_settings = OutputSettingsBuilder::new().scale(3).build();
 
     let mut window = Window::new("SANDBOX", &output_settings);
 

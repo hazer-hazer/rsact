@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{prelude::*, style::WidgetStyleFn};
 
 #[derive(Clone, Copy)]
 pub struct ButtonState {
@@ -31,7 +31,7 @@ pub struct Button<W: WidgetCtx> {
     layout: Layout,
     content: El<W>,
     state: Signal<ButtonState>,
-    style: Option<Box<dyn Fn(ButtonStyle<W::Color>) -> ButtonStyle<W::Color>>>,
+    style: WidgetStyleFn<ButtonStyle<W::Color>>,
     on_click: Option<Box<dyn FnMut()>>,
 }
 
@@ -89,8 +89,8 @@ impl<W: WidgetCtx + 'static> Widget<W> for Button<W> {
     }
 
     #[track_caller]
-    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
-        ctx.render_self("Button", |ctx| {
+    fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
+        ctx.render_self("Button", |mut ctx| {
             let style = ctx.get_style(|t| t.button, self.style.as_deref());
 
             Block::from_layout_style(

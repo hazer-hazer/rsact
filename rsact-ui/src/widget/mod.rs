@@ -14,12 +14,12 @@ pub mod icon;
 // #[cfg(feature = "embedded-graphics")]
 // pub mod image;
 pub mod knob;
+pub mod label;
 pub mod scrollable;
 pub mod select;
 pub mod show;
 pub mod slider;
 pub mod space;
-pub mod label;
 
 use crate::{
     font::{Font, FontProps, FontSize, FontStyle},
@@ -147,7 +147,7 @@ where
     fn layout(&self) -> Layout;
 
     // Hot-loop called functions //
-    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult;
+    fn render(&self, ctx: RenderCtx<'_, W>) -> RenderResult;
     // TODO: Reactive event context? Is it possible?
     fn on_event(&mut self, ctx: EventCtx<'_, W>) -> EventResponse;
 }

@@ -1,7 +1,4 @@
-use crate::{
-    color::Color,
-    image::ImageRef,
-};
+use crate::{color::Color, image::ImageRef};
 use embedded_graphics::{
     geometry::OriginDimensions, image::ImageDrawable, pixelcolor::PixelColor,
 };

@@ -14,8 +14,8 @@ use rsact_ui::{
     layout::Align,
     page::id::SinglePage,
     prelude::{
-        Button, Checkbox, Container, Edge, Flex, IntoInert, Length, Select,
-        SignalMap, Size, Slider, Space, Label, LabelStyle, create_signal,
+        Button, Checkbox, Container, Edge, Flex, IntoInert, Label, LabelStyle,
+        Length, Select, SignalMap, Size, Slider, Space, create_signal,
     },
     render::color::RgbColor,
     style::theme::Theme,
@@ -31,8 +31,7 @@ fn random_size() -> Size<Length> {
     )
 }
 
-fn item<W: WidgetCtx<Color = Rgb888>>(size: Size<Length>) -> El<W>
-{
+fn item<W: WidgetCtx<Color = Rgb888>>(size: Size<Length>) -> El<W> {
     Container::new(Label::new_inert(size))
         .center()
         .size(size)
@@ -46,7 +45,6 @@ fn main() {
     env_logger::init();
 
     let output_settings = OutputSettingsBuilder::new()
-        
         // .theme(embedded_graphics_simulator::BinaryColorTheme::OledWhite)
         .build();
 

@@ -22,6 +22,7 @@ use log::debug;
 use rsact_reactive::{
     prelude::*, runtime::get_observer, signal::marker::ReadOnly,
 };
+use rsact_render::color::ACCENT_COUNT;
 
 // TODO: Not an actual context, rename to something like `WidgetTypeFamily`
 pub trait WidgetCtx: Sized + PartialEq + Clone + 'static {
@@ -142,7 +143,7 @@ pub trait GetStyle<W> {
 pub struct RenderCtx<'a, W: WidgetCtx, S = CtxUnready> {
     pub id: ElId,
     pub state: Signal<PageState<W>, ReadOnly>,
-    renderer: &'a mut W::Renderer,
+    pub renderer: &'a mut W::Renderer,
     pub layout: &'a LayoutModelNode<'a>,
     pub tree_style: TreeStyle<W::Color>,
     pub page_style: Signal<PageStyle<W::Color>, ReadOnly>,
@@ -150,10 +151,15 @@ pub struct RenderCtx<'a, W: WidgetCtx, S = CtxUnready> {
     pub fonts: Signal<FontCtx, ReadOnly>,
     pub theme: Inert<Theme<W::Color>>,
     pub font_props: FontProps,
-    force_redraw: Trigger,
-    parent_dirty: bool,
+    pub force_redraw: Signal<bool>,
+    pub parent_dirty: bool,
 
-    ctx_state: PhantomData<S>,
+    // Nesting level only used for redraw debugging, making different colors on each call to distinguish between elements.
+    pub nesting_level: usize,
+
+    pub call: usize,
+
+    pub ctx_state: PhantomData<S>,
 }
 
 impl<'a, W: WidgetCtx> RenderCtx<'a, W, RenderSelf> {
@@ -206,10 +212,10 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
         &mut self,
         id: ElId,
         child_layout: &LayoutModelNode,
-        f: impl FnOnce(&mut RenderCtx<'_, W, CtxUnready>) -> R,
+        f: impl FnOnce(RenderCtx<'_, W, CtxUnready>) -> R,
     ) -> R {
         let font_props = child_layout.font_props().unwrap_or(self.font_props);
-        f(&mut (RenderCtx {
+        f(RenderCtx {
             id,
             state: self.state,
             renderer: self.renderer,
@@ -222,17 +228,19 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
             font_props,
             force_redraw: self.force_redraw,
             parent_dirty: self.parent_dirty,
+            nesting_level: self.nesting_level + 1,
+            call: self.call,
             ctx_state: PhantomData,
-        }))
+        })
     }
 
     #[must_use]
     pub fn with_tree_style<R>(
         &mut self,
         tree_style: impl FnOnce(TreeStyle<W::Color>) -> TreeStyle<W::Color>,
-        f: impl FnOnce(&mut RenderCtx<'_, W, S>) -> R,
+        f: impl FnOnce(RenderCtx<'_, W, S>) -> R,
     ) -> R {
-        f(&mut (RenderCtx {
+        f(RenderCtx {
             id: self.id,
             state: self.state,
             renderer: self.renderer,
@@ -245,16 +253,18 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
             font_props: self.font_props,
             force_redraw: self.force_redraw,
             parent_dirty: self.parent_dirty,
+            nesting_level: self.nesting_level,
+            call: self.call,
             ctx_state: PhantomData,
-        }))
+        })
     }
 
     pub fn clip_inner(
         &mut self,
-        f: impl FnOnce(&mut RenderCtx<'_, W, S>) -> RenderResult,
+        f: impl FnOnce(RenderCtx<'_, W, S>) -> RenderResult,
     ) -> RenderResult {
         self.renderer.clipped(self.layout.inner, |renderer| {
-            f(&mut (RenderCtx {
+            f(RenderCtx {
                 id: self.id,
                 state: self.state,
                 renderer,
@@ -267,8 +277,10 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
                 font_props: self.font_props,
                 force_redraw: self.force_redraw,
                 parent_dirty: self.parent_dirty,
+                nesting_level: self.nesting_level + 1,
+                call: self.call,
                 ctx_state: PhantomData,
-            }))
+            })
         })
     }
 
@@ -283,61 +295,40 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
 }
 
 impl<'a, W: WidgetCtx + 'static> RenderCtx<'a, W, CtxUnready> {
-    pub fn new(
-        id: ElId,
-        state: Signal<PageState<W>, ReadOnly>,
-        renderer: &'a mut W::Renderer,
-        layout: &'a LayoutModelNode<'a>,
-        tree_style: TreeStyle<W::Color>,
-        page_style: Signal<PageStyle<W::Color>, ReadOnly>,
-        viewport: MaybeReactive<Size>,
-        fonts: Signal<FontCtx, ReadOnly>,
-        theme: Inert<Theme<W::Color>>,
-        font_props: FontProps,
-        force_redraw: Trigger,
-    ) -> Self {
-        Self {
-            id,
-            state,
-            renderer,
-            layout,
-            tree_style,
-            page_style,
-            viewport,
-            fonts,
-            theme,
-            font_props,
-            force_redraw,
-            parent_dirty: false,
-            ctx_state: PhantomData,
-        }
-    }
-
     /// Render part of the widget that is dependent on some reactive state.
     // Note: Display is required for logs, but as for now, all render_part calls are used with a string to be hashed, so we either require it to always be a string or keep it so, idk.
     pub fn render_part<H: Display + Hash + Copy>(
         &mut self,
         hash_source: H,
-        f: impl FnOnce(&mut RenderCtx<'_, W, RenderSelf>) -> RenderResult,
+        f: impl FnOnce(RenderCtx<'_, W, RenderSelf>) -> RenderResult,
     ) -> RenderResult {
         let render_id = WithElId::new(self.id, hash_source);
 
+        // If the parent already cleared the area, force this child observer
+        // to re-run so it redraws into the now-cleared region.
         if self.parent_dirty {
             get_observer(render_id).map(|observer| observer.dirten());
         }
 
-        observe(render_id, || {
-            debug!("Render {} [#{:?}]", hash_source, self.id);
+        let result = observe(render_id, || {
+            debug!(
+                "{:indent$}Render {} [#{:?}]",
+                "",
+                hash_source,
+                self.id,
+                indent = self.nesting_level
+            );
 
-            // Clear outer only of a dirten child with a clean parent to avoid unnecessary clears of smaller rects.
-            if !self.parent_dirty {
+            // Clear our own rect only when the parent hasn't already cleared
+            // the containing area (avoids redundant smaller fills inside a
+            // larger background that was already repainted).
+            if self.force_redraw.get() {
                 self.clear_outer()?;
             }
 
-            self.parent_dirty = true;
-            self.force_redraw.track();
-
-            f(&mut (RenderCtx {
+            // Pass parent_dirty=true into the closure so children of this
+            // render_part know the area is already cleared.
+            f(RenderCtx {
                 id: self.id,
                 state: self.state,
                 renderer: self.renderer,
@@ -349,18 +340,27 @@ impl<'a, W: WidgetCtx + 'static> RenderCtx<'a, W, CtxUnready> {
                 theme: self.theme,
                 font_props: self.font_props,
                 force_redraw: self.force_redraw,
-                parent_dirty: self.parent_dirty,
+                parent_dirty: true,
+                nesting_level: self.nesting_level + 1,
+                call: self.call + 1,
                 ctx_state: PhantomData,
-            }))
-        })
-        .unwrap_or(RenderResult::Ok(()))
+            })
+        });
+
+        // Propagate dirty state back to self so sibling render_part / render_child
+        // calls on the same ctx see that the area has been painted.
+        if result.is_some() {
+            self.parent_dirty = true;
+        }
+
+        result.unwrap_or(RenderResult::Ok(()))
     }
 
     #[must_use]
     pub fn render_self(
         &mut self,
         widget_name: &str,
-        f: impl FnOnce(&mut RenderCtx<'_, W, RenderSelf>) -> RenderResult,
+        f: impl FnOnce(RenderCtx<'_, W, RenderSelf>) -> RenderResult,
     ) -> RenderResult {
         let render_id = format!("{widget_name}_[render_self]");
         self.render_part(&render_id, f)
@@ -376,16 +376,13 @@ impl<'a, W: WidgetCtx + 'static> RenderCtx<'a, W, CtxUnready> {
         &mut self,
         children: C,
     ) -> RenderResult {
-        let prev_dirty = self.parent_dirty;
-        let result = children.zip_eq(self.layout.children()).try_for_each(
+        children.zip_eq(self.layout.children()).try_for_each(
             |(child, child_layout)| {
                 self.for_child(child.id(), &child_layout, |ctx| {
                     child.render(ctx)
                 })
             },
-        );
-        self.parent_dirty = prev_dirty;
-        result
+        )
     }
 
     #[must_use]
@@ -394,26 +391,57 @@ impl<'a, W: WidgetCtx + 'static> RenderCtx<'a, W, CtxUnready> {
         children: &MaybeSignal<Vec<El<W>>>,
     ) -> RenderResult {
         let render_id = WithElId::new(self.id, "render_children");
-        observe(render_id, || {
-            debug!("Render children [#{:?}]", self.id);
 
-            self.force_redraw.track();
+        // If the parent already cleared the area, force the render_children
+        // observer to re-run so children repaint into the cleared region.
+        if self.parent_dirty {
+            get_observer(render_id).map(|observer| observer.dirten());
+        }
+
+        // TODO: Create observe_with_force that forces execution based on boolean (for this case -- parent_dirty)
+        let result = observe(render_id, || {
+            debug!(
+                "{:indent$}Render children [#{:?}]",
+                "",
+                self.id,
+                indent = self.nesting_level
+            );
+
+            // Rendering children does not require to clear the rect unless force redraw is called. Because rendering children is done in such widgets that may not have render_self, meaning that nothing is drawn before the children, this allows safely redrawing only the children that are changed.
+            if !self.parent_dirty && self.force_redraw.get() {
+                self.clear_outer()?;
+            }
 
             children.with(|children| {
                 children.iter().zip_eq(self.layout.children()).try_for_each(
                     |(child, child_layout)| {
+                        // Pass parent_dirty through so children know whether
+                        // the containing area has already been cleared.
                         self.for_child(child.id(), &child_layout, |ctx| {
                             child.render(ctx)
                         })
                     },
                 )
             })
-        })
-        .unwrap_or(RenderResult::Ok(()))
+        });
+
+        result.unwrap_or(RenderResult::Ok(()))
     }
 
     #[must_use]
     fn clear_outer(&mut self) -> RenderResult {
+        // TODO: Feature-gated or debug-redraw flag
+        // Debug redraws, works good only for colors with alpha. But we can use some bright background too
+        // self.renderer.rect(
+        //     self.layout.outer,
+        //     &DrawStyle::default().fill(
+        //         W::Color::accents()
+        //             [(self.nesting_level + self.call) % ACCENT_COUNT],
+        //     ),
+        //     // .stroke(W::Color::accents()[4])
+        //     // .stroke_width(1),
+        // )
+
         self.page_style.with(|style| {
             if let Some(bg) = style.background_color {
                 self.renderer.fill_solid(self.layout.outer, bg).map_err(|_| ())

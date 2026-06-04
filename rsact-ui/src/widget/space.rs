@@ -71,7 +71,7 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Space<W, Dir> {
         self.layout
     }
 
-    fn render(&self, _ctx: &mut RenderCtx<'_, W>) -> RenderResult {
+    fn render(&self, _ctx: RenderCtx<'_, W>) -> RenderResult {
         Ok(())
     }
 

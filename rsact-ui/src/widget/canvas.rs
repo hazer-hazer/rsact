@@ -227,8 +227,8 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
     }
 
     #[track_caller]
-    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
-        ctx.render_self("Canvas", |ctx| {
+    fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
+        ctx.render_self("Canvas", |mut ctx| {
             self.queue.queue.track();
 
             while let Some(command) = self.queue.pop() {

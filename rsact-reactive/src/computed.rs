@@ -93,10 +93,7 @@ pub struct Computed<T> {
 impl<T: 'static, U: PartialEq + 'static> SignalMap<T, U> for Computed<T> {
     type Output = Memo<U>;
 
-    fn map(
-        &self,
-        mut map: impl FnMut(&T) -> U + 'static,
-    ) -> Self::Output {
+    fn map(&self, mut map: impl FnMut(&T) -> U + 'static) -> Self::Output {
         let this = *self;
         create_memo(move || this.with(&mut map))
     }
@@ -113,9 +110,9 @@ impl<T: 'static> ReactiveValue for Computed<T> {
         with_current_runtime(|rt| rt.is_alive(self.id))
     }
 
-    unsafe fn dispose(self) { unsafe {
-        with_current_runtime(|rt| rt.dispose(self.id))
-    }}
+    unsafe fn dispose(self) {
+        unsafe { with_current_runtime(|rt| rt.dispose(self.id)) }
+    }
 }
 
 impl<T: 'static> ReadSignal<T> for Computed<T> {

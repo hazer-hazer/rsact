@@ -1,7 +1,4 @@
-use super::{
-    container::Container,
-    label::Label,
-};
+use super::{container::Container, label::Label};
 use crate::{
     declare_widget_style,
     layout::{LayoutKind, model::LayoutModelNode},
@@ -271,10 +268,10 @@ impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> Widget<W>
     }
 
     #[track_caller]
-    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
+    fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
         let children_layouts = ctx.layout.children().collect::<Vec<_>>();
 
-        ctx.render_self("Select", |ctx| {
+        ctx.render_self("Select", |mut ctx| {
             let style = ctx.get_style(|t| t.select, self.style.as_deref());
             let state = self.state.get();
 
@@ -303,14 +300,14 @@ impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> Widget<W>
             ctx.render_focus_outline(ctx.id)
         })?;
 
-        ctx.render_part("options", |ctx| {
+        ctx.render_part("options", |mut ctx| {
             let state = self.state.get();
             let style = ctx.get_style(|t| t.select, self.style.as_deref());
             let (options_offset, _) =
                 state.options_offset(ctx.layout.inner, &children_layouts);
 
             self.options.with(move |options| {
-                ctx.clip_inner(|ctx| {
+                ctx.clip_inner(|mut ctx| {
                     options
                         .iter()
                         .zip_eq(children_layouts.iter())
@@ -327,7 +324,7 @@ impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> Widget<W>
                                         .get(),
                                     )
                                 },
-                                |ctx| {
+                                |mut ctx| {
                                     let option = option.el.borrow();
                                     ctx.for_child(
                                         option.id(),

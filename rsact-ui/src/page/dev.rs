@@ -6,7 +6,6 @@ use crate::{
     prelude::{BlockStyle, BorderStyle},
     render::color::Color,
 };
-use log::debug;
 use rsact_reactive::prelude::*;
 
 #[derive(Default)]
@@ -17,6 +16,13 @@ pub struct DevTools {
 
 pub struct DevHoveredEl {
     pub layout: DevHoveredLayout,
+}
+
+impl PartialEq for DevHoveredEl {
+    fn eq(&self, other: &Self) -> bool {
+        // TODO: Better equality
+        self.layout.area == other.layout.area
+    }
 }
 
 impl DevHoveredEl {
@@ -56,7 +62,7 @@ impl DevHoveredEl {
                     size: 12,
                     style: crate::font::FontStyle::Normal,
                 },
-                area,
+                Rect::top_left(viewport),
                 text_color,
                 r,
             )

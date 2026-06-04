@@ -98,11 +98,8 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
         self.layout
     }
 
-    fn render(
-        &self,
-        ctx: &mut RenderCtx<'_, W>,
-    ) -> crate::widget::RenderResult {
-        ctx.render_self("Container", |ctx| {
+    fn render(&self, mut ctx: RenderCtx<'_, W>) -> crate::widget::RenderResult {
+        ctx.render_self("Container", |mut ctx| {
             let base = BlockStyle::base();
             let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
 

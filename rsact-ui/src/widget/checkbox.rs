@@ -1,10 +1,7 @@
-use super::{
-    ContainerLayout,
-    icon::Icon,
-};
+use super::{ContainerLayout, icon::Icon};
 use crate::widget::prelude::*;
-use rsact_tiny_icons::system::SystemIcon;
 use rsact_reactive::prelude::*;
+use rsact_tiny_icons::system::SystemIcon;
 
 #[derive(Clone, Copy)]
 pub struct CheckboxState {
@@ -83,9 +80,9 @@ impl<W: WidgetCtx> Widget<W> for Checkbox<W> {
 
     fn render(
         &self,
-        ctx: &mut crate::widget::RenderCtx<'_, W>,
+        mut ctx: crate::widget::RenderCtx<'_, W>,
     ) -> crate::widget::RenderResult {
-        ctx.render_self("Checkbox", |ctx| {
+        ctx.render_self("Checkbox", |mut ctx| {
             let style = ctx.get_style(|t| t.checkbox, self.style.as_deref());
 
             Block::from_layout_style(

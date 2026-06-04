@@ -1,9 +1,8 @@
 use crate::{
     render::color::Color,
     widget::{
-        bar::BarStyle, button::ButtonStyle, knob::KnobStyle,
+        bar::BarStyle, button::ButtonStyle, knob::KnobStyle, label::LabelStyle,
         scrollable::ScrollableStyle, select::SelectStyle, slider::SliderStyle,
-        label::LabelStyle,
     },
 };
 
@@ -23,7 +22,7 @@ pub struct Theme<C: Color> {
     pub scrollable: ScrollableStyle<C>,
     pub select: SelectStyle<C>,
     pub slider: SliderStyle<C>,
-    pub text: LabelStyle<C>,
+    pub label: LabelStyle<C>,
 }
 
 impl<C: Color> Default for Theme<C> {
@@ -39,7 +38,7 @@ impl<C: Color> Default for Theme<C> {
             scrollable: ScrollableStyle::base(),
             select: SelectStyle::base(),
             slider: SliderStyle::base(),
-            text: LabelStyle::base(),
+            label: LabelStyle::base(),
         }
     }
 }

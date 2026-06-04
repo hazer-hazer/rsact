@@ -20,6 +20,10 @@ impl Rect {
         Self { top_left, size }
     }
 
+    pub const fn top_left(size: Size) -> Self {
+        Self { top_left: Point::new(0, 0), size }
+    }
+
     pub const fn zero() -> Self {
         Self { top_left: Point::zero(), size: Size::zero() }
     }

@@ -172,9 +172,9 @@ impl<T: PartialEq + 'static> ReactiveValue for MemoChain<T> {
         with_current_runtime(|rt| rt.is_alive(self.id))
     }
 
-    unsafe fn dispose(self) { unsafe {
-        with_current_runtime(|rt| rt.dispose(self.id))
-    }}
+    unsafe fn dispose(self) {
+        unsafe { with_current_runtime(|rt| rt.dispose(self.id)) }
+    }
 }
 
 impl<T: PartialEq + 'static, U: PartialEq + 'static> SignalMap<T, U>

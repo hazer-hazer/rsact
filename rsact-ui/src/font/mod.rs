@@ -159,6 +159,7 @@ pub enum FontStyle {
     // Oblique,
 }
 
+pub struct TextStyle {}
 
 /// Resolved font properties
 #[derive(Debug, Clone, Copy)]

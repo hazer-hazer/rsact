@@ -200,7 +200,7 @@ impl<W: WidgetCtx> Widget<W> for Unit {
     }
 
     #[track_caller]
-    fn render(&self, ctx: &mut super::RenderCtx<'_, W>) -> super::RenderResult {
+    fn render(&self, ctx: super::RenderCtx<'_, W>) -> super::RenderResult {
         let _ = ctx;
         Ok(())
     }
@@ -227,7 +227,7 @@ impl<W: WidgetCtx> Widget<W> for Option<El<W>> {
     }
 
     #[track_caller]
-    fn render(&self, ctx: &mut super::RenderCtx<'_, W>) -> super::RenderResult {
+    fn render(&self, ctx: super::RenderCtx<'_, W>) -> super::RenderResult {
         self.as_ref().map(|widget| widget.render(ctx)).unwrap_or(Ok(()))
     }
 
@@ -246,7 +246,7 @@ impl<W: WidgetCtx> Widget<W> for Option<El<W>> {
 //     }
 
 //     fn layout(&self) -> Layout {
-        
+
 //     }
 
 //     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {

@@ -13,8 +13,7 @@ use u8g2_fonts::FontRenderer;
 fn main() {
     env_logger::init();
 
-    let output_settings =
-        OutputSettingsBuilder::new().scale(5).build();
+    let output_settings = OutputSettingsBuilder::new().scale(5).build();
 
     let mut window = Window::new("FLEX", &output_settings);
 

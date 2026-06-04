@@ -14,7 +14,13 @@ where
 }
 
 pub struct Dynamic<W: WidgetCtx> {
+    // Child that always some after construction, option is needed to be set on initialization
+    // TODO: MaybeUninit can be used for optimization.
     current: Signal<Option<El<W>>>,
+
+    // TODO: Track previous element on change to dispose it from arena.
+
+    // Layout needs to be stored separately to return it from
     layout: Layout,
 }
 
@@ -55,7 +61,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Dynamic<W> {
     }
 
     #[track_caller]
-    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
+    fn render(&self, ctx: RenderCtx<'_, W>) -> RenderResult {
         self.current.with(|current| current.as_ref().unwrap().render(ctx))
     }
 
