@@ -1,5 +1,5 @@
 use crate::{
-    el::{El, ElId},
+    el::*,
     event::{
         Capture, Event, EventResponse, FocusEvent, MouseEvent, Propagate,
         UnhandledEvent,
@@ -11,7 +11,7 @@ use crate::{
     },
     render::prelude::*,
     style::{TreeStyle, theme::Theme},
-    widget::{Behavior, Widget, ctx::*},
+    widget::{Behavior, Widget},
 };
 use alloc::vec::Vec;
 use core::marker::PhantomData;
@@ -542,11 +542,8 @@ impl<W: WidgetCtx> Page<W> {
 mod tests {
     use super::{Page, dev::DevTools};
     use crate::{
-        el::El,
-        font::FontCtx,
-        prelude::*,
-        style::theme::Theme,
-        widget::{Widget, ctx::*},
+        el::El, el::ctx::*, font::FontCtx, prelude::*, style::theme::Theme,
+        widget::Widget,
     };
     use alloc::string::String;
     use rsact_reactive::prelude::*;

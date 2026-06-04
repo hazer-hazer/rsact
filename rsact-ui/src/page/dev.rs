@@ -1,6 +1,6 @@
 use crate::font::FontCtx;
 use crate::render::prelude::*;
-use crate::widget::ctx::WidgetCtx;
+use crate::el::ctx::WidgetCtx;
 use crate::{
     layout::DevHoveredLayout,
     prelude::{BlockStyle, BorderStyle},

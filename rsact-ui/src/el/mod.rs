@@ -2,12 +2,21 @@ use crate::widget::prelude::*;
 use alloc::boxed::Box;
 use core::sync::atomic::AtomicUsize;
 
+pub mod ctx;
+pub mod event;
+pub mod render;
+
+pub use ctx::*;
+pub use event::*;
+pub use render::*;
+
 static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "defmt", derive(::defmt::Format))]
 pub enum ElId {
     Unique(usize),
+    // TODO: Remove custom id, its useless as we don't support selectors, may only be useful for debugging purposes.
     Custom(&'static str),
 }
 
@@ -42,23 +51,18 @@ impl<T> WithElId<T> {
     }
 }
 
+pub struct ElData<W: WidgetCtx> {
+    // TODO: If rsact-reactive would support ?Sized as a real smart-pointer we could do MaybeReactive<dyn Widget<W>>, so reactive elements creation would be possible in place. But the problem is that MaybeReactive is a readonly value, while MaybeSignal is owned stack value/Signal, so we either change the MaybeSignal to StoredValue/Signal or create a new MaybeSignal-like value with heap storage.
+    // We can't, Rust does not allow unsized fields in structs, only through internal Box, Rc, etc. So we cannot make a custom arena-allocated smart pointer.
+    widget: Box<dyn Widget<W>>,
+}
+
 pub struct El<W>
 where
     W: WidgetCtx,
 {
-    // TODO: If rsact-reactive would support ?Sized as a real smart-pointer we could do MaybeReactive<dyn Widget<W>>, so reactive elements creation would be possible in place. But the problem is that MaybeReactive is a readonly value, while MaybeSignal is owned stack value/Signal, so we either change the MaybeSignal to StoredValue/Signal or create a new MaybeSignal-like value with heap storage.
-    // We can't, Rust does not allow unsized fields in structs, only through internal Box, Rc, etc. So we cannot make a custom arena-allocated smart pointer.
     widget: Box<dyn Widget<W>>,
     id: ElId,
-}
-
-impl<W> PartialEq for El<W>
-where
-    W: WidgetCtx,
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
 }
 
 impl<W> El<W>

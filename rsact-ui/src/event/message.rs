@@ -1,6 +1,6 @@
 use crate::{
     anim::{Anim, AnimHandle},
-    widget::ctx::WidgetCtx,
+    el::ctx::WidgetCtx,
 };
 use alloc::vec::Vec;
 use rsact_reactive::prelude::*;

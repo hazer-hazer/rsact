@@ -5,7 +5,6 @@ pub mod canvas;
 pub mod checkbox;
 pub mod combinators;
 pub mod container;
-pub mod ctx;
 pub mod dynamic;
 pub mod edge;
 pub mod flex;
@@ -304,7 +303,7 @@ pub trait FontSettingWidget<W: WidgetCtx>: Widget<W> + Sized + 'static {
 pub mod prelude {
     pub use crate::render::prelude::*;
     pub use crate::{
-        el::{El, ElId},
+        el::*,
         event::{
             Capture, Event, EventResponse, FocusEvent, Propagate,
             message::UiMessage,
@@ -320,7 +319,7 @@ pub mod prelude {
         style::declare_widget_style,
         widget::{
             BlockModelWidget, FontSettingWidget, Meta, MetaTree, SizedWidget,
-            Widget, ctx::*,
+            Widget,
         },
     };
     pub use alloc::{boxed::Box, string::String, vec::Vec};
