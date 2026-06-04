@@ -207,6 +207,13 @@ impl<W: WidgetCtx + 'static, Dir: Direction + 'static> FontSettingWidget<W>
 }
 
 impl<W: WidgetCtx + 'static, Dir: Direction> Widget<W> for Flex<W, Dir> {
+    fn build(&mut self, ctx: build::BuildCtx<W>) {
+        self.children.maybe_effect(move |children, _| {
+            // TODO: Reconcile children, this does not delete old children now.
+            ctx.add_children(children);
+        });
+    }
+
     fn meta(&self, id: ElId) -> MetaTree {
         MetaTree::new(
             Meta::none(),

@@ -1,3 +1,4 @@
+use crate::el::arena::ElArena;
 use crate::event::*;
 use crate::{layout::model::LayoutModelNode, widget::prelude::*};
 use itertools::Itertools as _;
@@ -10,19 +11,6 @@ pub struct EventCtx<'a, W: WidgetCtx> {
     // TODO: Instant now, already can get it from queue!
 }
 
-impl<'a, W: WidgetCtx> Copy for EventCtx<'a, W> {}
-
-impl<'a, W: WidgetCtx> Clone for EventCtx<'a, W> {
-    fn clone(&self) -> Self {
-        Self {
-            id: self.id.clone(),
-            event: self.event,
-            page_state: self.page_state.clone(),
-            layout: self.layout,
-        }
-    }
-}
-
 impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
     #[must_use]
     pub fn pass_to_children(
@@ -32,8 +20,9 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
         for (child, child_layout) in
             children.iter_mut().zip_eq(self.layout.children())
         {
+            let (child_id, child) = self.arena.expect_stored_mut(child);
             child.on_event(EventCtx {
-                id: child.id(),
+                id: child_id,
                 event: self.event,
                 page_state: self.page_state,
                 layout: &child_layout,

@@ -1,5 +1,6 @@
 use crate::{
     ReactiveValue,
+    effect::create_effect,
     maybe::maybe_reactive::MaybeReactive,
     read::{ReadSignal, SignalMap, impl_read_signal_traits},
     signal::{IntoSignal, Signal, create_signal, marker},
@@ -159,6 +160,23 @@ impl<T: 'static> MaybeSignal<T> {
         match self {
             MaybeSignal::Signal(signal) => Some(*signal),
             _ => None,
+        }
+    }
+
+    pub fn maybe_effect<U: 'static>(
+        &mut self,
+        mut effect: impl FnMut(&mut T, Option<U>) -> U + 'static,
+    ) {
+        match self {
+            MaybeSignal::Inert(inert) => {
+                effect(inert.as_mut().unwrap(), None);
+            },
+            MaybeSignal::Signal(signal) => {
+                let mut signal = *signal;
+                create_effect(move |prev| {
+                    signal.update(|value| effect(value, prev))
+                });
+            },
         }
     }
 

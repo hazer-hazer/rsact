@@ -21,6 +21,7 @@ pub mod slider;
 pub mod space;
 
 use crate::{
+    el::build::BuildCtx,
     font::{Font, FontProps, FontSize, FontStyle},
     layout::length::LengthSize,
 };
@@ -138,6 +139,8 @@ where
     {
         El::new(self)
     }
+
+    fn build(&mut self, ctx: BuildCtx<W>);
 
     // TODO: Use MaybeReactive tree
     // TODO: Can rewrite so that meta is called once?
