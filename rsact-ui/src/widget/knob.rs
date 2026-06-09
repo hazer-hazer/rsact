@@ -79,8 +79,12 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
 }
 
 impl<W: WidgetCtx, V: RangeValue + 'static> Widget<W> for Knob<W, V> {
-    fn meta(&self, id: ElId) -> MetaTree {
-        MetaTree::childless(Meta::focusable(id))
+    fn debug_name(&self) -> &'static str {
+        "Knob"
+    }
+
+    fn build(&mut self, ctx: BuildCtx<W>) {
+        let _ = ctx;
     }
 
     fn layout(&self) -> Layout {

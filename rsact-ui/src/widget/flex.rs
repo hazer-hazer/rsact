@@ -1,6 +1,4 @@
-use crate::widget::{
-    BlockModelWidget, Meta, MetaTree, SizedWidget, prelude::*,
-};
+use crate::widget::{BlockModelWidget, SizedWidget, prelude::*};
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 use rsact_reactive::prelude::*;
@@ -61,7 +59,7 @@ impl<W: WidgetCtx + 'static> IntoChildren<W> for Signal<Vec<El<W>>> {
 }
 
 pub struct Flex<W: WidgetCtx, Dir: Direction> {
-    // TODO: Signal vector?
+    // TODO: Signal-vector type?
     // TODO: Can we do fixed size?
     children: MaybeSignal<Vec<El<W>>>,
     layout: Layout,
@@ -196,8 +194,11 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Flex<W, Dir> {
     // }
 }
 
-impl<W: WidgetCtx + 'static, Dir: Direction> SizedWidget<W> for Flex<W, Dir> {}
-impl<W: WidgetCtx + 'static, Dir: Direction> BlockModelWidget<W>
+impl<W: WidgetCtx + 'static, Dir: Direction + 'static> SizedWidget<W>
+    for Flex<W, Dir>
+{
+}
+impl<W: WidgetCtx + 'static, Dir: Direction + 'static> BlockModelWidget<W>
     for Flex<W, Dir>
 {
 }
@@ -206,34 +207,30 @@ impl<W: WidgetCtx + 'static, Dir: Direction + 'static> FontSettingWidget<W>
 {
 }
 
-impl<W: WidgetCtx + 'static, Dir: Direction> Widget<W> for Flex<W, Dir> {
-    fn build(&mut self, ctx: build::BuildCtx<W>) {
-        self.children.maybe_effect(move |children, _| {
-            // TODO: Reconcile children, this does not delete old children now.
-            ctx.add_children(children);
-        });
+impl<W: WidgetCtx + 'static, Dir: Direction + 'static> Widget<W>
+    for Flex<W, Dir>
+{
+    fn debug_name(&self) -> &'static str {
+        "Flex"
     }
 
-    fn meta(&self, id: ElId) -> MetaTree {
-        MetaTree::new(
-            Meta::none(),
-            self.children.map(move |children| {
-                children.iter().map(|child| child.meta(id)).collect()
-            }),
-        )
+    fn build(&mut self, mut ctx: build::BuildCtx<W>) {
+        self.children.maybe_effect(move |children, _| {
+            // TODO: Reconcile children, this does not delete old children now.
+            ctx.set_children(children);
+        });
     }
 
     fn layout(&self) -> Layout {
         self.layout
     }
 
-    fn render(&self, mut ctx: RenderCtx<'_, W>) -> crate::widget::RenderResult {
-        ctx.render_children(&self.children)
+    fn render(&self, _ctx: RenderCtx<'_, W>) -> crate::widget::RenderResult {
+        Ok(())
     }
 
-    fn on_event(&mut self, mut ctx: EventCtx<'_, W>) -> EventResponse {
-        self.children
-            .update_untracked(move |children| ctx.pass_to_children(children))
+    fn on_event(&mut self, ctx: EventCtx<'_, W>) -> EventResponse {
+        ctx.ignore()
     }
 }
 

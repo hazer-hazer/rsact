@@ -1,7 +1,8 @@
-use crate::el::arena::ElArena;
+use crate::el::arena::{ArenaChildren, ArenaEls, ElArena, ElNode};
 use crate::event::*;
 use crate::{layout::model::LayoutModelNode, widget::prelude::*};
 use itertools::Itertools as _;
+use log::{error, warn};
 
 pub struct EventCtx<'a, W: WidgetCtx> {
     pub id: ElId,
@@ -12,28 +13,83 @@ pub struct EventCtx<'a, W: WidgetCtx> {
 }
 
 impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
-    #[must_use]
-    pub fn pass_to_children(
-        &mut self,
-        children: &mut [El<W>],
+    pub fn run<'arena>(
+        id: ElId,
+        arena: &'arena mut ElArena<W>,
+        event: &'a Event<W::CustomEvent>,
+        page_state: Signal<PageState<W>>,
+        layout: &'a LayoutModelNode<'a>,
     ) -> EventResponse {
-        for (child, child_layout) in
-            children.iter_mut().zip_eq(self.layout.children())
-        {
-            let (child_id, child) = self.arena.expect_stored_mut(child);
-            child.on_event(EventCtx {
-                id: child_id,
-                event: self.event,
-                page_state: self.page_state,
-                layout: &child_layout,
-            })?;
-        }
-        self.ignore()
+        let mut ctx = Self { id, event, page_state, layout };
+        ctx.run_(id, &mut arena.els, &arena.children)
     }
 
-    pub fn pass_to_child(&mut self, child: &mut El<W>) -> EventResponse {
-        self.pass_to_children(core::slice::from_mut(child))
+    fn run_<'arena>(
+        &mut self,
+        el: ElId,
+        arena: &'arena mut ArenaEls<W>,
+        children: &'arena ArenaChildren,
+    ) -> EventResponse {
+        if let Some(children_ids) = children.get(el) {
+            for child in children_ids {
+                self.run_(*child, arena, children)?;
+            }
+        }
+
+        self.run_el(el, arena)
     }
+
+    fn run_el<'arena>(
+        &mut self,
+        id: ElId,
+        arena: &'arena mut ArenaEls<W>,
+    ) -> EventResponse {
+        if let Some(el) = arena.get_mut(id).as_mut() {
+            if let Some(data) = el.data.as_mut() {
+                data.widget.on_event(Self {
+                    id,
+                    event: self.event,
+                    page_state: self.page_state,
+                    layout: self.layout,
+                })
+            } else {
+                error!(
+                    "Trying to run event on element with id {:?} that has no data",
+                    id
+                );
+                self.ignore()
+            }
+        } else {
+            error!(
+                "Trying to run event on non-existent element with id {:?}",
+                id
+            );
+            self.ignore()
+        }
+    }
+
+    // #[must_use]
+    // pub fn pass_to_children(
+    //     &mut self,
+    //     children: &mut [El<W>],
+    // ) -> EventResponse {
+    //     for (child, child_layout) in
+    //         children.iter_mut().zip_eq(self.layout.children())
+    //     {
+    //         let (child_id, child) = self.arena.expect_stored_mut(child);
+    //         child.on_event(EventCtx {
+    //             id: child_id,
+    //             event: self.event,
+    //             page_state: self.page_state,
+    //             layout: &child_layout,
+    //         })?;
+    //     }
+    //     self.ignore()
+    // }
+
+    // pub fn pass_to_child(&mut self, child: &mut El<W>) -> EventResponse {
+    //     self.pass_to_children(core::slice::from_mut(child))
+    // }
 
     pub fn is_focused(&self) -> bool {
         self.page_state.with(|page_state| page_state.is_focused(self.id))
@@ -219,6 +275,6 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
 
     #[inline]
     pub fn ignore(&self) -> EventResponse {
-        EventResponse::Continue(Propagate::Ignored)
+        EventResponse::Continue(())
     }
 }

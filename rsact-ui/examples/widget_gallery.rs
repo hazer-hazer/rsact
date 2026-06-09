@@ -52,20 +52,31 @@ fn main() {
 
     window.update(&display);
 
-    let widget = create_signal(WidgetTab::Button);
-    let select_widget =
-        Select::vertical(widget, WidgetTab::each().collect::<Vec<_>>().inert());
+    let mut widget = create_signal(WidgetTab::Button);
+    // let select_widget =
+    //     Select::vertical(widget, WidgetTab::each().collect::<Vec<_>>().inert());
+
+    let select_widget = Flex::col(
+        WidgetTab::each()
+            .map(|w| {
+                Button::new(w.to_string())
+                    .on_click(move || {
+                        widget.set(w);
+                    })
+                    .el()
+            })
+            .collect::<Vec<_>>(),
+    )
+    .fill();
 
     let widget_view = Container::new(
         dynamic(move || match widget.get() {
-            WidgetTab::Button => Button::new("Button").el(),
+            WidgetTab::Button => Button::new("Some button text").el(),
         })
         .el(),
     );
 
-    let page = row![col![select_widget].fill(), col![widget_view].fill()]
-        .center()
-        .fill();
+    let page = row![select_widget, col![widget_view].fill()].center().fill();
 
     let mut ui = UI::new(
         Theme::default(),

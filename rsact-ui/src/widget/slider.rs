@@ -1,7 +1,4 @@
-use crate::{
-    declare_widget_style,
-    widget::{Meta, MetaTree, prelude::*},
-};
+use crate::{declare_widget_style, widget::prelude::*};
 use core::{marker::PhantomData, ops::RangeInclusive};
 use rsact_reactive::prelude::*;
 
@@ -137,9 +134,13 @@ impl<W: WidgetCtx> Slider<W, RowDir> {
     }
 }
 
-impl<W: WidgetCtx, Dir: Direction> Widget<W> for Slider<W, Dir> {
-    fn meta(&self, id: ElId) -> MetaTree {
-        MetaTree::childless(Meta::focusable(id))
+impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Slider<W, Dir> {
+    fn debug_name(&self) -> &'static str {
+        "Slider"
+    }
+
+    fn build(&mut self, ctx: BuildCtx<W>) {
+        let _ = ctx;
     }
 
     fn layout(&self) -> Layout {

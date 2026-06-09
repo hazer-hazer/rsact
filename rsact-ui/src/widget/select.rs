@@ -2,7 +2,7 @@ use super::{container::Container, label::Label};
 use crate::{
     declare_widget_style,
     layout::{LayoutKind, model::LayoutModelNode},
-    widget::{Meta, MetaTree, prelude::*},
+    widget::prelude::*,
 };
 use alloc::string::ToString;
 use core::{cell::RefCell, fmt::Display, marker::PhantomData};
@@ -73,8 +73,7 @@ impl<C: Color> SelectStyle<C> {
 
 pub struct SelectOption<W: WidgetCtx, K: PartialEq> {
     key: K,
-    // TODO: This RefCell needed to do on_mount for memoized (i.e. readonly) options. But it if we won't require options to depend on global states, we can get rid of this RefCell. For example, fonts and styles can be given by Select widget states/styles.
-    el: RefCell<El<W>>,
+    el: El<W>,
 }
 
 impl<W: WidgetCtx, K: PartialEq> SelectOption<W, K> {
@@ -85,11 +84,9 @@ impl<W: WidgetCtx, K: PartialEq> SelectOption<W, K> {
         let string = key.to_string();
         SelectOption {
             key,
-            el: RefCell::new(
-                Container::new(Label::new(string.inert()).el())
-                    .padding(5u32)
-                    .el(),
-            ),
+            el: Container::new(Label::new(string.inert()).el())
+                .padding(5u32)
+                .el(),
         }
     }
 }
@@ -155,7 +152,7 @@ where
 
         let mut selected = selected.maybe_signal();
 
-        // TODO: This maybe reactive optimization not working, as when selected is inert, it is then converted into a signal inside `selected.setter`, but this signal is unavailable outside, user still holds they Inert value and selected signal doesn't need to be tracked. So we either do runtime check like `if selected.is_inert() { ... }` or we just require selected to always be a signal. Or we can do two constructors: one for inert selected and one for reactive selected.
+        // TODO: This maybe-reactive optimization not working, as when selected is inert, it is then converted into a signal inside `selected.setter`, but this signal is unavailable outside, user still holds they Inert value and selected signal doesn't need to be tracked. So we either do runtime check like `if selected.is_inert() { ... }` or we just require selected to always be a signal. Or we can do two constructors: one for inert selected and one for reactive selected.
         // TODO: ... For this to work as expected we need `SelectState` to be Signal still its `selected` to be mapped as MaybeReactive. Select widget stylist expects full `SelectState` to be a signal.
         // TODO: ... What idea I like is just to remove `SignalSetter` implementation from `MaybeSignal` to avoid such problems and just dynamically check if `selected` is reactive or inert and create setter effect depending on that.
         // TODO: ... Wait wait wait. We receive selected and then make a setter for it, why not just put it inside the `SelectState`? It's not a problem to pass this when accepting styles as it's just a copy-type boolean.
@@ -183,10 +180,7 @@ where
                     FlexLayout::base(
                         Dir::AXIS,
                         options.map(|options| {
-                            options
-                                .iter()
-                                .map(|opt| opt.el.borrow().layout())
-                                .collect()
+                            options.iter().map(|opt| opt.el.layout()).collect()
                         }),
                     )
                     .block_model(BlockModel::zero().padding(1u32))
@@ -238,29 +232,33 @@ where
 impl<W: WidgetCtx, K, Dir> BlockModelWidget<W> for Select<W, K, Dir>
 where
     K: PartialEq + Display + 'static,
-    Dir: Direction,
+    Dir: Direction + 'static,
 {
 }
 
 impl<W: WidgetCtx, K, Dir> SizedWidget<W> for Select<W, K, Dir>
 where
     K: PartialEq + Clone + Display + 'static,
-    Dir: Direction,
+    Dir: Direction + 'static,
 {
 }
 
-impl<W: WidgetCtx, K, Dir: 'static> FontSettingWidget<W> for Select<W, K, Dir>
+impl<W: WidgetCtx, K, Dir> FontSettingWidget<W> for Select<W, K, Dir>
 where
     K: PartialEq + Clone + Display + 'static,
-    Dir: Direction,
+    Dir: Direction + 'static,
 {
 }
 
-impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> Widget<W>
+impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction + 'static> Widget<W>
     for Select<W, K, Dir>
 {
-    fn meta(&self, id: ElId) -> MetaTree {
-        MetaTree::childless(Meta::focusable(id))
+    fn debug_name(&self) -> &'static str {
+        "Select"
+    }
+
+    fn build(&mut self, ctx: BuildCtx<W>) {
+        let _ = ctx;
     }
 
     fn layout(&self) -> Layout {
@@ -313,27 +311,29 @@ impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> Widget<W>
                         .zip_eq(children_layouts.iter())
                         .enumerate()
                         .try_for_each(|(index, (option, option_layout))| {
-                            ctx.with_tree_style(
-                                |tree_style| {
-                                    tree_style.text_color(
-                                        (if Some(index) == state.selected {
-                                            style.selected_text_color
-                                        } else {
-                                            style.text_color
-                                        })
-                                        .get(),
-                                    )
-                                },
-                                |mut ctx| {
-                                    let option = option.el.borrow();
-                                    ctx.for_child(
-                                        option.id(),
-                                        &option_layout
-                                            .translate(options_offset),
-                                        |ctx| option.render(ctx),
-                                    )
-                                },
-                            )
+                            // TODO: Need to thing how to properly handle select widget. Should options be real widgets or hidden inside Select just to render? Maybe we even don't need to have real Text widgets, instead storing only text and rendering it through renderer, but then we'll probably lose some text properties handling.
+                            todo!()
+                            // ctx.with_tree_style(
+                            //     |tree_style| {
+                            //         tree_style.text_color(
+                            //             (if Some(index) == state.selected {
+                            //                 style.selected_text_color
+                            //             } else {
+                            //                 style.text_color
+                            //             })
+                            //             .get(),
+                            //         )
+                            //     },
+                            //     |mut ctx| {
+                            //         let option = &option.el;
+                            //         ctx.for_child(
+                            //             option.id(),
+                            //             &option_layout
+                            //                 .translate(options_offset),
+                            //             |ctx| option.render(ctx),
+                            //         )
+                            //     },
+                            // )
                         })
                 })
             })

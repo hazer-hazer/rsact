@@ -80,8 +80,12 @@ impl<W: WidgetCtx + 'static> BlockModelWidget<W> for Button<W> {}
 impl<W: WidgetCtx> FontSettingWidget<W> for Button<W> {}
 
 impl<W: WidgetCtx + 'static> Widget<W> for Button<W> {
-    fn meta(&self, id: ElId) -> MetaTree {
-        MetaTree::childless(Meta::focusable_hoverable(id))
+    fn debug_name(&self) -> &'static str {
+        "Button"
+    }
+
+    fn build(&mut self, mut ctx: BuildCtx<W>) {
+        ctx.set_single_child(&mut self.content);
     }
 
     fn layout(&self) -> Layout {
@@ -101,9 +105,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Button<W> {
             .render(ctx.renderer())?;
 
             ctx.render_focus_outline(ctx.id)
-        })?;
-
-        ctx.render_child(&self.content)
+        })
     }
 
     fn on_event(&mut self, mut ctx: EventCtx<'_, W>) -> EventResponse {

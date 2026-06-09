@@ -1,7 +1,4 @@
-use crate::{
-    style::WidgetStyleFn,
-    widget::{BlockModelWidget, Meta, MetaTree, SizedWidget, prelude::*},
-};
+use crate::{style::WidgetStyleFn, widget::prelude::*};
 
 pub struct Container<W: WidgetCtx> {
     pub layout: Layout,
@@ -88,10 +85,12 @@ impl<W: WidgetCtx + 'static> BlockModelWidget<W> for Container<W> {}
 impl<W: WidgetCtx> FontSettingWidget<W> for Container<W> {}
 
 impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
-    fn meta(&self, id: ElId) -> MetaTree {
-        let content_tree = self.content.meta(id);
+    fn debug_name(&self) -> &'static str {
+        "Container"
+    }
 
-        MetaTree::new(Meta::none(), vec![content_tree].inert())
+    fn build(&mut self, mut ctx: BuildCtx<W>) {
+        ctx.set_single_child(&mut self.content);
     }
 
     fn layout(&self) -> Layout {
@@ -109,13 +108,11 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
                 style,
             )
             .render(ctx.renderer())
-        })?;
-
-        ctx.render_child(&self.content)
+        })
     }
 
-    fn on_event(&mut self, mut ctx: EventCtx<'_, W>) -> EventResponse {
+    fn on_event(&mut self, ctx: EventCtx<'_, W>) -> EventResponse {
         // self.content.control_flow(|content| ctx.pass_to_child(content))
-        ctx.pass_to_child(&mut self.content)
+        ctx.ignore()
     }
 }

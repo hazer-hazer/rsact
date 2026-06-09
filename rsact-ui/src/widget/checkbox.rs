@@ -70,8 +70,12 @@ impl<W: WidgetCtx> Checkbox<W> {
 }
 
 impl<W: WidgetCtx> Widget<W> for Checkbox<W> {
-    fn meta(&self, id: ElId) -> MetaTree {
-        MetaTree::childless(Meta::focusable(id))
+    fn debug_name(&self) -> &'static str {
+        "Checkbox"
+    }
+
+    fn build(&mut self, mut ctx: BuildCtx<W>) {
+        ctx.set_single_child(&mut self.icon);
     }
 
     fn layout(&self) -> Layout {
@@ -82,20 +86,16 @@ impl<W: WidgetCtx> Widget<W> for Checkbox<W> {
         &self,
         mut ctx: crate::widget::RenderCtx<'_, W>,
     ) -> crate::widget::RenderResult {
-        ctx.render_self("Checkbox", |mut ctx| {
-            let style = ctx.get_style(|t| t.checkbox, self.style.as_deref());
+        let style = ctx.get_style(|t| t.checkbox, self.style.as_deref());
 
-            Block::from_layout_style(
-                ctx.layout.outer,
-                self.layout.with(|layout| layout.block_model()),
-                style.container,
-            )
-            .render(ctx.renderer())?;
+        Block::from_layout_style(
+            ctx.layout.outer,
+            self.layout.with(|layout| layout.block_model()),
+            style.container,
+        )
+        .render(ctx.renderer())?;
 
-            ctx.render_focus_outline(ctx.id)
-        })?;
-
-        ctx.render_child(&self.icon)?;
+        ctx.render_focus_outline(ctx.id)?;
 
         Ok(())
     }

@@ -1,3 +1,4 @@
+use crate::el::arena::ElArena;
 use crate::font::FontImport;
 use crate::{
     el::El,
@@ -37,6 +38,8 @@ impl HasPages for WithPages {}
 pub struct UI<W: WidgetCtx, P: HasPages> {
     page_history: TinyVec<[W::PageId; 1]>,
     pages: BTreeMap<W::PageId, Page<W>>,
+    // TODO: Per-page arena, then we can rebuild the whole page to save memory. But the problem is that then pages need to be functions not static data, because we need full recreation, otherwise we cannot clear its data and go to this page again.
+    arena: Signal<ElArena<W>>,
     viewport: MaybeReactive<Size>,
     on_exit: Option<Box<dyn Fn()>>,
     // Note: Theme is Inert by design as we don't still support dynamic themes. But do be noted Inert make data 'static and only freed on reactive scope drop, so it is better to somehow run UI inside new reactive runtime, but this requires user signals to be created inside it.
@@ -70,6 +73,7 @@ where
             page_history: Default::default(),
             viewport,
             pages: BTreeMap::new(),
+            arena: create_signal(ElArena::new()),
             on_exit: None,
             theme: theme.inert(),
             dev_tools,
@@ -122,6 +126,7 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
         let mut with_page = UI {
             page_history: self.page_history,
             pages: self.pages,
+            arena: self.arena,
             viewport: self.viewport,
             on_exit: self.on_exit,
             theme: self.theme,
@@ -149,6 +154,7 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
                     Page::new(
                         id,
                         page_root,
+                        self.arena,
                         self.viewport,
                         self.theme,
                         self.dev_tools,
@@ -201,9 +207,10 @@ impl<W: WidgetCtx> UI<W, WithPages> {
         info!("UI: Page changed to {:?}", self.page_history.last().unwrap());
         self.current_page().clear().force_redraw();
 
-        if self.options.auto_focus {
-            self.current_page().apply_auto_focus();
-        }
+        // TODO
+        // if self.options.auto_focus {
+        //     self.current_page().apply_auto_focus();
+        // }
     }
 
     // TODO: Should be public?

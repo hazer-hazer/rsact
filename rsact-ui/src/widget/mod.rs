@@ -26,6 +26,7 @@ use crate::{
     layout::length::LengthSize,
 };
 use bitflags::bitflags;
+use core::any::Any;
 use prelude::*;
 use rsact_reactive::prelude::*;
 
@@ -38,80 +39,80 @@ bitflags! {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
-pub struct Meta {
-    pub behavior: Behavior,
-    pub id: Option<ElId>,
-}
+// #[derive(Clone, Copy, PartialEq)]
+// pub struct Meta {
+//     pub behavior: Behavior,
+//     pub id: Option<ElId>,
+// }
 
-impl Default for Meta {
-    fn default() -> Self {
-        Self::none()
-    }
-}
+// impl Default for Meta {
+//     fn default() -> Self {
+//         Self::none()
+//     }
+// }
 
-impl Meta {
-    pub fn none() -> Self {
-        Self { behavior: Behavior::NONE, id: None }
-    }
+// impl Meta {
+//     pub fn none() -> Self {
+//         Self { behavior: Behavior::NONE, id: None }
+//     }
 
-    pub fn focusable(id: ElId) -> Self {
-        Self { behavior: Behavior::FOCUSABLE, id: Some(id) }
-    }
+//     pub fn focusable(id: ElId) -> Self {
+//         Self { behavior: Behavior::FOCUSABLE, id: Some(id) }
+//     }
 
-    pub fn hoverable(id: ElId) -> Self {
-        Self { behavior: Behavior::HOVERABLE, id: Some(id) }
-    }
+//     pub fn hoverable(id: ElId) -> Self {
+//         Self { behavior: Behavior::HOVERABLE, id: Some(id) }
+//     }
 
-    pub fn focusable_hoverable(id: ElId) -> Self {
-        Self {
-            behavior: Behavior::FOCUSABLE | Behavior::HOVERABLE,
-            id: Some(id),
-        }
-    }
+//     pub fn focusable_hoverable(id: ElId) -> Self {
+//         Self {
+//             behavior: Behavior::FOCUSABLE | Behavior::HOVERABLE,
+//             id: Some(id),
+//         }
+//     }
 
-    // pub fn with_id(mut self, id: ElId) -> Self {
-    //     self.id = Some(id);
-    //     self
-    // }
-}
+//     // pub fn with_id(mut self, id: ElId) -> Self {
+//     //     self.id = Some(id);
+//     //     self
+//     // }
+// }
 
 // TODO: MaybeReactive MetaTree
 // TODO: Custom MemoTree with SmallVec<T, 1>
 // pub type MetaTree = MemoTree<Meta>;
 
-#[derive(PartialEq, Clone, Copy)]
-pub struct MetaTree {
-    // TODO: I don't see a place where meta needs to be reactive (or MaybeReactive).
-    meta: Meta,
-    // TODO: Optional vec to avoid useless allocations?
-    children: MaybeReactive<Vec<MetaTree>>,
-}
+// #[derive(PartialEq, Clone, Copy)]
+// pub struct MetaTree {
+//     // TODO: I don't see a place where meta needs to be reactive (or MaybeReactive).
+//     meta: Meta,
+//     // TODO: Optional vec to avoid useless allocations?
+//     children: MaybeReactive<Vec<MetaTree>>,
+// }
 
-impl MetaTree {
-    pub fn none() -> Self {
-        Self::childless(Meta::none())
-    }
+// impl MetaTree {
+//     pub fn none() -> Self {
+//         Self::childless(Meta::none())
+//     }
 
-    pub fn new(
-        meta: Meta,
-        children: impl IntoMaybeReactive<Vec<MetaTree>>,
-    ) -> Self {
-        Self { meta, children: children.maybe_reactive() }
-    }
+//     pub fn new(
+//         meta: Meta,
+//         children: impl IntoMaybeReactive<Vec<MetaTree>>,
+//     ) -> Self {
+//         Self { meta, children: children.maybe_reactive() }
+//     }
 
-    pub fn childless(meta: Meta) -> Self {
-        Self::new(meta, Vec::new().maybe_reactive())
-    }
+//     pub fn childless(meta: Meta) -> Self {
+//         Self::new(meta, Vec::new().maybe_reactive())
+//     }
 
-    pub fn flat_collect(&self) -> Vec<Meta> {
-        self.children.with(|children| {
-            core::iter::once(self.meta)
-                .chain(children.iter().map(MetaTree::flat_collect).flatten())
-                .collect()
-        })
-    }
-}
+//     pub fn flat_collect(&self) -> Vec<Meta> {
+//         self.children.with(|children| {
+//             core::iter::once(self.meta)
+//                 .chain(children.iter().map(MetaTree::flat_collect).flatten())
+//                 .collect()
+//         })
+//     }
+// }
 
 // #[derive(PartialEq)]
 // pub struct MetaTree {
@@ -129,10 +130,18 @@ impl MetaTree {
 //     }
 // }
 
-pub trait Widget<W>
+pub trait Widget<W>: Any
 where
     W: WidgetCtx,
 {
+    fn flags(&self) -> WidgetFlags {
+        WidgetFlags::default()
+    }
+
+    fn debug_name(&self) -> &'static str {
+        core::any::type_name::<Self>()
+    }
+
     fn el(self) -> El<W>
     where
         Self: Sized + 'static,
@@ -142,9 +151,10 @@ where
 
     fn build(&mut self, ctx: BuildCtx<W>);
 
+    // TODO: Meta can be collected in build pass
     // TODO: Use MaybeReactive tree
     // TODO: Can rewrite so that meta is called once?
-    fn meta(&self, id: ElId) -> MetaTree;
+    // fn meta(&self, id: ElId) -> MetaTree;
 
     fn layout(&self) -> Layout;
 
@@ -308,8 +318,7 @@ pub mod prelude {
     pub use crate::{
         el::*,
         event::{
-            Capture, Event, EventResponse, FocusEvent, Propagate,
-            message::UiMessage,
+            Capture, Event, EventResponse, FocusEvent, message::UiMessage,
         },
         font::{
             Font, FontCtx, FontFamily, FontHandler, FontId, FontImport,
@@ -320,10 +329,7 @@ pub mod prelude {
             length::Length, node::Layout,
         },
         style::declare_widget_style,
-        widget::{
-            BlockModelWidget, FontSettingWidget, Meta, MetaTree, SizedWidget,
-            Widget,
-        },
+        widget::{BlockModelWidget, FontSettingWidget, SizedWidget, Widget},
     };
     pub use alloc::{boxed::Box, string::String, vec::Vec};
     pub use rsact_reactive::prelude::*;

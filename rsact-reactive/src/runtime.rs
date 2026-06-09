@@ -17,7 +17,6 @@ use alloc::{
     rc::Rc,
     vec::Vec,
 };
-use log::debug;
 use core::{
     cell::{Cell, RefCell},
     fmt::Display,
@@ -25,6 +24,7 @@ use core::{
     marker::PhantomData,
     panic::Location,
 };
+use log::debug;
 use slotmap::{SecondaryMap, SlotMap};
 
 slotmap::new_key_type! {
@@ -715,7 +715,7 @@ impl Runtime {
                 subs.get(id).cloned().into_iter().flatten()
             };
             for source in sources {
-                // TODO: Should all sources by updates or we stop at the first change?
+                // TODO: Should all sources by updates or we stop at the first change? If we stop at the first, why do even check if value could already be dirty?
                 self.maybe_update(source, Some(source), caller);
                 if self.is(id, ValueState::Dirty) {
                     // TODO: Cache check and use after break

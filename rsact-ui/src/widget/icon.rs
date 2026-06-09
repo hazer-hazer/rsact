@@ -111,8 +111,12 @@ impl<W: WidgetCtx, I: IconSet + 'static> Icon<W, I, IsReactive> {
 impl<W: WidgetCtx, I: IconSet + 'static, R: ReactivityMarker> Widget<W>
     for Icon<W, I, R>
 {
-    fn meta(&self, _: ElId) -> MetaTree {
-        MetaTree::none()
+    fn debug_name(&self) -> &'static str {
+        "Icon"
+    }
+
+    fn build(&mut self, ctx: BuildCtx<W>) {
+        let _ = ctx;
     }
 
     fn layout(&self) -> Layout {

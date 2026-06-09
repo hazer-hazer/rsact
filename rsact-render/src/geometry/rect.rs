@@ -1,3 +1,5 @@
+use core::fmt::Display;
+
 use crate::{
     geometry::{
         anchor::{AnchorPoint, AnchorX, AnchorY},
@@ -13,6 +15,12 @@ use crate::{
 pub struct Rect {
     pub top_left: Point,
     pub size: Size,
+}
+
+impl Display for Rect {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "[{}; {}]", self.top_left, self.size)
+    }
 }
 
 impl Rect {

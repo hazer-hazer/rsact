@@ -24,6 +24,7 @@ use rsact_render as render;
 pub mod prelude {
     pub use crate::font::FontImport;
     pub use crate::{
+        el::*,
         page::id::{PageId, SinglePage},
         style::{declare_widget_style, theme::Theme},
         ui::UI,
@@ -36,6 +37,7 @@ pub mod prelude {
     #[cfg(feature = "tiny-icons")]
     pub use crate::{widget::checkbox::*, widget::icon::*};
 
+    pub use rsact_reactive::prelude::*;
     pub use rsact_render::prelude::*;
     #[cfg(feature = "tiny-icons")]
     pub use rsact_tiny_icons::{IconRaw, IconSet};

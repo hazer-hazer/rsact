@@ -1,7 +1,7 @@
 use crate::{
     declare_widget_style,
     event::{MouseButton, MouseEvent},
-    widget::{Meta, MetaTree, SizedWidget, prelude::*},
+    widget::prelude::*,
 };
 use core::marker::PhantomData;
 use rsact_reactive::prelude::*;
@@ -184,10 +184,13 @@ impl<W: WidgetCtx, Dir: Direction + 'static> FontSettingWidget<W>
 {
 }
 
-impl<W: WidgetCtx, Dir: Direction> Widget<W> for Scrollable<W, Dir> {
-    fn meta(&self, id: ElId) -> crate::widget::MetaTree {
-        let content_tree = self.content.meta(id);
-        MetaTree::new(Meta::none(), vec![content_tree].inert())
+impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Scrollable<W, Dir> {
+    fn debug_name(&self) -> &'static str {
+        "Scrollable"
+    }
+
+    fn build(&mut self, mut ctx: BuildCtx<W>) {
+        ctx.set_single_child(&mut self.content);
     }
 
     fn layout(&self) -> Layout {
@@ -202,6 +205,7 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Scrollable<W, Dir> {
         let child_layout = ctx.layout.children().next();
         let child_layout = child_layout.as_ref().unwrap();
 
+        // TODO: Shouldn't scrollbar be rendered after child to be above? Need post_render method in Widget
         ctx.render_self("Scrollable", |mut ctx| {
             let style = ctx.get_style(|t| t.scrollable, self.style.as_deref());
 
@@ -282,18 +286,24 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Scrollable<W, Dir> {
             ctx.render_focus_outline(ctx.id)
         })?;
 
-        ctx.render_part("scroll", |mut ctx| {
-            let state = self.state.get();
-            // // TODO: Should be clipping outer rect???!??!?
-            ctx.clip_inner(|mut ctx| {
-                ctx.for_child(
-                    self.content.id(),
-                    &child_layout
-                        .translate(Dir::AXIS.canon(-(state.offset as i32), 0)),
-                    |ctx| self.content.render(ctx),
-                )
-            })
-        })
+        // TODO: To do scrollable now we need:
+        // - Clip path in the element properties
+        // - Composition (but without a distinct pass to compose, just an ability to offset children for now)
+        // ctx.render_part("portal", |mut ctx| {
+        //     let state = self.state.get();
+        //     // // TODO: Should be clipping outer rect???!??!?
+        //     ctx.clip_inner(|mut ctx| {
+        //         // TODO: Translate must clamp on child size.
+        //         ctx.for_child(
+        //             self.content.id(),
+        //             &child_layout
+        //                 .translate(Dir::AXIS.canon(-(state.offset as i32), 0)),
+        //             |ctx| self.content.render(ctx),
+        //         )
+        //     })
+        // })
+
+        Ok(())
     }
 
     fn on_event(&mut self, mut ctx: EventCtx<'_, W>) -> EventResponse {
@@ -404,29 +414,32 @@ impl<W: WidgetCtx, Dir: Direction> Widget<W> for Scrollable<W, Dir> {
                 // change of focus means moving focus to a widget inside
                 // scrollable content
 
-                let content_response = ctx.pass_to_child(&mut self.content);
+                // TODO: Need a separate method in Widget, like Widget::on_event_captured_by_child or something. This is better to hide by a behavior flag like "listen_children_events".
+                todo!();
 
-                // TODO: Better need distinct `IsInteraction` event for such cases or define which events are considered an "interaction". For example, clicking on a button or focusing it is an interaction, but scrolling may be not, idk?
-                // Now, I am checking if any child captured the event for tracking.
-                if let EventResponse::Break(Capture::Captured(capture)) =
-                    &content_response
-                {
-                    let new_offset = capture
-                        .absolute_position
-                        .main(Dir::AXIS)
-                        .saturating_sub(
-                            ctx.layout.inner.top_left.main(Dir::AXIS),
-                        ) as u32;
-                    let new_offset = new_offset.clamp(0, self.max_offset(&ctx));
+                // let content_response = ctx.pass_to_child(&mut self.content);
 
-                    if current_state.offset != new_offset {
-                        self.state.update(|state| {
-                            state.offset = new_offset;
-                        });
-                    }
-                }
+                // // TODO: Better need distinct `IsInteraction` event for such cases or define which events are considered an "interaction". For example, clicking on a button or focusing it is an interaction, but scrolling may be not, idk?
+                // // Now, I am checking if any child captured the event for tracking.
+                // if let EventResponse::Break(Capture::Captured(capture)) =
+                //     &content_response
+                // {
+                //     let new_offset = capture
+                //         .absolute_position
+                //         .main(Dir::AXIS)
+                //         .saturating_sub(
+                //             ctx.layout.inner.top_left.main(Dir::AXIS),
+                //         ) as u32;
+                //     let new_offset = new_offset.clamp(0, self.max_offset(&ctx));
 
-                content_response
+                //     if current_state.offset != new_offset {
+                //         self.state.update(|state| {
+                //             state.offset = new_offset;
+                //         });
+                //     }
+                // }
+
+                // content_response
             },
         }
     }

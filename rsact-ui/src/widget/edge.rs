@@ -1,7 +1,5 @@
 use crate::{
-    layout::length::LengthSize,
-    style::WidgetStyleFn,
-    widget::{MetaTree, prelude::*},
+    layout::length::LengthSize, style::WidgetStyleFn, widget::prelude::*,
 };
 
 pub struct Edge<W: WidgetCtx> {
@@ -29,8 +27,12 @@ impl<W: WidgetCtx + 'static> Edge<W> {
 impl<W: WidgetCtx + 'static> SizedWidget<W> for Edge<W> {}
 
 impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
-    fn meta(&self, _: ElId) -> crate::widget::MetaTree {
-        MetaTree::none()
+    fn debug_name(&self) -> &'static str {
+        "Edge"
+    }
+
+    fn build(&mut self, ctx: BuildCtx<W>) {
+        let _ = ctx;
     }
 
     fn layout(&self) -> Layout {

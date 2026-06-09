@@ -9,6 +9,7 @@ use crate::{
 };
 use alloc::vec::Vec;
 use core::fmt::Debug;
+use core::fmt::Display;
 use rsact_reactive::prelude::*;
 
 #[cfg(feature = "debug-info")]
@@ -76,12 +77,14 @@ pub struct LayoutModel {
 
     font_props: Option<FontProps>,
 
+    children: Vec<LayoutModel>,
+
     // Note: `dev` goes before `children` which is intentional to make more
     // readable pretty-printed debug
     // TODO: Make debug_assertions-only
     #[cfg(feature = "debug-info")]
     dev: DevLayout,
-    children: Vec<LayoutModel>,
+    // TODO: Tinyvec
 }
 
 impl LayoutModel {
@@ -197,6 +200,41 @@ impl LayoutModel {
     ) -> Self {
         self.align_mut(horizontal, vertical, parent_size);
         self
+    }
+}
+
+pub struct PPLayoutModel<'a> {
+    model: &'a LayoutModel,
+    indent: usize,
+}
+
+impl<'a> PPLayoutModel<'a> {
+    pub fn root(model: &'a LayoutModel) -> Self {
+        Self { model, indent: 0 }
+    }
+}
+
+impl<'a> Display for PPLayoutModel<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "{:indent$}{}>{}",
+            "",
+            self.model.outer,
+            self.model.inner,
+            indent = self.indent
+        )?;
+
+        #[cfg(feature = "debug-info")]
+        write!(f, " {}", self.model.dev)?;
+
+        self.model.children.iter().try_for_each(|child| {
+            write!(
+                f,
+                "\n{}",
+                PPLayoutModel { model: child, indent: self.indent + 1 }
+            )
+        })
     }
 }
 

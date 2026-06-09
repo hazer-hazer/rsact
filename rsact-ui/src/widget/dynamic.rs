@@ -20,6 +20,7 @@ pub struct Dynamic<W: WidgetCtx> {
 
     // TODO: Track previous element on change to dispose it from arena.
 
+    // TODO: Need transparent layout node to nest dynamic child, otherwise
     // Layout needs to be stored separately to return it from
     layout: Layout,
 }
@@ -43,17 +44,24 @@ impl<W: WidgetCtx + 'static> Dynamic<W> {
 }
 
 impl<W: WidgetCtx + 'static> Widget<W> for Dynamic<W> {
-    fn meta(&self, id: ElId) -> MetaTree {
-        // TODO: Is it okay to nest a child when Dynamic is a transparent widget? Maybe we need MaybeReactive meta tree data? We don't use meta tree depth lookup, so it is not a problem now, but maybe it will be in the future.
-        MetaTree::new(
-            Meta::none(),
-            self.current.map(move |current| {
-                current
-                    .as_ref()
-                    .map(|current| vec![current.meta(id)])
-                    .unwrap_or_default()
-            }),
-        )
+    fn flags(&self) -> WidgetFlags {
+        WidgetFlags::default().transparent_layout()
+    }
+
+    fn debug_name(&self) -> &'static str {
+        "[Dynamic]"
+    }
+
+    // TODO: Can transparent widget have children?
+    fn build(&mut self, mut ctx: BuildCtx<W>) {
+        let mut current = self.current;
+        create_effect(move |_| {
+            current.update(|current| {
+                ctx.set_single_child(
+                    current.as_mut().expect("Dynamic element cannot be unset"),
+                );
+            })
+        });
     }
 
     fn layout(&self) -> Layout {
@@ -61,12 +69,12 @@ impl<W: WidgetCtx + 'static> Widget<W> for Dynamic<W> {
     }
 
     #[track_caller]
-    fn render(&self, ctx: RenderCtx<'_, W>) -> RenderResult {
-        self.current.with(|current| current.as_ref().unwrap().render(ctx))
+    fn render(&self, _ctx: RenderCtx<'_, W>) -> RenderResult {
+        Ok(())
     }
 
     fn on_event(&mut self, ctx: EventCtx<'_, W>) -> EventResponse {
-        self.current.update(|current| current.as_mut().unwrap().on_event(ctx))
+        ctx.ignore()
     }
 }
 

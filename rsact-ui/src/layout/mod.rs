@@ -1,5 +1,6 @@
 use crate::layout::length::LengthSize;
 use crate::render::prelude::*;
+use crate::utils::DisplayTruncated;
 use crate::{
     font::{FontCtx, FontProps, FontSize},
     layout::node::Layout,
@@ -70,8 +71,10 @@ pub enum ContentLayout {
 impl Display for ContentLayout {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            ContentLayout::Text { font_props, content: _ } => {
-                write!(f, "Text [{font_props}]")
+            ContentLayout::Text { font_props: _, content } => {
+                content.with(|content| {
+                    write!(f, "Text [{}]", DisplayTruncated::new(content, 16))
+                })
             },
             ContentLayout::Icon(size) => {
                 size.with(|size| write!(f, "Icon [{size}]"))
@@ -276,6 +279,12 @@ pub struct DevFlexLayout {
 pub struct DevLayout {
     pub size: LengthSize,
     pub kind: DevLayoutKind,
+}
+
+impl Display for DevLayout {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{} {}", self.kind, self.size)
+    }
 }
 
 impl DevLayout {

@@ -218,8 +218,12 @@ impl<W: WidgetCtx> Canvas<W> {
 impl<W: WidgetCtx> SizedWidget<W> for Canvas<W> {}
 
 impl<W: WidgetCtx> Widget<W> for Canvas<W> {
-    fn meta(&self, _: ElId) -> MetaTree {
-        MetaTree::none()
+    fn debug_name(&self) -> &'static str {
+        "Canvas"
+    }
+
+    fn build(&mut self, ctx: BuildCtx<W>) {
+        let _ = ctx;
     }
 
     fn layout(&self) -> Layout {

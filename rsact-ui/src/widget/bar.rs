@@ -62,11 +62,15 @@ impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction> Bar<W, V, Dir> {
     }
 }
 
-impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction> Widget<W>
+impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction + 'static> Widget<W>
     for Bar<W, V, Dir>
 {
-    fn meta(&self, _: ElId) -> MetaTree {
-        MetaTree::none()
+    fn debug_name(&self) -> &'static str {
+        "Bar"
+    }
+
+    fn build(&mut self, ctx: build::BuildCtx<W>) {
+        let _ = ctx;
     }
 
     fn layout(&self) -> Layout {

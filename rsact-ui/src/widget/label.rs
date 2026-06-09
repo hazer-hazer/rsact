@@ -90,9 +90,11 @@ impl<W: WidgetCtx> Label<W> {
 impl<W: WidgetCtx> FontSettingWidget<W> for Label<W> {}
 
 impl<W: WidgetCtx> Widget<W> for Label<W> {
-    fn meta(&self, _: ElId) -> MetaTree {
-        MetaTree::none()
+    fn debug_name(&self) -> &'static str {
+        "Label"
     }
+
+    fn build(&mut self, _ctx: build::BuildCtx<W>) {}
 
     fn layout(&self) -> Layout {
         self.layout
@@ -100,7 +102,7 @@ impl<W: WidgetCtx> Widget<W> for Label<W> {
 
     #[track_caller]
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
-        ctx.render_self("Text", |mut ctx| {
+        ctx.render_self("Label", |mut ctx| {
             let content = self.content;
             let style = ctx.get_style(|t| t.label, self.style.as_deref());
             let props = ctx.font_props;

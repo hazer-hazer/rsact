@@ -1,13 +1,10 @@
 use crate::{
-    el::*,
-    event::{
-        Capture, Event, EventResponse, FocusEvent, MouseEvent, Propagate,
-        UnhandledEvent,
-    },
+    el::{arena::ElArena, build::BuildCtx, *},
+    event::{Capture, Event, EventResponse, MouseEvent, UnhandledEvent},
     font::{Font, FontCtx, FontProps},
     layout::{
         LayoutCtx, Limits,
-        model::{LayoutModel, model_layout},
+        model::{LayoutModel, PPLayoutModel, model_layout},
     },
     render::prelude::*,
     style::{TreeStyle, theme::Theme},
@@ -39,20 +36,14 @@ impl<C: Color> PageStyle<C> {
     }
 }
 
-/// Tree of info about widget tree.
-struct PageMeta {
-    // /// Page elements meta tree
-    // meta: MetaTree,
-    /// Count of focusable elements
-    focusable: Memo<Vec<ElId>>,
-}
+// TODO: As we now have element arena we can split functionality to add optimization structures. For example, not all drivers have focusing logic, so we can have it behind a generic or other abstraction to toggle, and pre-build focusable elements list only when it's needed. Same for hoverable, etc. Hoverable is kinda more interesting case because with element arena we can build spatial index like an R-Tree or just cache hit-tests which is also good.
 
 pub struct Page<W: WidgetCtx> {
     // TODO: root is not used as a Signal but as boxed value, better add StoredValue to rsact_reactive for static storage
     // TODO: Same is about other not-really-reactive states in Page
     id: W::PageId,
-    root: El<W>,
-    meta: PageMeta,
+    root: ElId,
+    arena: Signal<ElArena<W>>,
     // TODO: MaybeReactive
     layout: Memo<LayoutModel>,
     // TODO: State must be a struct of signals, not signal of a struct.
@@ -71,40 +62,49 @@ pub struct Page<W: WidgetCtx> {
 impl<W: WidgetCtx> Page<W> {
     pub(crate) fn new(
         id: W::PageId,
+        // TODO: Do we really need to accept Into<El> and expect it to always be a El::New, or we can require root to be a Widget non-wrapped?
+        // No, ElData can contain additional information raw widget does not provide
         root: impl Into<El<W>>,
+        arena: Signal<ElArena<W>>,
         viewport: MaybeReactive<Size>,
         theme: Inert<Theme<W::Color>>,
         dev_tools: Signal<DevTools>,
         renderer: Signal<W::Renderer>,
         fonts: Signal<FontCtx>,
     ) -> Self {
-        let root: El<W> = root.into();
+        let mut root: El<W> = root.into();
         let state = PageState::new().signal().name("Page state");
 
         let mut force_redraw = create_signal(false).name("Force redraw");
 
-        let meta = root.meta(root.id());
+        let root = BuildCtx::run(&mut root, arena);
 
-        // TODO: Multiple behaviors will lead to multiple memos, I am not sure what is more efficient, to recollect all behaviors when any changed or to store multiple memos.
-        let focusable = create_memo(move || {
-            info!("Collect page {:?} meta", id);
+        // // TODO: Multiple behaviors will lead to multiple memos, I am not sure what is more efficient, to recollect all behaviors when any changed or to store multiple memos.
+        // let focusable = create_memo(move || {
+        //     info!("Collect page {:?} meta", id);
 
-            meta.flat_collect()
-                .iter()
-                .filter_map(|el_meta| {
-                    if let Some(id) = el_meta.id {
-                        if !(el_meta.behavior & Behavior::FOCUSABLE).is_empty()
-                        {
-                            return Some(id);
-                        }
-                    }
-                    None
-                })
-                .collect()
-        })
-        .name("Focusable");
+        //     meta.flat_collect()
+        //         .iter()
+        //         .filter_map(|el_meta| {
+        //             if let Some(id) = el_meta.id {
+        //                 if !(el_meta.behavior & Behavior::FOCUSABLE).is_empty()
+        //                 {
+        //                     return Some(id);
+        //                 }
+        //             }
+        //             None
+        //         })
+        //         .collect()
+        // })
+        // .name("Focusable");
 
-        let layout_tree = root.layout().name("Layout tree");
+        let layout_tree = arena.with(|arena| {
+            arena
+                .get_widget(root)
+                .expect("Root widget must be present")
+                .layout()
+                .name("Layout tree")
+        });
         // TODO: If we make fonts MaybeReactive, we can go fully MaybeReactive LayoutModel here
         let layout_model = map!(move |fonts, viewport| {
             info!("Relayout page {:?}", id);
@@ -133,6 +133,8 @@ impl<W: WidgetCtx> Page<W> {
             // No, we need smart bottom-up propagation to the nearest fixed parent layout.
             force_redraw.set(true);
 
+            debug!("{}", PPLayoutModel::root(&layout));
+
             layout
         })
         .name("Layout model");
@@ -142,10 +144,10 @@ impl<W: WidgetCtx> Page<W> {
         Self {
             id,
             root,
+            arena,
             layout: layout_model,
             state,
             style,
-            meta: PageMeta { focusable },
             // TODO: Signal viewport in Renderer
             renderer,
             viewport: viewport.name("Viewport"),
@@ -198,62 +200,62 @@ impl<W: WidgetCtx> Page<W> {
 
     // Focus //
 
-    /// Focus first focusable element in page
-    pub fn focus_first(&mut self) {
-        self.focus_el(0);
-    }
+    // /// Focus first focusable element in page
+    // pub fn focus_first(&mut self) {
+    //     self.focus_el(0);
+    // }
 
-    /// Focus first focusable element in page if no element focused
-    pub fn apply_auto_focus(&mut self) {
-        if self.state.with(|state| state.focused.is_none()) {
-            self.focus_first();
-        }
-    }
+    // /// Focus first focusable element in page if no element focused
+    // pub fn apply_auto_focus(&mut self) {
+    //     if self.state.with(|state| state.focused.is_none()) {
+    //         self.focus_first();
+    //     }
+    // }
 
-    /// Find element to focus by offset from currently focused element index.
-    fn find_focus(&mut self, offset: i32) -> Option<(ElId, usize)> {
-        let focusable_count = self.meta.focusable.with(Vec::len);
+    // /// Find element to focus by offset from currently focused element index.
+    // fn find_focus(&mut self, offset: i32) -> Option<(ElId, usize)> {
+    //     let focusable_count = self.meta.focusable.with(Vec::len);
 
-        let current_offset = self.state.with(|state| {
-            state.focused.as_ref().map(|focused| focused.1).unwrap_or(0)
-        });
+    //     let current_offset = self.state.with(|state| {
+    //         state.focused.as_ref().map(|focused| focused.1).unwrap_or(0)
+    //     });
 
-        let new_focus_offset = (current_offset as i64 + offset as i64)
-            .clamp(0, focusable_count as i64)
-            as usize;
+    //     let new_focus_offset = (current_offset as i64 + offset as i64)
+    //         .clamp(0, focusable_count as i64)
+    //         as usize;
 
-        let new_focus_id = self
-            .meta
-            .focusable
-            .with(|focusable| focusable.get(new_focus_offset).copied());
+    //     let new_focus_id = self
+    //         .meta
+    //         .focusable
+    //         .with(|focusable| focusable.get(new_focus_offset).copied());
 
-        // Set new focus only in case there's a corresponding element by index. Otherwise it means buggy meta collection
-        if let Some(new_focus_id) = new_focus_id {
-            Some((new_focus_id, new_focus_offset))
-        } else {
-            None
-        }
-    }
+    //     // Set new focus only in case there's a corresponding element by index. Otherwise it means buggy meta collection
+    //     if let Some(new_focus_id) = new_focus_id {
+    //         Some((new_focus_id, new_focus_offset))
+    //     } else {
+    //         None
+    //     }
+    // }
 
-    fn apply_focus(&mut self, new_focus: (ElId, usize)) {
-        self.state.update(|state| state.focused = Some(new_focus))
-    }
+    // fn apply_focus(&mut self, new_focus: (ElId, usize)) {
+    //     self.state.update(|state| state.focused = Some(new_focus))
+    // }
 
-    /// Send focus event to tree. Sets new focus if event was captured
-    fn focus_el(&mut self, offset: i32) -> Option<UnhandledEvent<W>> {
-        if let Some(new_focus) = self.find_focus(offset) {
-            let response =
-                self.send_event(Event::Focus(FocusEvent::Focus(new_focus.0)));
+    // /// Send focus event to tree. Sets new focus if event was captured
+    // fn focus_el(&mut self, offset: i32) -> Option<UnhandledEvent<W>> {
+    //     if let Some(new_focus) = self.find_focus(offset) {
+    //         let response =
+    //             self.send_event(Event::Focus(FocusEvent::Focus(new_focus.0)));
 
-            if response.is_none() {
-                self.apply_focus(new_focus);
-            }
+    //         if response.is_none() {
+    //             self.apply_focus(new_focus);
+    //         }
 
-            response
-        } else {
-            None
-        }
-    }
+    //         response
+    //     } else {
+    //         None
+    //     }
+    // }
 
     /// For Dev tools
     fn find_hovered_el(&self, point: Point) -> Option<DevHoveredEl> {
@@ -272,10 +274,10 @@ impl<W: WidgetCtx> Page<W> {
         &mut self,
         unhandled: Event<W::CustomEvent>,
     ) -> Option<UnhandledEvent<W>> {
-        if let Some(focus_offset) = unhandled.interpret_as_focus_move() {
-            // Note: Focus event is eaten here, even if no element focused. This might be incorrect
-            return self.focus_el(focus_offset);
-        }
+        // if let Some(focus_offset) = unhandled.interpret_as_focus_move() {
+        //     // TODO: Focus event is eaten here, even if no element focused. This might be incorrect
+        //     return self.focus_el(focus_offset);
+        // }
 
         Some(UnhandledEvent::Event(unhandled))
     }
@@ -290,12 +292,14 @@ impl<W: WidgetCtx> Page<W> {
         let defer_effects = defer_effects();
 
         let res = self.layout.with(|layout| {
-            let response = self.root.on_event(EventCtx {
-                id: self.root.id(),
-                event,
-                // TODO: Maybe state should not be changeable in on_event, pass it by reference
-                page_state: self.state,
-                layout: &layout.tree_root(),
+            let response = self.arena.update_untracked(|arena| {
+                EventCtx::run(
+                    self.root,
+                    arena,
+                    event,
+                    self.state,
+                    &layout.tree_root(),
+                )
             });
 
             // TODO: notify root on event capture?
@@ -385,14 +389,12 @@ impl<W: WidgetCtx> Page<W> {
         let response = self.send_specific_event(&event);
 
         match response {
-            EventResponse::Continue(propagate) => match propagate {
-                Propagate::Ignored => {
-                    info!(
-                        "Event {:?} was ignored, applying global handling",
-                        event
-                    );
-                    self.on_unhandled_event(event)
-                },
+            EventResponse::Continue(()) => {
+                info!(
+                    "Event {:?} was ignored, applying global handling",
+                    event
+                );
+                self.on_unhandled_event(event)
             },
             EventResponse::Break(capture) => match capture {
                 // TODO: Captured data may be useful for debugging, for example we can point where on screen user clicked or something
@@ -485,26 +487,28 @@ impl<W: WidgetCtx> Page<W> {
                     let layout = self.layout;
                     with!(|layout| {
                         debug!("Force redraw: {}", self.force_redraw.get());
-                        self.root.render(RenderCtx {
-                            id: self.root.id(),
-                            state: self.state.read_only(),
-                            renderer,
-                            layout: &layout.tree_root(),
-                            tree_style: TreeStyle::base(),
-                            page_style: self.style.read_only(),
-                            viewport: self.viewport,
-                            fonts,
-                            theme: self.theme,
-                            font_props: FontProps {
-                                font: Some(Font::Auto.maybe_reactive()),
-                                font_size: None,
-                                font_style: None,
-                            },
-                            force_redraw: self.force_redraw,
-                            parent_dirty: false,
-                            nesting_level: 0,
-                            call: self.render_calls,
-                            ctx_state: PhantomData,
+                        self.arena.with(|arena| {
+                            RenderCtx {
+                                id: self.root,
+                                state: self.state.read_only(),
+                                renderer,
+                                layout: &layout.tree_root(),
+                                tree_style: TreeStyle::base(),
+                                page_style: self.style.read_only(),
+                                viewport: self.viewport,
+                                fonts,
+                                theme: self.theme,
+                                font_props: FontProps {
+                                    font: Some(Font::Auto.maybe_reactive()),
+                                    font_size: None,
+                                    font_style: None,
+                                },
+                                force_redraw: self.force_redraw,
+                                parent_dirty: false,
+                                nesting_level: 0,
+                                call: self.render_calls,
+                                _marker: PhantomData::<CtxUnready>,
+                            }.render(arena)
                         })
                     })?;
 
@@ -542,7 +546,10 @@ impl<W: WidgetCtx> Page<W> {
 mod tests {
     use super::{Page, dev::DevTools};
     use crate::{
-        el::El, el::ctx::*, font::FontCtx, prelude::*, style::theme::Theme,
+        el::{El, arena::ElArena, ctx::*},
+        font::FontCtx,
+        prelude::*,
+        style::theme::Theme,
         widget::Widget,
     };
     use alloc::string::String;
@@ -551,9 +558,12 @@ mod tests {
     type NullWtf = Wtf<NullRenderer, (), ()>;
 
     fn create_null_page(root: impl Into<El<NullWtf>>) -> Page<NullWtf> {
+        let arena = create_signal(ElArena::new()).name("Page arena");
+
         Page::new(
             (),
             root,
+            arena,
             Size::new_equal(1).maybe_reactive(),
             Theme::default().inert(),
             DevTools::default().signal(),

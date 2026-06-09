@@ -5,6 +5,7 @@ use core::{fmt::Debug, ops::ControlFlow};
 pub mod message;
 #[cfg(feature = "simulator")]
 pub mod simulator;
+pub mod select;
 
 #[derive(Debug, Clone, Copy)]
 pub enum DevToolsEvent {
@@ -236,27 +237,27 @@ impl Into<EventResponse> for Capture {
     }
 }
 
-#[derive(Clone, Debug)]
-pub enum Propagate {
-    /// Event is ignored by element and can be accepted by parents
-    Ignored,
-    // /// Event is accepted by element and does not belongs to it logic but
-    // its /// parent. For example FocusMove on focused button is captured
-    // by /// button but bubbles up to its container which already moves
-    // the focus to /// next children. Check source of Linear container as
-    // an example of how to /// handle bubble up and why it doesn't need
-    // to store any state or /// identifier of element started the bubble
-    // up. BubbleUp(ElId, E),
-}
+// #[derive(Clone, Debug)]
+// pub enum Propagate {
+//     /// Event is ignored by element and can be accepted by parents
+//     Ignored,
+//     // /// Event is accepted by element and does not belongs to it logic but
+//     // its /// parent. For example FocusMove on focused button is captured
+//     // by /// button but bubbles up to its container which already moves
+//     // the focus to /// next children. Check source of Linear container as
+//     // an example of how to /// handle bubble up and why it doesn't need
+//     // to store any state or /// identifier of element started the bubble
+//     // up. BubbleUp(ElId, E),
+// }
 
-impl Into<EventResponse> for Propagate {
-    #[inline]
-    fn into(self) -> EventResponse {
-        EventResponse::Continue(self)
-    }
-}
+// impl Into<EventResponse> for Propagate {
+//     #[inline]
+//     fn into(self) -> EventResponse {
+//         EventResponse::Continue(self)
+//     }
+// }
 
-pub type EventResponse = ControlFlow<Capture, Propagate>;
+pub type EventResponse = ControlFlow<Capture, ()>;
 
 // TODO: Rename to InputEdge or something
 #[derive(Clone, Copy)]

@@ -1,11 +1,5 @@
 use crate::layout::LayoutKind;
-use crate::widget::{MetaTree, prelude::*};
-use crate::{
-    el::El,
-    event::EventResponse,
-    layout::length::Length,
-    widget::{EventCtx, RenderCtx, Widget, WidgetCtx},
-};
+use crate::widget::prelude::*;
 use core::marker::PhantomData;
 
 pub struct Space<W: WidgetCtx, Dir: Direction> {
@@ -62,9 +56,13 @@ impl<W: WidgetCtx, Dir: Direction> Space<W, Dir> {
     }
 }
 
-impl<W: WidgetCtx, Dir: Direction> Widget<W> for Space<W, Dir> {
-    fn meta(&self, _: ElId) -> MetaTree {
-        MetaTree::none()
+impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Space<W, Dir> {
+    fn debug_name(&self) -> &'static str {
+        "Space"
+    }
+
+    fn build(&mut self, ctx: build::BuildCtx<W>) {
+        let _ = ctx;
     }
 
     fn layout(&self) -> Layout {

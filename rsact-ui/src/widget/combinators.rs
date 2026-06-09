@@ -191,8 +191,8 @@ use super::prelude::*;
 pub struct Unit;
 
 impl<W: WidgetCtx> Widget<W> for Unit {
-    fn meta(&self, _id: ElId) -> MetaTree {
-        MetaTree::none()
+    fn build(&mut self, ctx: BuildCtx<W>) {
+        let _ = ctx;
     }
 
     fn layout(&self) -> Layout {
@@ -217,24 +217,27 @@ impl<W: WidgetCtx, T: Widget<W> + 'static> Into<El<W>> for Option<T> {
     }
 }
 
-impl<W: WidgetCtx> Widget<W> for Option<El<W>> {
-    fn meta(&self, id: ElId) -> MetaTree {
-        self.as_ref().map(|widget| widget.meta(id)).unwrap_or(MetaTree::none())
-    }
+// TODO
+// impl<W: WidgetCtx> Widget<W> for Option<El<W>> {
+//     fn build(&mut self, mut ctx: BuildCtx<W>) {
+//         self.as_mut().map(|el| {
+//             ctx.set_single_child(el);
+//         });
+//     }
 
-    fn layout(&self) -> Layout {
-        self.as_ref().map(|widget| widget.layout()).unwrap_or(Layout::zero())
-    }
+//     fn layout(&self) -> Layout {
+//         self.as_ref().map(|widget| widget.layout()).unwrap_or(Layout::zero())
+//     }
 
-    #[track_caller]
-    fn render(&self, ctx: super::RenderCtx<'_, W>) -> super::RenderResult {
-        self.as_ref().map(|widget| widget.render(ctx)).unwrap_or(Ok(()))
-    }
+//     #[track_caller]
+//     fn render(&self, ctx: super::RenderCtx<'_, W>) -> super::RenderResult {
+//         Ok(())
+//     }
 
-    fn on_event(&mut self, ctx: EventCtx<'_, W>) -> super::EventResponse {
-        self.as_mut().map(|widget| widget.on_event(ctx)).unwrap_or(ctx.ignore())
-    }
-}
+//     fn on_event(&mut self, ctx: EventCtx<'_, W>) -> super::EventResponse {
+//         ctx.ignore()
+//     }
+// }
 
 // impl<W: WidgetCtx, E: Widget<W> + PartialEq> Widget<W> for MaybeReactive<E> {
 //     fn meta(&self, id: ElId) -> MetaTree {
