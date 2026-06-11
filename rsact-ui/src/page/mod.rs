@@ -47,12 +47,12 @@ pub struct Page<W: WidgetCtx> {
     // TODO: MaybeReactive
     layout: Memo<LayoutModel>,
     // TODO: State must be a struct of signals, not signal of a struct.
-    state: Signal<PageState<W>>,
+    state: PageState<W>,
     style: Signal<PageStyle<W::Color>>,
     // TODO: Just use Rc<RefCell<R>> because we don't need to track renderer.
     renderer: Signal<W::Renderer>,
     viewport: MaybeReactive<Size>,
-    theme: Inert<Theme<W::Color>>,
+    stylist: Inert<W::Stylist>,
     dev_tools: Signal<DevTools>,
     force_redraw: Signal<bool>,
     render_calls: usize,
@@ -67,13 +67,13 @@ impl<W: WidgetCtx> Page<W> {
         root: impl Into<El<W>>,
         arena: Signal<ElArena<W>>,
         viewport: MaybeReactive<Size>,
-        theme: Inert<Theme<W::Color>>,
+        stylist: Inert<W::Stylist>,
         dev_tools: Signal<DevTools>,
         renderer: Signal<W::Renderer>,
         fonts: Signal<FontCtx>,
     ) -> Self {
         let mut root: El<W> = root.into();
-        let state = PageState::new().signal().name("Page state");
+        let state = PageState::new();
 
         let mut force_redraw = create_signal(false).name("Force redraw");
 
@@ -100,8 +100,9 @@ impl<W: WidgetCtx> Page<W> {
 
         let layout_tree = arena.with(|arena| {
             arena
-                .get_widget(root)
-                .expect("Root widget must be present")
+                .expect(root)
+                .expect("Root node must be built")
+                .widget
                 .layout()
                 .name("Layout tree")
         });
@@ -151,7 +152,7 @@ impl<W: WidgetCtx> Page<W> {
             // TODO: Signal viewport in Renderer
             renderer,
             viewport: viewport.name("Viewport"),
-            theme,
+            stylist,
             dev_tools,
             force_redraw,
             render_calls: 0,
@@ -293,11 +294,11 @@ impl<W: WidgetCtx> Page<W> {
 
         let res = self.layout.with(|layout| {
             let response = self.arena.update_untracked(|arena| {
-                EventCtx::run(
+                EventPass::run(
                     self.root,
                     arena,
                     event,
-                    self.state,
+                    &mut self.state,
                     &layout.tree_root(),
                 )
             });
@@ -311,6 +312,28 @@ impl<W: WidgetCtx> Page<W> {
         defer_effects.run();
 
         res
+    }
+
+    // TODO: Better have something like Widget::update for system events
+    fn bubble_from_child(child: ElId, update: Update, arena: &mut ElArena<W>) {
+        let Some(parent) = arena.parents.get(child).copied() else { return };
+        Self::send_update_inner(parent, update, arena);
+    }
+
+    fn send_update_inner(id: ElId, update: Update, arena: &mut ElArena<W>) {
+        let Some(el) = arena.expect_mut(id) else { return };
+
+        el.widget.update(UpdateCtx { id, update, state: &mut el.state });
+    }
+
+    fn send_update(&mut self, id: ElId, update: Update) {
+        self.arena.update_untracked(|arena| {
+            Self::send_update_inner(id, update, arena);
+
+            if let Some(bubble) = update.as_bubble() {
+                Self::bubble_from_child(id, bubble, arena);
+            }
+        });
     }
 
     #[must_use]
@@ -334,37 +357,36 @@ impl<W: WidgetCtx> Page<W> {
 
                     self.force_redraw();
                 }
+                // TODO: Should dev tools capture mouse movement?
+                // return None;
             }
 
             // Update persistent cursor position
-            self.state.update(|s| s.pointer.pos = Some(point));
+            self.state.pointer.pos = Some(point);
 
             // Hover pass: dispatch MouseMove through the tree so HOVERABLE widgets can self-report
-            let old_hovered = self.state.with(|s| s.pointer.hovered);
-            self.state.update(|s| s.pointer.hovered = None);
+            let old_hovered = self.state.pointer.hovered;
+            self.state.pointer.hovered = None;
             let _ = self.send_specific_event(&event);
 
             // Dispatch Enter/Leave if hovered widget changed
-            let new_hovered = self.state.with(|s| s.pointer.hovered);
+            let new_hovered = self.state.pointer.hovered;
             if old_hovered != new_hovered {
                 if let Some(left) = old_hovered {
-                    let _ = self.send_specific_event(&Event::Mouse(
-                        MouseEvent::MouseLeave { target: left },
-                    ));
+                    self.send_update(left, Update::MouseLeave);
                 }
                 if let Some(entered) = new_hovered {
-                    let _ = self.send_specific_event(&Event::Mouse(
-                        MouseEvent::MouseEnter { target: entered },
-                    ));
+                    self.send_update(entered, Update::MouseEnter);
                 }
             }
 
-            // MouseMove is always consumed — never an UnhandledEvent
+            // TODO: Should mouse event always be ignored?
             return None;
         }
 
+        // TODO: Capture mouse movement? - Yes, it is required for sliders, knobs, etc.
         // Pointer capture: route mouse button events directly to the capturing widget first
-        let captured_by = self.state.with(|s| s.pointer.captured_by);
+        let captured_by = self.state.pointer.captured_by;
         if let Some(_captured_id) = captured_by {
             if matches!(
                 event,
@@ -378,7 +400,7 @@ impl<W: WidgetCtx> Page<W> {
 
                 // Clear capture on any ButtonUp
                 if matches!(event, Event::Mouse(MouseEvent::ButtonUp(_, _))) {
-                    self.state.update(|s| s.pointer.captured_by = None);
+                    self.state.pointer.captured_by = None;
                 }
 
                 return None;
@@ -485,19 +507,21 @@ impl<W: WidgetCtx> Page<W> {
                     let fonts = self.fonts.read_only();
 
                     let layout = self.layout;
-                    with!(|layout| {
+                    let stylist = self.stylist;
+                    with!(|layout, stylist| {
                         debug!("Force redraw: {}", self.force_redraw.get());
                         self.arena.with(|arena| {
                             RenderCtx {
                                 id: self.root,
-                                state: self.state.read_only(),
+                                arena,
+                                page_state: &self.state,
                                 renderer,
                                 layout: &layout.tree_root(),
                                 tree_style: TreeStyle::base(),
                                 page_style: self.style.read_only(),
                                 viewport: self.viewport,
                                 fonts,
-                                theme: self.theme,
+                                stylist,
                                 font_props: FontProps {
                                     font: Some(Font::Auto.maybe_reactive()),
                                     font_size: None,
@@ -508,7 +532,7 @@ impl<W: WidgetCtx> Page<W> {
                                 nesting_level: 0,
                                 call: self.render_calls,
                                 _marker: PhantomData::<CtxUnready>,
-                            }.render(arena)
+                            }.render()
                         })
                     })?;
 
@@ -555,7 +579,7 @@ mod tests {
     use alloc::string::String;
     use rsact_reactive::prelude::*;
 
-    type NullWtf = Wtf<NullRenderer, (), ()>;
+    type NullWtf = Wtf<NullRenderer, (), (), ()>;
 
     fn create_null_page(root: impl Into<El<NullWtf>>) -> Page<NullWtf> {
         let arena = create_signal(ElArena::new()).name("Page arena");
@@ -565,7 +589,7 @@ mod tests {
             root,
             arena,
             Size::new_equal(1).maybe_reactive(),
-            Theme::default().inert(),
+            ().inert(),
             DevTools::default().signal(),
             NullRenderer::default().signal(),
             FontCtx::new().signal(),

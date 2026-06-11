@@ -2,9 +2,15 @@ use crate::{
     layout::length::LengthSize, style::WidgetStyleFn, widget::prelude::*,
 };
 
+declare_widget_style! {
+    EdgeStyle () {
+        container: container,
+    }
+}
+
 pub struct Edge<W: WidgetCtx> {
     pub layout: Layout,
-    style: WidgetStyleFn<BlockStyle<W::Color>>,
+    style: WidgetStyleFn<EdgeStyle<W::Color>>,
 }
 
 impl<W: WidgetCtx + 'static> Edge<W> {
@@ -15,11 +21,8 @@ impl<W: WidgetCtx + 'static> Edge<W> {
         }
     }
 
-    pub fn style(
-        mut self,
-        styler: impl (Fn(BlockStyle<W::Color>) -> BlockStyle<W::Color>) + 'static,
-    ) -> Self {
-        self.style = Some(Box::new(styler));
+    pub fn style(mut self, class: impl StyleFn<EdgeStyle<W::Color>>) -> Self {
+        self.style = Some(Box::new(class));
         self
     }
 }
@@ -42,13 +45,12 @@ impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
     #[track_caller]
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
         ctx.render_self("Edge", |mut ctx| {
-            let base = BlockStyle::base();
-            let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
+            let style = ctx.get_style(self.style.as_deref());
 
             Block::from_layout_style(
                 ctx.layout.outer,
                 self.layout.with(|layout| layout.block_model()),
-                style,
+                style.container,
             )
             .render(ctx.renderer())
         })

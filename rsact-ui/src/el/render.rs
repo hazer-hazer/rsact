@@ -1,6 +1,6 @@
 use crate::{
     el::{
-        ElData, ElId, WithElId,
+        ClipPath, ElData, ElId, ElState, WithElId,
         arena::{ArenaChildren, ArenaEls, ElArena},
         ctx::{PageState, WidgetCtx},
     },
@@ -8,7 +8,10 @@ use crate::{
     layout::model::LayoutModelNode,
     page::PageStyle,
     render::prelude::*,
-    style::{TreeStyle, theme::Theme},
+    style::{
+        Style, StyleFn, StylePseudoClass, StyleSelector, TreeStyle,
+        stylist::Stylist, theme::Theme,
+    },
 };
 use core::{fmt::Display, hash::Hash, marker::PhantomData};
 use itertools::Itertools as _;
@@ -21,17 +24,21 @@ use rsact_render::color::ACCENT_COUNT;
 pub struct CtxReady;
 pub struct CtxUnready;
 
-// TODO: Make RenderCtx a delegate to renderer so u can do `Primitive::(...).render(ctx)`
+// TODO: Maybe split RenderCtx into RenderCtx and WidgetRenderCtx, where WidgetRenderCtx is a subset with less fields unneeded for widget rendering? Better no, because it may lead to reimplementing same methods for both.
+
+// TODO: Make RenderCtx a delegate to renderer so u can do `Primitive::(...).render(ctx)`?
+// Maybe later, and surely not .render(ctx), at least .render(ctx.renderer()), otherwise it breaks encapsulation of the crates.
 pub struct RenderCtx<'a, W: WidgetCtx, S = CtxUnready> {
     pub id: ElId,
-    pub state: Signal<PageState<W>, ReadOnly>,
+    pub arena: &'a ElArena<W>,
+    pub page_state: &'a PageState<W>,
     pub renderer: &'a mut W::Renderer,
     pub layout: &'a LayoutModelNode<'a>,
     pub tree_style: TreeStyle<W::Color>,
     pub page_style: Signal<PageStyle<W::Color>, ReadOnly>,
     pub viewport: MaybeReactive<Size>,
     pub fonts: Signal<FontCtx, ReadOnly>,
-    pub theme: Inert<Theme<W::Color>>,
+    pub stylist: &'a W::Stylist,
     pub font_props: FontProps,
     pub force_redraw: Signal<bool>,
     pub parent_dirty: bool,
@@ -72,7 +79,7 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
 
     #[must_use]
     pub fn render_focus_outline(&mut self, id: ElId) -> RenderResult {
-        if self.state.with(|state| state.is_focused(id)) {
+        if self.page_state.is_focused(id) {
             (Block {
                 border: Border::zero()
                     // TODO: Theme focus color
@@ -95,14 +102,15 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
     ) -> R {
         f(RenderCtx {
             id: self.id,
-            state: self.state,
+            arena: self.arena,
+            page_state: self.page_state,
             renderer: self.renderer,
             layout: self.layout,
             tree_style: tree_style(self.tree_style),
             page_style: self.page_style,
             viewport: self.viewport,
             fonts: self.fonts,
-            theme: self.theme,
+            stylist: self.stylist,
             font_props: self.font_props,
             force_redraw: self.force_redraw,
             parent_dirty: self.parent_dirty,
@@ -112,38 +120,27 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
         })
     }
 
-    pub fn clip_inner(
-        &mut self,
-        f: impl FnOnce(RenderCtx<'_, W, CtxReady>) -> RenderResult,
-    ) -> RenderResult {
-        self.renderer.clipped(self.layout.inner, |renderer| {
-            f(RenderCtx {
-                id: self.id,
-                state: self.state,
-                renderer,
-                layout: self.layout,
-                tree_style: self.tree_style,
-                page_style: self.page_style,
-                viewport: self.viewport,
-                fonts: self.fonts,
-                theme: self.theme,
-                font_props: self.font_props,
-                force_redraw: self.force_redraw,
-                parent_dirty: self.parent_dirty,
-                nesting_level: self.nesting_level + 1,
-                call: self.call,
-                _marker: PhantomData,
-            })
-        })
+    pub fn pseudoclass(&self) -> StylePseudoClass {
+        // TODO: Other pseudoclasses
+
+        let data = self.arena.expect_unreachable(self.id);
+
+        StylePseudoClass::default()
+            .hovered(data.state.hovered)
+            .focused(self.page_state.is_focused(self.id))
     }
 
-    pub fn get_style<Style: Copy>(
+    pub fn get_style<S: Style>(
         &self,
-        base: impl FnOnce(&Theme<W::Color>) -> Style,
-        style: Option<&dyn Fn(Style) -> Style>,
-    ) -> Style {
-        let base = self.theme.with(base);
-        style.map(|f| f(base)).unwrap_or(base)
+        style: Option<&dyn Fn(&S, &StyleSelector) -> S>,
+    ) -> S
+    where
+        W::Stylist: Stylist<S>,
+    {
+        let pseudoclass = self.pseudoclass();
+        let selector = StyleSelector { pseudoclass };
+        let base = self.stylist.style(&S::base(), &selector);
+        style.map(|f| f(&base, &selector)).unwrap_or(base)
     }
 }
 
@@ -184,14 +181,15 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
             // render_part know the area is already cleared.
             f(RenderCtx {
                 id: self.id,
-                state: self.state,
+                arena: self.arena,
+                page_state: self.page_state,
                 renderer: self.renderer,
                 layout: self.layout,
                 tree_style: self.tree_style,
                 page_style: self.page_style,
                 viewport: self.viewport,
                 fonts: self.fonts,
-                theme: self.theme,
+                stylist: self.stylist,
                 font_props: self.font_props,
                 force_redraw: self.force_redraw,
                 parent_dirty: true,
@@ -217,6 +215,7 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
         f: impl FnOnce(RenderCtx<'_, W, CtxReady>) -> RenderResult,
     ) -> RenderResult {
         // TODO: Get rid of this, we have debug_name
+        // Maybe not? It is more customizable and may be handy
         let render_id = format!("{widget_name}[render_self]");
         self.render_part(&render_id, f)
     }
@@ -228,19 +227,20 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
         &mut self,
         id: ElId,
         child_layout: &LayoutModelNode,
-        f: impl FnOnce(RenderCtx<'_, W, CtxUnready>) -> R,
+        f: impl FnOnce(RenderCtx<'_, W, S>) -> R,
     ) -> R {
         let font_props = child_layout.font_props().unwrap_or(self.font_props);
         f(RenderCtx {
             id,
-            state: self.state,
+            arena: self.arena,
+            page_state: self.page_state,
             renderer: self.renderer,
             layout: child_layout,
             tree_style: self.tree_style,
             page_style: self.page_style,
             viewport: self.viewport,
             fonts: self.fonts,
-            theme: self.theme,
+            stylist: self.stylist,
             font_props,
             force_redraw: self.force_redraw,
             parent_dirty: self.parent_dirty,
@@ -250,59 +250,104 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
         })
     }
 
-    pub fn render<'arena>(mut self, arena: &'arena ElArena<W>) -> RenderResult {
-        self.render_(self.id, &arena.els, &arena.children)
+    pub fn render<'arena>(mut self) -> RenderResult {
+        self.render_inner(self.id)
     }
 
-    fn render_<'arena>(
-        &mut self,
-        id: ElId,
-        arena: &'arena ArenaEls<W>,
-        children: &'arena ArenaChildren,
-    ) -> RenderResult {
+    fn render_inner<'arena>(&mut self, id: ElId) -> RenderResult {
         debug!("{:indent$}->", "", indent = self.nesting_level);
 
-        let Some(data) = Self::expect_el(id, arena) else { return Ok(()) };
+        let Some(data) = self.arena.expect(id) else { return Ok(()) };
 
-        self.render_el(id, data)?;
+        self.apply_options(&data.state, |this| {
+            this.render_el(id, data)?;
 
-        if data.flags.transparent_layout {
-            if let Some(children_ids) = children.get(id) {
-                if children_ids.len() != 1 {
+            if data.state.flags.transparent_layout {
+                if let Some(children_ids) = self.arena.children(id) {
+                    if children_ids.len() != 1 {
+                        error!(
+                            "Transparent widget with id {id:?} should have exactly one child, but has {}",
+                            children_ids.len()
+                        );
+
+                        this.for_child(id, this.layout, |mut this| {
+                            this.render_inner(id,)
+                        })?;
+                    }
+                } else {
                     error!(
-                        "Transparent widget with id {id:?} should have exactly one child, but has {}",
-                        children_ids.len()
+                        "Transparent widget with id {id:?} does not have child widget"
                     );
+                }
+            } else if let Some(children_ids) = self.arena.children(id) {
+                debug!(
+                    "{:indent$}Children [{}]:",
+                    "",
+                    children_ids.len(),
+                    indent = this.nesting_level
+                );
 
-                    self.for_child(id, self.layout, |mut this| {
-                        this.render_(id, arena, children)
+                for (child_id, child_layout) in
+                    children_ids.iter().zip_eq(this.layout.children())
+                {
+                    this.for_child(*child_id, &child_layout, |mut this| {
+                        this.render_inner(*child_id)
                     })?;
                 }
-            } else {
-                error!(
-                    "Transparent widget with id {id:?} does not have child widget"
-                );
             }
-        } else if let Some(children_ids) = children.get(id) {
-            debug!(
-                "{:indent$}Children [{}]:",
-                "",
-                children_ids.len(),
-                indent = self.nesting_level
-            );
 
-            for (child_id, child_layout) in
-                children_ids.iter().zip_eq(self.layout.children())
-            {
-                self.for_child(*child_id, &child_layout, |mut this| {
-                    this.render_(*child_id, arena, children)
-                })?;
+            debug!("{:indent$}<-", "", indent = this.nesting_level);
+
+            Ok(())
+        })
+    }
+
+    fn apply_options(
+        &mut self,
+        data: &ElState<W>,
+        f: impl FnOnce(&mut RenderCtx<'_, W, S>) -> RenderResult,
+    ) -> RenderResult {
+        self.maybe_clip(data.clip_path.as_ref(), |this| f(this))
+    }
+
+    fn maybe_clip(
+        &mut self,
+        clip_path: Option<&ClipPath>,
+        f: impl FnOnce(&mut RenderCtx<'_, W, S>) -> RenderResult,
+    ) -> RenderResult {
+        if let Some(clip_path) = clip_path {
+            match clip_path {
+                ClipPath::InnerRect => self.clip_inner(f),
             }
+        } else {
+            f(self)
         }
+    }
 
-        debug!("{:indent$}<-", "", indent = self.nesting_level);
-
-        Ok(())
+    pub fn clip_inner(
+        &mut self,
+        f: impl FnOnce(&mut RenderCtx<'_, W, S>) -> RenderResult,
+    ) -> RenderResult {
+        self.renderer.clipped(self.layout.inner, |renderer| {
+            f(&mut RenderCtx {
+                id: self.id,
+                arena: self.arena,
+                page_state: self.page_state,
+                renderer,
+                layout: self.layout,
+                tree_style: self.tree_style,
+                page_style: self.page_style,
+                viewport: self.viewport,
+                fonts: self.fonts,
+                stylist: self.stylist,
+                font_props: self.font_props,
+                force_redraw: self.force_redraw,
+                parent_dirty: self.parent_dirty,
+                nesting_level: self.nesting_level + 1,
+                call: self.call,
+                _marker: PhantomData,
+            })
+        })
     }
 
     fn render_el<'arena>(
@@ -310,26 +355,25 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
         id: ElId,
         data: &ElData<W>,
     ) -> RenderResult {
-        // TODO: Observable rendering!!!
-
         debug!(
             "{:indent$}Render `{}` [{:?}]",
             "",
-            data.debug_name,
+            data.state.debug_name,
             id,
             indent = self.nesting_level
         );
 
         data.widget.render(RenderCtx {
             id,
-            state: self.state,
+            arena: self.arena,
+            page_state: self.page_state,
             renderer: self.renderer,
             layout: self.layout,
             tree_style: self.tree_style,
             page_style: self.page_style,
             viewport: self.viewport,
             fonts: self.fonts,
-            theme: self.theme,
+            stylist: self.stylist,
             font_props: self.font_props,
             force_redraw: self.force_redraw,
             parent_dirty: self.parent_dirty,
@@ -337,29 +381,6 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
             call: self.call,
             _marker: PhantomData,
         })
-    }
-
-    fn expect_el<'arena>(
-        id: ElId,
-        arena: &'arena ArenaEls<W>,
-    ) -> Option<&'arena ElData<W>> {
-        if let Some(el) = arena.get(id).as_mut() {
-            if let Some(data) = el.data.as_ref() {
-                Some(data)
-            } else {
-                error!(
-                    "Trying to run event on element with id {:?} that has no data",
-                    id
-                );
-                None
-            }
-        } else {
-            error!(
-                "Trying to run event on non-existent element with id {:?}",
-                id
-            );
-            None
-        }
     }
 
     // #[must_use]
@@ -428,22 +449,22 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
     fn clear_outer(&mut self) -> RenderResult {
         // TODO: Feature-gated or debug-redraw flag
         // Debug redraws, works good only for colors with alpha. But we can use some bright background too
-        self.renderer.rect(
-            self.layout.outer,
-            &DrawStyle::default().fill(
-                W::Color::accents()
-                    [(self.nesting_level + self.call) % ACCENT_COUNT],
-            ),
-            // .stroke(W::Color::accents()[4])
-            // .stroke_width(1),
-        )
+        // self.renderer.rect(
+        //     self.layout.outer,
+        //     &DrawStyle::default().fill(
+        //         W::Color::accents()
+        //             [(self.nesting_level + self.call) % ACCENT_COUNT],
+        //     ),
+        //     // .stroke(W::Color::accents()[4])
+        //     // .stroke_width(1),
+        // )
 
-        // self.page_style.with(|style| {
-        //     if let Some(bg) = style.background_color {
-        //         self.renderer.fill_solid(self.layout.outer, bg).map_err(|_| ())
-        //     } else {
-        //         Ok(())
-        //     }
-        // })
+        self.page_style.with(|style| {
+            if let Some(bg) = style.background_color {
+                self.renderer.fill_solid(self.layout.outer, bg).map_err(|_| ())
+            } else {
+                Ok(())
+            }
+        })
     }
 }

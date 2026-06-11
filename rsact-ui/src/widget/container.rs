@@ -1,9 +1,18 @@
-use crate::{style::WidgetStyleFn, widget::prelude::*};
+use crate::{
+    style::{StyleFn, WidgetStyleFn},
+    widget::prelude::*,
+};
+
+declare_widget_style! {
+    ContainerStyle () {
+        container: container,
+    }
+}
 
 pub struct Container<W: WidgetCtx> {
     pub layout: Layout,
     pub content: El<W>,
-    pub style: WidgetStyleFn<BlockStyle<W::Color>>,
+    pub style: WidgetStyleFn<ContainerStyle<W::Color>>,
 }
 
 impl<W: WidgetCtx + 'static> Container<W> {
@@ -21,7 +30,7 @@ impl<W: WidgetCtx + 'static> Container<W> {
 
     pub fn style(
         mut self,
-        style: impl (Fn(BlockStyle<W::Color>) -> BlockStyle<W::Color>) + 'static,
+        style: impl StyleFn<ContainerStyle<W::Color>>,
     ) -> Self {
         self.style = Some(Box::new(style));
         self
@@ -99,13 +108,12 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
 
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> crate::widget::RenderResult {
         ctx.render_self("Container", |mut ctx| {
-            let base = BlockStyle::base();
-            let style = self.style.as_ref().map(|f| f(base)).unwrap_or(base);
+            let style = ctx.get_style(self.style.as_deref());
 
             Block::from_layout_style(
                 ctx.layout.outer,
                 self.layout.with(|layout| layout.block_model()),
-                style,
+                style.container,
             )
             .render(ctx.renderer())
         })

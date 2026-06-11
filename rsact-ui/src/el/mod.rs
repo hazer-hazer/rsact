@@ -1,5 +1,6 @@
 use crate::widget::prelude::*;
 use alloc::boxed::Box;
+use core::marker::PhantomData;
 
 pub mod arena;
 pub mod build;
@@ -7,44 +8,18 @@ pub mod ctx;
 pub mod event;
 pub mod flags;
 pub mod render;
+pub mod update;
 
 pub use build::*;
 pub use ctx::*;
 pub use event::*;
 pub use flags::WidgetFlags;
 pub use render::*;
+pub use update::*;
 
 slotmap::new_key_type! {
     pub struct ElId;
 }
-
-// static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
-
-// #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-// #[cfg_attr(feature = "defmt", derive(::defmt::Format))]
-// pub enum ElId {
-//     Unique(usize),
-//     // TODO: Remove custom id, its useless as we don't support selectors, may only be useful for debugging purposes.
-//     Custom(&'static str),
-// }
-
-// impl ElId {
-//     pub fn new(name: &'static str) -> Self {
-//         Self::Custom(name)
-//     }
-
-//     pub fn unique() -> Self {
-//         Self::Unique(
-//             NEXT_ID.fetch_add(1, core::sync::atomic::Ordering::Relaxed),
-//         )
-//     }
-// }
-
-// impl From<&'static str> for ElId {
-//     fn from(value: &'static str) -> Self {
-//         Self::new(value)
-//     }
-// }
 
 /// Value bound with [`ElId`], used for hashing purposes
 #[derive(Debug, Clone, Copy, Hash)]
@@ -64,10 +39,12 @@ pub enum ClipPath {
     InnerRect,
 }
 
-pub struct ElData<W: WidgetCtx> {
-    // TODO: If rsact-reactive would support ?Sized as a real smart-pointer we could do MaybeReactive<dyn Widget<W>>, so reactive elements creation would be possible in place. But the problem is that MaybeReactive is a readonly value, while MaybeSignal is owned stack value/Signal, so we either change the MaybeSignal to StoredValue/Signal or create a new MaybeSignal-like value with heap storage.
-    // We can't, Rust does not allow unsized fields in structs, only through internal Box, Rc, etc. So we cannot make a custom arena-allocated smart pointer.
-    pub widget: Box<dyn Widget<W>>,
+pub enum RedrawReason {
+    PseudoclassChange,
+}
+
+pub struct ElState<W: WidgetCtx> {
+    _marker: PhantomData<W>,
 
     pub built: bool,
 
@@ -75,8 +52,24 @@ pub struct ElData<W: WidgetCtx> {
 
     pub flags: WidgetFlags,
 
-    // Render //
+    // TODO:Move ElState to a child module to hide implementation for hovers, etc. Because we should never set hover for non-hoverable widgets and need to encapsulate this logic.
+    // Action state //
+    pub hovered: bool,
+
+    // // Styling //
+    // pub pseudoclass: StylePseudoClass,
+
+    // Rendering //
+    pub needs_redraw: Option<RedrawReason>,
     pub clip_path: Option<ClipPath>,
+}
+
+pub struct ElData<W: WidgetCtx> {
+    // TODO: If rsact-reactive would support ?Sized as a real smart-pointer we could do MaybeReactive<dyn Widget<W>>, so reactive elements creation would be possible in place. But the problem is that MaybeReactive is a readonly value, while MaybeSignal is owned stack value/Signal, so we either change the MaybeSignal to StoredValue/Signal or create a new MaybeSignal-like value with heap storage.
+    // We can't, Rust does not allow unsized fields in structs, only through internal Box, Rc, etc. So we cannot make a custom arena-allocated smart pointer.
+    pub widget: Box<dyn Widget<W>>,
+
+    pub state: ElState<W>,
 }
 
 impl<W: WidgetCtx> ElData<W> {
@@ -84,7 +77,21 @@ impl<W: WidgetCtx> ElData<W> {
         let debug_name = Self::pretty_type_name(widget.as_ref().debug_name());
         let flags = widget.flags();
 
-        Self { widget, debug_name, flags, built: false, clip_path: None }
+        Self {
+            widget,
+            state: ElState {
+                _marker: PhantomData,
+                debug_name,
+                flags,
+                built: false,
+
+                hovered: false,
+
+                needs_redraw: None,
+                clip_path: None,
+                // pseudoclass: StylePseudoClass::default(),
+            },
+        }
     }
 
     fn pretty_type_name(debug_name: &'static str) -> &'static str {

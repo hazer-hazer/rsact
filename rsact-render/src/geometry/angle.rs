@@ -7,31 +7,31 @@ pub struct Angle {
 }
 
 impl Angle {
-    pub fn zero() -> Self {
+    pub const fn zero() -> Self {
         Self { radians: 0.0 }
     }
 
-    pub fn from_degrees(degrees: f32) -> Self {
+    pub const fn from_degrees(degrees: f32) -> Self {
         Self { radians: degrees * core::f32::consts::PI / 180.0 }
     }
 
-    pub fn from_radians(radians: f32) -> Self {
+    pub const fn from_radians(radians: f32) -> Self {
         Self { radians }
     }
 
-    pub fn to_degrees(self) -> f32 {
+    pub const fn to_degrees(self) -> f32 {
         self.radians * 180.0 / core::f32::consts::PI
     }
 
-    pub fn to_radians(self) -> f32 {
+    pub const fn to_radians(self) -> f32 {
         self.radians
     }
 
-    pub fn is_zero(&self) -> bool {
+    pub const fn is_zero(&self) -> bool {
         self.radians.abs() < f32::EPSILON
     }
 
-    pub fn sign(&self) -> f32 {
+    pub const fn sign(&self) -> f32 {
         if self.radians > 0.0 {
             1.0
         } else if self.radians < 0.0 {

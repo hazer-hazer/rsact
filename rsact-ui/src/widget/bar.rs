@@ -1,4 +1,4 @@
-use crate::{value::RangeValue, widget::prelude::*};
+use crate::{style::WidgetStyleFn, value::RangeValue, widget::prelude::*};
 use core::marker::PhantomData;
 use rsact_reactive::prelude::*;
 
@@ -12,14 +12,6 @@ declare_widget_style! {
 }
 
 impl<C: Color> BarStyle<C> {
-    pub fn base() -> Self {
-        Self {
-            container: BlockStyle::base()
-                .border(BorderStyle::base().radius(0.4)),
-            color: ColorStyle::DefaultForeground,
-        }
-    }
-
     fn bar_draw_style(&self) -> DrawStyle<C> {
         DrawStyle {
             fill: self.color.get(),
@@ -33,7 +25,7 @@ impl<C: Color> BarStyle<C> {
 pub struct Bar<W: WidgetCtx, V: RangeValue, Dir: Direction> {
     value: MaybeReactive<V>,
     layout: Layout,
-    style: Option<Box<dyn Fn(BarStyle<W::Color>) -> BarStyle<W::Color>>>,
+    style: WidgetStyleFn<BarStyle<W::Color>>,
     dir: PhantomData<Dir>,
 }
 
@@ -80,7 +72,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction + 'static> Widget<W>
     #[track_caller]
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
         ctx.render_self("Bar", |mut ctx| {
-            let style = ctx.get_style(|t| t.bar, self.style.as_deref());
+            let style = ctx.get_style(self.style.as_deref());
 
             // let start = ctx.layout.area.anchor_point(
             //     Dir::AXIS

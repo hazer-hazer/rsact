@@ -1,4 +1,4 @@
-use crate::{el::*, page::id::PageId};
+use crate::{el::*, page::id::PageId, style::stylist::InternalStylist};
 use core::{fmt::Debug, marker::PhantomData};
 use rsact_render::prelude::*;
 
@@ -7,6 +7,7 @@ pub trait WidgetCtx: Sized + PartialEq + Clone + 'static {
     type Renderer: Renderer<Color = Self::Color>;
     type Color: Color;
     type PageId: PageId;
+    type Stylist: InternalStylist<Self::Color>;
     type CustomEvent: Debug;
 
     // Methods delegated from renderer //
@@ -22,27 +23,29 @@ pub trait WidgetCtx: Sized + PartialEq + Clone + 'static {
 // TODO: This is a pure WidgetCtx, but for most users we want such WTF that constraints over all stylists and events for all native widgets. Is it possible to create such keeping UI implementation untouched?
 /// WidgetTypeFamily
 /// Type family of types used in Widgets
-pub struct Wtf<R, I, E = ()>
+pub struct Wtf<R, I, S, E = ()>
 where
     R: Renderer,
 {
     _renderer: PhantomData<R>,
     _page_id: PhantomData<I>,
+    _stylist: PhantomData<S>,
     _event: PhantomData<E>,
 }
 
-impl<R, I, E> PartialEq for Wtf<R, I, E>
+impl<R, I, S, E> PartialEq for Wtf<R, I, S, E>
 where
     R: Renderer,
 {
     fn eq(&self, other: &Self) -> bool {
         self._renderer == other._renderer
             && self._page_id == other._page_id
+            && self._stylist == other._stylist
             && self._event == other._event
     }
 }
 
-impl<R, I, E> Clone for Wtf<R, I, E>
+impl<R, I, S, E> Clone for Wtf<R, I, S, E>
 where
     R: Renderer,
 {
@@ -50,20 +53,23 @@ where
         Self {
             _renderer: self._renderer.clone(),
             _page_id: self._page_id.clone(),
+            _stylist: self._stylist.clone(),
             _event: self._event.clone(),
         }
     }
 }
 
-impl<R, I, E> WidgetCtx for Wtf<R, I, E>
+impl<R, I, S, E> WidgetCtx for Wtf<R, I, S, E>
 where
     R: Renderer + 'static,
     I: PageId + 'static,
+    S: InternalStylist<R::Color> + 'static,
     E: Debug + 'static,
 {
     type Renderer = R;
     type Color = <R as Renderer>::Color;
     type PageId = I;
+    type Stylist = S;
     type CustomEvent = E;
 }
 
@@ -82,6 +88,7 @@ impl PointerState {
     }
 }
 
+// TODO: Need to subscribe to arena changes, so when node is removed, it is removed from page state focused, pointer, etc. Otherwise we send updates to stale widget
 pub struct PageState<W: WidgetCtx> {
     /// Element id + its absolute tree index among all focusable elements (see [`PageTree`])
     pub focused: Option<(ElId, usize)>,
@@ -101,7 +108,7 @@ impl<W: WidgetCtx> PageState<W> {
         self.focused.map(|focused| focused.0 == id).unwrap_or(false)
     }
 
-    pub fn is_hovered(&self, id: ElId) -> bool {
-        self.pointer.hovered == Some(id)
-    }
+    // pub fn is_hovered(&self, id: ElId) -> bool {
+    //     self.pointer.hovered == Some(id)
+    // }
 }

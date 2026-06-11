@@ -20,22 +20,12 @@ declare_widget_style! {
         container: container,
         color: color,
         // thickness: u32,
-        angle_start: Angle,
-        angle: Angle,
+        angle_start: Angle = Angle::from_degrees(0.0),
+        angle: Angle = Angle::from_degrees(360.0),
     }
 }
 
 impl<C: Color> KnobStyle<C> {
-    pub fn base() -> Self {
-        Self {
-            container: BlockStyle::base(),
-            color: ColorStyle::DefaultForeground,
-            // thickness: 5,
-            angle_start: Angle::from_degrees(0.0),
-            angle: Angle::from_degrees(360.0),
-        }
-    }
-
     fn sector_draw_style(&self) -> DrawStyle<C> {
         DrawStyle {
             fill: self.color.get(),
@@ -50,7 +40,7 @@ pub struct Knob<W: WidgetCtx, V: RangeValue> {
     layout: Layout,
     value: Signal<V>,
     state: Signal<KnobState>,
-    style: Option<Box<dyn Fn(KnobStyle<W::Color>) -> KnobStyle<W::Color>>>,
+    style: WidgetStyleFn<KnobStyle<W::Color>>,
 }
 
 impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
@@ -94,7 +84,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Widget<W> for Knob<W, V> {
     #[track_caller]
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
         ctx.render_self("Knob", |mut ctx| {
-            let style = ctx.get_style(|t| t.knob, self.style.as_deref());
+            let style = ctx.get_style(self.style.as_deref());
 
             let value_real = self.value.get().real_point();
             let range_degrees = style.angle;

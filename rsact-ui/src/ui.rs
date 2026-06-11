@@ -1,5 +1,6 @@
 use crate::el::arena::ElArena;
 use crate::font::FontImport;
+use crate::style::stylist::InternalStylist;
 use crate::{
     el::El,
     el::ctx::*,
@@ -42,8 +43,8 @@ pub struct UI<W: WidgetCtx, P: HasPages> {
     arena: Signal<ElArena<W>>,
     viewport: MaybeReactive<Size>,
     on_exit: Option<Box<dyn Fn()>>,
-    // Note: Theme is Inert by design as we don't still support dynamic themes. But do be noted Inert make data 'static and only freed on reactive scope drop, so it is better to somehow run UI inside new reactive runtime, but this requires user signals to be created inside it.
-    theme: Inert<Theme<W::Color>>,
+    // TODO: Get rid of Inert wrapper, it is at most RefCell
+    stylist: Inert<W::Stylist>,
     dev_tools: Signal<DevTools>,
     // TODO: Inert renderer. I don't think it is hardly needed to have reactive renderer options (this is the only reactive dependency).
     // The problem is that Inert is a readonly value, while we need a mutable reference to the renderer
@@ -54,14 +55,15 @@ pub struct UI<W: WidgetCtx, P: HasPages> {
     fonts: Signal<FontCtx>,
 }
 
-impl<R, I, E> UI<Wtf<R, I, E>, NoPages>
+impl<R, I, S, E> UI<Wtf<R, I, S, E>, NoPages>
 where
     R: Renderer + 'static,
     I: PageId + 'static,
+    S: InternalStylist<R::Color> + 'static,
     E: Debug + 'static,
 {
     // TODO: For now I made viewport inert, but it is possible for the viewport to change (e.g. window resize, etc). But as now we targeting embedded devices with fixed displays and don't support any windowing, I hold it.
-    pub fn new(theme: Theme<<R as Renderer>::Color>, renderer: R) -> Self {
+    pub fn new(stylist: S, renderer: R) -> Self {
         let viewport = renderer.size().inert().maybe_reactive();
 
         let dev_tools =
@@ -75,7 +77,7 @@ where
             pages: BTreeMap::new(),
             arena: create_signal(ElArena::new()),
             on_exit: None,
-            theme: theme.inert(),
+            stylist: stylist.inert(),
             dev_tools,
             // TODO: Reactive viewport in Renderer
             renderer: renderer.signal(),
@@ -129,7 +131,7 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
             arena: self.arena,
             viewport: self.viewport,
             on_exit: self.on_exit,
-            theme: self.theme,
+            stylist: self.stylist,
             dev_tools: self.dev_tools,
             renderer: self.renderer,
             message_queue: self.message_queue,
@@ -156,7 +158,7 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
                         page_root,
                         self.arena,
                         self.viewport,
-                        self.theme,
+                        self.stylist,
                         self.dev_tools,
                         self.renderer,
                         self.fonts

@@ -11,7 +11,6 @@ use rsact_ui::{
         SignalMap, Size, create_signal,
     },
     render::draw_target::{AntiAliasing, LayeringRendererOptions},
-    style::NullStyler,
     ui::UI,
     widget::{SizedWidget, Widget as _},
 };

@@ -18,34 +18,21 @@ pub enum SliderThumbShape {
 // TODO: Sizes depended on viewport
 declare_widget_style! {
     SliderStyle (SliderState) {
-        track_width: u32,
+        track_width: u32 = 10,
         track_color: color,
-        thumb_border_width: u32,
+        thumb_border_width: u32 = 10,
         thumb: container {
             thumb_color: background_color,
             thumb_border_color: border_color,
             thumb_border_radius: border_radius,
         },
         // TODO: Thumb size can be larger than Slider bounding box, I think it is better to use slider size for thumb size and if user wants padding then Container can be used, this will save us from thumb leaking outside of slider
-        thumb_size: u32,
-        thumb_shape: SliderThumbShape
+        thumb_size: u32 = 10,
+        thumb_shape: SliderThumbShape = SliderThumbShape::Circle,
     }
 }
 
 impl<C: Color> SliderStyle<C> {
-    pub fn base() -> Self {
-        Self {
-            track_width: 2,
-            track_color: ColorStyle::DefaultForeground,
-            thumb_border_width: 0,
-            thumb: BlockStyle::base()
-                .background_color(C::default_foreground())
-                .border(BorderStyle::base().radius(0.25)),
-            thumb_size: 11,
-            thumb_shape: SliderThumbShape::default(),
-        }
-    }
-
     fn track_draw_style(&self) -> DrawStyle<C> {
         DrawStyle {
             fill: None,
@@ -76,7 +63,7 @@ pub struct Slider<W: WidgetCtx, Dir: Direction> {
     step: MaybeReactive<f32>,
     state: Signal<SliderState>,
     layout: Layout,
-    style: Option<Box<dyn Fn(SliderStyle<W::Color>) -> SliderStyle<W::Color>>>,
+    style: WidgetStyleFn<SliderStyle<W::Color>>,
     dir: PhantomData<Dir>,
 }
 
@@ -152,7 +139,7 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Slider<W, Dir> {
         ctx.render_self("Slider", |mut ctx| {
             ctx.render_focus_outline(ctx.id)?;
 
-            let style = ctx.get_style(|t| t.slider, self.style.as_deref());
+            let style = ctx.get_style(self.style.as_deref());
 
             let track_len = ctx
                 .layout

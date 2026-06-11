@@ -21,7 +21,7 @@ pub mod slider;
 pub mod space;
 
 use crate::{
-    el::build::BuildCtx,
+    el::{build::BuildCtx, update::UpdateCtx},
     font::{Font, FontProps, FontSize, FontStyle},
     layout::length::LengthSize,
 };
@@ -151,6 +151,10 @@ where
 
     fn build(&mut self, ctx: BuildCtx<W>);
 
+    fn update(&mut self, mut ctx: UpdateCtx<'_, W>) {
+        ctx.handle();
+    }
+
     // TODO: Meta can be collected in build pass
     // TODO: Use MaybeReactive tree
     // TODO: Can rewrite so that meta is called once?
@@ -159,9 +163,9 @@ where
     fn layout(&self) -> Layout;
 
     // Hot-loop called functions //
-    fn render(&self, ctx: RenderCtx<'_, W>) -> RenderResult;
     // TODO: Reactive event context? Is it possible?
     fn on_event(&mut self, ctx: EventCtx<'_, W>) -> EventResponse;
+    fn render(&self, ctx: RenderCtx<'_, W>) -> RenderResult;
 }
 
 /// Not implementing [`SizedWidget`] and [`BlockModelWidget`] does not mean that
@@ -328,7 +332,9 @@ pub mod prelude {
             self, Align, ContainerLayout, FlexLayout, LayoutKind, Limits,
             length::Length, node::Layout,
         },
-        style::declare_widget_style,
+        style::{
+            StyleFn, StylePseudoClass, WidgetStyleFn, declare_widget_style,
+        },
         widget::{BlockModelWidget, FontSettingWidget, SizedWidget, Widget},
     };
     pub use alloc::{boxed::Box, string::String, vec::Vec};

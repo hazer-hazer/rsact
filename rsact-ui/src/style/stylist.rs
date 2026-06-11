@@ -1,0 +1,75 @@
+use crate::{
+    style::{StylePseudoClass, StyleSelector},
+    widget::{
+        bar::BarStyle, button::ButtonStyle, container::ContainerStyle,
+        edge::EdgeStyle, knob::KnobStyle, label::LabelStyle,
+        scrollable::ScrollableStyle, select::SelectStyle, slider::SliderStyle,
+    },
+};
+use core::marker::PhantomData;
+use rsact_render::{color::Color, renderer::NullColor};
+
+pub trait Stylist<S> {
+    fn style(&self, base: &S, selector: &StyleSelector) -> S;
+}
+
+pub trait InternalStylist<C: Color>:
+    Stylist<BarStyle<C>>
+    + Stylist<ButtonStyle<C>>
+    + Stylist<ContainerStyle<C>>
+    + Stylist<EdgeStyle<C>>
+    + Stylist<KnobStyle<C>>
+    + Stylist<LabelStyle<C>>
+    + Stylist<ScrollableStyle<C>>
+    + Stylist<SelectStyle<C>>
+    + Stylist<SliderStyle<C>>
+{
+}
+
+pub struct InheritedStylist<S, PS, CS>
+where
+    PS: Stylist<S>,
+    CS: Stylist<S>,
+{
+    parent: PS,
+    child: CS,
+    _style: PhantomData<S>,
+}
+
+impl<S, PS, CS> Stylist<S> for InheritedStylist<S, PS, CS>
+where
+    PS: Stylist<S>,
+    CS: Stylist<S>,
+{
+    fn style(&self, base: &S, selector: &StyleSelector) -> S {
+        self.child.style(&self.parent.style(base, selector), selector)
+    }
+}
+
+// Test harness //
+
+macro_rules! declare_null_stylist {
+    ($($style: ty),* $(,)?) => {
+        $(
+            impl Stylist<$style> for () {
+                fn style(&self, _base: &$style, _selector: &StyleSelector) -> $style {
+                    <$style as $crate::style::Style>::base()
+                }
+            }
+        )*
+    };
+}
+
+declare_null_stylist!(
+    BarStyle<NullColor>,
+    ButtonStyle<NullColor>,
+    ContainerStyle<NullColor>,
+    EdgeStyle<NullColor>,
+    KnobStyle<NullColor>,
+    LabelStyle<NullColor>,
+    ScrollableStyle<NullColor>,
+    SelectStyle<NullColor>,
+    SliderStyle<NullColor>,
+);
+
+impl InternalStylist<NullColor> for () {}

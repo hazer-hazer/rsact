@@ -9,25 +9,15 @@ declare_widget_style! {
         color: color {
             transparent: transparent
         },
-        horizontal_align: TextHorizontalAlign,
-        vertical_align: TextVerticalAlign,
-    }
-}
-
-impl<C: Color> LabelStyle<C> {
-    pub fn base() -> Self {
-        Self {
-            color: ColorStyle::DefaultForeground,
-            horizontal_align: Default::default(),
-            vertical_align: Default::default(),
-        }
+        horizontal_align: TextHorizontalAlign = TextHorizontalAlign::Left,
+        vertical_align: TextVerticalAlign = TextVerticalAlign::Top,
     }
 }
 
 pub struct Label<W: WidgetCtx> {
     content: MaybeReactive<String>,
     layout: Layout,
-    style: Option<Box<dyn Fn(LabelStyle<W::Color>) -> LabelStyle<W::Color>>>,
+    style: WidgetStyleFn<LabelStyle<W::Color>>,
 }
 
 impl<W: WidgetCtx> Label<W> {
@@ -43,11 +33,8 @@ impl<W: WidgetCtx> Label<W> {
         Self { content, layout, style: None }
     }
 
-    pub fn style(
-        mut self,
-        styler: impl Fn(LabelStyle<W::Color>) -> LabelStyle<W::Color> + 'static,
-    ) -> Self {
-        self.style = Some(Box::new(styler));
+    pub fn style(mut self, class: impl StyleFn<LabelStyle<W::Color>>) -> Self {
+        self.style = Some(Box::new(class));
         self
     }
 
@@ -104,7 +91,7 @@ impl<W: WidgetCtx> Widget<W> for Label<W> {
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
         ctx.render_self("Label", |mut ctx| {
             let content = self.content;
-            let style = ctx.get_style(|t| t.label, self.style.as_deref());
+            let style = ctx.get_style(self.style.as_deref());
             let props = ctx.font_props;
 
             with!(move |content| {

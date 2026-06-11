@@ -3,7 +3,7 @@ use crate::{
     widget::Widget,
 };
 use alloc::vec::Vec;
-use log::warn;
+use log::{error, warn};
 
 pub struct ElNode<W: WidgetCtx> {
     parent: Option<ElId>,
@@ -121,12 +121,16 @@ impl<W: WidgetCtx> ElArena<W> {
     }
 
     pub fn set_children(&mut self, id: ElId, children: Vec<ElId>) {
-        if let Some(el) = self.els.get_mut(id) {
-            let _old_children = self.children.set(id, children);
+        if self.els.contains_key(id) {
+            let old_children = self.children.set(id, children);
 
-            // TODO: Delete previous children
+            if let Some(old_children) = old_children {
+                old_children.iter().for_each(|child_id| {
+                    self.els.remove(*child_id);
+                });
+            }
         } else {
-            warn!(
+            error!(
                 "Trying to set children of non-existent element with id {:?}",
                 id
             );
@@ -134,12 +138,17 @@ impl<W: WidgetCtx> ElArena<W> {
     }
 
     pub fn set_single_child(&mut self, id: ElId, child: ElId) {
-        if let Some(el) = self.els.get_mut(id) {
-            let _old_child = self.children.set_single(id, child);
+        if self.els.contains_key(id) {
+            let old_children = self.children.set_single(id, child);
 
-            // TODO: Delete previous child
+            // Soundness: It is unsound to have two or more nodes having same children, but it is expensive to check this.
+            if let Some(old_children) = old_children {
+                old_children.iter().for_each(|child_id| {
+                    self.els.remove(*child_id);
+                });
+            }
         } else {
-            warn!(
+            error!(
                 "Trying to set child of non-existent element with id {:?}",
                 id
             );
@@ -174,13 +183,29 @@ impl<W: WidgetCtx> ElArena<W> {
             .and_then(|el| el.data.as_ref().map(|data| data.widget.as_ref()))
     }
 
-    pub fn get_widget_mut(
-        &mut self,
-        id: ElId,
-    ) -> Option<&mut (dyn Widget<W> + 'static)> {
+    pub fn get_mut(&mut self, id: ElId) -> Option<&mut ElNode<W>> {
+        self.els.get_mut(id)
+    }
+
+    pub fn expect(&self, id: ElId) -> Option<&ElData<W>> {
+        self.els.get(id).and_then(|el| el.data.as_ref()).or_else(|| {
+            error!("Element must exist at this place");
+            None
+        })
+    }
+
+    pub fn expect_unreachable(&self, id: ElId) -> &ElData<W> {
         self.els
-            .get_mut(id)
-            .and_then(|el| el.data.as_mut().map(|data| data.widget.as_mut()))
+            .get(id)
+            .and_then(|el| el.data.as_ref())
+            .expect("Element must exist at this place")
+    }
+
+    pub fn expect_mut(&mut self, id: ElId) -> Option<&mut ElData<W>> {
+        self.get_mut(id).and_then(|el| el.data.as_mut()).or_else(|| {
+            error!("Element must exist at this place");
+            None
+        })
     }
 
     pub fn children(&self, id: ElId) -> Option<&[ElId]> {

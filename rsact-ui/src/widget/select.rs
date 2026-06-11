@@ -58,19 +58,6 @@ declare_widget_style! {
     }
 }
 
-impl<C: Color> SelectStyle<C> {
-    pub fn base() -> Self {
-        Self {
-            container: BlockStyle::base(),
-            selected: BlockStyle::base().border(
-                BorderStyle::base().radius(5).color(C::default_foreground()),
-            ),
-            selected_text_color: ColorStyle::DefaultForeground,
-            text_color: ColorStyle::DefaultForeground,
-        }
-    }
-}
-
 pub struct SelectOption<W: WidgetCtx, K: PartialEq> {
     key: K,
     el: El<W>,
@@ -100,7 +87,7 @@ impl<W: WidgetCtx, K: PartialEq> PartialEq for SelectOption<W, K> {
 pub struct Select<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> {
     layout: Layout,
     state: Signal<SelectState>,
-    style: Option<Box<dyn Fn(SelectStyle<W::Color>) -> SelectStyle<W::Color>>>,
+    style: WidgetStyleFn<SelectStyle<W::Color>>,
     // TODO: Can we do fixed size?
     options: MaybeReactive<Vec<SelectOption<W, K>>>,
     dir: PhantomData<Dir>,
@@ -270,7 +257,7 @@ impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction + 'static> Widget<W>
         let children_layouts = ctx.layout.children().collect::<Vec<_>>();
 
         ctx.render_self("Select", |mut ctx| {
-            let style = ctx.get_style(|t| t.select, self.style.as_deref());
+            let style = ctx.get_style(self.style.as_deref());
             let state = self.state.get();
 
             if let (options_offset, Some(selected)) =
@@ -300,7 +287,7 @@ impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction + 'static> Widget<W>
 
         ctx.render_part("options", |mut ctx| {
             let state = self.state.get();
-            let style = ctx.get_style(|t| t.select, self.style.as_deref());
+            let style = ctx.get_style(self.style.as_deref());
             let (options_offset, _) =
                 state.options_offset(ctx.layout.inner, &children_layouts);
 

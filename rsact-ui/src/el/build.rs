@@ -29,14 +29,17 @@ impl<W: WidgetCtx> BuildCtx<W> {
         root
     }
 
-    // Is it possible to have already stored children here? For example flex children is a memo returning children, so for them 
+    // TODO: Is it possible to reconcile children preserving unchanged?
+    // This requires children memos to not return new children, reusing old, but it seems to require user to do this.
+    // Or we can compare previous widget with new, but comparison can be very expensive, so skip this variant.
+    // We better make something like a SignalVec datatype that will support diffing and preserving old values. So we would compare: remove(El::Stored) -> remove, remove(El::New) -> do nothing, add (El::Stored) -> keep, add(El::New) -> build.
+    // Or maybe ChildrenQueue command queue like "PushChild", "SetChild", "RemoveChild".
     pub fn set_children(&mut self, children: &mut [El<W>]) {
         let children_ids = children
             .iter_mut()
             .map(|child| self.add_inner(child))
             .collect::<Vec<_>>();
 
-        // TODO: Build only new children
         children_ids.iter().for_each(|child_id| {
             self.build_el(*child_id);
         });
@@ -59,15 +62,18 @@ impl<W: WidgetCtx> BuildCtx<W> {
         let Some(mut el) =
             self.arena.update_untracked(|arena| arena.take_el(id))
         else {
-            warn!("Trying to build non-existent or taken element with id {:?}", id);
+            warn!(
+                "Trying to build non-existent or taken element with id {:?}",
+                id
+            );
             return;
         };
 
-        if el.built {
+        if el.state.built {
             error!("Attempt to rebuild element {id:?}");
         } else {
             el.widget.build(self.for_el(id));
-            el.built = true;
+            el.state.built = true;
         }
 
         self.arena.update_untracked(|arena| arena.restore_el(id, el));

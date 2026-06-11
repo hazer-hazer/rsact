@@ -48,22 +48,12 @@ declare_widget_style! {
         track_color: color,
         thumb_color: color,
         container: container,
-        scrollbar_width: u32,
-        show: ScrollbarShow,
+        scrollbar_width: u32 = 5,
+        show: ScrollbarShow = ScrollbarShow::Auto,
     }
 }
 
 impl<C: Color> ScrollableStyle<C> {
-    pub fn base() -> Self {
-        Self {
-            track_color: ColorStyle::Unset,
-            thumb_color: ColorStyle::DefaultForeground,
-            container: BlockStyle::base(),
-            scrollbar_width: 5,
-            show: ScrollbarShow::Auto,
-        }
-    }
-
     fn track_draw_style(&self) -> DrawStyle<C> {
         DrawStyle {
             fill: None,
@@ -85,9 +75,7 @@ impl<C: Color> ScrollableStyle<C> {
 
 pub struct Scrollable<W: WidgetCtx, Dir: Direction> {
     state: Signal<ScrollableState>,
-    style: Option<
-        Box<dyn Fn(ScrollableStyle<W::Color>) -> ScrollableStyle<W::Color>>,
-    >,
+    style: WidgetStyleFn<ScrollableStyle<W::Color>>,
     content: El<W>,
     layout: Layout,
     mode: ScrollableMode,
@@ -130,10 +118,9 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
 
     pub fn style(
         mut self,
-        styler: impl Fn(ScrollableStyle<W::Color>) -> ScrollableStyle<W::Color>
-        + 'static,
+        class: impl StyleFn<ScrollableStyle<W::Color>>,
     ) -> Self {
-        self.style = Some(Box::new(styler));
+        self.style = Some(Box::new(class));
         self
     }
 
@@ -207,7 +194,7 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Scrollable<W, Dir> {
 
         // TODO: Shouldn't scrollbar be rendered after child to be above? Need post_render method in Widget
         ctx.render_self("Scrollable", |mut ctx| {
-            let style = ctx.get_style(|t| t.scrollable, self.style.as_deref());
+            let style = ctx.get_style(self.style.as_deref());
 
             Block::from_layout_style(
                 ctx.layout.outer,
@@ -234,10 +221,6 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Scrollable<W, Dir> {
             let offset = state.offset;
 
             if draw_scrollbar {
-                let base = ctx.theme.with(|theme| theme.scrollable);
-                let style =
-                    self.style.as_ref().map(|f| f(base)).unwrap_or(base);
-
                 let track_start = match Dir::AXIS {
                     Axis::X => {
                         ctx.layout.inner.anchor_point(AnchorPoint::BottomLeft)

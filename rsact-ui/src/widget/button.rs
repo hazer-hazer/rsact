@@ -1,4 +1,7 @@
-use crate::{prelude::*, style::WidgetStyleFn};
+use crate::{
+    prelude::*,
+    style::{StyleFn, WidgetStyleFn},
+};
 
 #[derive(Clone, Copy)]
 pub struct ButtonState {
@@ -13,17 +16,8 @@ impl ButtonState {
 
 declare_widget_style! {
     ButtonStyle (ButtonState) {
+        // TODO: Better keep unset instead of some default values?
         container: container,
-    }
-}
-
-impl<C: Color> ButtonStyle<C> {
-    pub fn base() -> Self {
-        Self {
-            container: BlockStyle::base().border(
-                BorderStyle::base().color(C::default_foreground()).radius(5),
-            ),
-        }
     }
 }
 
@@ -66,11 +60,8 @@ impl<W: WidgetCtx + 'static> Button<W> {
         self
     }
 
-    pub fn style(
-        mut self,
-        styler: impl Fn(ButtonStyle<W::Color>) -> ButtonStyle<W::Color> + 'static,
-    ) -> Self {
-        self.style = Some(Box::new(styler));
+    pub fn style(mut self, class: impl StyleFn<ButtonStyle<W::Color>>) -> Self {
+        self.style = Some(Box::new(class));
         self
     }
 }
@@ -95,7 +86,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Button<W> {
     #[track_caller]
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
         ctx.render_self("Button", |mut ctx| {
-            let style = ctx.get_style(|t| t.button, self.style.as_deref());
+            let style = ctx.get_style(self.style.as_deref());
 
             Block::from_layout_style(
                 ctx.layout.outer,

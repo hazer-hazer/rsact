@@ -2,9 +2,59 @@ use crate::render::prelude::*;
 use alloc::boxed::Box;
 
 pub mod primary_gray;
+pub mod stylist;
 pub mod theme;
 
-pub type WidgetStyleFn<S> = Option<Box<dyn Fn(S) -> S>>;
+pub trait Style {
+    fn base() -> Self;
+}
+
+// TODO: Bitflags?
+pub struct StylePseudoClass {
+    pub hovered: bool,
+    pub focused: bool,
+    pub active: bool,
+}
+
+impl StylePseudoClass {
+    pub fn hovered(mut self, hovered: bool) -> Self {
+        self.hovered = hovered;
+        self
+    }
+
+    pub fn focused(mut self, focused: bool) -> Self {
+        self.focused = focused;
+        self
+    }
+
+    pub fn active(mut self, active: bool) -> Self {
+        self.active = active;
+        self
+    }
+}
+
+impl Default for StylePseudoClass {
+    fn default() -> Self {
+        Self { hovered: false, focused: false, active: false }
+    }
+}
+
+pub struct StyleSelector {
+    pub pseudoclass: StylePseudoClass,
+}
+
+pub type WidgetStyleFn<S: Style + 'static> =
+    Option<Box<dyn Fn(&S, &StyleSelector) -> S>>;
+
+pub trait StyleFn<S: Style + 'static>:
+    Fn(&S, &StyleSelector) -> S + 'static
+{
+}
+
+impl<S: Style + 'static> StyleFn<S>
+    for dyn Fn(&S, &StyleSelector) -> S + 'static
+{
+}
 
 #[derive(Clone, Copy)]
 pub struct TreeStyle<C: Color> {
@@ -22,10 +72,6 @@ impl<C: Color> TreeStyle<C> {
     }
 }
 
-pub trait TreeStyled<C: Color>: Sized {
-    fn with_tree(self, tree: TreeStyle<C>) -> Self;
-}
-
 #[macro_export]
 macro_rules! declare_widget_style {
     ($name: ident ($($inputs: ty)?) {
@@ -33,7 +79,7 @@ macro_rules! declare_widget_style {
             $field:ident : $ty:ident $({
                 $($opt_method_name: ident: $opt_method_ty: ident),*
                 $(,)?
-            })?
+            })? $(= $default: expr)?
         ),* $(,)?
     }) => {
         #[derive(derivative::Derivative)]
@@ -51,6 +97,18 @@ macro_rules! declare_widget_style {
                 }
             )*
         }
+
+        impl<C: $crate::render::color::Color> $crate::style::Style for $name<C> {
+            fn base() -> Self {
+                Self {
+                    $($field: $crate::style::declare_widget_style!(@default $field: $ty $(= $default)?)),*
+                }
+            }
+        }
+    };
+
+    (@default $field: ident: $ty: ident = $default: expr) => {
+        $default
     };
 
     (@opt_method_list $field: ident: $ty: ident $({
@@ -67,6 +125,10 @@ macro_rules! declare_widget_style {
     // Color //
     (@ty color) => {
         $crate::render::prelude::ColorStyle<C>
+    };
+
+    (@default $field: ident: color) => {
+        $crate::render::prelude::ColorStyle::Unset
     };
 
     (@method $field: ident: color $({
@@ -141,6 +203,10 @@ macro_rules! declare_widget_style {
         $crate::style::block::BorderStyle<C>
     };
 
+    (@default $field: ident: border) => {
+        $crate::style::block::BorderStyle::base()
+    };
+
     (@method $field: ident: border $({
         $($opt_method_name: ident: $opt_method_ty: ident),*
         $(,)?
@@ -170,6 +236,10 @@ macro_rules! declare_widget_style {
     // BlockStyle //
     (@ty container) => {
         $crate::render::prelude::BlockStyle<C>
+    };
+
+    (@default $field: ident: container) => {
+        $crate::render::prelude::BlockStyle::base()
     };
 
     (@method $field: ident: container $({
@@ -217,6 +287,10 @@ macro_rules! declare_widget_style {
 
     (@ty $ty: ty) => {
         $ty
+    };
+
+    (@default $field: ident: $ty: ty) => {
+        compile_error!(concat!("Missing default value for '", stringify!($field), "'"))
     };
 
     (@method $field: ident: $ty: ty) => {

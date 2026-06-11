@@ -2,6 +2,7 @@ use crate::{color::Color, geometry::*, style::ColorStyle};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Radius {
+    // TODO: Get rid of Equal variants, excessive
     Size(Size),
     SizeEqual(u32),
     Percentage(Size<f32>),
@@ -33,6 +34,12 @@ impl From<Size> for Radius {
 impl From<u32> for Radius {
     fn from(value: u32) -> Self {
         Self::SizeEqual(value)
+    }
+}
+
+impl From<(u32, u32)> for Radius {
+    fn from(value: (u32, u32)) -> Self {
+        Self::Size(Size::new(value.0, value.1))
     }
 }
 

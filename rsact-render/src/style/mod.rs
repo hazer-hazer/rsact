@@ -39,6 +39,7 @@ impl<C: Color> ColorStyle<C> {
         }
     }
 
+    // TODO: Dangerous, should not work so. Color must always be set to something. Color trait must have unset and transparent case implementation.
     pub fn expect(self) -> C {
         self.get().expect("Color must be set at this point")
     }
