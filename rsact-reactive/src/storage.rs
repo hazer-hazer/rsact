@@ -157,6 +157,7 @@ impl ValueId {
         })
     }
 
+    // TODO: Delete, hide this API. observers must be used with something like observe_with_force
     #[track_caller]
     pub fn dirten(&self) {
         let caller = Location::caller();

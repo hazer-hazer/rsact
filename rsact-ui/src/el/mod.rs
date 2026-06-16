@@ -1,5 +1,7 @@
+use crate::el::state::ElState;
 use crate::widget::prelude::*;
 use alloc::boxed::Box;
+use core::fmt::Debug;
 use core::marker::PhantomData;
 
 pub mod arena;
@@ -8,6 +10,7 @@ pub mod ctx;
 pub mod event;
 pub mod flags;
 pub mod render;
+pub mod state;
 pub mod update;
 
 pub use build::*;
@@ -15,6 +18,7 @@ pub use ctx::*;
 pub use event::*;
 pub use flags::WidgetFlags;
 pub use render::*;
+pub use state::*;
 pub use update::*;
 
 slotmap::new_key_type! {
@@ -34,36 +38,6 @@ impl<T> WithElId<T> {
     }
 }
 
-pub enum ClipPath {
-    // Rect(Rect),
-    InnerRect,
-}
-
-pub enum RedrawReason {
-    PseudoclassChange,
-}
-
-pub struct ElState<W: WidgetCtx> {
-    _marker: PhantomData<W>,
-
-    pub built: bool,
-
-    pub debug_name: &'static str,
-
-    pub flags: WidgetFlags,
-
-    // TODO:Move ElState to a child module to hide implementation for hovers, etc. Because we should never set hover for non-hoverable widgets and need to encapsulate this logic.
-    // Action state //
-    pub hovered: bool,
-
-    // // Styling //
-    // pub pseudoclass: StylePseudoClass,
-
-    // Rendering //
-    pub needs_redraw: Option<RedrawReason>,
-    pub clip_path: Option<ClipPath>,
-}
-
 pub struct ElData<W: WidgetCtx> {
     // TODO: If rsact-reactive would support ?Sized as a real smart-pointer we could do MaybeReactive<dyn Widget<W>>, so reactive elements creation would be possible in place. But the problem is that MaybeReactive is a readonly value, while MaybeSignal is owned stack value/Signal, so we either change the MaybeSignal to StoredValue/Signal or create a new MaybeSignal-like value with heap storage.
     // We can't, Rust does not allow unsized fields in structs, only through internal Box, Rc, etc. So we cannot make a custom arena-allocated smart pointer.
@@ -74,29 +48,9 @@ pub struct ElData<W: WidgetCtx> {
 
 impl<W: WidgetCtx> ElData<W> {
     pub fn new(widget: Box<dyn Widget<W>>) -> Self {
-        let debug_name = Self::pretty_type_name(widget.as_ref().debug_name());
-        let flags = widget.flags();
+        let state = ElState::for_widget(widget.as_ref());
 
-        Self {
-            widget,
-            state: ElState {
-                _marker: PhantomData,
-                debug_name,
-                flags,
-                built: false,
-
-                hovered: false,
-
-                needs_redraw: None,
-                clip_path: None,
-                // pseudoclass: StylePseudoClass::default(),
-            },
-        }
-    }
-
-    fn pretty_type_name(debug_name: &'static str) -> &'static str {
-        // TODO
-        debug_name
+        Self { widget, state }
     }
 }
 

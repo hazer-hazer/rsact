@@ -30,7 +30,7 @@ pub struct CtxUnready;
 // Maybe later, and surely not .render(ctx), at least .render(ctx.renderer()), otherwise it breaks encapsulation of the crates.
 pub struct RenderCtx<'a, W: WidgetCtx, S = CtxUnready> {
     pub id: ElId,
-    pub arena: &'a ElArena<W>,
+    pub arena: &'a mut ElArena<W>,
     pub page_state: &'a PageState<W>,
     pub renderer: &'a mut W::Renderer,
     pub layout: &'a LayoutModelNode<'a>,
@@ -40,6 +40,7 @@ pub struct RenderCtx<'a, W: WidgetCtx, S = CtxUnready> {
     pub fonts: Signal<FontCtx, ReadOnly>,
     pub stylist: &'a W::Stylist,
     pub font_props: FontProps,
+    pub needs_redraw: bool,
     pub force_redraw: Signal<bool>,
     pub parent_dirty: bool,
 
@@ -113,6 +114,7 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
             stylist: self.stylist,
             font_props: self.font_props,
             force_redraw: self.force_redraw,
+            needs_redraw: self.needs_redraw,
             parent_dirty: self.parent_dirty,
             nesting_level: self.nesting_level,
             call: self.call,
@@ -124,6 +126,11 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
         // TODO: Other pseudoclasses
 
         let data = self.arena.expect_unreachable(self.id);
+
+        debug!(
+            "State for pseudoclass: {:?} ({})",
+            data.state, data.state.debug_name
+        );
 
         StylePseudoClass::default()
             .hovered(data.state.hovered)
@@ -153,6 +160,17 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
         f: impl FnOnce(RenderCtx<'_, W, CtxReady>) -> RenderResult,
     ) -> RenderResult {
         let render_id = WithElId::new(self.id, hash_source);
+
+        let redraw = self.parent_dirty || self.needs_redraw;
+
+        // TODO: Must clear only in render_self
+        // Clear our own rect only when the parent hasn't already cleared
+        // the containing area (avoids redundant smaller fills inside a
+        // larger background that was already repainted).
+        if !self.parent_dirty && redraw {
+            // TODO: Full screen clear when force redraw so no need to clear for each widget?
+            self.clear_outer()?;
+        }
 
         // If the parent already cleared the area, force this child observer
         // to re-run so it redraws into the now-cleared region.
@@ -192,6 +210,7 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
                 stylist: self.stylist,
                 font_props: self.font_props,
                 force_redraw: self.force_redraw,
+                needs_redraw: self.needs_redraw,
                 parent_dirty: true,
                 nesting_level: self.nesting_level + 1,
                 call: self.call + 1,
@@ -243,6 +262,7 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
             stylist: self.stylist,
             font_props,
             force_redraw: self.force_redraw,
+            needs_redraw: self.needs_redraw,
             parent_dirty: self.parent_dirty,
             nesting_level: self.nesting_level + 1,
             call: self.call,
@@ -263,23 +283,18 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
             this.render_el(id, data)?;
 
             if data.state.flags.transparent_layout {
-                if let Some(children_ids) = self.arena.children(id) {
-                    if children_ids.len() != 1 {
-                        error!(
-                            "Transparent widget with id {id:?} should have exactly one child, but has {}",
-                            children_ids.len()
-                        );
+                if let Some(children_ids) = this.arena.children(id) && children_ids.len() == 1 {
+                    let child_id = children_ids[0];
 
-                        this.for_child(id, this.layout, |mut this| {
-                            this.render_inner(id,)
-                        })?;
-                    }
+                    this.for_child(child_id, this.layout, |mut this| {
+                        this.render_inner(child_id)
+                    })?;
                 } else {
                     error!(
-                        "Transparent widget with id {id:?} does not have child widget"
+                        "Transparent widget with id {id:?} should have exactly one child"
                     );
                 }
-            } else if let Some(children_ids) = self.arena.children(id) {
+            } else if let Some(children_ids) = this.arena.children(id) {
                 debug!(
                     "{:indent$}Children [{}]:",
                     "",
@@ -342,6 +357,7 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
                 stylist: self.stylist,
                 font_props: self.font_props,
                 force_redraw: self.force_redraw,
+                needs_redraw: self.needs_redraw,
                 parent_dirty: self.parent_dirty,
                 nesting_level: self.nesting_level + 1,
                 call: self.call,
@@ -376,6 +392,7 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
             stylist: self.stylist,
             font_props: self.font_props,
             force_redraw: self.force_redraw,
+            needs_redraw: data.state.take_needs_redraw().is_some(),
             parent_dirty: self.parent_dirty,
             nesting_level: self.nesting_level,
             call: self.call,

@@ -45,8 +45,12 @@ impl ScrollableState {
 
 declare_widget_style! {
     ScrollableStyle (ScrollableState) {
-        track_color: color,
-        thumb_color: color,
+        track_color: color {
+            transparent_track_color: transparent,
+        },
+        thumb_color: color {
+            transparent_thumb_color: transparent,
+        },
         container: container,
         scrollbar_width: u32 = 5,
         show: ScrollbarShow = ScrollbarShow::Auto,

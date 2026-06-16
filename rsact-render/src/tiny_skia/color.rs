@@ -1,8 +1,14 @@
 use embedded_graphics::pixelcolor::Rgb888;
 
-use crate::{color::Color, output::MapColor};
+use crate::{
+    color::{Color, RgbColor},
+    output::MapColor,
+};
 
 impl Color for tiny_skia::Color {
+    const WHITE: Self = tiny_skia::Color::WHITE;
+    const BLACK: Self = tiny_skia::Color::BLACK;
+
     fn default_foreground() -> Self {
         tiny_skia::Color::BLACK
     }
@@ -56,6 +62,24 @@ impl Color for tiny_skia::Color {
             f(u8_self.blue(), u8_other.blue()),
             f(u8_self.alpha(), u8_other.alpha()),
         )
+    }
+}
+
+impl RgbColor for tiny_skia::Color {
+    fn rgb(r: u8, g: u8, b: u8) -> Self {
+        tiny_skia::Color::from_rgba8(r, g, b, 255)
+    }
+
+    fn r(&self) -> u8 {
+        self.to_color_u8().red()
+    }
+
+    fn g(&self) -> u8 {
+        self.to_color_u8().green()
+    }
+
+    fn b(&self) -> u8 {
+        self.to_color_u8().blue()
     }
 }
 

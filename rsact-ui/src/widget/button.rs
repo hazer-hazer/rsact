@@ -14,9 +14,9 @@ impl ButtonState {
     }
 }
 
+// TODO: Add text style for dynamic styling on hover, press, etc.
 declare_widget_style! {
     ButtonStyle (ButtonState) {
-        // TODO: Better keep unset instead of some default values?
         container: container,
     }
 }
@@ -100,7 +100,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Button<W> {
     }
 
     fn on_event(&mut self, mut ctx: EventCtx<'_, W>) -> EventResponse {
-        let _ = ctx.handle_hover_move();
+        let _ = ctx.handle_hover_move()?;
         ctx.handle_focusable_or_clickable(|ctx, pressed| {
             let current_state = self.state.get();
 

@@ -1,3 +1,4 @@
+#[derive(Debug)]
 pub struct WidgetFlags {
     /// Widgets with transparent layout do not have their own layout, so they don't nest layout tree. This is useful for utility widgets like Dynamic. But it does not turn off rendering for the widget, you can still use transparent_layout to avoid creating nested layouts if you definitely need the same layout as a child. Imagine, for example widget that only adds box shadow to a widget, you don't need a separate layout because it would always be equal to the child layout.
     pub transparent_layout: bool,

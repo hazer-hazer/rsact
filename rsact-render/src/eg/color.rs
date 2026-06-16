@@ -7,6 +7,9 @@ macro_rules! impl_rgb_colors {
     ($($color_ty:ty),* $(,)?) => {
         $(
             impl Color for $color_ty {
+                const WHITE: Self = <$color_ty as embedded_graphics::pixelcolor::RgbColor>::WHITE;
+                const BLACK: Self = <$color_ty as embedded_graphics::pixelcolor::RgbColor>::BLACK;
+
                 fn default_foreground() -> Self {
                     <$color_ty as embedded_graphics::pixelcolor::RgbColor>::BLACK
                 }
@@ -77,6 +80,9 @@ macro_rules! impl_rgb_colors {
 impl_rgb_colors!(Rgb555, Rgb565, Rgb666, Rgb888);
 
 impl Color for BinaryColor {
+    const WHITE: Self = Self::On;
+    const BLACK: Self = Self::Off;
+
     fn default_foreground() -> Self {
         Self::On
     }

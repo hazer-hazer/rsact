@@ -164,6 +164,9 @@ pub trait Renderer {
 pub struct NullColor;
 
 impl Color for NullColor {
+    const WHITE: Self = Self;
+    const BLACK: Self = Self;
+
     fn default_foreground() -> Self {
         NullColor
     }

@@ -274,7 +274,7 @@ pub struct DevFlexLayout {
     real: FlexLayout,
 }
 
-/// DevLayout preserves some initial layout properties that are not required in LayoutModel.
+/// DevLayout preserves some initial layout properties that are not required in [`LayoutModel`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct DevLayout {
     pub size: LengthSize,

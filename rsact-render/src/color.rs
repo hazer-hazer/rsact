@@ -3,6 +3,9 @@ use core::fmt::Debug;
 pub const ACCENT_COUNT: usize = 6;
 
 pub trait Color: Copy + PartialEq + Debug {
+    const WHITE: Self;
+    const BLACK: Self;
+
     fn default_foreground() -> Self;
     fn default_background() -> Self;
 
@@ -62,6 +65,21 @@ pub trait RgbColor: Color {
             (hex & 0xff0000 >> 16) as u8,
             (hex & 0x00ff00 >> 8) as u8,
             (hex & 0x0000ff) as u8,
+        )
+    }
+
+    fn lighten(self, amount: f32) -> Self {
+        self.mix(amount, Self::WHITE)
+    }
+
+    fn darken(self, amount: f32) -> Self {
+        self.mix(amount, Self::BLACK)
+    }
+
+    fn dim(self, amount: f32) -> Self {
+        self.mix(
+            amount,
+            Self::from_rgba(Rgba { r: 128, g: 128, b: 128, a: 255 }),
         )
     }
 

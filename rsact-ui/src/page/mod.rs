@@ -314,7 +314,6 @@ impl<W: WidgetCtx> Page<W> {
         res
     }
 
-    // TODO: Better have something like Widget::update for system events
     fn bubble_from_child(child: ElId, update: Update, arena: &mut ElArena<W>) {
         let Some(parent) = arena.parents.get(child).copied() else { return };
         Self::send_update_inner(parent, update, arena);
@@ -528,6 +527,7 @@ impl<W: WidgetCtx> Page<W> {
                                     font_style: None,
                                 },
                                 force_redraw: self.force_redraw,
+                                needs_redraw: false,
                                 parent_dirty: false,
                                 nesting_level: 0,
                                 call: self.render_calls,

@@ -5,6 +5,11 @@ pub mod primary_gray;
 pub mod stylist;
 pub mod theme;
 
+/*
+ * TODO: Style possibly can be unified by StyleProp trait, instead of Style, and every property that can be used inside styles should implement it.
+ * For example BlockStyle: StyleProp, ColorStyle: StyleProp, Angle: StyleProp. So style becomes a structure built out of itself where everything is generalized. Pros are general implementations, cons are dangerous default values (for example for Knob start angle and sweep angle should not be the same "default value")
+ */
+
 pub trait Style {
     fn base() -> Self;
 }
@@ -56,7 +61,7 @@ impl<S: Style + 'static> StyleFn<S>
 {
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct TreeStyle<C: Color> {
     pub text_color: ColorStyle<C>,
 }
@@ -105,21 +110,6 @@ macro_rules! declare_widget_style {
                 }
             }
         }
-    };
-
-    (@default $field: ident: $ty: ident = $default: expr) => {
-        $default
-    };
-
-    (@opt_method_list $field: ident: $ty: ident $({
-        $($opt_method_name: ident: $opt_method_ty: ident),*
-        $(,)?
-    })?) => {
-        $($(
-            $crate::style::declare_widget_style! {
-                @opt_method $field: $ty $opt_method_name: $opt_method_ty
-            }
-        )*)?
     };
 
     // Color //
@@ -173,6 +163,7 @@ macro_rules! declare_widget_style {
             self
         }
     };
+
     // (@opt_method text_color: color) => {
     //     pub fn transparent_text(mut self) -> Self {
     //         self.text_color.set_transparent();
@@ -259,11 +250,13 @@ macro_rules! declare_widget_style {
     };
 
     (@opt_method_list container: container) => {
-        $crate::style::declare_widget_style!(@opt_method_list $field: container {
-            background_color: background_color,
-            border_color: border_color,
-            border_radius: border_radius
-        })
+        $crate::style::declare_widget_style! {
+            @opt_method_list container: container {
+                background_color: background_color,
+                border_color: border_color,
+                border_radius: border_radius
+            }
+        }
     };
 
     (@opt_method $field: ident: container $background_color: ident: background_color) => {
@@ -285,6 +278,7 @@ macro_rules! declare_widget_style {
         }
     };
 
+    // Fallbacks //
     (@ty $ty: ty) => {
         $ty
     };
@@ -298,6 +292,21 @@ macro_rules! declare_widget_style {
             self.$field = $field;
             self
         }
+    };
+
+    (@default $field: ident: $ty: ident = $default: expr) => {
+        $default
+    };
+
+    (@opt_method_list $field: ident: $ty: ident $({
+        $($opt_method_name: ident: $opt_method_ty: ident),*
+        $(,)?
+    })?) => {
+        $($(
+            $crate::style::declare_widget_style! {
+                @opt_method $field: $ty $opt_method_name: $opt_method_ty
+            }
+        )*)?
     };
 }
 

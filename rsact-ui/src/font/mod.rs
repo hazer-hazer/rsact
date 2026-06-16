@@ -27,6 +27,7 @@ pub enum TextVerticalAlign {
     Bottom,
 }
 
+// TODO: Get rid of FontProps in every widget, Remove FontSettingWidget, create TextStyle widget that sets font properties and styles in the tree to be applied to all children. Not any node must contain FontProps, only TextStyle and Content will, TextStyle will propagate FontProps down the tree in layout modeling pass.
 /// Tree-targeting font properties stored inside layouts with contents and passed on mount to widgets.
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
 pub struct FontProps {
@@ -158,8 +159,6 @@ pub enum FontStyle {
     Bold,
     // Oblique,
 }
-
-pub struct TextStyle {}
 
 /// Resolved font properties
 #[derive(Debug, Clone, Copy)]

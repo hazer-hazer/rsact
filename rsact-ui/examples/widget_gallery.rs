@@ -79,7 +79,7 @@ fn main() {
     let page = row![select_widget, col![widget_view].fill()].center().fill();
 
     let mut ui = UI::new(
-        Theme::default(),
+        Theme::<tiny_skia::Color>::default(),
         TinySkiaRenderer::new(display.bounding_box().size.into()),
     )
     .with_page(SinglePage, page.el())

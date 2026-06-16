@@ -1,15 +1,15 @@
 use crate::el::arena::{ArenaChildren, ArenaEls, ElArena, ElNode};
+use crate::el::state::ElState;
 use crate::event::*;
 use crate::{layout::model::LayoutModelNode, widget::prelude::*};
 use itertools::Itertools as _;
-use log::{error, warn};
+use log::{debug, error, warn};
 
 pub struct EventPass<'a, W: WidgetCtx> {
     arena: &'a mut ArenaEls<W>,
     children: &'a ArenaChildren,
     event: &'a Event<W::CustomEvent>,
     page_state: &'a mut PageState<W>,
-    layout: &'a LayoutModelNode<'a>,
 }
 
 impl<'a, W: WidgetCtx> EventPass<'a, W> {
@@ -25,22 +25,40 @@ impl<'a, W: WidgetCtx> EventPass<'a, W> {
             children: &arena.children,
             event,
             page_state,
-            layout,
         };
-        this.run_(root)
+        this.run_(root, layout)
     }
 
-    fn run_(&mut self, el: ElId) -> EventResponse {
-        if let Some(children_ids) = self.children.get(el) {
-            for child in children_ids {
-                self.run_(*child)?;
+    fn run_(&mut self, id: ElId, layout: &LayoutModelNode) -> EventResponse {
+        // TODO: Is it possible to avoid double-get from arena? The problem is with mutable arena borrowing because event is processed for children first and then for the parent, while we need parent data to know its flags.
+        // TODO: Right check get. Better wrap arena in wrapper as ArenaChildren is
+        let data =
+            self.arena.get_mut(id).and_then(|el| el.data.as_mut()).unwrap();
+
+        // TODO: Generalize/Take out this logic for EventCtx and RenderCtx
+        if data.state.flags.transparent_layout {
+            if let Some(children_ids) = self.children.get(id)
+                && children_ids.len() == 1
+            {
+                let child_id = children_ids[0];
+                self.run_(child_id, layout)?;
+            } else {
+                error!(
+                    "Transparent widget with id {id:?} should have exactly one child"
+                );
+            }
+        } else if let Some(children_ids) = self.children.get(id) {
+            for (child, child_layout) in
+                children_ids.iter().zip_eq(layout.children())
+            {
+                self.run_(*child, &child_layout)?;
             }
         }
 
-        self.run_el(el)
+        self.run_el(id, layout)
     }
 
-    fn run_el(&mut self, id: ElId) -> EventResponse {
+    fn run_el(&mut self, id: ElId, layout: &LayoutModelNode) -> EventResponse {
         if let Some(el) = self.arena.get_mut(id).as_mut() {
             if let Some(data) = el.data.as_mut() {
                 data.widget.on_event(EventCtx {
@@ -48,7 +66,7 @@ impl<'a, W: WidgetCtx> EventPass<'a, W> {
                     state: &mut data.state,
                     event: self.event,
                     page_state: self.page_state,
-                    layout: self.layout,
+                    layout,
                 })
             } else {
                 error!(
@@ -257,6 +275,10 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
     pub fn handle_hover_move(&mut self) -> EventResponse {
         if let Event::Mouse(MouseEvent::MouseMove(pt)) = self.event {
             if self.layout.outer.contains(*pt) {
+                debug!(
+                    "Update hover to {}[{:?}] ({})",
+                    self.state.debug_name, self.id, self.layout.outer
+                );
                 self.update_hover();
             }
         }

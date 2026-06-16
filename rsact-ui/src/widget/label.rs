@@ -6,7 +6,7 @@ use rsact_reactive::signal::Signal;
 
 declare_widget_style! {
     LabelStyle () {
-        color: color {
+        text_color: color {
             transparent: transparent
         },
         horizontal_align: TextHorizontalAlign = TextHorizontalAlign::Left,
@@ -103,7 +103,7 @@ impl<W: WidgetCtx> Widget<W> for Label<W> {
                     content,
                     props,
                     ctx.layout.inner,
-                    style.color.expect(),
+                    style.text_color.expect(),
                 )
             })
         })
