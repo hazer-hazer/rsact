@@ -18,7 +18,6 @@ impl<T> Clone for Inert<T> {
         Self { id: self.id.clone(), ty: self.ty.clone() }
     }
 }
-
 impl<T> Copy for Inert<T> {}
 
 impl_read_signal_traits!(Inert<T>);

@@ -173,7 +173,7 @@ pub fn observe_by_location<R>(f: impl FnOnce() -> R) -> Option<R> {
     let location = Location::caller();
 
     with_current_runtime(|rt| {
-        rt.use_observe(rt.hasher.hash_one(location), location, f)
+        rt.use_observe(rt.hasher.hash_one(location), false, location, f)
     })
 }
 
@@ -190,13 +190,20 @@ pub fn observe_by_location<R>(f: impl FnOnce() -> R) -> Option<R> {
 pub fn observe<H: Hash, R>(id: H, f: impl FnOnce() -> R) -> Option<R> {
     let location = Location::caller();
     with_current_runtime(|rt| {
-        rt.use_observe(rt.hasher.hash_one(id), location, f)
+        rt.use_observe(rt.hasher.hash_one(id), false, location, f)
     })
 }
 
-pub fn get_observer<H: Hash>(id: H) -> Option<ValueId> {
+/// Observe version with `force` option to force execution even if no reactive dependencies changed.
+#[track_caller]
+pub fn observe_with_force<H: Hash, R>(
+    id: H,
+    force: bool,
+    f: impl FnOnce() -> R,
+) -> Option<R> {
+    let location = Location::caller();
     with_current_runtime(|rt| {
-        rt.static_observers.borrow().get(&rt.hasher.hash_one(id)).copied()
+        rt.use_observe(rt.hasher.hash_one(id), force, location, f)
     })
 }
 
@@ -517,6 +524,7 @@ impl Runtime {
     fn use_observe<R>(
         &self,
         hash: u64,
+        force: bool,
         location: &'static Location<'static>,
         f: impl FnOnce() -> R,
     ) -> Option<R> {
@@ -556,15 +564,15 @@ impl Runtime {
         };
 
         self.subscribe(id);
-        self.maybe_update(id, Some(id), location);
+        // TODO: `maybe_update` call can be eliminated when `force=true` and just replaced with marking subscribers as dirty as we don't need to check deps.
+        let updated = self.maybe_update(id, Some(id), location);
 
-        if self.is(id, ValueState::Dirty) {
+        if updated || force {
             let result = self.with_observer(id, |rt| {
                 // TODO: Cleanup is wrong, we need to delete only values from the previous call, as we might delete nested observer
                 // rt.cleanup(id);
                 f()
             });
-            self.mark_clean(id, Some(id), location);
 
             Some(result)
         } else {
@@ -707,7 +715,7 @@ impl Runtime {
         id: ValueId,
         requester: Option<ValueId>,
         caller: &'static Location<'static>,
-    ) {
+    ) -> bool {
         if self.is(id, ValueState::Check) {
             let sources = {
                 // TODO: Optimize out cloned sources set. Maybe alloc a Vec instead of using BTreeSet.
@@ -726,10 +734,10 @@ impl Runtime {
 
         if self.is(id, ValueState::Dirty) {
             self.update(id, requester, caller);
+            return true;
         }
 
-        // // TODO: Isn't marked clean twice?
-        // self.mark_clean(id, requester, caller);
+        false
     }
 
     pub(crate) fn update(
@@ -789,6 +797,7 @@ impl Runtime {
             if changed {
                 if let Some(subs) = self.subscribers.borrow().get(id) {
                     for sub in subs {
+                        // TODO: Shouldn't deep deps mark_dirty be used?
                         self.storage.mark(
                             *sub,
                             ValueState::Dirty,
@@ -799,9 +808,7 @@ impl Runtime {
                 }
             }
 
-            if !matches!(value.kind, ValueKind::Observer) {
-                self.mark_clean(id, requester, caller);
-            }
+            self.mark_clean(id, requester, caller);
         }
     }
 

@@ -43,13 +43,13 @@ impl<W: WidgetCtx> Widget<W> for Show<W> {
     }
 
     #[track_caller]
-    fn render(&self, ctx: RenderCtx<'_, W>) -> RenderResult {
-        // TODO: To render or not to should be controlled via ElData property "visible" and this widget should only control that property through arena. To do that, in build pass we should subscribe arena to show changes. Also, we need to figure out how to handle events, layout, etc., should invisible elements receive events or not (maybe only visibility-dependent events like mouse events, but not others?), should their layout occupy space (surely no)?
+    fn render(&self, _ctx: RenderCtx<'_, W>) -> RenderResult {
+        // TODO: To render or not should be controlled via ElData property "visible" and this widget should only control that property through arena. To do that, in build pass we should subscribe arena to show changes. Also, we need to figure out how to handle events, layout, etc., should invisible elements receive events or not (maybe only visibility-dependent events like mouse events, but not others?), should their layout occupy space (surely no)?
         // if self.show.get() { self.el.render(ctx) } else { Ok(()) }
         todo!()
     }
 
-    fn on_event(&mut self, ctx: EventCtx<'_, W>) -> EventResponse {
+    fn on_event(&mut self, _ctx: EventCtx<'_, W>) -> EventResponse {
         todo!()
         // if self.show.get() { self.el.on_event(ctx) } else { ctx.ignore() }
     }

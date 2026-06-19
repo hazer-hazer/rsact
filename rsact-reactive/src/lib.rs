@@ -59,7 +59,8 @@ pub mod prelude {
         rsact_macros::IntoMaybeReactive,
         runtime::{
             batch, create_runtime, defer_effects, observe, observe_by_location,
-            untrack, with_current_runtime, with_new_runtime,
+            observe_with_force, untrack, with_current_runtime,
+            with_new_runtime,
         },
         signal::{
             IntoSignal, RwSignal, Signal, create_signal, marker::ReadOnly,

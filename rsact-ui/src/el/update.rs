@@ -1,12 +1,10 @@
-use log::debug;
-
 use crate::el::*;
+use log::debug;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Update {
     HoverChange(bool),
     ChildHoverChange(bool),
-
     MouseEnter,
     ChildMouseEnter,
     MouseLeave,
@@ -20,7 +18,6 @@ impl Update {
                 Some(Self::ChildHoverChange(*hovered))
             },
             Self::ChildHoverChange(_) => None,
-
             Self::MouseEnter => Some(Self::ChildMouseEnter),
             Self::ChildMouseEnter => None,
             Self::MouseLeave => Some(Self::ChildMouseLeave),
@@ -38,25 +35,16 @@ pub struct UpdateCtx<'a, W: WidgetCtx> {
 
 impl<'a, W: WidgetCtx> UpdateCtx<'a, W> {
     pub fn handle(&mut self) {
+        debug!(
+            "Handle update for {}[{:?}]: {:?}",
+            self.state.debug_name, self.id, self.update
+        );
         match self.update {
             Update::HoverChange(hovered) => {
-                if self.state.flags.hoverable {
-                    debug!(
-                        "Hover change {}[{:?}]",
-                        self.state.debug_name, self.id
-                    );
-                    self.state.hovered = hovered;
-                    self.state
-                        .set_needs_redraw(RedrawReason::PseudoclassChange);
-                }
+                self.state.maybe_hover(hovered);
             },
             Update::ChildHoverChange(child_hovered) => {
-                if self.state.flags.hoverable_from_children {
-                    // Child hovered only affects true values because we could already hover this element directly
-                    self.state.hovered = self.state.hovered || child_hovered;
-                    self.state
-                        .set_needs_redraw(RedrawReason::PseudoclassChange);
-                }
+                self.state.maybe_hover_from_child(child_hovered);
             },
             Update::MouseEnter => {},
             Update::ChildMouseEnter => {},

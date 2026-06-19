@@ -1,13 +1,14 @@
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct WidgetFlags {
     /// Widgets with transparent layout do not have their own layout, so they don't nest layout tree. This is useful for utility widgets like Dynamic. But it does not turn off rendering for the widget, you can still use transparent_layout to avoid creating nested layouts if you definitely need the same layout as a child. Imagine, for example widget that only adds box shadow to a widget, you don't need a separate layout because it would always be equal to the child layout.
+    // TODO: Such transparent flags lead to problems with double-borrow in passes because we first need to check that widget is transparent, then mutate the children and then mutate the widget borrowing it again. Maybe it is better to have real distinct layout of type Transparent that will have the same logic, but it seem to be a larger overhead than double-borrow from arena because we plan to implement composable widget with such flags as [`transparent_layout`] leading us to cases with a lot of nested layouts.
+    // [ ] Or maybe better we make a new variant directly in Layout type, allowing us to avoid adding it to the tree at all. No, it's not possible now because it will break child layout dependency. This requires layouts to have separate children storage instead of current reactive tree structure with Container with a single child and Flex with multiple.
     pub transparent_layout: bool,
 
     // Behavior //
     // TODO: Bitflags?
     pub hoverable: bool,
     pub hoverable_from_children: bool,
-    pub bubble_hover: bool,
 
     pub clickable: bool,
     pub focusable: bool,
@@ -18,6 +19,26 @@ pub struct WidgetFlags {
 impl WidgetFlags {
     pub fn transparent_layout(mut self) -> Self {
         self.transparent_layout = true;
+        self
+    }
+
+    pub fn hoverable(mut self) -> Self {
+        self.hoverable = true;
+        self
+    }
+
+    pub fn hoverable_from_children(mut self) -> Self {
+        self.hoverable_from_children = true;
+        self
+    }
+
+    pub fn clickable(mut self) -> Self {
+        self.clickable = true;
+        self
+    }
+
+    pub fn focusable(mut self) -> Self {
+        self.focusable = true;
         self
     }
 
@@ -35,7 +56,6 @@ impl Default for WidgetFlags {
             hoverable: false,
             // Non-hoverable widget won't receive child hover events, but it is a common default to have.
             hoverable_from_children: true,
-            bubble_hover: true,
 
             clickable: false,
             focusable: false,

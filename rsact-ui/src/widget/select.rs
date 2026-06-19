@@ -256,7 +256,7 @@ impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction + 'static> Widget<W>
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
         let children_layouts = ctx.layout.children().collect::<Vec<_>>();
 
-        ctx.render_self("Select", |mut ctx| {
+        ctx.render_self(|mut ctx| {
             let style = ctx.get_style(self.style.as_deref());
             let state = self.state.get();
 
@@ -278,7 +278,7 @@ impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction + 'static> Widget<W>
                     BlockModel::zero().border_width(1),
                     style.selected,
                 )
-                .render(ctx.renderer())?;
+                .render(ctx.renderer)?;
             }
 
             // TODO: Review if focus outline visible

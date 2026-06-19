@@ -210,6 +210,7 @@ pub struct CaptureData {
     pub absolute_position: Point,
 }
 
+// TODO: Rename Capture to Eat or something to avoid ambiguity with capturing mouse cursor.
 #[derive(Debug)]
 pub enum Capture {
     /// Event is captured by element and should not be handled by its parents

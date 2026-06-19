@@ -83,7 +83,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Widget<W> for Knob<W, V> {
 
     #[track_caller]
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
-        ctx.render_self("Knob", |mut ctx| {
+        ctx.render_self(|mut ctx| {
             let style = ctx.get_style(self.style.as_deref());
 
             let value_real = self.value.get().real_point();
@@ -94,7 +94,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Widget<W> for Knob<W, V> {
 
             let top_left = ctx.layout.inner.top_left;
             let diameter = ctx.layout.inner.size.max_square().width;
-            ctx.renderer().sector(
+            ctx.renderer.sector(
                 top_left,
                 diameter,
                 style.angle_start,

@@ -188,16 +188,12 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Scrollable<W, Dir> {
         self.layout
     }
 
-    fn render(
-        &self,
-        mut ctx: crate::widget::RenderCtx<'_, W>,
-    ) -> crate::widget::RenderResult {
-        // Note: Layouts can be untracked because relayout is full-redraw
-        let child_layout = ctx.layout.children().next();
-        let child_layout = child_layout.as_ref().unwrap();
-
+    fn render(&self, mut ctx: RenderCtx<'_, W>) -> crate::widget::RenderResult {
         // TODO: Shouldn't scrollbar be rendered after child to be above? Need post_render method in Widget
-        ctx.render_self("Scrollable", |mut ctx| {
+        ctx.render_self(|mut ctx| {
+            let child_layout = ctx.layout.children().next();
+            let child_layout = child_layout.as_ref().unwrap();
+
             let style = ctx.get_style(self.style.as_deref());
 
             Block::from_layout_style(
@@ -205,7 +201,7 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Scrollable<W, Dir> {
                 self.layout.with(|layout| layout.block_model()),
                 style.container,
             )
-            .render(ctx.renderer())?;
+            .render(ctx.renderer)?;
 
             let mut content_length = child_layout.outer.size.main(Dir::AXIS);
             let scrollable_length = ctx.layout.inner.size.main(Dir::AXIS);
@@ -244,7 +240,7 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Scrollable<W, Dir> {
                     Dir::AXIS.canon(0, -((style.scrollbar_width as i32) / 2));
 
                 // Draw track
-                ctx.renderer().line(
+                ctx.renderer.line(
                     track_start + scrollbar_translation,
                     track_end + scrollbar_translation,
                     &style.track_draw_style(),
@@ -261,7 +257,7 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Scrollable<W, Dir> {
                 let thumb_start = track_start
                     + Dir::AXIS.canon::<Point>(thumb_offset as i32, 0);
 
-                ctx.renderer().line(
+                ctx.renderer.line(
                     thumb_start + scrollbar_translation,
                     thumb_start
                         + Dir::AXIS.canon::<Point>(thumb_len as i32, 0)

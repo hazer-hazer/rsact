@@ -111,7 +111,6 @@ impl<T: 'static, M: marker::Any> Clone for Signal<T, M> {
         *self
     }
 }
-
 impl<T: 'static, M: marker::Any> Copy for Signal<T, M> {}
 
 impl<T: 'static, M: marker::Any> ReactiveValue for Signal<T, M> {

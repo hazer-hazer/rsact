@@ -48,12 +48,12 @@ where
         &self,
         ctx: &mut crate::widget::RenderCtx<'_, W>,
     ) -> crate::widget::RenderResult {
-        ctx.render_self("Image", |ctx| {
+        ctx.render_self(|ctx| {
             use embedded_graphics::prelude::DrawTarget as _;
             let eg_top_left: embedded_graphics::geometry::Point =
                 ctx.layout.inner.top_left.into();
             embedded_graphics::image::Image::new(&self.data, eg_top_left)
-                .draw(ctx.renderer())
+                .draw(ctx.renderer)
                 .map_err(|_| ())
         })
     }

@@ -27,7 +27,6 @@ impl<T: 'static> Clone for StoredValue<T> {
         Self { id: self.id.clone(), ty: self.ty.clone() }
     }
 }
-
 impl<T: 'static> Copy for StoredValue<T> {}
 
 impl<T: 'static> ReactiveValue for StoredValue<T> {

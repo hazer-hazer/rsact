@@ -31,9 +31,9 @@ impl<'a, W: WidgetCtx> EventPass<'a, W> {
 
     fn run_(&mut self, id: ElId, layout: &LayoutModelNode) -> EventResponse {
         // TODO: Is it possible to avoid double-get from arena? The problem is with mutable arena borrowing because event is processed for children first and then for the parent, while we need parent data to know its flags.
-        // TODO: Right check get. Better wrap arena in wrapper as ArenaChildren is
-        let data =
-            self.arena.get_mut(id).and_then(|el| el.data.as_mut()).unwrap();
+        let Some(data) = self.arena.expect(id) else {
+            return EventResponse::Continue(());
+        };
 
         // TODO: Generalize/Take out this logic for EventCtx and RenderCtx
         if data.state.flags.transparent_layout {
@@ -123,7 +123,7 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
     }
 
     pub fn is_hovered(&self) -> bool {
-        self.state.hovered
+        self.state.hovered()
     }
 
     pub fn is_deepest_hovered(&self) -> bool {

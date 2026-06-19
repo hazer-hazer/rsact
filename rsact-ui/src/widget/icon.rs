@@ -125,12 +125,12 @@ impl<W: WidgetCtx, I: IconSet + 'static, R: ReactivityMarker> Widget<W>
 
     #[track_caller]
     fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
-        ctx.render_self("Icon", |ctx| {
+        ctx.render_self(|ctx| {
             if !self.visible.get() {
                 return Ok(());
             }
 
-            let viewport = ctx.viewport;
+            let viewport = ctx.shared.viewport;
             let _style = ctx.get_style(|t| t.icon, self.style.as_deref());
 
             let _icon_raw = match &self.value {
@@ -152,7 +152,7 @@ impl<W: WidgetCtx, I: IconSet + 'static, R: ReactivityMarker> Widget<W>
                 //     style.background.get(),
                 //     style.color.get(),
                 // );
-                // ctx.renderer().draw_iter(icon.iter()).ok().unwrap();
+                // ctx.renderer.draw_iter(icon.iter()).ok().unwrap();
             }
 
             Ok(())

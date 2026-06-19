@@ -1,6 +1,6 @@
 use crate::{
     el::{
-        ClipPath, ElData, ElId, ElState, WithElId,
+        ClipPath, ElId, WidgetFlags, WithElId,
         arena::{ArenaChildren, ArenaEls, ElArena},
         ctx::{PageState, WidgetCtx},
     },
@@ -9,54 +9,82 @@ use crate::{
     page::PageStyle,
     render::prelude::*,
     style::{
-        Style, StyleFn, StylePseudoClass, StyleSelector, TreeStyle,
-        stylist::Stylist, theme::Theme,
+        Style, StylePseudoClass, StyleSelector, TreeStyle, stylist::Stylist,
     },
 };
 use core::{fmt::Display, hash::Hash, marker::PhantomData};
 use itertools::Itertools as _;
 use log::{debug, error};
-use rsact_reactive::{
-    prelude::*, runtime::get_observer, signal::marker::ReadOnly,
-};
+use rsact_reactive::{prelude::*, signal::marker::ReadOnly};
 use rsact_render::color::ACCENT_COUNT;
 
 pub struct CtxReady;
 pub struct CtxUnready;
 
-// TODO: Maybe split RenderCtx into RenderCtx and WidgetRenderCtx, where WidgetRenderCtx is a subset with less fields unneeded for widget rendering? Better no, because it may lead to reimplementing same methods for both.
-
 // TODO: Make RenderCtx a delegate to renderer so u can do `Primitive::(...).render(ctx)`?
-// Maybe later, and surely not .render(ctx), at least .render(ctx.renderer()), otherwise it breaks encapsulation of the crates.
-pub struct RenderCtx<'a, W: WidgetCtx, S = CtxUnready> {
-    pub id: ElId,
-    pub arena: &'a mut ElArena<W>,
+// Maybe later, and surely not .render(ctx), at least .render(ctx.renderer), otherwise it breaks encapsulation of the crates.
+
+pub struct RenderShared<'a, W: WidgetCtx> {
     pub page_state: &'a PageState<W>,
-    pub renderer: &'a mut W::Renderer,
-    pub layout: &'a LayoutModelNode<'a>,
-    pub tree_style: TreeStyle<W::Color>,
     pub page_style: Signal<PageStyle<W::Color>, ReadOnly>,
     pub viewport: MaybeReactive<Size>,
     pub fonts: Signal<FontCtx, ReadOnly>,
     pub stylist: &'a W::Stylist,
-    pub font_props: FontProps,
-    pub needs_redraw: bool,
+    /// Page-level flag that triggers a full redraw (e.g. after layout change).
     pub force_redraw: Signal<bool>,
-    pub parent_dirty: bool,
+}
 
-    // Nesting level only used for redraw debugging, making different colors on each call to distinguish between elements.
-    pub nesting_level: usize,
+impl<'a, W: WidgetCtx> Clone for RenderShared<'a, W> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<'a, W: WidgetCtx> Copy for RenderShared<'a, W> {}
 
-    pub call: usize,
+pub struct RenderVisual<W: WidgetCtx> {
+    pub tree_style: TreeStyle<W::Color>,
+    pub font_props: FontProps,
+}
 
-    pub _marker: PhantomData<S>,
+impl<W: WidgetCtx> Clone for RenderVisual<W> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<W: WidgetCtx> Copy for RenderVisual<W> {}
+
+#[derive(Clone, Copy)]
+pub struct RenderFrame {
+    parent_dirty: bool,
+    nesting_level: usize,
+    call: usize,
+}
+
+impl RenderFrame {
+    pub fn root(call: usize) -> Self {
+        Self { parent_dirty: false, nesting_level: 0, call }
+    }
+}
+
+pub struct RenderCtx<'a, W: WidgetCtx, S = CtxUnready> {
+    pub id: ElId,
+    debug_name: &'a str,
+    dirten: &'a mut bool,
+    needs_redraw: bool,
+    hovered: bool,
+
+    pub renderer: &'a mut W::Renderer,
+    pub layout: &'a LayoutModelNode<'a>,
+    /// Inheritable visual properties (tree_style, font_props).
+    pub visual: RenderVisual<W>,
+    /// Per-element rendering state (dirty flags, nesting, call counter).
+    frame: RenderFrame,
+    /// Shared page-level context (signals, page state, stylist).
+    pub shared: RenderShared<'a, W>,
+    _marker: PhantomData<S>,
 }
 
 impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
-    pub fn renderer(&mut self) -> &mut W::Renderer {
-        self.renderer
-    }
-
     #[must_use]
     pub fn render_font(
         &mut self,
@@ -66,7 +94,7 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
         bounds: Rect,
         color: W::Color,
     ) -> RenderResult {
-        self.fonts.with(|fonts| {
+        self.shared.fonts.with(|fonts| {
             fonts.render::<W>(
                 font,
                 content,
@@ -80,21 +108,23 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
 
     #[must_use]
     pub fn render_focus_outline(&mut self, id: ElId) -> RenderResult {
-        if self.page_state.is_focused(id) {
-            (Block {
+        if self.shared.page_state.is_focused(id) {
+            Block {
                 border: Border::zero()
                     // TODO: Theme focus color
+                    // [ ] This can be done via Stylist because Style can be basically anything like FocusStyle.
                     .color(Some(<W::Color as Color>::accents()[1]))
                     .width(1),
                 rect: self.layout.outer,
                 background: None,
-            })
+            }
             .render(self.renderer)
         } else {
             Ok(())
         }
     }
 
+    /// Create a sub-context with a modified `tree_style`.
     #[must_use]
     pub fn with_tree_style<R>(
         &mut self,
@@ -103,38 +133,36 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
     ) -> R {
         f(RenderCtx {
             id: self.id,
-            arena: self.arena,
-            page_state: self.page_state,
+            debug_name: self.debug_name,
+            dirten: self.dirten,
+            needs_redraw: self.needs_redraw,
+            hovered: self.hovered,
             renderer: self.renderer,
             layout: self.layout,
-            tree_style: tree_style(self.tree_style),
-            page_style: self.page_style,
-            viewport: self.viewport,
-            fonts: self.fonts,
-            stylist: self.stylist,
-            font_props: self.font_props,
-            force_redraw: self.force_redraw,
-            needs_redraw: self.needs_redraw,
-            parent_dirty: self.parent_dirty,
-            nesting_level: self.nesting_level,
-            call: self.call,
+            visual: RenderVisual {
+                tree_style: tree_style(self.visual.tree_style),
+                font_props: self.visual.font_props,
+            },
+            frame: self.frame,
+            shared: self.shared,
             _marker: PhantomData,
         })
     }
 
+    /// Returns the current style pseudo-class based on hover / focus state.
+    ///
+    /// `hovered` is pre-extracted into `frame.hovered` by [`RenderPass`]
+    /// before the arena borrow was released, so this method needs no arena
+    /// access.
     pub fn pseudoclass(&self) -> StylePseudoClass {
-        // TODO: Other pseudoclasses
-
-        let data = self.arena.expect_unreachable(self.id);
-
         debug!(
-            "State for pseudoclass: {:?} ({})",
-            data.state, data.state.debug_name
+            "State for pseudoclass: hovered={} focused={}",
+            self.hovered,
+            self.shared.page_state.is_focused(self.id)
         );
-
         StylePseudoClass::default()
-            .hovered(data.state.hovered)
-            .focused(self.page_state.is_focused(self.id))
+            .hovered(self.hovered)
+            .focused(self.shared.page_state.is_focused(self.id))
     }
 
     pub fn get_style<S: Style>(
@@ -146,82 +174,98 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
     {
         let pseudoclass = self.pseudoclass();
         let selector = StyleSelector { pseudoclass };
-        let base = self.stylist.style(&S::base(), &selector);
+        let base = self.shared.stylist.style(&S::base(), &selector);
         style.map(|f| f(&base, &selector)).unwrap_or(base)
+    }
+
+    /// Clip subsequent drawing operations to the layout's inner rect.
+    ///
+    /// Only `renderer` changes (to the clipped sub-renderer); every other
+    /// field is `Copy` so construction is a single struct-update expression.
+    #[must_use]
+    pub fn clip_inner(
+        &mut self,
+        f: impl FnOnce(RenderCtx<'_, W, CtxReady>) -> RenderResult,
+    ) -> RenderResult {
+        let inner = self.layout.inner;
+        self.renderer.clipped(inner, |renderer| {
+            f(RenderCtx {
+                id: self.id,
+                debug_name: self.debug_name,
+                dirten: self.dirten,
+                needs_redraw: self.needs_redraw,
+                hovered: self.hovered,
+                renderer,
+                layout: self.layout,
+                visual: self.visual,
+                frame: self.frame,
+                shared: self.shared,
+                _marker: PhantomData,
+            })
+        })
     }
 }
 
+// CtxUnready //
 impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
-    /// Render part of the widget that is dependent on some reactive state.
-    // Note: Display is required for logs, but as for now, all render_part calls are used with a string to be hashed, so we either require it to always be a string or keep it so, idk.
     pub fn render_part<H: Display + Hash + Copy>(
         &mut self,
         hash_source: H,
         f: impl FnOnce(RenderCtx<'_, W, CtxReady>) -> RenderResult,
     ) -> RenderResult {
-        let render_id = WithElId::new(self.id, hash_source);
+        // Imperative force-dirty flags that triggers redraw even if no reactive dependencies changed in the `observe`
+        let redraw = self.frame.parent_dirty || self.needs_redraw;
 
-        let redraw = self.parent_dirty || self.needs_redraw;
+        let result = observe_with_force(
+            WithElId::new(self.id, hash_source),
+            redraw,
+            || {
+                debug!(
+                    "{:indent$}Render {} [#{:?}]",
+                    "",
+                    hash_source,
+                    self.id,
+                    indent = self.frame.nesting_level
+                );
 
-        // TODO: Must clear only in render_self
-        // Clear our own rect only when the parent hasn't already cleared
-        // the containing area (avoids redundant smaller fills inside a
-        // larger background that was already repainted).
-        if !self.parent_dirty && redraw {
-            // TODO: Full screen clear when force redraw so no need to clear for each widget?
-            self.clear_outer()?;
-        }
+                // Track force_redraw so this observer automatically re-runs when
+                // the page-level force-redraw flag is set (e.g. after layout change).
+                self.shared.force_redraw.track();
 
-        // If the parent already cleared the area, force this child observer
-        // to re-run so it redraws into the now-cleared region.
-        if self.parent_dirty {
-            get_observer(render_id).map(|observer| observer.dirten());
-        }
+                // Clear the element rect unless the parent already did so.
+                //
+                // Moved inside `observe` (vs old code where it was outside) so the
+                // clear is always paired with an actual redraw — never a
+                // clear-without-redraw or a redraw-without-clear.
+                if !self.frame.parent_dirty {
+                    self.clear_outer()?;
+                }
 
-        let result = observe(render_id, || {
-            debug!(
-                "{:indent$}Render {} [#{:?}]",
-                "",
-                hash_source,
-                self.id,
-                indent = self.nesting_level
-            );
+                f(RenderCtx {
+                    id: self.id,
+                    debug_name: self.debug_name,
+                    dirten: self.dirten,
+                    needs_redraw: self.needs_redraw,
+                    hovered: self.hovered,
+                    renderer: self.renderer,
+                    layout: self.layout,
+                    visual: self.visual,
+                    shared: self.shared,
+                    // Children inside this closure see parent_dirty=true because
+                    // we just cleared/drew into this element's area above.
+                    frame: RenderFrame {
+                        parent_dirty: true,
+                        nesting_level: self.frame.nesting_level + 1,
+                        call: self.frame.call + 1,
+                    },
+                    _marker: PhantomData,
+                })
+            },
+        );
 
-            // Clear our own rect only when the parent hasn't already cleared
-            // the containing area (avoids redundant smaller fills inside a
-            // larger background that was already repainted).
-            if self.force_redraw.get() {
-                // TODO: Full screen clear when force redraw so no need to clear for each widget?
-                self.clear_outer()?;
-            }
-
-            // Pass parent_dirty=true into the closure so children of this
-            // render_part know the area is already cleared.
-            f(RenderCtx {
-                id: self.id,
-                arena: self.arena,
-                page_state: self.page_state,
-                renderer: self.renderer,
-                layout: self.layout,
-                tree_style: self.tree_style,
-                page_style: self.page_style,
-                viewport: self.viewport,
-                fonts: self.fonts,
-                stylist: self.stylist,
-                font_props: self.font_props,
-                force_redraw: self.force_redraw,
-                needs_redraw: self.needs_redraw,
-                parent_dirty: true,
-                nesting_level: self.nesting_level + 1,
-                call: self.call + 1,
-                _marker: PhantomData,
-            })
-        });
-
-        // Propagate dirty state back to self so sibling render_part / render_child
-        // calls on the same ctx see that the area has been painted.
         if result.is_some() {
-            self.parent_dirty = true;
+            self.frame.parent_dirty = true;
+            *self.dirten = true;
         }
 
         result.unwrap_or(RenderResult::Ok(()))
@@ -230,253 +274,33 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
     #[must_use]
     pub fn render_self(
         &mut self,
-        widget_name: &str,
         f: impl FnOnce(RenderCtx<'_, W, CtxReady>) -> RenderResult,
     ) -> RenderResult {
-        // TODO: Get rid of this, we have debug_name
-        // Maybe not? It is more customizable and may be handy
-        let render_id = format!("{widget_name}[render_self]");
+        // TODO: Maybe we can store preformatted string render_id for each widget?
+        let render_id = format!("{}[render_self]", self.debug_name);
         self.render_part(&render_id, f)
     }
 }
 
 impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
-    #[must_use]
-    fn for_child<R>(
-        &mut self,
-        id: ElId,
-        child_layout: &LayoutModelNode,
-        f: impl FnOnce(RenderCtx<'_, W, S>) -> R,
-    ) -> R {
-        let font_props = child_layout.font_props().unwrap_or(self.font_props);
-        f(RenderCtx {
-            id,
-            arena: self.arena,
-            page_state: self.page_state,
-            renderer: self.renderer,
-            layout: child_layout,
-            tree_style: self.tree_style,
-            page_style: self.page_style,
-            viewport: self.viewport,
-            fonts: self.fonts,
-            stylist: self.stylist,
-            font_props,
-            force_redraw: self.force_redraw,
-            needs_redraw: self.needs_redraw,
-            parent_dirty: self.parent_dirty,
-            nesting_level: self.nesting_level + 1,
-            call: self.call,
-            _marker: PhantomData,
-        })
-    }
-
-    pub fn render<'arena>(mut self) -> RenderResult {
-        self.render_inner(self.id)
-    }
-
-    fn render_inner<'arena>(&mut self, id: ElId) -> RenderResult {
-        debug!("{:indent$}->", "", indent = self.nesting_level);
-
-        let Some(data) = self.arena.expect(id) else { return Ok(()) };
-
-        self.apply_options(&data.state, |this| {
-            this.render_el(id, data)?;
-
-            if data.state.flags.transparent_layout {
-                if let Some(children_ids) = this.arena.children(id) && children_ids.len() == 1 {
-                    let child_id = children_ids[0];
-
-                    this.for_child(child_id, this.layout, |mut this| {
-                        this.render_inner(child_id)
-                    })?;
-                } else {
-                    error!(
-                        "Transparent widget with id {id:?} should have exactly one child"
-                    );
-                }
-            } else if let Some(children_ids) = this.arena.children(id) {
-                debug!(
-                    "{:indent$}Children [{}]:",
-                    "",
-                    children_ids.len(),
-                    indent = this.nesting_level
-                );
-
-                for (child_id, child_layout) in
-                    children_ids.iter().zip_eq(this.layout.children())
-                {
-                    this.for_child(*child_id, &child_layout, |mut this| {
-                        this.render_inner(*child_id)
-                    })?;
-                }
-            }
-
-            debug!("{:indent$}<-", "", indent = this.nesting_level);
-
-            Ok(())
-        })
-    }
-
-    fn apply_options(
-        &mut self,
-        data: &ElState<W>,
-        f: impl FnOnce(&mut RenderCtx<'_, W, S>) -> RenderResult,
-    ) -> RenderResult {
-        self.maybe_clip(data.clip_path.as_ref(), |this| f(this))
-    }
-
-    fn maybe_clip(
-        &mut self,
-        clip_path: Option<&ClipPath>,
-        f: impl FnOnce(&mut RenderCtx<'_, W, S>) -> RenderResult,
-    ) -> RenderResult {
-        if let Some(clip_path) = clip_path {
-            match clip_path {
-                ClipPath::InnerRect => self.clip_inner(f),
-            }
-        } else {
-            f(self)
-        }
-    }
-
-    pub fn clip_inner(
-        &mut self,
-        f: impl FnOnce(&mut RenderCtx<'_, W, S>) -> RenderResult,
-    ) -> RenderResult {
-        self.renderer.clipped(self.layout.inner, |renderer| {
-            f(&mut RenderCtx {
-                id: self.id,
-                arena: self.arena,
-                page_state: self.page_state,
-                renderer,
-                layout: self.layout,
-                tree_style: self.tree_style,
-                page_style: self.page_style,
-                viewport: self.viewport,
-                fonts: self.fonts,
-                stylist: self.stylist,
-                font_props: self.font_props,
-                force_redraw: self.force_redraw,
-                needs_redraw: self.needs_redraw,
-                parent_dirty: self.parent_dirty,
-                nesting_level: self.nesting_level + 1,
-                call: self.call,
-                _marker: PhantomData,
-            })
-        })
-    }
-
-    fn render_el<'arena>(
-        &mut self,
-        id: ElId,
-        data: &ElData<W>,
-    ) -> RenderResult {
-        debug!(
-            "{:indent$}Render `{}` [{:?}]",
-            "",
-            data.state.debug_name,
-            id,
-            indent = self.nesting_level
-        );
-
-        data.widget.render(RenderCtx {
-            id,
-            arena: self.arena,
-            page_state: self.page_state,
-            renderer: self.renderer,
-            layout: self.layout,
-            tree_style: self.tree_style,
-            page_style: self.page_style,
-            viewport: self.viewport,
-            fonts: self.fonts,
-            stylist: self.stylist,
-            font_props: self.font_props,
-            force_redraw: self.force_redraw,
-            needs_redraw: data.state.take_needs_redraw().is_some(),
-            parent_dirty: self.parent_dirty,
-            nesting_level: self.nesting_level,
-            call: self.call,
-            _marker: PhantomData,
-        })
-    }
-
-    // #[must_use]
-    // pub fn render_child(&mut self, child: &El<W>) -> RenderResult {
-    //     self.render_children_inner(core::iter::once(child))
-    // }
-
-    // #[must_use]
-    // fn render_children_inner<'c, C: Iterator<Item = &'c El<W>> + 'c>(
-    //     &mut self,
-    //     children: C,
-    // ) -> RenderResult {
-    //     children.zip_eq(self.layout.children()).try_for_each(
-    //         |(child, child_layout)| {
-    //             self.for_child(child.id(), &child_layout, |ctx| {
-    //                 child.render(ctx)
-    //             })
-    //         },
-    //     )
-    // }
-
-    // #[must_use]
-    // pub fn render_children<'c>(
-    //     &mut self,
-    //     children: &MaybeSignal<Vec<El<W>>>,
-    // ) -> RenderResult {
-    //     let render_id = WithElId::new(self.id, "render_children");
-
-    //     // If the parent already cleared the area, force the render_children
-    //     // observer to re-run so children repaint into the cleared region.
-    //     if self.parent_dirty {
-    //         get_observer(render_id).map(|observer| observer.dirten());
-    //     }
-
-    //     // TODO: Create observe_with_force that forces execution based on boolean (for this case -- parent_dirty)
-    //     let result = observe(render_id, || {
-    //         debug!(
-    //             "{:indent$}Render children [#{:?}]",
-    //             "",
-    //             self.id,
-    //             indent = self.nesting_level
-    //         );
-
-    //         // Rendering children does not require to clear the rect unless force redraw is called. Because rendering children is done in such widgets that may not have render_self, meaning that nothing is drawn before the children, this allows safely redrawing only the children that are changed.
-    //         if !self.parent_dirty && self.force_redraw.get() {
-    //             self.clear_outer()?;
-    //         }
-
-    //         children.with(|children| {
-    //             children.iter().zip_eq(self.layout.children()).try_for_each(
-    //                 |(child, child_layout)| {
-    //                     // Pass parent_dirty through so children know whether
-    //                     // the containing area has already been cleared.
-    //                     self.for_child(child.id(), &child_layout, |ctx| {
-    //                         child.render(ctx)
-    //                     })
-    //                 },
-    //             )
-    //         })
-    //     });
-
-    //     result.unwrap_or(RenderResult::Ok(()))
-    // }
-
-    #[must_use]
     fn clear_outer(&mut self) -> RenderResult {
         // TODO: Feature-gated or debug-redraw flag
         // Debug redraws, works good only for colors with alpha. But we can use some bright background too
+        // TODO: Actually, this should happen after draw
+        // [ ] better when render_pass added, or do it right now as a separate call.
+
         // self.renderer.rect(
         //     self.layout.outer,
         //     &DrawStyle::default().fill(
-        //         W::Color::accents()
-        //             [(self.nesting_level + self.call) % ACCENT_COUNT],
+        //         W::Color::accents()[(self.frame.nesting_level
+        //             + self.frame.call)
+        //             % ACCENT_COUNT],
         //     ),
         //     // .stroke(W::Color::accents()[4])
         //     // .stroke_width(1),
         // )
 
-        self.page_style.with(|style| {
+        self.shared.page_style.with(|style| {
             if let Some(bg) = style.background_color {
                 self.renderer.fill_solid(self.layout.outer, bg).map_err(|_| ())
             } else {
@@ -484,4 +308,201 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
             }
         })
     }
+}
+
+pub(crate) struct RenderPass<'a, W: WidgetCtx> {
+    arena: &'a mut ElArena<W>,
+    renderer: &'a mut W::Renderer,
+    shared: RenderShared<'a, W>,
+}
+
+impl<'a, W: WidgetCtx> RenderPass<'a, W> {
+    pub fn new(
+        arena: &'a mut ElArena<W>,
+        renderer: &'a mut W::Renderer,
+        shared: RenderShared<'a, W>,
+    ) -> Self {
+        Self { arena, renderer, shared }
+    }
+
+    pub fn render(
+        &mut self,
+        root: ElId,
+        layout: &LayoutModelNode<'_>,
+        visual: RenderVisual<W>,
+        frame: RenderFrame,
+    ) -> RenderResult {
+        render_subtree(
+            &mut self.arena.els,
+            &self.arena.children,
+            self.renderer,
+            self.shared,
+            root,
+            layout,
+            visual,
+            frame,
+        )
+    }
+}
+
+fn render_subtree<W: WidgetCtx>(
+    els: &mut ArenaEls<W>,
+    children: &ArenaChildren,
+    renderer: &mut W::Renderer,
+    shared: RenderShared<'_, W>,
+    id: ElId,
+    layout: &LayoutModelNode<'_>,
+    visual: RenderVisual<W>,
+    frame: RenderFrame,
+) -> RenderResult {
+    debug!("{:indent$}->", "", indent = frame.nesting_level);
+
+    // TODO: Get rid of double element access
+    let (clip_path,) = {
+        let Some(data) = els.expect(id) else { return Ok(()) };
+        (data.state.clip_path,)
+    };
+
+    // Build the per-element frame.
+    let child_frame = RenderFrame {
+        parent_dirty: frame.parent_dirty,
+        nesting_level: frame.nesting_level,
+        call: frame.call,
+    };
+
+    match clip_path {
+        None => render_subtree_body(
+            els,
+            children,
+            renderer,
+            shared,
+            id,
+            layout,
+            visual,
+            child_frame,
+        ),
+        Some(ClipPath::InnerRect) => {
+            renderer.clipped(layout.inner, |renderer| {
+                render_subtree_body(
+                    els,
+                    children,
+                    renderer,
+                    shared,
+                    id,
+                    layout,
+                    visual,
+                    child_frame,
+                )
+            })
+        },
+    }
+}
+
+fn render_subtree_body<W: WidgetCtx>(
+    els: &mut ArenaEls<W>,
+    children: &ArenaChildren,
+    renderer: &mut W::Renderer,
+    shared: RenderShared<'_, W>,
+    id: ElId,
+    layout: &LayoutModelNode<'_>,
+    visual: RenderVisual<W>,
+    frame: RenderFrame,
+) -> RenderResult {
+    let needs_redraw = els
+        .expect_mut(id)
+        .map(|data| data.state.take_needs_redraw().is_some())
+        .unwrap_or(false);
+
+    let Some(data) = els.expect(id) else { return Ok(()) };
+
+    debug!(
+        "{:indent$}Render `{}` [{:?}]",
+        "",
+        data.state.debug_name,
+        id,
+        indent = frame.nesting_level
+    );
+
+    let mut dirten = false;
+    let ctx = RenderCtx {
+        id,
+        debug_name: data.state.debug_name,
+        dirten: &mut dirten,
+        needs_redraw,
+        hovered: data.state.hovered(),
+        renderer,
+        layout,
+        visual,
+        frame,
+        shared,
+        _marker: PhantomData::<CtxUnready>,
+    };
+    data.widget.render(ctx)?;
+
+    let children_frame = RenderFrame {
+        parent_dirty: dirten,
+        nesting_level: frame.nesting_level + 1,
+        ..frame
+    };
+
+    if data.state.flags.transparent_layout {
+        // Transparent widget: child inherits the parent's layout rect.
+        // Must have exactly one child.
+        let children_ids = children.get(id).map(|c| c.to_vec());
+        if let Some(children_ids) = children_ids {
+            if children_ids.len() == 1 {
+                let child_id = children_ids[0];
+                render_subtree(
+                    els,
+                    children,
+                    renderer,
+                    shared,
+                    child_id,
+                    // transparent widget child reuses layout
+                    layout,
+                    visual,
+                    children_frame,
+                )?;
+            } else {
+                error!(
+                    "Transparent widget with id {id:?} should have exactly one child"
+                );
+            }
+        }
+    } else {
+        if let Some(children_ids) = children.get(id) {
+            debug!(
+                "{:indent$}Children [{}]:",
+                "",
+                children_ids.len(),
+                indent = frame.nesting_level
+            );
+            for (child_id, child_layout) in
+                children_ids.iter().zip_eq(layout.children())
+            {
+                let child_font_props =
+                    child_layout.font_props().unwrap_or(visual.font_props);
+
+                let child_visual = RenderVisual {
+                    font_props: child_font_props,
+                    tree_style: visual.tree_style,
+                };
+
+                render_subtree(
+                    els,
+                    children,
+                    renderer,
+                    shared,
+                    *child_id,
+                    &child_layout,
+                    child_visual,
+                    children_frame,
+                )?;
+            }
+        }
+    }
+
+    debug!("{:indent$}<-", "", indent = frame.nesting_level);
+
+    Ok(())
 }

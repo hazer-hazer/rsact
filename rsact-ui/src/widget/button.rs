@@ -35,7 +35,7 @@ impl<W: WidgetCtx + 'static> Button<W> {
         let state = create_signal(ButtonState::none());
 
         let layout = Layout::shrink(LayoutKind::Container(ContainerLayout {
-            block_model: BlockModel::zero().padding(2).border_width(1),
+            block_model: BlockModel::zero().padding(5).border_width(1),
             horizontal_align: Align::Center,
             vertical_align: Align::Center,
             content: content.layout(),
@@ -75,6 +75,14 @@ impl<W: WidgetCtx + 'static> Widget<W> for Button<W> {
         "Button"
     }
 
+    fn flags(&self) -> WidgetFlags {
+        WidgetFlags::default()
+            .hoverable()
+            .hoverable_from_children()
+            .clickable()
+            .focusable()
+    }
+
     fn build(&mut self, mut ctx: BuildCtx<W>) {
         ctx.set_single_child(&mut self.content);
     }
@@ -85,7 +93,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Button<W> {
 
     #[track_caller]
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
-        ctx.render_self("Button", |mut ctx| {
+        ctx.render_self(|mut ctx| {
             let style = ctx.get_style(self.style.as_deref());
 
             Block::from_layout_style(
@@ -93,7 +101,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Button<W> {
                 self.layout.with(|layout| layout.block_model()),
                 style.container,
             )
-            .render(ctx.renderer())?;
+            .render(ctx.renderer)?;
 
             ctx.render_focus_outline(ctx.id)
         })

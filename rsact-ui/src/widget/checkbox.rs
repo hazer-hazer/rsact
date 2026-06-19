@@ -93,7 +93,7 @@ impl<W: WidgetCtx> Widget<W> for Checkbox<W> {
             self.layout.with(|layout| layout.block_model()),
             style.container,
         )
-        .render(ctx.renderer())?;
+        .render(ctx.renderer)?;
 
         ctx.render_focus_outline(ctx.id)?;
 

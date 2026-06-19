@@ -7,11 +7,10 @@ use crate::{
         model::{LayoutModel, PPLayoutModel, model_layout},
     },
     render::prelude::*,
-    style::{TreeStyle, theme::Theme},
-    widget::{Behavior, Widget},
+    style::TreeStyle,
+    widget::Widget,
 };
 use alloc::vec::Vec;
-use core::marker::PhantomData;
 use dev::{DevHoveredEl, DevTools};
 use log::{debug, info};
 use rsact_reactive::prelude::*;
@@ -39,14 +38,11 @@ impl<C: Color> PageStyle<C> {
 // TODO: As we now have element arena we can split functionality to add optimization structures. For example, not all drivers have focusing logic, so we can have it behind a generic or other abstraction to toggle, and pre-build focusable elements list only when it's needed. Same for hoverable, etc. Hoverable is kinda more interesting case because with element arena we can build spatial index like an R-Tree or just cache hit-tests which is also good.
 
 pub struct Page<W: WidgetCtx> {
-    // TODO: root is not used as a Signal but as boxed value, better add StoredValue to rsact_reactive for static storage
-    // TODO: Same is about other not-really-reactive states in Page
     id: W::PageId,
     root: ElId,
     arena: Signal<ElArena<W>>,
     // TODO: MaybeReactive
     layout: Memo<LayoutModel>,
-    // TODO: State must be a struct of signals, not signal of a struct.
     state: PageState<W>,
     style: Signal<PageStyle<W::Color>>,
     // TODO: Just use Rc<RefCell<R>> because we don't need to track renderer.
@@ -79,25 +75,6 @@ impl<W: WidgetCtx> Page<W> {
 
         let root = BuildCtx::run(&mut root, arena);
 
-        // // TODO: Multiple behaviors will lead to multiple memos, I am not sure what is more efficient, to recollect all behaviors when any changed or to store multiple memos.
-        // let focusable = create_memo(move || {
-        //     info!("Collect page {:?} meta", id);
-
-        //     meta.flat_collect()
-        //         .iter()
-        //         .filter_map(|el_meta| {
-        //             if let Some(id) = el_meta.id {
-        //                 if !(el_meta.behavior & Behavior::FOCUSABLE).is_empty()
-        //                 {
-        //                     return Some(id);
-        //                 }
-        //             }
-        //             None
-        //         })
-        //         .collect()
-        // })
-        // .name("Focusable");
-
         let layout_tree = arena.with(|arena| {
             arena
                 .expect(root)
@@ -110,8 +87,8 @@ impl<W: WidgetCtx> Page<W> {
         let layout_model = map!(move |fonts, viewport| {
             info!("Relayout page {:?}", id);
 
-            // TODO: Possible optimization is to use previous memo result, pass
-            // it to model_layout as tree and don't relayout parents if layouts
+            // TODO: Possible optimization is to use previous memo result.
+            // [ ] Pass it to model_layout as tree and don't relayout parents if layouts
             // inside Fixed-sized container changed, returning previous result
 
             let viewport = *viewport;
@@ -131,7 +108,7 @@ impl<W: WidgetCtx> Page<W> {
             );
 
             // TODO: Do we need full page redraw on layout change?
-            // No, we need smart bottom-up propagation to the nearest fixed parent layout.
+            // [ ] No, we need smart bottom-up propagation to the nearest fixed parent layout.
             force_redraw.set(true);
 
             debug!("{}", PPLayoutModel::root(&layout));
@@ -149,7 +126,7 @@ impl<W: WidgetCtx> Page<W> {
             layout: layout_model,
             state,
             style,
-            // TODO: Signal viewport in Renderer
+            // TODO: Signal viewport in Renderer? Windows can change size.
             renderer,
             viewport: viewport.name("Viewport"),
             stylist,
@@ -259,7 +236,7 @@ impl<W: WidgetCtx> Page<W> {
     // }
 
     /// For Dev tools
-    fn find_hovered_el(&self, point: Point) -> Option<DevHoveredEl> {
+    fn find_el_under_cursor(&self, point: Point) -> Option<DevHoveredEl> {
         self.layout.with(|layout| {
             layout
                 .tree_root()
@@ -317,11 +294,13 @@ impl<W: WidgetCtx> Page<W> {
     fn bubble_from_child(child: ElId, update: Update, arena: &mut ElArena<W>) {
         let Some(parent) = arena.parents.get(child).copied() else { return };
         Self::send_update_inner(parent, update, arena);
+        Self::bubble_from_child(parent, update, arena);
     }
 
     fn send_update_inner(id: ElId, update: Update, arena: &mut ElArena<W>) {
         let Some(el) = arena.expect_mut(id) else { return };
 
+        debug!("Send update {:?} to {}[{:?}]", update, el.state.debug_name, id);
         el.widget.update(UpdateCtx { id, update, state: &mut el.state });
     }
 
@@ -340,11 +319,9 @@ impl<W: WidgetCtx> Page<W> {
         &mut self,
         event: Event<W::CustomEvent>,
     ) -> Option<UnhandledEvent<W>> {
-        // MouseMove: consumed at page level — update cursor pos, run hover pass, dispatch Enter/Leave
         if let Event::Mouse(MouseEvent::MouseMove(point)) = event {
-            // Update dev tools hover using layout geometry (unchanged)
             if self.dev_tools.with(|dt| dt.enabled) {
-                let hovered_el = self.find_hovered_el(point);
+                let hovered_el = self.find_el_under_cursor(point);
                 let dev_hovered_changed = self.dev_tools.update(|dt| {
                     let changed = dt.hovered != hovered_el;
                     dt.hovered = hovered_el;
@@ -360,10 +337,8 @@ impl<W: WidgetCtx> Page<W> {
                 // return None;
             }
 
-            // Update persistent cursor position
             self.state.pointer.pos = Some(point);
 
-            // Hover pass: dispatch MouseMove through the tree so HOVERABLE widgets can self-report
             let old_hovered = self.state.pointer.hovered;
             self.state.pointer.hovered = None;
             let _ = self.send_specific_event(&event);
@@ -371,11 +346,12 @@ impl<W: WidgetCtx> Page<W> {
             // Dispatch Enter/Leave if hovered widget changed
             let new_hovered = self.state.pointer.hovered;
             if old_hovered != new_hovered {
+                debug!("Hover change: {:?} -> {:?}", old_hovered, new_hovered);
                 if let Some(left) = old_hovered {
-                    self.send_update(left, Update::MouseLeave);
+                    self.send_update(left, Update::HoverChange(false));
                 }
                 if let Some(entered) = new_hovered {
-                    self.send_update(entered, Update::MouseEnter);
+                    self.send_update(entered, Update::HoverChange(true));
                 }
             }
 
@@ -461,25 +437,31 @@ impl<W: WidgetCtx> Page<W> {
             });
         }
 
-        let drawn = observe(("render_page", self.id), || {
-            info!(
-                "Render page {:?} (call: {})",
-                self.id,
-                self.render_calls + 1
-            );
+        let redraw_reason = self.arena.update_untracked(|arena| {
+            arena.expect_mut(self.root).unwrap().state.take_needs_redraw()
+        });
+        let needs_redraw = redraw_reason.is_some();
 
-            #[cfg(feature = "debug-info")]
-            {
-                rsact_reactive::debug::observer_debug_info().map(|di| {
-                    info!("Rerender debug info: {di}");
-                });
-            }
+        let drawn =
+            observe_with_force(("render_page", self.id), needs_redraw, || {
+                info!(
+                    "Render page {:?} (call: {})",
+                    self.id,
+                    self.render_calls + 1
+                );
 
-            self.force_redraw.track();
+                #[cfg(feature = "debug-info")]
+                {
+                    rsact_reactive::debug::observer_debug_info().map(|di| {
+                        info!("Rerender debug info: {di}");
+                    });
+                }
 
-            self.render_calls += 1;
+                self.force_redraw.track();
 
-            renderer
+                self.render_calls += 1;
+
+                renderer
                 .update_untracked(|renderer| {
                     // self.style
                     //     .with(|style| {
@@ -504,35 +486,37 @@ impl<W: WidgetCtx> Page<W> {
                     //     .unwrap();
 
                     let fonts = self.fonts.read_only();
-
                     let layout = self.layout;
                     let stylist = self.stylist;
+
                     with!(|layout, stylist| {
                         debug!("Force redraw: {}", self.force_redraw.get());
-                        self.arena.with(|arena| {
-                            RenderCtx {
-                                id: self.root,
+                        self.arena.update_untracked(|arena| {
+                            RenderPass::new(
                                 arena,
-                                page_state: &self.state,
                                 renderer,
-                                layout: &layout.tree_root(),
-                                tree_style: TreeStyle::base(),
-                                page_style: self.style.read_only(),
-                                viewport: self.viewport,
-                                fonts,
-                                stylist,
-                                font_props: FontProps {
-                                    font: Some(Font::Auto.maybe_reactive()),
-                                    font_size: None,
-                                    font_style: None,
+                                RenderShared {
+                                    page_state: &self.state,
+                                    page_style: self.style.read_only(),
+                                    viewport: self.viewport,
+                                    fonts,
+                                    stylist,
+                                    force_redraw: self.force_redraw,
                                 },
-                                force_redraw: self.force_redraw,
-                                needs_redraw: false,
-                                parent_dirty: false,
-                                nesting_level: 0,
-                                call: self.render_calls,
-                                _marker: PhantomData::<CtxUnready>,
-                            }.render()
+                            )
+                            .render(
+                                self.root,
+                                &layout.tree_root(),
+                                RenderVisual {
+                                    tree_style: TreeStyle::base(),
+                                    font_props: FontProps {
+                                        font: Some(Font::Auto.maybe_reactive()),
+                                        font_size: None,
+                                        font_style: None,
+                                    },
+                                },
+                                RenderFrame::root(self.render_calls),
+                            )
                         })
                     })?;
 
@@ -550,7 +534,7 @@ impl<W: WidgetCtx> Page<W> {
                 .ok()
                 // TODO: What do we do with errors, huh?
                 .unwrap();
-        });
+            });
 
         //
         self.force_redraw.set_untracked(false);

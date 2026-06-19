@@ -65,7 +65,6 @@ impl<T: PartialEq + 'static> Clone for MaybeReactive<T> {
         }
     }
 }
-
 impl<T: PartialEq + 'static> Copy for MaybeReactive<T> {}
 
 impl<T: PartialEq + 'static> MaybeReactive<T> {

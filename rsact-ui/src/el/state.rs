@@ -12,6 +12,7 @@ pub enum ClipPath {
 #[derive(Debug, PartialEq)]
 pub enum RedrawReason {
     PseudoclassChange,
+    ChildDirty,
 }
 
 pub struct ElState<W: WidgetCtx> {
@@ -23,9 +24,8 @@ pub struct ElState<W: WidgetCtx> {
 
     pub flags: WidgetFlags,
 
-    // TODO:Move ElState to a child module to hide implementation for hovers, etc. Because we should never set hover for non-hoverable widgets and need to encapsulate this logic.
     // Action state //
-    pub hovered: bool,
+    hovered: bool,
 
     // // Styling //
     // pub pseudoclass: StylePseudoClass,
@@ -57,6 +57,27 @@ impl<W: WidgetCtx> ElState<W> {
     fn pretty_type_name(debug_name: &'static str) -> &'static str {
         // TODO
         debug_name
+    }
+
+    pub fn maybe_hover(&mut self, hover: bool) {
+        if self.flags.hoverable {
+            self.hovered = hover;
+            self.set_needs_redraw(RedrawReason::PseudoclassChange);
+        }
+    }
+
+    pub fn maybe_hover_from_child(&mut self, child_hover: bool) {
+        if self.flags.hoverable_from_children {
+            // Child hovered only affects true values because we could already hover this element directly
+            self.hovered = self.hovered || child_hover;
+        }
+
+        self.set_needs_redraw(RedrawReason::ChildDirty);
+    }
+
+    #[inline(always)]
+    pub fn hovered(&self) -> bool {
+        self.hovered
     }
 
     pub fn set_needs_redraw(&mut self, reason: RedrawReason) {

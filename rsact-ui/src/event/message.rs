@@ -22,7 +22,6 @@ pub struct UiQueue<W: WidgetCtx> {
     anim_now_millis: Memo<u32>,
 }
 
-impl<W: WidgetCtx> Copy for UiQueue<W> {}
 
 impl<W: WidgetCtx> Clone for UiQueue<W> {
     fn clone(&self) -> Self {
@@ -33,6 +32,7 @@ impl<W: WidgetCtx> Clone for UiQueue<W> {
         }
     }
 }
+impl<W: WidgetCtx> Copy for UiQueue<W> {}
 
 impl<W: WidgetCtx> UiQueue<W> {
     pub fn new() -> Self {

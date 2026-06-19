@@ -38,7 +38,7 @@ impl<C: RgbColor> Default for Theme<C> {
             bg,
             fg,
             primary: C::accents()[0],
-            border_radius: Radius::circle(),
+            border_radius: Radius::SizeEqual(5),
 
             bg_muted: bg,
             fg_muted: fg,
@@ -76,10 +76,9 @@ impl<C: RgbColor> Stylist<ButtonStyle<C>> for Theme<C> {
         selector: &super::StyleSelector,
     ) -> ButtonStyle<C> {
         if selector.pseudoclass.hovered {
-            log::debug!("Hovered");
-            base.container(self.container())
-        } else {
             base.container(self.container().background_color(self.bg_muted))
+        } else {
+            base.container(self.container())
         }
     }
 }
@@ -185,13 +184,13 @@ impl<C: RgbColor> Theme<C> {
 
     pub fn background(mut self, bg: C) -> Self {
         self.bg = bg;
-        self.bg_muted = self.bg.dim(0.2);
+        self.bg_muted = self.bg.dim(0.25);
         self
     }
 
     pub fn foreground(mut self, fg: C) -> Self {
         self.fg = fg;
-        self.fg_muted = self.fg.dim(0.2);
+        self.fg_muted = self.fg.dim(0.25);
         self
     }
 

@@ -138,7 +138,6 @@ impl<C: Color> Clone for BorderStyle<C> {
         Self { color: self.color.clone(), radius: self.radius.clone() }
     }
 }
-
 impl<C: Color> Copy for BorderStyle<C> {}
 
 impl<C: Color> BorderStyle<C> {
@@ -176,7 +175,6 @@ impl<C: Color> Clone for BlockStyle<C> {
         }
     }
 }
-
 impl<C: Color> Copy for BlockStyle<C> {}
 
 impl<C: Color> BlockStyle<C> {

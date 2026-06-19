@@ -131,7 +131,6 @@ impl<T: PartialEq + 'static> Clone for Memo<T> {
         }
     }
 }
-
 impl<T: PartialEq + 'static> Copy for Memo<T> {}
 
 impl<T: PartialEq + 'static> ReactiveValue for Memo<T> {
@@ -271,7 +270,6 @@ impl<T: PartialEq + 'static> Clone for MemoTree<T> {
         Self { data: self.data.clone(), children: self.children.clone() }
     }
 }
-
 impl<T: PartialEq + 'static> Copy for MemoTree<T> {}
 
 impl<T: PartialEq + 'static> MemoTree<T> {

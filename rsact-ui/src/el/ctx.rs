@@ -2,7 +2,6 @@ use crate::{el::*, page::id::PageId, style::stylist::InternalStylist};
 use core::{fmt::Debug, marker::PhantomData};
 use rsact_render::prelude::*;
 
-// TODO: Not an actual context, rename to something like `WidgetTypeFamily`
 pub trait WidgetCtx: Sized + PartialEq + Clone + 'static {
     type Renderer: Renderer<Color = Self::Color>;
     type Color: Color;
@@ -20,7 +19,6 @@ pub trait WidgetCtx: Sized + PartialEq + Clone + 'static {
     }
 }
 
-// TODO: This is a pure WidgetCtx, but for most users we want such WTF that constraints over all stylists and events for all native widgets. Is it possible to create such keeping UI implementation untouched?
 /// WidgetTypeFamily
 /// Type family of types used in Widgets
 pub struct Wtf<R, I, S, E = ()>

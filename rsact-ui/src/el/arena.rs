@@ -9,8 +9,6 @@ pub struct ElNode<W: WidgetCtx> {
     parent: Option<ElId>,
     // TODO: Can eliminate Option by using UnsafeCell, but then we need to prove parent is never access while child is used. Take/restore logic is only used in build phase, and as it is kept to be strictly top-down, we can guarantee soundness.
     pub(crate) data: Option<ElData<W>>,
-    // TODO: Set? Will allow intersections which is good for reconciliation
-    // children: Option<Vec<ElId>>,
 }
 
 impl<W: WidgetCtx> ElNode<W> {
@@ -19,9 +17,42 @@ impl<W: WidgetCtx> ElNode<W> {
     }
 }
 
-pub type ArenaEls<W> = slotmap::SlotMap<ElId, ElNode<W>>;
+pub struct ArenaEls<W: WidgetCtx> {
+    els: slotmap::SlotMap<ElId, ElNode<W>>,
+}
 
-pub type ArenaChildrenVec = tinyvec::TinyVec<[ElId; 1]>;
+impl<W: WidgetCtx> ArenaEls<W> {
+    pub fn new() -> Self {
+        Self { els: slotmap::SlotMap::with_key() }
+    }
+
+    pub fn get_mut(&mut self, id: ElId) -> Option<&mut ElNode<W>> {
+        self.els.get_mut(id)
+    }
+
+    pub fn expect(&self, id: ElId) -> Option<&ElData<W>> {
+        self.els.get(id).and_then(|el| el.data.as_ref()).or_else(|| {
+            error!("Element must exist at this place");
+            None
+        })
+    }
+
+    pub fn expect_unreachable(&self, id: ElId) -> &ElData<W> {
+        self.els
+            .get(id)
+            .and_then(|el| el.data.as_ref())
+            .expect("Element must exist at this place")
+    }
+
+    pub fn expect_mut(&mut self, id: ElId) -> Option<&mut ElData<W>> {
+        self.get_mut(id).and_then(|el| el.data.as_mut()).or_else(|| {
+            error!("Element must exist at this place");
+            None
+        })
+    }
+}
+
+type ArenaChildrenVec = tinyvec::TinyVec<[ElId; 1]>;
 
 pub struct ArenaChildren {
     children: slotmap::SecondaryMap<ElId, ArenaChildrenVec>,
@@ -57,14 +88,14 @@ impl ArenaChildren {
 pub struct ElArena<W: WidgetCtx> {
     pub(crate) els: ArenaEls<W>,
     pub(crate) children: ArenaChildren,
-    // TODO: Do we really need parent relation?
+    // TODO: Do we really need parent relation separately?
     pub(crate) parents: slotmap::SecondaryMap<ElId, ElId>,
 }
 
 impl<W: WidgetCtx> ElArena<W> {
     pub fn new() -> Self {
         Self {
-            els: slotmap::SlotMap::with_key(),
+            els: ArenaEls::new(),
             children: ArenaChildren::new(),
             parents: slotmap::SecondaryMap::new(),
         }
@@ -111,22 +142,22 @@ impl<W: WidgetCtx> ElArena<W> {
     // }
 
     pub fn take_el(&mut self, id: ElId) -> Option<ElData<W>> {
-        self.els.get_mut(id).and_then(|el| el.data.take())
+        self.els.els.get_mut(id).and_then(|el| el.data.take())
     }
 
     pub fn restore_el(&mut self, id: ElId, data: ElData<W>) {
-        if let Some(el) = self.els.get_mut(id) {
+        if let Some(el) = self.els.els.get_mut(id) {
             el.data = Some(data);
         }
     }
 
     pub fn set_children(&mut self, id: ElId, children: Vec<ElId>) {
-        if self.els.contains_key(id) {
+        if self.els.els.contains_key(id) {
             let old_children = self.children.set(id, children);
 
             if let Some(old_children) = old_children {
                 old_children.iter().for_each(|child_id| {
-                    self.els.remove(*child_id);
+                    self.els.els.remove(*child_id);
                 });
             }
         } else {
@@ -138,13 +169,13 @@ impl<W: WidgetCtx> ElArena<W> {
     }
 
     pub fn set_single_child(&mut self, id: ElId, child: ElId) {
-        if self.els.contains_key(id) {
+        if self.els.els.contains_key(id) {
             let old_children = self.children.set_single(id, child);
 
             // Soundness: It is unsound to have two or more nodes having same children, but it is expensive to check this.
             if let Some(old_children) = old_children {
                 old_children.iter().for_each(|child_id| {
-                    self.els.remove(*child_id);
+                    self.els.els.remove(*child_id);
                 });
             }
         } else {
@@ -156,7 +187,7 @@ impl<W: WidgetCtx> ElArena<W> {
     }
 
     pub fn add(&mut self, parent: Option<ElId>, el: &mut El<W>) -> ElId {
-        let id = self.els.insert_with_key(|id| {
+        let id = self.els.els.insert_with_key(|id| {
             let layout = el.layout();
             let el = core::mem::replace(el, El::Stored {id, layout});
 
@@ -177,39 +208,20 @@ impl<W: WidgetCtx> ElArena<W> {
         id
     }
 
-    pub fn get_widget(&self, id: ElId) -> Option<&dyn Widget<W>> {
-        self.els
-            .get(id)
-            .and_then(|el| el.data.as_ref().map(|data| data.widget.as_ref()))
-    }
-
-    pub fn get_mut(&mut self, id: ElId) -> Option<&mut ElNode<W>> {
-        self.els.get_mut(id)
-    }
-
     pub fn expect(&self, id: ElId) -> Option<&ElData<W>> {
-        self.els.get(id).and_then(|el| el.data.as_ref()).or_else(|| {
-            error!("Element must exist at this place");
-            None
-        })
-    }
-
-    pub fn expect_unreachable(&self, id: ElId) -> &ElData<W> {
-        self.els
-            .get(id)
-            .and_then(|el| el.data.as_ref())
-            .expect("Element must exist at this place")
+        self.els.expect(id)
     }
 
     pub fn expect_mut(&mut self, id: ElId) -> Option<&mut ElData<W>> {
-        self.get_mut(id).and_then(|el| el.data.as_mut()).or_else(|| {
-            error!("Element must exist at this place");
-            None
-        })
+        self.els.expect_mut(id)
+    }
+
+    pub fn expect_unreachable(&self, id: ElId) -> &ElData<W> {
+        self.els.expect_unreachable(id)
     }
 
     pub fn children(&self, id: ElId) -> Option<&[ElId]> {
-        self.children.get(id).map(|children| children)
+        self.children.get(id)
     }
 
     // pub fn set_children(&mut self, id: ElId, children: Vec<ElId>) {

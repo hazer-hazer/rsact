@@ -136,7 +136,7 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Slider<W, Dir> {
 
     #[track_caller]
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
-        ctx.render_self("Slider", |mut ctx| {
+        ctx.render_self(|mut ctx| {
             ctx.render_focus_outline(ctx.id)?;
 
             let style = ctx.get_style(self.style.as_deref());
@@ -158,7 +158,7 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Slider<W, Dir> {
 
             let end = start + Dir::AXIS.canon::<Point>(track_len as i32, 0);
 
-            ctx.renderer().line(start, end, &style.track_draw_style())?;
+            ctx.renderer.line(start, end, &style.track_draw_style())?;
 
             let range_len =
                 self.range.with(|range| range.end() - range.start());
@@ -178,7 +178,7 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Slider<W, Dir> {
             };
 
             match style.thumb_shape {
-                SliderThumbShape::Dash => ctx.renderer().line(
+                SliderThumbShape::Dash => ctx.renderer.line(
                     thumb_pos,
                     thumb_pos
                         + Dir::AXIS.canon::<Point>(0, style.thumb_size as i32),
@@ -187,18 +187,18 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Slider<W, Dir> {
                 SliderThumbShape::RoundedSquare => {
                     let rect =
                         Rect::new(thumb_pos, Size::new_equal(style.thumb_size));
-                    ctx.renderer().rounded_rect(
+                    ctx.renderer.rounded_rect(
                         rect,
                         style.thumb.border.radius.into_corner_radii(rect.size),
                         &thumb_draw_style,
                     )
                 },
-                SliderThumbShape::Circle => ctx.renderer().circle(
+                SliderThumbShape::Circle => ctx.renderer.circle(
                     thumb_pos,
                     style.thumb_size,
                     &thumb_draw_style,
                 ),
-                SliderThumbShape::Square => ctx.renderer().rect(
+                SliderThumbShape::Square => ctx.renderer.rect(
                     Rect::new(thumb_pos, Size::new_equal(style.thumb_size)),
                     &thumb_draw_style,
                 ),

@@ -215,7 +215,6 @@ impl<T: PartialEq> Clone for MemoChain<T> {
         Self { id: self.id.clone(), ty: self.ty.clone() }
     }
 }
-
 impl<T: PartialEq> Copy for MemoChain<T> {}
 
 impl<T: PartialEq + Clone + 'static> IntoMemo<T> for MemoChain<T> {

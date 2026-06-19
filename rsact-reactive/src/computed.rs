@@ -143,5 +143,4 @@ impl<T> Clone for Computed<T> {
         Self { id: self.id.clone(), ty: self.ty.clone() }
     }
 }
-
 impl<T> Copy for Computed<T> {}

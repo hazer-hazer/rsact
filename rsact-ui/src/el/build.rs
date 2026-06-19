@@ -1,6 +1,5 @@
-use log::{error, warn};
-
 use crate::el::{WidgetCtx, arena::ElArena, *};
+use log::{error, warn};
 
 /// Context passed to elements on build pass, runs once per element.
 /// `id` is the id of the element being build. But as elements don't call to build themselves but their children it is by-design made so there's no case when parent id is None. This is done by preallocating the root element.
@@ -15,7 +14,6 @@ impl<W: WidgetCtx> Clone for BuildCtx<W> {
         Self { arena: self.arena.clone(), id: self.id.clone() }
     }
 }
-
 impl<W: WidgetCtx> Copy for BuildCtx<W> {}
 
 impl<W: WidgetCtx> BuildCtx<W> {
@@ -34,7 +32,7 @@ impl<W: WidgetCtx> BuildCtx<W> {
     // Or we can compare previous widget with new, but comparison can be very expensive, so skip this variant.
     // We better make something like a SignalVec datatype that will support diffing and preserving old values. So we would compare: remove(El::Stored) -> remove, remove(El::New) -> do nothing, add (El::Stored) -> keep, add(El::New) -> build.
     // Or maybe ChildrenQueue command queue like "PushChild", "SetChild", "RemoveChild".
-    pub fn set_children(&mut self, children: &mut [El<W>]) {
+    pub fn set_children(&mut self, children: &mut [El<W>]) -> &mut Self {
         let children_ids = children
             .iter_mut()
             .map(|child| self.add_inner(child))
@@ -46,16 +44,20 @@ impl<W: WidgetCtx> BuildCtx<W> {
 
         self.arena.update_untracked(|arena| {
             arena.set_children(self.id, children_ids);
-        })
+        });
+
+        self
     }
 
-    pub fn set_single_child(&mut self, child: &mut El<W>) {
+    pub fn set_single_child(&mut self, child: &mut El<W>) -> &mut Self {
         let child_id = self.add_inner(child);
         self.build_el(child_id);
 
         self.arena.update_untracked(|arena| {
             arena.set_single_child(self.id, child_id);
-        })
+        });
+
+        self
     }
 
     fn build_el(&mut self, id: ElId) {

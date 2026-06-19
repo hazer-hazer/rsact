@@ -41,3 +41,4 @@ This are the actions to be done by me or LLM. When LLM completes one, it should 
 - [] Rename rsact-icons to rsact-tiny-icons as it is only about super small icon sizes?
 - [] If we plan to move from embedded graphics as a renderer and leave it only as a target, we need to implement a lot of rendering algorithms. I'm interested in effective algorithms with integer math to render everything tiny-skia can (or at least the most significant subset of it).
 - [] Add support for `fontdue` crate
+- [] Get rid of `unwrap`s, UI must never fail and should report errors via logs.

@@ -232,17 +232,17 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
 
     #[track_caller]
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
-        ctx.render_self("Canvas", |mut ctx| {
+        ctx.render_self(|ctx| {
             self.queue.queue.track();
 
             while let Some(command) = self.queue.pop() {
                 match command {
                     DrawCommand::Clear(color) => {
                         let outer = ctx.layout.outer;
-                        ctx.renderer().fill_solid(outer, color)?;
+                        ctx.renderer.fill_solid(outer, color)?;
                     },
                     DrawCommand::ClearRect(rect, color) => {
-                        ctx.renderer().fill_solid(rect, color)?;
+                        ctx.renderer.fill_solid(rect, color)?;
                     },
                     DrawCommand::Primitive(primitive, style) => match primitive
                     {
@@ -252,7 +252,7 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
                             start,
                             sweep,
                         }) => {
-                            ctx.renderer().arc(
+                            ctx.renderer.arc(
                                 top_left, diameter, start, sweep, &style,
                             )?;
                         },
@@ -260,32 +260,30 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
                             top_left,
                             diameter,
                         }) => {
-                            ctx.renderer()
-                                .circle(top_left, diameter, &style)?;
+                            ctx.renderer.circle(top_left, diameter, &style)?;
                         },
                         PrimitiveKind::Ellipse(Ellipse { top_left, size }) => {
-                            ctx.renderer()
+                            ctx.renderer
                                 .ellipse(Rect::new(top_left, size), &style)?;
                         },
                         PrimitiveKind::Line(Line { from, to }) => {
-                            ctx.renderer().line(from, to, &style)?;
+                            ctx.renderer.line(from, to, &style)?;
                         },
                         PrimitiveKind::Polygon(Polygon {
                             // TODO
                             translation: _,
                             vertices,
                         }) => {
-                            ctx.renderer().polygon(&vertices, &style)?;
+                            ctx.renderer.polygon(&vertices, &style)?;
                         },
                         PrimitiveKind::Rect(rect) => {
-                            ctx.renderer().rect(rect, &style)?;
+                            ctx.renderer.rect(rect, &style)?;
                         },
                         PrimitiveKind::RoundedRect(RoundedRect {
                             rect,
                             corners,
                         }) => {
-                            ctx.renderer()
-                                .rounded_rect(rect, corners, &style)?;
+                            ctx.renderer.rounded_rect(rect, corners, &style)?;
                         },
                         PrimitiveKind::Sector(Sector {
                             top_left,
@@ -293,27 +291,27 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
                             start,
                             sweep,
                         }) => {
-                            ctx.renderer().sector(
+                            ctx.renderer.sector(
                                 top_left, diameter, start, sweep, &style,
                             )?;
                         },
                     },
                     DrawCommand::Image(image) => match image.image() {
                         Image::Owned(image_owned) => {
-                            ctx.renderer().image(DrawImage::new(
+                            ctx.renderer.image(DrawImage::new(
                                 image_owned.as_ref(),
                                 image.position(),
                             ))?;
                         },
                         &Image::Ref(image_ref) => {
-                            ctx.renderer().image(DrawImage::new(
+                            ctx.renderer.image(DrawImage::new(
                                 image_ref,
                                 image.position(),
                             ))?;
                         },
                         &Image::Id(image_id) => {
                             self.queue.image_storage.with(|storage| {
-                                ctx.renderer().image(DrawImage::new(
+                                ctx.renderer.image(DrawImage::new(
                                     storage.get(image_id).ok_or(())?,
                                     image.position(),
                                 ))
