@@ -429,6 +429,33 @@ impl Runtime {
         )
     }
 
+    /// Whether the value identified by `id` participates in reactivity, i.e. it
+    /// is not an inert [`ValueKind::Stored`] value. Reactive-on-write wrappers
+    /// use this to decide whether reading the value should subscribe the
+    /// current observer.
+    pub fn is_reactive(&self, id: ValueId) -> bool {
+        self.storage
+            .values
+            .borrow()
+            .get(id)
+            .map(|value| !matches!(value.kind, ValueKind::Stored))
+            .unwrap_or(false)
+    }
+
+    /// Upgrade an inert [`ValueKind::Stored`] value into a [`ValueKind::Signal`]
+    /// in place, keeping the same [`ValueId`]. This is the reactive-on-write
+    /// transition: because reactivity is keyed by `ValueId`, every existing
+    /// handle to `id` becomes reactive at once. No-op if `id` is already
+    /// reactive or absent.
+    pub fn make_reactive(&self, id: ValueId) {
+        let mut values = self.storage.values.borrow_mut();
+        if let Some(value) = values.get_mut(id) {
+            if matches!(value.kind, ValueKind::Stored) {
+                value.kind = ValueKind::Signal;
+            }
+        }
+    }
+
     pub fn create_effect<T, F>(
         &self,
         f: F,

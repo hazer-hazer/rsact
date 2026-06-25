@@ -2,8 +2,7 @@ use super::padding::Padding;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BlockModel {
-    // TODO: Do we need non-equal border widths?
-    // pub border: Padding,
+    // TODO: Can we support non-equal border widths?
     pub border_width: u32,
     pub padding: Padding,
 }

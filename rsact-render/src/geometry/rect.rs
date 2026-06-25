@@ -131,6 +131,11 @@ impl Rect {
         )
     }
 
+    pub fn resized_center(&self, new_size: Size) -> Self {
+        self.resized_width(new_size.width, AnchorX::Center)
+            .resized_height(new_size.height, AnchorY::Center)
+    }
+
     /// Return the point corresponding to the given anchor within this rect.
     pub fn anchor_point(&self, anchor: AnchorPoint) -> Point {
         let w = self.size.width as i32;

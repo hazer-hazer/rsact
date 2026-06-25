@@ -1,7 +1,6 @@
-use super::{ContainerLayout, icon::Icon};
+use super::ContainerLayout;
 use crate::widget::prelude::*;
 use rsact_reactive::prelude::*;
-use rsact_tiny_icons::system::SystemIcon;
 
 #[derive(Clone, Copy)]
 pub struct CheckboxState {
@@ -32,12 +31,11 @@ impl<C: Color> CheckboxStyle<C> {
 
 // TODO: Do we need `on_change` event while having signal value?
 
-type IconKind = SystemIcon;
-
+// TODO: Custom icon
 pub struct Checkbox<W: WidgetCtx> {
     state: Signal<CheckboxState>,
     layout: Layout,
-    icon: El<W>,
+    size: MaybeSignal<u32>,
     value: MaybeSignal<bool>,
     style:
         Option<Box<dyn Fn(CheckboxStyle<W::Color>) -> CheckboxStyle<W::Color>>>,
@@ -45,24 +43,12 @@ pub struct Checkbox<W: WidgetCtx> {
 
 impl<W: WidgetCtx> Checkbox<W> {
     pub fn new(value: impl Into<MaybeSignal<bool>>) -> Self {
-        Self::new_with_icon(value, SystemIcon::Check.inert())
-    }
-
-    // TODO: Any IconSet?
-    pub fn new_with_icon(
-        value: impl Into<MaybeSignal<bool>>,
-        icon: impl IntoMaybeReactive<SystemIcon>,
-    ) -> Self {
         let value = value.into();
-        let icon = Icon::new(icon).visible(value.map(|value| *value)).el();
 
         Self {
             state: CheckboxState::none().signal(),
-            layout: Layout::shrink(LayoutKind::Container(
-                ContainerLayout::base(icon.layout())
-                    .block_model(BlockModel::zero().border_width(1)),
-            )),
-            icon,
+            // TODO: Maybe ContentLayout::Icon should be used as a single char-sized square layout?
+            layout: Layout::shrink(LayoutKind::Edge),
             value,
             style: None,
         }

@@ -55,6 +55,14 @@ pub struct Page<W: WidgetCtx> {
     fonts: Signal<FontCtx>,
 }
 
+impl<W: WidgetCtx> Drop for Page<W> {
+    fn drop(&mut self) {
+        unsafe {
+            self.arena.dispose();
+        }
+    }
+}
+
 impl<W: WidgetCtx> Page<W> {
     pub(crate) fn new(
         id: W::PageId,
@@ -135,6 +143,10 @@ impl<W: WidgetCtx> Page<W> {
             render_calls: 0,
             fonts,
         }
+    }
+
+    pub(crate) fn id(&self) -> W::PageId {
+        self.id
     }
 
     pub(crate) fn force_redraw(&mut self) -> &mut Self {

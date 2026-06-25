@@ -21,14 +21,18 @@ use std::{
     time::{Duration, Instant},
 };
 
+type Color = tiny_skia::Color;
+type W = Wtf<TinySkiaRenderer<Color>, SinglePage, Theme<Color>, ()>;
+
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 enum WidgetTab {
     Button,
+    Label,
 }
 
 impl WidgetTab {
     fn each() -> impl Iterator<Item = Self> {
-        [Self::Button].into_iter()
+        [Self::Button, Self::Label].into_iter()
     }
 }
 
@@ -36,22 +40,12 @@ impl Display for WidgetTab {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             WidgetTab::Button => write!(f, "Button"),
+            WidgetTab::Label => write!(f, "Label"),
         }
     }
 }
 
-fn main() {
-    env_logger::init();
-
-    let output_settings = OutputSettingsBuilder::new().build();
-
-    let mut window = Window::new("Widget gallery", &output_settings);
-
-    let mut display =
-        SimulatorDisplay::<Rgb888>::new(Size::new(640, 360).into());
-
-    window.update(&display);
-
+fn page() -> impl Into<El<W>> {
     let mut widget = create_signal(WidgetTab::Button);
     // let select_widget =
     //     Select::vertical(widget, WidgetTab::each().collect::<Vec<_>>().inert());
@@ -72,17 +66,33 @@ fn main() {
     let widget_view = Container::new(
         dynamic(move || match widget.get() {
             WidgetTab::Button => Button::new("Some button text").el(),
+            WidgetTab::Label => Label::new("Some text").el(),
         })
         .el(),
     );
 
     let page = row![select_widget, col![widget_view].fill()].center().fill();
 
+    page
+}
+
+fn main() {
+    env_logger::init();
+
+    let output_settings = OutputSettingsBuilder::new().build();
+
+    let mut window = Window::new("Widget gallery", &output_settings);
+
+    let mut display =
+        SimulatorDisplay::<Rgb888>::new(Size::new(640, 360).into());
+
+    window.update(&display);
+
     let mut ui = UI::new(
         Theme::<tiny_skia::Color>::default(),
         TinySkiaRenderer::new(display.bounding_box().size.into()),
     )
-    .with_page(SinglePage, page.el())
+    .with_page(SinglePage, page)
     .on_exit(|| std::process::exit(0));
 
     let mut fps = 0;

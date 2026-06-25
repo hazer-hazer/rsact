@@ -22,10 +22,7 @@ pub mod tiny_skia;
 pub mod prelude {
     pub use crate::{
         color::{BigEndian, ByteOrder, Color, LittleEndian, RgbColor as _},
-        geometry::{
-            Rect, Size, block_model::BlockModel, border::Border,
-            padding::Padding, *,
-        },
+        geometry::{Rect, Size, block_model::BlockModel, padding::Padding, *},
         output::{ColorMapper, FinishRender, MapColor, RenderTarget},
         path::*,
         primitives::{

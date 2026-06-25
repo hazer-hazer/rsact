@@ -119,6 +119,17 @@ impl Add for Size<u32> {
     }
 }
 
+impl Add<Size<i32>> for Size<u32> {
+    type Output = Self;
+
+    fn add(self, rhs: Size<i32>) -> Self::Output {
+        Self::new(
+            self.width.saturating_add_signed(rhs.width),
+            self.height.saturating_add_signed(rhs.height),
+        )
+    }
+}
+
 impl AddAssign for Size<u32> {
     fn add_assign(&mut self, rhs: Self) {
         *self = *self + rhs;

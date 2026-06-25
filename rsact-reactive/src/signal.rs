@@ -147,6 +147,21 @@ impl<T: 'static, M: marker::Any> Signal<T, M> {
         }
     }
 
+    /// Construct a `Signal` handle over an already-existing runtime [`ValueId`].
+    ///
+    /// This does not create a new value; it only re-wraps an existing one. It is
+    /// meant for reactive-on-write wrappers that manage an id's inert/reactive
+    /// transition themselves (see [`crate::runtime::Runtime::make_reactive`]).
+    ///
+    /// # Safety
+    /// The caller must ensure `id` refers to a live value of type `T` in the
+    /// current runtime, and that treating it as a `Signal<T, M>` is sound (e.g.
+    /// the id has been, or will be, upgraded to a reactive kind before it is
+    /// relied upon to notify subscribers).
+    pub unsafe fn from_id(id: ValueId) -> Self {
+        Self { id, ty: PhantomData, rw: PhantomData }
+    }
+
     // // TODO: Mark unsafe?
     // pub fn with_static<U>(&self, f: impl Fn(&'static T) -> U) -> U {
     //     with_current_runtime(|rt| {

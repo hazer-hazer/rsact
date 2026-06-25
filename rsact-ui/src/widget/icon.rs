@@ -71,7 +71,7 @@ impl<W: WidgetCtx, I: IconSet + 'static> Icon<W, I, IsReactive> {
         )));
 
         Self {
-            value,
+            value: IconValue::Relative(icon),
             layout,
             style: None,
             is_reactive: PhantomData,

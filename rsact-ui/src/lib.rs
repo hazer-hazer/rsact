@@ -35,7 +35,7 @@ pub mod prelude {
     };
 
     #[cfg(feature = "tiny-icons")]
-    pub use crate::{widget::checkbox::*, widget::icon::*};
+    pub use crate::widget::icon::*;
 
     pub use rsact_reactive::prelude::*;
     pub use rsact_render::prelude::*;

@@ -1,6 +1,6 @@
+use crate::el::ctx::WidgetCtx;
 use crate::font::FontCtx;
 use crate::render::prelude::*;
-use crate::el::ctx::WidgetCtx;
 use crate::{
     layout::DevHoveredLayout,
     prelude::{BlockStyle, BorderStyle},
@@ -26,15 +26,13 @@ impl PartialEq for DevHoveredEl {
 }
 
 impl DevHoveredEl {
-    fn model<C: Color>(area: Rect, color: C) -> Block<C> {
-        Block {
-            border: Border::new(
-                BlockStyle::base().border(BorderStyle::base().color(color)),
-                BlockModel::zero().border_width(1),
-            ),
-            rect: area,
-            background: None,
-        }
+    fn block<C: Color>(rect: Rect, color: C) -> Block<C> {
+        Block::from_layout_style(
+            rect,
+            BlockModel::zero(),
+            BlockStyle::base()
+                .outline(OutlineStyle::base().width(1).color(color)),
+        )
     }
 
     pub fn draw<W: WidgetCtx>(
@@ -48,9 +46,9 @@ impl DevHoveredEl {
 
         let [text_color, inner_color, padding_color, ..] = W::Color::accents();
 
-        Self::model(area, padding_color).render(r)?;
+        Self::block(area, padding_color).render(r)?;
         if let Some(padding) = self.layout.padding() {
-            Self::model(area - padding, inner_color).render(r)?;
+            Self::block(area - padding, inner_color).render(r)?;
         }
 
         // TODO: Viewport-dependent font props resolution similar to layout computation for text widget.

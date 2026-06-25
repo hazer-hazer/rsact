@@ -3,17 +3,16 @@ use crate::{
     widget::Widget,
 };
 use alloc::vec::Vec;
-use log::{error, warn};
+use log::error;
 
 pub struct ElNode<W: WidgetCtx> {
-    parent: Option<ElId>,
     // TODO: Can eliminate Option by using UnsafeCell, but then we need to prove parent is never access while child is used. Take/restore logic is only used in build phase, and as it is kept to be strictly top-down, we can guarantee soundness.
     pub(crate) data: Option<ElData<W>>,
 }
 
 impl<W: WidgetCtx> ElNode<W> {
-    pub fn new(parent: Option<ElId>, data: ElData<W>) -> Self {
-        Self { data: Some(data), parent }
+    pub fn new(data: ElData<W>) -> Self {
+        Self { data: Some(data) }
     }
 }
 
@@ -193,7 +192,7 @@ impl<W: WidgetCtx> ElArena<W> {
 
             match el {
                 El::New(el_data) => {
-                    ElNode::new(parent, el_data)
+                    ElNode::new(el_data)
                 },
                 El::Stored {id, ..} => {
                     panic!("Expected new element, got stored element with id {id:?}")

@@ -21,7 +21,7 @@ use tinyvec::TinyVec;
 
 pub struct UiOptions {
     auto_focus: bool,
-    // TODO: Event interpretation
+    // TODO: Event interpretation logic settings
 }
 
 impl Default for UiOptions {
@@ -36,11 +36,27 @@ impl HasPages for NoPages {}
 pub struct WithPages;
 impl HasPages for WithPages {}
 
+pub trait PageInitFn<W: WidgetCtx> {
+    fn init_page(&self) -> El<W>;
+}
+
+impl<W: WidgetCtx, F, T> PageInitFn<W> for F
+where
+    F: Fn() -> T,
+    T: Into<El<W>>,
+{
+    fn init_page(&self) -> El<W> {
+        (self)().into()
+    }
+}
+
 pub struct UI<W: WidgetCtx, P: HasPages> {
     page_history: TinyVec<[W::PageId; 1]>,
-    pages: BTreeMap<W::PageId, Page<W>>,
-    // TODO: Per-page arena, then we can rebuild the whole page to save memory. But the problem is that then pages need to be functions not static data, because we need full recreation, otherwise we cannot clear its data and go to this page again.
-    arena: Signal<ElArena<W>>,
+    pages: BTreeMap<W::PageId, Box<dyn PageInitFn<W>>>,
+    /// Currently active page. Lazily (re)built from the corresponding
+    /// [`PageInitFn`] on navigation. Only the active page is kept built; each
+    /// page owns its own arena, so dropping it (on navigation) frees its tree.
+    active_page: Option<Page<W>>,
     viewport: MaybeReactive<Size>,
     on_exit: Option<Box<dyn Fn()>>,
     // TODO: Get rid of Inert wrapper, it is at most RefCell
@@ -75,11 +91,10 @@ where
             page_history: Default::default(),
             viewport,
             pages: BTreeMap::new(),
-            arena: create_signal(ElArena::new()),
+            active_page: None,
             on_exit: None,
             stylist: stylist.inert(),
             dev_tools,
-            // TODO: Reactive viewport in Renderer
             renderer: renderer.signal(),
             message_queue: None,
             options: Default::default(),
@@ -115,20 +130,21 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
         self
     }
 
+    // TODO: Can do with_single_page and avoid storing page function.
     // TODO: Type guard for SinglePage to disallow adding new pages.
     /// Adds page to the UI.
     /// The first added page becomes intro page
     pub fn with_page(
         mut self,
         id: W::PageId,
-        page_root: impl Into<El<W>>,
+        page_root: impl PageInitFn<W> + 'static,
     ) -> UI<W, WithPages> {
         self.add_page(id, page_root);
 
         let mut with_page = UI {
             page_history: self.page_history,
             pages: self.pages,
-            arena: self.arena,
+            active_page: self.active_page,
             viewport: self.viewport,
             on_exit: self.on_exit,
             stylist: self.stylist,
@@ -148,24 +164,12 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
         with_page
     }
 
-    fn add_page(&mut self, id: W::PageId, page_root: impl Into<El<W>>) {
-        assert!(
-            self.pages
-                .insert(
-                    id,
-                    Page::new(
-                        id,
-                        page_root,
-                        self.arena,
-                        self.viewport,
-                        self.stylist,
-                        self.dev_tools,
-                        self.renderer,
-                        self.fonts
-                    )
-                )
-                .is_none()
-        )
+    fn add_page(
+        &mut self,
+        id: W::PageId,
+        page_fn: impl PageInitFn<W> + 'static,
+    ) {
+        assert!(self.pages.insert(id, Box::new(page_fn)).is_none())
     }
 
     // Fonts //
@@ -192,11 +196,55 @@ impl<W: WidgetCtx> UI<W, WithPages> {
         self.current_page().render(target)
     }
 
+    /// The id of the page on top of the navigation history.
+    fn current_page_id(&self) -> W::PageId {
+        *self
+            .page_history
+            .last()
+            .expect("Page history is empty, likely you forgot to add a page")
+    }
+
+    /// Build a fresh [`Page`] from its registered [`PageInitFn`].
+    /// Each page gets its own arena so navigating away (dropping the page)
+    /// frees its element tree.
+    fn load_page(&self, id: W::PageId) -> Page<W> {
+        let page_fn = self
+            .pages
+            .get(&id)
+            .expect("Page not found, likely you forgot to add page to UI");
+
+        let arena = create_signal(ElArena::new()).name("Page arena");
+
+        Page::new(
+            id,
+            page_fn.init_page(),
+            arena,
+            self.viewport,
+            self.stylist,
+            self.dev_tools,
+            self.renderer,
+            self.fonts,
+        )
+    }
+
     /// Get mutable reference to currently active [`Page`]. You likely don't need to get pages.
+    ///
+    /// Lazily (re)builds the current page if it isn't the one already loaded.
+    /// Assigning the freshly built page drops the previous one, disposing its arena.
     pub fn current_page(&mut self) -> &mut Page<W> {
-        self.pages
-            .get_mut(&self.page_history.last().unwrap())
-            .expect("Page not found, likely you forget to add page to UI")
+        let current_id = self.current_page_id();
+
+        let needs_load = self
+            .active_page
+            .as_ref()
+            .map_or(true, |page| page.id() != current_id);
+
+        if needs_load {
+            let page = self.load_page(current_id);
+            self.active_page = Some(page);
+        }
+
+        self.active_page.as_mut().expect("Active page must be initialized")
     }
 
     // TODO: Unused
@@ -204,9 +252,11 @@ impl<W: WidgetCtx> UI<W, WithPages> {
     //     self.pages.get_mut(&id).unwrap()
     // }
 
-    /// Run some logic on page change
+    /// Run some logic on page change.
+    /// Building/loading of the now-current page happens lazily inside
+    /// [`Self::current_page`], which is invoked here.
     fn on_page_change(&mut self) {
-        info!("UI: Page changed to {:?}", self.page_history.last().unwrap());
+        info!("UI: Page changed to {:?}", self.current_page_id());
         self.current_page().clear().force_redraw();
 
         // TODO

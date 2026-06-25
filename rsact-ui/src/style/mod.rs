@@ -253,8 +253,14 @@ macro_rules! declare_widget_style {
         $crate::style::declare_widget_style! {
             @opt_method_list container: container {
                 background_color: background_color,
+
                 border_color: border_color,
-                border_radius: border_radius
+                border_radius: border_radius,
+
+                outline_color: outline_color,
+                outline_radius: outline_radius,
+                outline_offset: outline_offset,
+                outline_width: outline_width,
             }
         }
     };
@@ -277,6 +283,31 @@ macro_rules! declare_widget_style {
             self
         }
     };
+    (@opt_method $field: ident: container $outline_color: ident: outline_color) => {
+        pub fn $outline_color(mut self, outline_color: C) -> Self {
+            self.$field.outline.color.set_high_priority(Some(outline_color));
+            self
+        }
+    };
+    (@opt_method $field: ident: container $outline_radius: ident: outline_radius) => {
+        pub fn $outline_radius(mut self, outline_radius: impl Into<$crate::render::prelude::BorderRadius>) -> Self {
+            self.$field.outline.radius = outline_radius.into();
+            self
+        }
+    };
+    (@opt_method $field: ident: container $outline_offset: ident: outline_offset) => {
+        pub fn $outline_offset(mut self, outline_offset: i32) -> Self {
+            self.$field.outline.offset = outline_offset;
+            self
+        }
+    };
+    (@opt_method $field: ident: container $outline_width: ident: outline_width) => {
+        pub fn $outline_width(mut self, outline_width: u32) -> Self {
+            self.$field.outline.width = outline_width;
+            self
+        }
+    };
+
 
     // Fallbacks //
     (@ty $ty: ty) => {

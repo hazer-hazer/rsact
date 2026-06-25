@@ -282,8 +282,6 @@ pub trait FontSettingWidget<W: WidgetCtx>: Widget<W> + Sized + 'static {
         mut self,
         font_size: impl IntoMaybeReactive<S>,
     ) -> Self {
-        // TODO: Wrong, we accept MaybeReactive but update only once. Use setter!
-        // TODO: Warn on overwrite
         self.update_font_props(|font_props| {
             font_props.font_size = Some(
                 font_size

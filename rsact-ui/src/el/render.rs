@@ -109,15 +109,15 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
     #[must_use]
     pub fn render_focus_outline(&mut self, id: ElId) -> RenderResult {
         if self.shared.page_state.is_focused(id) {
-            Block {
-                border: Border::zero()
-                    // TODO: Theme focus color
-                    // [ ] This can be done via Stylist because Style can be basically anything like FocusStyle.
-                    .color(Some(<W::Color as Color>::accents()[1]))
-                    .width(1),
-                rect: self.layout.outer,
-                background: None,
-            }
+            Block::from_layout_style(
+                self.layout.outer,
+                BlockModel::zero(),
+                BlockStyle::base().outline(
+                    OutlineStyle::base()
+                        .width(1)
+                        .color(<W::Color as Color>::accents()[1]),
+                ),
+            )
             .render(self.renderer)
         } else {
             Ok(())

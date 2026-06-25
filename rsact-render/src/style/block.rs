@@ -159,12 +159,64 @@ impl<C: Color> BorderStyle<C> {
     }
 }
 
+#[derive(PartialEq)]
+pub struct OutlineStyle<C: Color> {
+    pub color: ColorStyle<C>,
+    pub radius: BorderRadius,
+    pub offset: i32,
+    pub width: u32,
+}
+
+impl<C: Color> Clone for OutlineStyle<C> {
+    fn clone(&self) -> Self {
+        Self {
+            color: self.color.clone(),
+            radius: self.radius.clone(),
+            offset: self.offset.clone(),
+            width: self.width.clone(),
+        }
+    }
+}
+impl<C: Color> Copy for OutlineStyle<C> {}
+
+impl<C: Color> OutlineStyle<C> {
+    pub fn base() -> Self {
+        Self {
+            color: ColorStyle::DefaultForeground,
+            radius: BorderRadius::zero(),
+            offset: 0,
+            width: 0,
+        }
+    }
+
+    pub fn color(mut self, color: C) -> Self {
+        self.color.set_high_priority(Some(color));
+        self
+    }
+
+    pub fn radius(mut self, radius: impl Into<BorderRadius>) -> Self {
+        self.radius = radius.into();
+        self
+    }
+
+    pub fn offset(mut self, offset: i32) -> Self {
+        self.offset = offset;
+        self
+    }
+
+    pub fn width(mut self, width: u32) -> Self {
+        self.width = width;
+        self
+    }
+}
+
 // TODO: Define styles with declare_widget_style for consistency and
 //  universality (deep setters such as border_radius)
 #[derive(PartialEq)]
 pub struct BlockStyle<C: Color> {
     pub background_color: ColorStyle<C>,
     pub border: BorderStyle<C>,
+    pub outline: OutlineStyle<C>,
 }
 
 impl<C: Color> Clone for BlockStyle<C> {
@@ -172,6 +224,7 @@ impl<C: Color> Clone for BlockStyle<C> {
         Self {
             background_color: self.background_color.clone(),
             border: self.border.clone(),
+            outline: self.outline.clone(),
         }
     }
 }
@@ -182,6 +235,7 @@ impl<C: Color> BlockStyle<C> {
         Self {
             background_color: ColorStyle::Unset,
             border: BorderStyle::base(),
+            outline: OutlineStyle::base(),
         }
     }
 
@@ -192,6 +246,11 @@ impl<C: Color> BlockStyle<C> {
 
     pub fn border(mut self, border: BorderStyle<C>) -> Self {
         self.border = border;
+        self
+    }
+
+    pub fn outline(mut self, outline: OutlineStyle<C>) -> Self {
+        self.outline = outline;
         self
     }
 }

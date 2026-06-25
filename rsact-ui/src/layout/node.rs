@@ -128,7 +128,7 @@ impl ReactiveValue for Layout {
     unsafe fn dispose(self) {
         match self {
             Layout::Static(_) => {},
-            Layout::Reactive(signal) => signal.dispose(),
+            Layout::Reactive(signal) => unsafe { signal.dispose() },
         }
     }
 }
