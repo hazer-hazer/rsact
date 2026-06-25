@@ -34,8 +34,8 @@ pub trait RangeValue: PartialEq + Copy + 'static {
 //                 }
 
 //                 fn offset(&self, offset: i32) -> Self {
-//                     ((*self as i64 + offset as i64)).clamp(Self::MIN as i64, Self::MAX as i64)as Self
-//                 }
+//                     ((*self as i64 + offset as i64)).clamp(Self::MIN as i64,
+// Self::MAX as i64)as Self                 }
 //             }
 //         )*
 //     };
@@ -208,4 +208,5 @@ impl<const MIN: u8, const MAX: u8, const STEP: u8> RangeValue
 // }
 
 // TODO: f32/f64
-// TODO: Events with offsets must return f32 or other type with known offset properties
+// TODO: Events with offsets must return f32 or other type with known offset
+// properties

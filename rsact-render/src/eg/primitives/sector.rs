@@ -52,7 +52,8 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Sector {
         let draw_radius = r_outer.ceil() as i32;
 
         for y in -draw_radius..=draw_radius {
-            // let rx = (r_outer.powi(2) - y.pow(2) as f32).sqrt().ceil() as i32;
+            // let rx = (r_outer.powi(2) - y.pow(2) as f32).sqrt().ceil() as
+            // i32;
             for x in -draw_radius..=draw_radius {
                 // Normalize angle
                 let angle = (y as f32)

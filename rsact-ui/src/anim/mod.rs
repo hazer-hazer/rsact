@@ -35,11 +35,15 @@ pub enum AnimDir {
     Reverse,
     /// 0.0 -> 1.0 -> 0.0
     /// Even cycles go in Normal direction, odd cycles go in Reverse direction.
-    /// Important: Alternation happens on each cycle, not at the middle of an animation! [`AnimDir::Alternate`] with [`AnimCycles::Once`] is the same as [`AnimDir::Normal`]
+    /// Important: Alternation happens on each cycle, not at the middle of an
+    /// animation! [`AnimDir::Alternate`] with [`AnimCycles::Once`] is the same
+    /// as [`AnimDir::Normal`]
     Alternate,
     /// 1.0 -> 0.0 -> 1.0
     /// Even cycles go in Reverse direction, odd cycles go in Normal direction.
-    /// Important: Alternation happens on each cycle, not at the middle of an animation! [`AnimDir::AlternateReverse`] with [`AnimCycles::Once`] is the same as [`AnimDir::Reverse`]
+    /// Important: Alternation happens on each cycle, not at the middle of an
+    /// animation! [`AnimDir::AlternateReverse`] with [`AnimCycles::Once`] is
+    /// the same as [`AnimDir::Reverse`]
     AlternateReverse,
 }
 
@@ -67,7 +71,8 @@ impl AnimDir {
         }
     }
 
-    /// The last value animation should produce. This is dependent to animation direction
+    /// The last value animation should produce. This is dependent to animation
+    /// direction
     fn end_point(&self, cycle: u32) -> f32 {
         1.0 - self.start_point(cycle)
     }
@@ -87,9 +92,12 @@ impl AnimDir {
 /// This is the state of animation running.
 /// - `Done`: Animation is done running. To rerun - call `start` again.
 /// - `Ready`: Animation is ready to be started.
-/// - `StartRequested`: Denotes that user requested the start but the actual start time is not set yet (see [`Anim::handle`])
+/// - `StartRequested`: Denotes that user requested the start but the actual
+///   start time is not set yet (see [`Anim::handle`])
 /// - `Started`: Animation is started at given time point.
-/// These states are needed as an extended Option alternative (with [`AnimStage::StartRequested`]) to avoid storing current time (`now_millis`) in each animation (even knowing that it is pretty cheap).
+/// These states are needed as an extended Option alternative (with
+/// [`AnimStage::StartRequested`]) to avoid storing current time (`now_millis`)
+/// in each animation (even knowing that it is pretty cheap).
 #[derive(Clone, Copy, Debug)]
 enum AnimStage {
     // TODO: Pause
@@ -99,7 +107,9 @@ enum AnimStage {
     Running { start_time: u32, cycle: u32 },
 }
 
-/// The structure that controls the state of animation. It is intended to be stored in Signal and be a dependency for animation value and to give user the API to start/stop/pause, etc. the animation
+/// The structure that controls the state of animation. It is intended to be
+/// stored in Signal and be a dependency for animation value and to give user
+/// the API to start/stop/pause, etc. the animation
 struct AnimState {
     /// Relative to start time last value getter timestamp.
     /// Relative means that last_tick = TIME - start_time
@@ -124,14 +134,18 @@ impl Default for AnimState {
     }
 }
 
-// TODO: Implement `Into<MaybeReactive<T>>` for different types to pass animation right into Widget parameters. Also for RangeU8
+// TODO: Implement `Into<MaybeReactive<T>>` for different types to pass
+// animation right into Widget parameters. Also for RangeU8
 
 // TODO: Rewrite animations to fixed-point math with, for example, u32 range?
 
-/// The actual handle of animation given to user which per can use to control the animation state and get the value. It is a Copy type consisting only of reactive values, so you can move it into closures.
+/// The actual handle of animation given to user which per can use to control
+/// the animation state and get the value. It is a Copy type consisting only of
+/// reactive values, so you can move it into closures.
 pub struct AnimHandle {
     state: Signal<AnimState>,
-    /// Value reactively calculated by [`Anim`] animation parameters depending on current `state`
+    /// Value reactively calculated by [`Anim`] animation parameters depending
+    /// on current `state`
     pub value: Memo<f32>,
 }
 
@@ -140,25 +154,30 @@ impl AnimHandle {
     //     self.value
     // }
 
-    // TODO: Should `start` restart the animation if it is already started or do nothing unless it is not?
+    // TODO: Should `start` restart the animation if it is already started or do
+    // nothing unless it is not?
     //  - I think should restart.
     /// Start the animation. Restarts already running animation.
     pub fn start(&mut self) {
         self.state.update(|state| state.stage = AnimStage::StartRequested)
     }
 
-    /// Stop the animation, resetting the state. The value will give the latest result
+    /// Stop the animation, resetting the state. The value will give the latest
+    /// result
     pub fn stop(&mut self) {
         self.state.update(|state| {
             state.stage = AnimStage::Done { cycle: state.current_cycle() }
         })
     }
 
-    // TODO: `pause` is not the best idea because of now_millis wrapping. The moment user paused animation may be from the other cycle of now_millis, but same for all timing, so I need to figure out how to fix this.
-    // pub fn pause(&mut self) {}
+    // TODO: `pause` is not the best idea because of now_millis wrapping. The
+    // moment user paused animation may be from the other cycle of now_millis,
+    // but same for all timing, so I need to figure out how to fix this. pub
+    // fn pause(&mut self) {}
 }
 
-// Note: Timestamps in Anim are all relative to start_time, except of source the start_time. So `last_tick = TIME - start_time`
+// Note: Timestamps in Anim are all relative to start_time, except of source the
+// start_time. So `last_tick = TIME - start_time`
 /// Animation parameters. Not the actual animation user can operate on.
 /// Mind that full animation duration is given by delay + duration.
 pub struct Anim {
@@ -175,7 +194,8 @@ pub struct Anim {
 }
 
 impl Anim {
-    /// Create new animation, default duration is 1000ms (1sec), easing is Linear
+    /// Create new animation, default duration is 1000ms (1sec), easing is
+    /// Linear
     pub fn new() -> Self {
         Self {
             duration: 1000,
@@ -219,8 +239,11 @@ impl Anim {
         self
     }
 
-    // TODO: Can fixed framerate increase performance significantly if anything we'll gather from it is avoiding easing computations?
-    // Note: now_millis can be from other overflow cycle of clock as we use % u32::MAX. Need to set last_tick to difference between start_time and now_millis
+    // TODO: Can fixed framerate increase performance significantly if anything
+    // we'll gather from it is avoiding easing computations?
+    // Note: now_millis can be from other overflow cycle of clock as we use %
+    // u32::MAX. Need to set last_tick to difference between start_time and
+    // now_millis
     pub(crate) fn handle(self, now_millis: Memo<u32>) -> AnimHandle {
         let mut state = create_signal(AnimState::default());
         let easing = self.easing.clone();
@@ -230,7 +253,9 @@ impl Anim {
         let cycles = self.cycles;
 
         let value = create_memo(move || {
-            // Note: If animation is not running (or start is not requested), don't depend on now_millis, so animation value code won't rerun on any now_millis change.
+            // Note: If animation is not running (or start is not requested),
+            // don't depend on now_millis, so animation value code won't rerun
+            // on any now_millis change.
             match state.with(|state| state.stage) {
                 AnimStage::Ready => return dir.start_point(0),
                 AnimStage::Done { cycle } => return dir.end_point(cycle),
@@ -239,7 +264,10 @@ impl Anim {
 
             let now_millis = now_millis.get();
 
-            // Note: We don't need to notify about state changes. When state is changed, next `value` memo call will check if it is changed. If `update` was used, we'd recursively call `value` memo and ran into borrowing error.
+            // Note: We don't need to notify about state changes. When state is
+            // changed, next `value` memo call will check if it is changed. If
+            // `update` was used, we'd recursively call `value` memo and ran
+            // into borrowing error.
             let value = state.update_untracked(|state| {
                 let (mut start_time, cycle) = match state.stage {
                     AnimStage::Done { .. } | AnimStage::Ready => unreachable!(),
@@ -257,7 +285,8 @@ impl Anim {
 
                 // Animation is running (or delaying) here //
 
-                // Set delay only for first cycle. Can be extended with per-cycle delays
+                // Set delay only for first cycle. Can be extended with
+                // per-cycle delays
                 let delay = if cycle == 0 { delay } else { 0 };
 
                 // extern crate std;
@@ -282,7 +311,14 @@ impl Anim {
                 } else if state.last_tick < delay {
                     dir.start_point(cycle)
                 } else {
-                    // Note: Clamping to 0.0 is okay for time point as animation always goes from 0.0 to 1.0, even for Reverse (it is on Easing side to calculate value by time point but time point is the same for all easing functions). Easing result must never be clamped as some of them could return values out of 0.0-1.0 range (for example, some Bezier curves), but the start point and end point are always 0.0 or 1.0.
+                    // Note: Clamping to 0.0 is okay for time point as animation
+                    // always goes from 0.0 to 1.0, even for Reverse (it is on
+                    // Easing side to calculate value by time point but time
+                    // point is the same for all easing functions). Easing
+                    // result must never be clamped as some of them could return
+                    // values out of 0.0-1.0 range (for example, some Bezier
+                    // curves), but the start point and end point are always 0.0
+                    // or 1.0.
                     let time_point = ((state.last_tick as f32 - delay as f32)
                         / duration as f32)
                         .clamp(0.0, 1.0);

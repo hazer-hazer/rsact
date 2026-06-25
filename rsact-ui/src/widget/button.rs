@@ -45,7 +45,8 @@ impl<W: WidgetCtx + 'static> Button<W> {
         Self { layout, content, state, style: None, on_click: None }
     }
 
-    // TODO: Allow function to return some value to be sent to the UI, so user can easily call ui events like goto page, etc.
+    // TODO: Allow function to return some value to be sent to the UI, so user
+    // can easily call ui events like goto page, etc.
     pub fn on_click<F: 'static>(mut self, on_click: F) -> Self
     where
         F: FnMut(),
@@ -66,6 +67,11 @@ impl<W: WidgetCtx + 'static> Button<W> {
     }
 }
 
+impl<W: WidgetCtx + 'static> LayoutWidget<W> for Button<W> {
+    fn layout_mut(&mut self) -> &mut Layout {
+        &mut self.layout
+    }
+}
 impl<W: WidgetCtx + 'static> SizedWidget<W> for Button<W> {}
 impl<W: WidgetCtx + 'static> BlockModelWidget<W> for Button<W> {}
 impl<W: WidgetCtx> FontSettingWidget<W> for Button<W> {}

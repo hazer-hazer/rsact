@@ -10,7 +10,10 @@ use crate::{
 use alloc::rc::Rc;
 use core::{any::Any, cell::RefCell, marker::PhantomData, panic::Location};
 
-// TODO: Rename MemoChain first and last to before and after, because it seems misleading as someone could think that the order is first -> base -> last instead of base -> first -> last. Or maybe even better to rename first and last to pre and post, because it is more common naming for such cases.
+// TODO: Rename MemoChain first and last to before and after, because it seems
+// misleading as someone could think that the order is first -> base -> last
+// instead of base -> first -> last. Or maybe even better to rename first and
+// last to pre and post, because it is more common naming for such cases.
 
 /// Error returned when [`MemoChain::first`] or [`MemoChain::last`] is called
 /// on a chain that already has that slot filled.
@@ -33,8 +36,7 @@ pub enum MemoChainErr {
 /// # use rsact_reactive::runtime::with_new_runtime;
 /// # with_new_runtime(|_| {
 /// let mut base = create_signal(10u32);
-/// let chain = create_memo_chain(move || base.get())
-///     .last(|v| v + 1).unwrap();
+/// let chain = create_memo_chain(move || base.get()).last(|v| v + 1).unwrap();
 /// assert_eq!(chain.get(), 11);
 /// # });
 /// ```
@@ -110,7 +112,7 @@ where
 /// # with_new_runtime(|_| {
 /// let chain = create_memo_chain(move || 0u32)
 ///     .first(|v| v + 100).unwrap()  // runs first
-///     .last(|v| v * 2).unwrap();    // runs last
+///     .last(|v| v * 2).unwrap(); // runs last
 /// assert_eq!(chain.get(), (0 + 100) * 2);
 /// # });
 /// ```
@@ -138,8 +140,12 @@ impl<T: PartialEq + 'static> MemoChain<T> {
         with_current_runtime(|rt| rt.is_alive(self.id))
     }
 
-    // TODO: Add methods `first_mapped` and `last_mapped` which will wrap first and last mappers with new mapping memos. This will allow infinite depth of chain.
-    // Also it is better to add common logic for such case as memo replacement -- allow replacing memo with new function functionality. It seems very bad practice, but I see cases where it might be needed. Of course, preserving initial return type.
+    // TODO: Add methods `first_mapped` and `last_mapped` which will wrap first
+    // and last mappers with new mapping memos. This will allow infinite depth
+    // of chain. Also it is better to add common logic for such case as memo
+    // replacement -- allow replacing memo with new function functionality. It
+    // seems very bad practice, but I see cases where it might be needed. Of
+    // course, preserving initial return type.
 
     // TODO: Should these methods require mutable access?
     #[must_use = "Setting memo chain can fail"]
@@ -274,8 +280,8 @@ mod tests {
         }
     }
 
-    // // Just some ideas to get rid of MemoChain which only usage is rsact_ui styles
-    // #[test]
+    // // Just some ideas to get rid of MemoChain which only usage is rsact_ui
+    // styles #[test]
     // fn replace_memo_chain_with_memos() {
     //     #[derive(Default, PartialEq)]
     //     struct S {
@@ -293,8 +299,8 @@ mod tests {
     //     }
 
     //     let widget = Widget {
-    //         // User-defined style initialized first, but must be chained after `base`
-    //         style: create_memo(move || {
+    //         // User-defined style initialized first, but must be chained
+    // after `base`         style: create_memo(move || {
     //             s.bar = 123;
     //             s
     //         },

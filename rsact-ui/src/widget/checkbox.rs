@@ -47,7 +47,8 @@ impl<W: WidgetCtx> Checkbox<W> {
 
         Self {
             state: CheckboxState::none().signal(),
-            // TODO: Maybe ContentLayout::Icon should be used as a single char-sized square layout?
+            // TODO: Maybe ContentLayout::Icon should be used as a single
+            // char-sized square layout?
             layout: Layout::shrink(LayoutKind::Edge),
             value,
             style: None,

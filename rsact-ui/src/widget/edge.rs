@@ -27,6 +27,12 @@ impl<W: WidgetCtx + 'static> Edge<W> {
     }
 }
 
+impl<W: WidgetCtx + 'static> LayoutWidget<W> for Edge<W> {
+    fn layout_mut(&mut self) -> &mut Layout {
+        &mut self.layout
+    }
+}
+
 impl<W: WidgetCtx + 'static> SizedWidget<W> for Edge<W> {}
 
 impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {

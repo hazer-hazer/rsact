@@ -138,13 +138,13 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
 
 impl<W: WidgetCtx> SizedWidget<W> for Scrollable<W, RowDir> {
     fn width<L: Into<Length> + PartialEq + Copy + 'static>(
-        self,
+        mut self,
         width: impl IntoMaybeReactive<L>,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout().setter(width.maybe_reactive(), |layout, &width| {
+        self.layout_mut().setter(width.maybe_reactive(), |layout, &width| {
             layout.size.set_width(Length::InfiniteWindow(
                 width.into().try_into().unwrap(),
             ));
@@ -155,18 +155,26 @@ impl<W: WidgetCtx> SizedWidget<W> for Scrollable<W, RowDir> {
 
 impl<W: WidgetCtx> SizedWidget<W> for Scrollable<W, ColDir> {
     fn height<L: Into<Length> + PartialEq + Copy + 'static>(
-        self,
+        mut self,
         height: impl IntoMaybeReactive<L> + 'static,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout().setter(height.maybe_reactive(), |layout, &height| {
+        self.layout_mut().setter(height.maybe_reactive(), |layout, &height| {
             layout.size.set_height(Length::InfiniteWindow(
                 height.into().try_into().unwrap(),
             ));
         });
         self
+    }
+}
+
+impl<W: WidgetCtx, Dir: Direction + 'static> LayoutWidget<W>
+    for Scrollable<W, Dir>
+{
+    fn layout_mut(&mut self) -> &mut Layout {
+        &mut self.layout
     }
 }
 
@@ -189,7 +197,8 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Scrollable<W, Dir> {
     }
 
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> crate::widget::RenderResult {
-        // TODO: Shouldn't scrollbar be rendered after child to be above? Need post_render method in Widget
+        // TODO: Shouldn't scrollbar be rendered after child to be above? Need
+        // post_render method in Widget
         ctx.render_self(|mut ctx| {
             let child_layout = ctx.layout.children().next();
             let child_layout = child_layout.as_ref().unwrap();
@@ -271,7 +280,8 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Scrollable<W, Dir> {
 
         // TODO: To do scrollable now we need:
         // - Clip path in the element properties
-        // - Composition (but without a distinct pass to compose, just an ability to offset children for now)
+        // - Composition (but without a distinct pass to compose, just an
+        //   ability to offset children for now)
         // ctx.render_part("portal", |mut ctx| {
         //     let state = self.state.get();
         //     // // TODO: Should be clipping outer rect???!??!?
@@ -280,8 +290,8 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Scrollable<W, Dir> {
         //         ctx.for_child(
         //             self.content.id(),
         //             &child_layout
-        //                 .translate(Dir::AXIS.canon(-(state.offset as i32), 0)),
-        //             |ctx| self.content.render(ctx),
+        //                 .translate(Dir::AXIS.canon(-(state.offset as i32),
+        // 0)),             |ctx| self.content.render(ctx),
         //         )
         //     })
         // })
@@ -317,7 +327,8 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Scrollable<W, Dir> {
                 }
 
                 // TODO: Make this configurable.
-                // Mouse drag: ButtonDown starts capture, MouseMove drags, ButtonUp releases
+                // Mouse drag: ButtonDown starts capture, MouseMove drags,
+                // ButtonUp releases
                 match ctx.event {
                     Event::Mouse(MouseEvent::ButtonDown(
                         MouseButton::Left,
@@ -397,13 +408,20 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Scrollable<W, Dir> {
                 // change of focus means moving focus to a widget inside
                 // scrollable content
 
-                // TODO: Need a separate method in Widget, like Widget::on_event_captured_by_child or something. This is better to hide by a behavior flag like "listen_children_events".
+                // TODO: Need a separate method in Widget, like
+                // Widget::on_event_captured_by_child or something. This is
+                // better to hide by a behavior flag like
+                // "listen_children_events".
                 todo!();
 
                 // let content_response = ctx.pass_to_child(&mut self.content);
 
-                // // TODO: Better need distinct `IsInteraction` event for such cases or define which events are considered an "interaction". For example, clicking on a button or focusing it is an interaction, but scrolling may be not, idk?
-                // // Now, I am checking if any child captured the event for tracking.
+                // // TODO: Better need distinct `IsInteraction` event for such
+                // cases or define which events are considered an "interaction".
+                // For example, clicking on a button or focusing it is an
+                // interaction, but scrolling may be not, idk? //
+                // Now, I am checking if any child captured the event for
+                // tracking.
                 // if let EventResponse::Break(Capture::Captured(capture)) =
                 //     &content_response
                 // {
@@ -413,7 +431,8 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Scrollable<W, Dir> {
                 //         .saturating_sub(
                 //             ctx.layout.inner.top_left.main(Dir::AXIS),
                 //         ) as u32;
-                //     let new_offset = new_offset.clamp(0, self.max_offset(&ctx));
+                //     let new_offset = new_offset.clamp(0,
+                // self.max_offset(&ctx));
 
                 //     if current_state.offset != new_offset {
                 //         self.state.update(|state| {

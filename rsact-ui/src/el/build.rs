@@ -2,8 +2,15 @@ use crate::el::{WidgetCtx, arena::ElArena, *};
 use log::{error, warn};
 
 /// Context passed to elements on build pass, runs once per element.
-/// `id` is the id of the element being build. But as elements don't call to build themselves but their children it is by-design made so there's no case when parent id is None. This is done by preallocating the root element.
-/// WARN: It is strictly advised to run build pass only inside reactive batch section to avoid running effects dependent on widget inside arena as last could be taken for build. Though [`Widget::build`] implementations should not trigger any effects but only create them (effect first run is not dangerous because we sure that children elements are not taken from the arena, because they don't even exist before run).
+/// `id` is the id of the element being build. But as elements don't call to
+/// build themselves but their children it is by-design made so there's no case
+/// when parent id is None. This is done by preallocating the root element.
+/// WARN: It is strictly advised to run build pass only inside reactive batch
+/// section to avoid running effects dependent on widget inside arena as last
+/// could be taken for build. Though [`Widget::build`] implementations should
+/// not trigger any effects but only create them (effect first run is not
+/// dangerous because we sure that children elements are not taken from the
+/// arena, because they don't even exist before run).
 pub struct BuildCtx<W: WidgetCtx> {
     arena: Signal<ElArena<W>>,
     id: ElId,
@@ -28,10 +35,14 @@ impl<W: WidgetCtx> BuildCtx<W> {
     }
 
     // TODO: Is it possible to reconcile children preserving unchanged?
-    // This requires children memos to not return new children, reusing old, but it seems to require user to do this.
-    // Or we can compare previous widget with new, but comparison can be very expensive, so skip this variant.
-    // We better make something like a SignalVec datatype that will support diffing and preserving old values. So we would compare: remove(El::Stored) -> remove, remove(El::New) -> do nothing, add (El::Stored) -> keep, add(El::New) -> build.
-    // Or maybe ChildrenQueue command queue like "PushChild", "SetChild", "RemoveChild".
+    // This requires children memos to not return new children, reusing old, but
+    // it seems to require user to do this. Or we can compare previous
+    // widget with new, but comparison can be very expensive, so skip this
+    // variant. We better make something like a SignalVec datatype that will
+    // support diffing and preserving old values. So we would compare:
+    // remove(El::Stored) -> remove, remove(El::New) -> do nothing, add
+    // (El::Stored) -> keep, add(El::New) -> build. Or maybe ChildrenQueue
+    // command queue like "PushChild", "SetChild", "RemoveChild".
     pub fn set_children(&mut self, children: &mut [El<W>]) -> &mut Self {
         let children_ids = children
             .iter_mut()

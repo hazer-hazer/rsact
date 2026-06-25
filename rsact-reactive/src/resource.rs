@@ -25,7 +25,8 @@ pub struct Resource<T: 'static> {
 }
 
 impl<T: Clone + 'static> Resource<T> {
-    /// Returns the inner value if the resource is [`AsyncState::Ready`], else `None`.
+    /// Returns the inner value if the resource is [`AsyncState::Ready`], else
+    /// `None`.
     pub fn ready(&self) -> Option<T> {
         self.signal.with(|s| s.ready().cloned())
     }
@@ -71,11 +72,11 @@ impl<T: 'static> ReadSignal<AsyncState<T>> for Resource<T> {
 ///
 /// Returns `(resource, driver)`:
 ///
-/// - **`resource`** is a reactive handle with a current [`AsyncState<T>`].
-///   It transitions `Uninitialized → Loading → Ready(T)` as the fetch
-///   progresses, and back to `Loading` whenever `source_fn` returns a new
-///   value. Any reactive context (effect, memo) that reads `resource` will
-///   re-run when the state changes.
+/// - **`resource`** is a reactive handle with a current [`AsyncState<T>`]. It
+///   transitions `Uninitialized → Loading → Ready(T)` as the fetch progresses,
+///   and back to `Loading` whenever `source_fn` returns a new value. Any
+///   reactive context (effect, memo) that reads `resource` will re-run when the
+///   state changes.
 ///
 /// - **`driver`** is a `Future<Output = ()>` that must be driven by the
 ///   caller's executor. The driver runs forever, re-fetching whenever the

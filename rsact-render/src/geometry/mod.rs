@@ -9,7 +9,11 @@ mod rect;
 mod size;
 mod vector;
 
-pub use {
-    anchor::*, angle::*, axis::*, corner_radii::*, point::*, rect::*, size::*,
-    vector::*,
-};
+pub use anchor::*;
+pub use angle::*;
+pub use axis::*;
+pub use corner_radii::*;
+pub use point::*;
+pub use rect::*;
+pub use size::*;
+pub use vector::*;

@@ -74,9 +74,11 @@ where
 pub struct PointerState {
     /// Last known cursor position, updated on every `MouseMove`
     pub pos: Option<Point>,
-    /// Widget currently holding pointer capture (receives all pointer events until released)
+    /// Widget currently holding pointer capture (receives all pointer events
+    /// until released)
     pub captured_by: Option<ElId>,
-    /// The deepest `HOVERABLE` widget under the cursor as of the last `MouseMove`
+    /// The deepest `HOVERABLE` widget under the cursor as of the last
+    /// `MouseMove`
     pub hovered: Option<ElId>,
 }
 
@@ -86,12 +88,17 @@ impl PointerState {
     }
 }
 
-// TODO: Need to subscribe to arena changes, so when node is removed, it is removed from page state focused, pointer, etc. Otherwise we send updates to stale widget
+// TODO: Need to subscribe to arena changes, so when node is removed, it is
+// removed from page state focused, pointer, etc. Otherwise we send updates to
+// stale widget
 pub struct PageState<W: WidgetCtx> {
-    /// Element id + its absolute tree index among all focusable elements (see [`PageTree`])
+    /// Element id + its absolute tree index among all focusable elements (see
+    /// [`PageTree`])
     pub focused: Option<(ElId, usize)>,
 
-    /// Page last known pointer state, updated on every `MouseMove` and is basically only needed on platforms like PC where pointer can go outside the window and we preserve last known position.
+    /// Page last known pointer state, updated on every `MouseMove` and is
+    /// basically only needed on platforms like PC where pointer can go outside
+    /// the window and we preserve last known position.
     pub pointer: PointerState,
 
     ctx: PhantomData<W>,

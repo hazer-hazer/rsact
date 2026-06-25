@@ -1,11 +1,10 @@
-use embedded_graphics::pixelcolor::PixelColor;
-
 use crate::{
     color::Color,
     eg::{framebuf::PackedColor, renderer::EGRenderer},
     renderer::{AntiAliasingDisabled, AntiAliasingEnabled, RenderResult},
     style::DrawStyle,
 };
+use embedded_graphics::pixelcolor::PixelColor;
 
 pub mod arc;
 pub mod circle;

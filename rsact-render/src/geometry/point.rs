@@ -4,7 +4,6 @@ use core::{
     num::TryFromIntError,
     ops::{Add, AddAssign, Div, Mul, Neg, Sub, SubAssign},
 };
-
 #[allow(unused)]
 use num::Float as _;
 
@@ -181,7 +180,8 @@ pub trait PointExt: Sized + Copy {
         if cond { self.swap_axes() } else { self }
     }
 
-    /// Unlike `PartialOrd::clamp` this method does fine-grained clamping per axis.
+    /// Unlike `PartialOrd::clamp` this method does fine-grained clamping per
+    /// axis.
     fn clamp_axes(self, min: Self, max: Self) -> Self;
 
     fn map(self, f: impl FnMut(i32) -> i32) -> Self;

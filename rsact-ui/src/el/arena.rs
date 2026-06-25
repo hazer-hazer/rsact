@@ -6,7 +6,10 @@ use alloc::vec::Vec;
 use log::error;
 
 pub struct ElNode<W: WidgetCtx> {
-    // TODO: Can eliminate Option by using UnsafeCell, but then we need to prove parent is never access while child is used. Take/restore logic is only used in build phase, and as it is kept to be strictly top-down, we can guarantee soundness.
+    // TODO: Can eliminate Option by using UnsafeCell, but then we need to
+    // prove parent is never access while child is used. Take/restore logic is
+    // only used in build phase, and as it is kept to be strictly top-down, we
+    // can guarantee soundness.
     pub(crate) data: Option<ElData<W>>,
 }
 
@@ -135,8 +138,8 @@ impl<W: WidgetCtx> ElArena<W> {
     //     if let Some(el) = arena.get_mut(id) {
     //         f(id, el)
     //     } else {
-    //         warn!("Trying to traverse non-existent element with id {:?}", id);
-    //         return ControlFlow::Continue(());
+    //         warn!("Trying to traverse non-existent element with id {:?}",
+    // id);         return ControlFlow::Continue(());
     //     }
     // }
 
@@ -171,7 +174,8 @@ impl<W: WidgetCtx> ElArena<W> {
         if self.els.els.contains_key(id) {
             let old_children = self.children.set_single(id, child);
 
-            // Soundness: It is unsound to have two or more nodes having same children, but it is expensive to check this.
+            // Soundness: It is unsound to have two or more nodes having same
+            // children, but it is expensive to check this.
             if let Some(old_children) = old_children {
                 old_children.iter().for_each(|child_id| {
                     self.els.els.remove(*child_id);

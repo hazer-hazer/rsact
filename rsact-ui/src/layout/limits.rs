@@ -1,8 +1,7 @@
-use rsact_render::geometry::padding::Padding;
-
 use super::length::{DeterministicLength, Length};
 use crate::{layout::length::LengthSize, render::prelude::*};
 use core::{fmt::Display, u32};
+use rsact_render::geometry::padding::Padding;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Limits {
@@ -102,7 +101,8 @@ impl Limits {
         }
     }
 
-    /// Unlike `child_limits` won't produce "infinite" limit for `InfiniteWindow` length
+    /// Unlike `child_limits` won't produce "infinite" limit for
+    /// `InfiniteWindow` length
     pub fn self_limits(self, size: LengthSize) -> Self {
         self.limit_axis(Axis::X, size.width(), false).limit_axis(
             Axis::Y,

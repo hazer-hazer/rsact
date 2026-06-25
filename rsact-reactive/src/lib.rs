@@ -38,6 +38,10 @@ pub mod write;
 pub mod debug;
 
 pub mod prelude {
+    #[cfg(feature = "async")]
+    pub use super::async_rt::AsyncState;
+    #[cfg(feature = "async")]
+    pub use super::resource::{Resource, create_resource};
     pub use super::{
         ReactiveValue,
         computed::{Computed, create_computed},
@@ -69,12 +73,6 @@ pub mod prelude {
         trigger::{Trigger, create_trigger},
         write::{SignalSetter, UpdateNotification, WriteSignal},
     };
-
-    #[cfg(feature = "async")]
-    pub use super::async_rt::AsyncState;
-
-    #[cfg(feature = "async")]
-    pub use super::resource::{Resource, create_resource};
 }
 
 /// Core trait implemented by every reactive (and inert) value in the runtime.
@@ -83,9 +81,10 @@ pub mod prelude {
 /// queries, and disposal. The associated type `Value` is the plain Rust type
 /// stored inside the reactive node (e.g. `T` for `Signal<T>`).
 ///
-/// All high-level types — [`signal::Signal`], [`memo::Memo`], [`memo_chain::MemoChain`], [`effect::Effect`],
-/// [`trigger::Trigger`], [`maybe::Inert`], [`maybe::MaybeReactive`], [`maybe::MaybeSignal`] — implement
-/// this trait.
+/// All high-level types — [`signal::Signal`], [`memo::Memo`],
+/// [`memo_chain::MemoChain`], [`effect::Effect`], [`trigger::Trigger`],
+/// [`maybe::Inert`], [`maybe::MaybeReactive`], [`maybe::MaybeSignal`] —
+/// implement this trait.
 ///
 /// # Safety
 ///

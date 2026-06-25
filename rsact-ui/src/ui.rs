@@ -1,17 +1,13 @@
-use crate::el::arena::ElArena;
-use crate::font::FontImport;
-use crate::style::stylist::InternalStylist;
 use crate::{
-    el::El,
-    el::ctx::*,
+    el::{El, arena::ElArena, ctx::*},
     event::{
         Event, UnhandledEvent,
         message::{UiMessage, UiQueue},
     },
-    font::FontCtx,
+    font::{FontCtx, FontImport},
     page::{Page, dev::DevTools, id::PageId},
     render::prelude::*,
-    style::theme::Theme,
+    style::{stylist::InternalStylist, theme::Theme},
 };
 use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use core::{fmt::Debug, marker::PhantomData};
@@ -62,8 +58,10 @@ pub struct UI<W: WidgetCtx, P: HasPages> {
     // TODO: Get rid of Inert wrapper, it is at most RefCell
     stylist: Inert<W::Stylist>,
     dev_tools: Signal<DevTools>,
-    // TODO: Inert renderer. I don't think it is hardly needed to have reactive renderer options (this is the only reactive dependency).
-    // The problem is that Inert is a readonly value, while we need a mutable reference to the renderer
+    // TODO: Inert renderer. I don't think it is hardly needed to have reactive
+    // renderer options (this is the only reactive dependency). The problem
+    // is that Inert is a readonly value, while we need a mutable reference to
+    // the renderer
     renderer: Signal<W::Renderer>,
     message_queue: Option<UiQueue<W>>,
     options: UiOptions,
@@ -78,7 +76,9 @@ where
     S: InternalStylist<R::Color> + 'static,
     E: Debug + 'static,
 {
-    // TODO: For now I made viewport inert, but it is possible for the viewport to change (e.g. window resize, etc). But as now we targeting embedded devices with fixed displays and don't support any windowing, I hold it.
+    // TODO: For now I made viewport inert, but it is possible for the viewport
+    // to change (e.g. window resize, etc). But as now we targeting embedded
+    // devices with fixed displays and don't support any windowing, I hold it.
     pub fn new(stylist: S, renderer: R) -> Self {
         let viewport = renderer.size().inert().maybe_reactive();
 
@@ -110,7 +110,8 @@ where
 }
 
 impl<W: WidgetCtx, P: HasPages> UI<W, P> {
-    /// Hinting method to avoid specifying generics but just set [`WidgetCtx::Event`] to [`NullEvent`]
+    /// Hinting method to avoid specifying generics but just set
+    /// [`WidgetCtx::Event`] to [`NullEvent`]
     pub fn no_events(self) -> Self
     where
         W: WidgetCtx<CustomEvent = ()>,
@@ -124,7 +125,8 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
         self
     }
 
-    /// Set [`MessageQueue`] for UI, that will be used for animations and UI messages
+    /// Set [`MessageQueue`] for UI, that will be used for animations and UI
+    /// messages
     pub fn with_queue(mut self, queue: UiQueue<W>) -> Self {
         self.message_queue = Some(queue);
         self
@@ -227,10 +229,12 @@ impl<W: WidgetCtx> UI<W, WithPages> {
         )
     }
 
-    /// Get mutable reference to currently active [`Page`]. You likely don't need to get pages.
+    /// Get mutable reference to currently active [`Page`]. You likely don't
+    /// need to get pages.
     ///
     /// Lazily (re)builds the current page if it isn't the one already loaded.
-    /// Assigning the freshly built page drops the previous one, disposing its arena.
+    /// Assigning the freshly built page drops the previous one, disposing its
+    /// arena.
     pub fn current_page(&mut self) -> &mut Page<W> {
         let current_id = self.current_page_id();
 
@@ -386,7 +390,7 @@ impl<W: WidgetCtx> UI<W, WithPages> {
     //     self.current_page().draw_buffer(f)
     // }
 
-    // pub fn draw_with_renderer(&mut self, f: impl FnOnce(&W::Renderer)) -> bool {
-    //     self.current_page().use_renderer(f)
+    // pub fn draw_with_renderer(&mut self, f: impl FnOnce(&W::Renderer)) ->
+    // bool {     self.current_page().use_renderer(f)
     // }
 }

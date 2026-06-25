@@ -1,19 +1,17 @@
-use crate::layout::length::LengthSize;
-use crate::render::prelude::*;
+#[cfg(feature = "debug-info")]
+use crate::layout::{DevLayout, DevLayoutKind};
 use crate::{
     font::FontProps,
     layout::{
         Align, ContainerLayout, ContentLayout, DevHoveredLayout, LayoutCtx,
-        LayoutKind, Limits, ScrollableLayout, flex::model_flex, node::Layout,
+        LayoutKind, Limits, ScrollableLayout, flex::model_flex,
+        length::LengthSize, node::Layout,
     },
+    render::prelude::*,
 };
 use alloc::vec::Vec;
-use core::fmt::Debug;
-use core::fmt::Display;
+use core::fmt::{Debug, Display};
 use rsact_reactive::prelude::*;
-
-#[cfg(feature = "debug-info")]
-use crate::layout::{DevLayout, DevLayoutKind};
 
 /// Layout tree representation with real position in viewport
 pub struct LayoutModelNode<'a> {
@@ -240,7 +238,8 @@ impl<'a> Display for PPLayoutModel<'a> {
 
 // TODO: Split layouts decorations and layout modeling logic into separate files
 
-// TODO: Should viewport be unwrapped value as we depend modeling on viewport value?
+// TODO: Should viewport be unwrapped value as we depend modeling on viewport
+// value?
 pub fn model_layout(
     ctx: &LayoutCtx,
     layout: Layout,
@@ -249,7 +248,8 @@ pub fn model_layout(
 ) -> LayoutModel {
     layout.with(|layout| {
         if !layout.show.map(|show| show.get()).unwrap_or(true) {
-            // TODO: Should be zero or skipped? Doesn't zero layout take child place in flex?
+            // TODO: Should be zero or skipped? Doesn't zero layout take child
+            // place in flex?
             return LayoutModel::zero();
         }
 

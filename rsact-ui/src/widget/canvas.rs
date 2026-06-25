@@ -43,17 +43,21 @@ impl<'a, C: Color> CanvasImage<'a, C> {
     }
 }
 
-// TODO: CanvasDrawable trait? - No, cause gives two different ways to implement one thing. CanvasDrawable would lead us to use dynamic dispatch and boxes that I avoided using DrawCommand enum.
+// TODO: CanvasDrawable trait? - No, cause gives two different ways to implement
+// one thing. CanvasDrawable would lead us to use dynamic dispatch and boxes
+// that I avoided using DrawCommand enum.
 
-// TODO: Replace with box dyn primitive? - No, performance drawbacks, we know all values and don't plan to support custom ones.
-// TODO: Maybe better add IntoDrawCommand for primitives
+// TODO: Replace with box dyn primitive? - No, performance drawbacks, we know
+// all values and don't plan to support custom ones. TODO: Maybe better add
+// IntoDrawCommand for primitives
 #[derive(Clone, PartialEq, Debug)]
 pub enum DrawCommand<C: Color + 'static> {
     /// Actually useless for now as we clear the whole screen each frame :(
     Clear(C),
     ClearRect(Rect, C),
     Primitive(PrimitiveKind, DrawStyle<C>),
-    // TODO: Image as resources with ID stored in some storage inside UI context?
+    // TODO: Image as resources with ID stored in some storage inside UI
+    // context?
     Image(CanvasImage<'static, C>),
 }
 
@@ -212,6 +216,12 @@ impl<W: WidgetCtx> Canvas<W> {
             queue,
             layout: Layout::edge(LengthSize::new_equal(Length::fill())),
         }
+    }
+}
+
+impl<W: WidgetCtx> LayoutWidget<W> for Canvas<W> {
+    fn layout_mut(&mut self) -> &mut Layout {
+        &mut self.layout
     }
 }
 

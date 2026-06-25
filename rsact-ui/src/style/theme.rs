@@ -200,4 +200,5 @@ impl<C: RgbColor> Theme<C> {
     }
 }
 
-// TODO: MaterialYou? HCT it is too complex and heavy, better implement just something like a seed color scheme generation.
+// TODO: MaterialYou? HCT it is too complex and heavy, better implement just
+// something like a seed color scheme generation.

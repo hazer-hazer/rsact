@@ -9,8 +9,7 @@ use rsact_ui::{
     col,
     event::simulator::simulator_single_encoder,
     page::id::SinglePage,
-    prelude::*,
-    prelude::{IntoInert, Select, SignalMap, create_signal},
+    prelude::{IntoInert, Select, SignalMap, create_signal, *},
     row,
     style::theme::Theme,
     ui::UI,
@@ -48,7 +47,8 @@ impl Display for WidgetTab {
 fn page() -> impl Into<El<W>> {
     let mut widget = create_signal(WidgetTab::Button);
     // let select_widget =
-    //     Select::vertical(widget, WidgetTab::each().collect::<Vec<_>>().inert());
+    //     Select::vertical(widget,
+    // WidgetTab::each().collect::<Vec<_>>().inert());
 
     let select_widget = Flex::col(
         WidgetTab::each()

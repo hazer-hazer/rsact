@@ -1,7 +1,8 @@
 use crate::geometry::Point;
 use alloc::vec::Vec;
 
-// TODO: Cannot go non-vec because polygon is used in the canvas. Maybe we get rid of the polygon at all, it is a strange primitive.
+// TODO: Cannot go non-vec because polygon is used in the canvas. Maybe we get
+// rid of the polygon at all, it is a strange primitive.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Polygon {
     pub translation: Point,

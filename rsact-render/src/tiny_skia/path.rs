@@ -14,9 +14,15 @@ pub trait PathBuilderExt {
         sweep: Angle,
     ) -> &mut Self;
 
-    // /// Draw a corner of a rounded rectangle. The start point is where the curve starts (for example the end of the top left corner), the length is either the width or height of the corner (depending on the axis), and the radius is the size of the corner. The drawing is clockwise, meaning that top right corner is defined by width, bottom right by height, bottom left by width, and top left by height.
-    // /// The [`radius`] is expected to be pre-clamped to the size of the corner, so that it doesn't exceed the size of the rectangle.
-    // fn corner(&mut self, start: Point, length: u32, radius: Size) -> &mut Self;
+    // /// Draw a corner of a rounded rectangle. The start point is where the
+    // curve starts (for example the end of the top left corner), the length is
+    // either the width or height of the corner (depending on the axis), and the
+    // radius is the size of the corner. The drawing is clockwise, meaning that
+    // top right corner is defined by width, bottom right by height, bottom left
+    // by width, and top left by height. /// The [`radius`] is expected to
+    // be pre-clamped to the size of the corner, so that it doesn't exceed the
+    // size of the rectangle. fn corner(&mut self, start: Point, length:
+    // u32, radius: Size) -> &mut Self;
 
     fn single_quad_arc(
         &mut self,
@@ -29,8 +35,8 @@ pub trait PathBuilderExt {
 }
 
 impl PathBuilderExt for tiny_skia::PathBuilder {
-    // // TODO: Fix how arc is drawn, seems to be inaccurate approximation of a circle for me.
-    // // TODO: Normalize angles?
+    // // TODO: Fix how arc is drawn, seems to be inaccurate approximation of a
+    // circle for me. // TODO: Normalize angles?
     fn arc(
         &mut self,
         top_left: Point,
@@ -210,6 +216,6 @@ impl PathBuilderExt for tiny_skia::PathBuilder {
         self
     }
 
-    // fn corner(&mut self, start: Point, length: u32, radius: Size) -> &mut Self {
-    // }
+    // fn corner(&mut self, start: Point, length: u32, radius: Size) -> &mut
+    // Self { }
 }

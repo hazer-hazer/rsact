@@ -88,6 +88,11 @@ impl<W: WidgetCtx + 'static> Container<W> {
     // }
 }
 
+impl<W: WidgetCtx + 'static> LayoutWidget<W> for Container<W> {
+    fn layout_mut(&mut self) -> &mut Layout {
+        &mut self.layout
+    }
+}
 impl<W: WidgetCtx + 'static> SizedWidget<W> for Container<W> {}
 impl<W: WidgetCtx + 'static> BlockModelWidget<W> for Container<W> {}
 

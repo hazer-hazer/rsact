@@ -21,7 +21,8 @@ pub struct Label<W: WidgetCtx> {
 }
 
 impl<W: WidgetCtx> Label<W> {
-    // TODO: 'static string optimization, can store &'static str directly without allocating String
+    // TODO: 'static string optimization, can store &'static str directly
+    // without allocating String
     pub fn new(content: impl SignalMapRefMaybeReactive<str, String>) -> Self {
         let content =
             content.map_ref_maybe_reactive(|content| content.to_string());
@@ -39,13 +40,14 @@ impl<W: WidgetCtx> Label<W> {
     }
 
     // /// Sets fonts size by maybe reactive value.
-    // /// Note that font size does nothing for fixed size fonts such as embedded_graphics MonoFont or U8G2 fonts.
-    // pub fn font_size<S: Into<FontSize> + Clone + PartialEq + 'static>(
-    //     mut self,
+    // /// Note that font size does nothing for fixed size fonts such as
+    // embedded_graphics MonoFont or U8G2 fonts. pub fn font_size<S:
+    // Into<FontSize> + Clone + PartialEq + 'static>(     mut self,
     //     font_size: impl IntoMaybeReactive<S>,
     // ) -> Self {
-    //     // TODO: Warn about setting font size for fixed font (like EGMonoFont) that does not have any effect on font size.
-    //     // Or try to make type state Text, like Text<W, IsReactive>/Text<W, IsInert>
+    //     // TODO: Warn about setting font size for fixed font (like
+    // EGMonoFont) that does not have any effect on font size.     // Or try
+    // to make type state Text, like Text<W, IsReactive>/Text<W, IsInert>
     //     self.props.setter(font_size.maybe_reactive(), |props, font_size| {
     //         props.size = font_size.clone().into();
     //     });
@@ -72,6 +74,12 @@ impl<W: WidgetCtx> Label<W> {
     //     });
     //     self
     // }
+}
+
+impl<W: WidgetCtx> LayoutWidget<W> for Label<W> {
+    fn layout_mut(&mut self) -> &mut Layout {
+        &mut self.layout
+    }
 }
 
 impl<W: WidgetCtx> FontSettingWidget<W> for Label<W> {}

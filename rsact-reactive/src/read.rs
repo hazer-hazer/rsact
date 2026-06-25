@@ -15,8 +15,10 @@ use alloc::string::String;
 /// (an effect or memo closure) registers the caller as a subscriber of this
 /// value.  Calling the `_untracked` variants skips registration.
 ///
-/// Implemented by: [`crate::signal::Signal`], [`crate::memo::Memo`], [`crate::memo_chain::MemoChain`], [`crate::computed::Computed`],
-/// [`crate::trigger::Trigger`], [`crate::maybe::Inert`], [`crate::maybe::MaybeReactive`], [`crate::maybe::MaybeSignal`].
+/// Implemented by: [`crate::signal::Signal`], [`crate::memo::Memo`],
+/// [`crate::memo_chain::MemoChain`], [`crate::computed::Computed`],
+/// [`crate::trigger::Trigger`], [`crate::maybe::Inert`],
+/// [`crate::maybe::MaybeReactive`], [`crate::maybe::MaybeSignal`].
 pub trait ReadSignal<T>: ReactiveValue {
     fn track(&self);
     fn with_untracked<U>(&self, f: impl FnOnce(&T) -> U) -> U;
@@ -55,14 +57,16 @@ pub trait ReadSignal<T>: ReactiveValue {
 /// Transform the value inside a reactive type into a new reactive output.
 ///
 /// The output type is determined by the implementor:
-/// - `Signal<T>::map` → `Memo<U>` (tracked, re-evaluates when the signal changes).
+/// - `Signal<T>::map` → `Memo<U>` (tracked, re-evaluates when the signal
+///   changes).
 /// - `Memo<T>::map` → `Memo<U>` (chained memo).
 /// - `MemoChain<T>::map` → `Memo<U>`.
-/// - `MaybeSignal<T>::map` → `MaybeReactive<U>` (preserves inert/reactive distinction).
+/// - `MaybeSignal<T>::map` → `MaybeReactive<U>` (preserves inert/reactive
+///   distinction).
 /// - `Inert<T>::map` → `Inert<U>` (pure, non-allocating).
 ///
-/// See also [`crate::maybe::SignalMapReactive`] when you always need a `Memo<U>`
-/// regardless of source reactivity.
+/// See also [`crate::maybe::SignalMapReactive`] when you always need a
+/// `Memo<U>` regardless of source reactivity.
 pub trait SignalMap<T, U> {
     type Output: ReactiveValue<Value = U>;
 
@@ -84,8 +88,8 @@ pub trait SignalMap<T, U> {
 //             type Output = U;
 
 //             #[track_caller]
-//             fn map(&self, mut map: impl FnMut(&$ty) -> U + 'static) -> Self::Output {
-//                 map(self)
+//             fn map(&self, mut map: impl FnMut(&$ty) -> U + 'static) ->
+// Self::Output {                 map(self)
 //             }
 //         }
 //     };
@@ -99,9 +103,10 @@ pub trait SignalMap<T, U> {
 //     u32,
 // }
 
-// /// Used to access deep signal values, such as `Memo<Memo<Memo<T>>>`. Be careful with this, only use if `signal.with(|signal| signal.with(|signal| signal.with(f)))` is the behavior you need.
-// pub trait WithDeep<T: 'static>: ReadSignal<T> {
-//     #[track_caller]
+// /// Used to access deep signal values, such as `Memo<Memo<Memo<T>>>`. Be
+// careful with this, only use if `signal.with(|signal| signal.with(|signal|
+// signal.with(f)))` is the behavior you need. pub trait WithDeep<T: 'static>:
+// ReadSignal<T> {     #[track_caller]
 //     fn deep_with<U>(&self, f: impl FnOnce(&T) -> U) -> U;
 // }
 
@@ -110,9 +115,9 @@ pub trait SignalMap<T, U> {
 //     () => {};
 
 //     ($first: ident, $($alphas: ident,)*) => {
-//         impl<$first, $($alphas,)*> SignalMap<($first, $($alphas,)*)> for ($first, $($alphas,)*)  {
-//             fn map(self) -> MaybeReactive<($first, $($alphas,)*)> {
-//                 MaybeReactive::new_inert(self)
+//         impl<$first, $($alphas,)*> SignalMap<($first, $($alphas,)*)> for
+// ($first, $($alphas,)*)  {             fn map(self) -> MaybeReactive<($first,
+// $($alphas,)*)> {                 MaybeReactive::new_inert(self)
 //             }
 //         }
 
@@ -176,9 +181,18 @@ macro_rules! map {
 pub use map;
 
 /// All ReadSignal structs implement common operations and core traits
-/// Macro is used because we cannot implement core traits for all types "S: ReadSignal"
-/// All operations on signals are not reactive. I thought it would be nice to have `signal + signal` resulting in memo but, firstly, it is inconsistent with PartialEq and PartialOrd which cannot result in memo as they don't have custom Output type, so they cannot be made reactive, secondly, I want to help user to create as least reactive values as possible, so almost all places where new reactive values is created should be explicit. Just use `create_memo`.
-// All ReadSignal's always receive single generic determining inner value, so no need to deal with generics in macro parameter. But the Signal and MaybeSignal are special cases because of `M` marker. Just implementing traits for both RW and R signals separately, this is much easier to pass generics to macro.
+/// Macro is used because we cannot implement core traits for all types "S:
+/// ReadSignal" All operations on signals are not reactive. I thought it would
+/// be nice to have `signal + signal` resulting in memo but, firstly, it is
+/// inconsistent with PartialEq and PartialOrd which cannot result in memo as
+/// they don't have custom Output type, so they cannot be made reactive,
+/// secondly, I want to help user to create as least reactive values as
+/// possible, so almost all places where new reactive values is created should
+/// be explicit. Just use `create_memo`.
+// All ReadSignal's always receive single generic determining inner value, so no
+// need to deal with generics in macro parameter. But the Signal and MaybeSignal
+// are special cases because of `M` marker. Just implementing traits for both RW
+// and R signals separately, this is much easier to pass generics to macro.
 macro_rules! impl_read_signal_traits {
     ($($ty: ty $(: $($generics: tt),*)?),* $(,)?) => {
         $(

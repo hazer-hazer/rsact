@@ -29,7 +29,8 @@ use embedded_graphics::{
     primitives::{PrimitiveStyle, PrimitiveStyleBuilder, StyledDrawable},
 };
 
-/// Proxy to draw on Renderer as on embedded_graphics DrawTarget, works by mapping any color into embedded_graphics Rgb888.
+/// Proxy to draw on Renderer as on embedded_graphics DrawTarget, works by
+/// mapping any color into embedded_graphics Rgb888.
 pub struct DrawTargetProxy<'a, R: Renderer> {
     renderer: &'a mut R,
 }
@@ -385,7 +386,9 @@ impl<C: Color + PackedColor + PixelColor> Renderer
         _points: &[Point],
         _style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        // TODO: I don't want to allocate a vector for conversion between my Point and EG Point, so better use custom primitive Polygon and implement AA and non-AA rendering for it.
+        // TODO: I don't want to allocate a vector for conversion between my
+        // Point and EG Point, so better use custom primitive Polygon and
+        // implement AA and non-AA rendering for it.
         todo!()
     }
 
@@ -532,7 +535,9 @@ impl<C: Color + PackedColor + PixelColor> Renderer
         _points: &[Point],
         _style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        // TODO: I don't want to allocate a vector for conversion between my Point and EG Point, so better use custom primitive Polygon and implement AA and non-AA rendering for it.
+        // TODO: I don't want to allocate a vector for conversion between my
+        // Point and EG Point, so better use custom primitive Polygon and
+        // implement AA and non-AA rendering for it.
         todo!()
     }
 

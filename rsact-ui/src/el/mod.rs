@@ -37,8 +37,14 @@ impl<T> WithElId<T> {
 }
 
 pub struct ElData<W: WidgetCtx> {
-    // TODO: If rsact-reactive would support ?Sized as a real smart-pointer we could do MaybeReactive<dyn Widget<W>>, so reactive elements creation would be possible in place. But the problem is that MaybeReactive is a readonly value, while MaybeSignal is owned stack value/Signal, so we either change the MaybeSignal to StoredValue/Signal or create a new MaybeSignal-like value with heap storage.
-    // We can't, Rust does not allow unsized fields in structs, only through internal Box, Rc, etc. So we cannot make a custom arena-allocated smart pointer.
+    // TODO: If rsact-reactive would support ?Sized as a real smart-pointer we
+    // could do MaybeReactive<dyn Widget<W>>, so reactive elements creation
+    // would be possible in place. But the problem is that MaybeReactive is a
+    // readonly value, while MaybeSignal is owned stack value/Signal, so we
+    // either change the MaybeSignal to StoredValue/Signal or create a new
+    // MaybeSignal-like value with heap storage. We can't, Rust does not
+    // allow unsized fields in structs, only through internal Box, Rc, etc. So
+    // we cannot make a custom arena-allocated smart pointer.
     pub widget: Box<dyn Widget<W>>,
 
     pub state: ElState<W>,

@@ -61,7 +61,8 @@ impl From<(f32, f32)> for Radius {
     }
 }
 
-/// Block border radius, unlike absolute [`CornerRadii`] radius can be a value relevant to block size defined by layout model.
+/// Block border radius, unlike absolute [`CornerRadii`] radius can be a value
+/// relevant to block size defined by layout model.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BorderRadius {
     pub top_left: Radius,

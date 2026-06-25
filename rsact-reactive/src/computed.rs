@@ -2,10 +2,10 @@
  * A `Computed<T>` is a reactive lens into a [`crate::signal::Signal`].
  *
  * It is similar to a [`Memo`] but does **not** perform equality comparison:
- * every time its closure runs the result is stored and downstream subscribers
- * are always notified. Use `Computed` for values where equality testing is
- * expensive or meaningless (e.g. collections that are always rebuilt from
- * scratch).
+ * every time its closure runs the result is stored and downstream
+ * subscribers are always notified. Use `Computed` for values where equality
+ * testing is expensive or meaningless (e.g. collections that are always
+ * rebuilt from scratch).
  *
  * Prefer [`Memo`] when `T: PartialEq` and you want the runtime to skip
  * re-notifications when the value did not actually change.
@@ -83,8 +83,8 @@ where
 /// A reactive derived value that always notifies subscribers when its
 /// source changes, without equality checking.
 ///
-/// See the [module-level documentation](self) for a comparison with [`crate::memo::Memo`].
-/// Construct with [`create_computed`].
+/// See the [module-level documentation](self) for a comparison with
+/// [`crate::memo::Memo`]. Construct with [`create_computed`].
 pub struct Computed<T> {
     id: ValueId,
     ty: PhantomData<T>,

@@ -287,9 +287,9 @@ impl Length {
 
     // pub fn div_factor(&self) -> u16 {
     //     match self {
-    //         Self::InfiniteWindow(length) => length.into_length().div_factor(),
-    //         Self::Fixed(_) | Self::Shrink | Self::Pct(_) => 0,
-    //         Self::Div(div) => *div,
+    //         Self::InfiniteWindow(length) =>
+    // length.into_length().div_factor(),         Self::Fixed(_) |
+    // Self::Shrink | Self::Pct(_) => 0,         Self::Div(div) => *div,
     //     }
     // }
 

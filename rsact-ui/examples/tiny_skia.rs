@@ -1,5 +1,3 @@
-use std::process;
-
 use embedded_graphics::pixelcolor::Rgb888;
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
@@ -11,6 +9,7 @@ use rsact_ui::{
     prelude::*,
     widget::canvas::{Canvas, CanvasImage, DrawCommand, DrawQueue},
 };
+use std::process;
 use tiny_skia::Pixmap;
 
 fn draw_primitive(

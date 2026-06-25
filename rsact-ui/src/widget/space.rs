@@ -1,5 +1,4 @@
-use crate::layout::LayoutKind;
-use crate::widget::prelude::*;
+use crate::{layout::LayoutKind, widget::prelude::*};
 use core::marker::PhantomData;
 
 pub struct Space<W: WidgetCtx, Dir: Direction> {

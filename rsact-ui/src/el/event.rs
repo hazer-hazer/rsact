@@ -1,7 +1,12 @@
-use crate::el::arena::{ArenaChildren, ArenaEls, ElArena, ElNode};
-use crate::el::state::ElState;
-use crate::event::*;
-use crate::{layout::model::LayoutModelNode, widget::prelude::*};
+use crate::{
+    el::{
+        arena::{ArenaChildren, ArenaEls, ElArena, ElNode},
+        state::ElState,
+    },
+    event::*,
+    layout::model::LayoutModelNode,
+    widget::prelude::*,
+};
 use itertools::Itertools as _;
 use log::{debug, error, warn};
 
@@ -30,7 +35,10 @@ impl<'a, W: WidgetCtx> EventPass<'a, W> {
     }
 
     fn run_(&mut self, id: ElId, layout: &LayoutModelNode) -> EventResponse {
-        // TODO: Is it possible to avoid double-get from arena? The problem is with mutable arena borrowing because event is processed for children first and then for the parent, while we need parent data to know its flags.
+        // TODO: Is it possible to avoid double-get from arena? The problem is
+        // with mutable arena borrowing because event is processed for children
+        // first and then for the parent, while we need parent data to know its
+        // flags.
         let Some(data) = self.arena.expect(id) else {
             return EventResponse::Continue(());
         };
@@ -130,19 +138,22 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
         self.page_state.pointer.hovered == Some(self.id)
     }
 
-    /// Returns the cursor position for this event, falling back to the last known position.
+    /// Returns the cursor position for this event, falling back to the last
+    /// known position.
     pub fn cursor_pos(&self) -> Option<Point> {
         self.event.cursor_point().or_else(|| self.page_state.pointer.pos)
     }
 
-    /// Called by `HOVERABLE` widgets during a `MouseMove` pass to claim hover for themselves.
-    /// The last (deepest) widget to call this during a pass wins.
+    /// Called by `HOVERABLE` widgets during a `MouseMove` pass to claim hover
+    /// for themselves. The last (deepest) widget to call this during a pass
+    /// wins.
     pub fn update_hover(&mut self) {
         self.page_state.pointer.hovered = Some(self.id);
     }
 
-    /// Capture the pointer so all subsequent mouse button events are routed directly here,
-    /// regardless of cursor position. Call on `ButtonDown`. Pair with `release_pointer`.
+    /// Capture the pointer so all subsequent mouse button events are routed
+    /// directly here, regardless of cursor position. Call on `ButtonDown`.
+    /// Pair with `release_pointer`.
     pub fn capture_pointer(&mut self) {
         self.page_state.pointer.captured_by = Some(self.id);
     }
@@ -192,8 +203,8 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
         }
     }
 
-    /// Handle a mouse `ButtonDown`/`ButtonUp` where the cursor is within this widget's bounds.
-    /// `press` receives `(ctx, button, is_pressed)`.
+    /// Handle a mouse `ButtonDown`/`ButtonUp` where the cursor is within this
+    /// widget's bounds. `press` receives `(ctx, button, is_pressed)`.
     #[must_use]
     pub fn handle_clickable(
         &mut self,
@@ -222,7 +233,8 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
     }
 
     /// Combines keyboard/encoder focus handling with left-button mouse click.
-    /// Prefer this over `handle_focusable` for interactive widgets that support both input modes.
+    /// Prefer this over `handle_focusable` for interactive widgets that support
+    /// both input modes.
     #[must_use]
     pub fn handle_focusable_or_clickable(
         &mut self,
@@ -269,8 +281,9 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
 
     // Mouse events //
 
-    /// Handle `MouseMove` for a `HOVERABLE` widget: if cursor is in bounds, claim hover.
-    /// Call this at the start of `on_event` for any `HOVERABLE` widget. Always returns `ignore()`.
+    /// Handle `MouseMove` for a `HOVERABLE` widget: if cursor is in bounds,
+    /// claim hover. Call this at the start of `on_event` for any
+    /// `HOVERABLE` widget. Always returns `ignore()`.
     #[must_use]
     pub fn handle_hover_move(&mut self) -> EventResponse {
         if let Event::Mouse(MouseEvent::MouseMove(pt)) = self.event {

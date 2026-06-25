@@ -34,13 +34,15 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Ellipse {
 
         // TODO: StrokeAlignment
 
-        // FIXME: Ellipse looks bad because of issues of Xiaolin Wu thick stroke drawing.
+        // FIXME: Ellipse looks bad because of issues of Xiaolin Wu thick stroke
+        // drawing.
 
         let center = self.top_left
             + Point::new(self.size.width as i32, self.size.height as i32) / 2;
 
         let r = self.size.map(|axis| axis.div_ceil(2));
-        // Note: Xiaolin Wu's algorithm draws line at center of the radius, so think about it already being centered on ellipse line
+        // Note: Xiaolin Wu's algorithm draws line at center of the radius, so
+        // think about it already being centered on ellipse line
         let stroke_size = Size::new_equal(style.stroke_width);
         let half_stroke_size = Size::new_equal(style.stroke_width / 2);
         // let half_ceil_stroke_size =

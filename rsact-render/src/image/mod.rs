@@ -35,7 +35,8 @@ impl<'a, K: slotmap::Key, C: Color> From<K> for Image<'a, K, C> {
 impl<'a, K: slotmap::Key, C: Color> PartialEq for Image<'a, K, C> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            // We assume that two different owned images are always different, even if they have the same content.
+            // We assume that two different owned images are always different,
+            // even if they have the same content.
             (Self::Owned(_), Self::Owned(_)) => false,
             (Self::Ref(l0), Self::Ref(r0)) => l0 == r0,
             (Self::Id(l0), Self::Id(r0)) => l0 == r0,

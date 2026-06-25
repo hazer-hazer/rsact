@@ -7,7 +7,9 @@ use crate::{
 };
 use core::marker::PhantomData;
 
-// TODO: Maybe can optimize this to a simple Rc<RefCell<T>> to avoid downcasting in runtime and lookups, while still we need the runtime to know about this value to be cleared when the scope is disposed.
+// TODO: Maybe can optimize this to a simple Rc<RefCell<T>> to avoid downcasting
+// in runtime and lookups, while still we need the runtime to know about this
+// value to be cleared when the scope is disposed.
 pub struct Inert<T: ?Sized> {
     id: ValueId,
     ty: PhantomData<T>,
@@ -63,7 +65,8 @@ impl<T: 'static> ReadSignal<T> for Inert<T> {
     }
 }
 
-// TODO: Implement WriteSignal? To be used in MaybeSignal? Maybe then we need R/W marker as Signal does?
+// TODO: Implement WriteSignal? To be used in MaybeSignal? Maybe then we need
+// R/W marker as Signal does?
 
 impl<T: 'static, U: 'static> SignalMap<T, U> for Inert<T> {
     type Output = Inert<U>;

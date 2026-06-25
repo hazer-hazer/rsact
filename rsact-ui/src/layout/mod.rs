@@ -1,9 +1,8 @@
-use crate::layout::length::LengthSize;
-use crate::render::prelude::*;
-use crate::utils::DisplayTruncated;
 use crate::{
     font::{FontCtx, FontProps, FontSize},
-    layout::node::Layout,
+    layout::{length::LengthSize, node::Layout},
+    render::prelude::*,
+    utils::DisplayTruncated,
 };
 use alloc::{string::String, vec::Vec};
 use core::{
@@ -11,10 +10,9 @@ use core::{
     u32,
 };
 use length::Length;
+pub use limits::Limits;
 use num::traits::SaturatingAdd;
 use rsact_reactive::prelude::*;
-
-pub use limits::Limits;
 
 pub mod flex;
 pub mod grid;
@@ -231,8 +229,8 @@ impl FlexLayout {
         })
 
         // children.fold(Limits::unlimited(), |limits, child| {
-        //     let child_limits = child.layout().with(|child| child.content_size());
-        //     Limits::new(
+        //     let child_limits = child.layout().with(|child|
+        // child.content_size());     Limits::new(
         //         axis.infix(
         //             limits.min(),
         //             child_limits.min(),
@@ -274,7 +272,8 @@ pub struct DevFlexLayout {
     real: FlexLayout,
 }
 
-/// DevLayout preserves some initial layout properties that are not required in [`LayoutModel`].
+/// DevLayout preserves some initial layout properties that are not required in
+/// [`LayoutModel`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct DevLayout {
     pub size: LengthSize,
@@ -563,7 +562,9 @@ impl Layout {
         Self::new(LayoutKind::Edge, size)
     }
 
-    /// Construct base scrollable layout where main axis will be shrinking and cross axis will fill. Also checks if content layout is with growing length on main axis which is disallowed.
+    /// Construct base scrollable layout where main axis will be shrinking and
+    /// cross axis will fill. Also checks if content layout is with growing
+    /// length on main axis which is disallowed.
     pub fn scrollable<Dir: Direction>(content: Layout) -> Self {
         let content_layout_length =
             content.with(|layout| layout.size.main(Dir::AXIS));

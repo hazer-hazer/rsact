@@ -20,6 +20,14 @@ pub mod eg;
 pub mod tiny_skia;
 
 pub mod prelude {
+    #[cfg(feature = "embedded-graphics")]
+    pub use crate::eg::{
+        framebuf::{Framebuf, PackedColor, PackedFramebuf},
+        primitives::*,
+        renderer::EGRenderer,
+    };
+    #[cfg(feature = "tiny-skia")]
+    pub use crate::tiny_skia::TinySkiaRenderer;
     pub use crate::{
         color::{BigEndian, ByteOrder, Color, LittleEndian, RgbColor as _},
         geometry::{Rect, Size, block_model::BlockModel, padding::Padding, *},
@@ -36,14 +44,4 @@ pub mod prelude {
         },
         style::{ColorStyle, DrawStyle, StrokeAlignment, block::*},
     };
-
-    #[cfg(feature = "embedded-graphics")]
-    pub use crate::eg::{
-        framebuf::{Framebuf, PackedColor, PackedFramebuf},
-        primitives::*,
-        renderer::EGRenderer,
-    };
-
-    #[cfg(feature = "tiny-skia")]
-    pub use crate::tiny_skia::TinySkiaRenderer;
 }

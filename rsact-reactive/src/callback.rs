@@ -10,7 +10,9 @@ pub trait AnyCallback {
     fn run(&mut self, value: Rc<RefCell<dyn Any>>) -> bool;
 }
 
-/// Function used with single or no parameters in effects, memos and computed. It is only needed to allow to optionally accept single parameter of previous value.
+/// Function used with single or no parameters in effects, memos and computed.
+/// It is only needed to allow to optionally accept single parameter of previous
+/// value.
 pub trait CallbackFn<T, P>: 'static {
     fn run(&mut self, p: Option<&T>) -> T;
 }

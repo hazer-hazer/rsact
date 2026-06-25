@@ -39,7 +39,9 @@ impl<C: Color> ColorStyle<C> {
         }
     }
 
-    // TODO: Dangerous, should not work so. Color must always be set to something. Color trait must have unset and transparent case implementation.
+    // TODO: Dangerous, should not work so. Color must always be set to
+    // something. Color trait must have unset and transparent case
+    // implementation.
     pub fn expect(self) -> C {
         self.get().expect("Color must be set at this point")
     }
@@ -98,8 +100,8 @@ impl<C: Color> DrawStyle<C> {
     // }
 
     // pub fn stroked(color: C, width: u32) -> Self {
-    //     Self { stroke: Some(color), stroke_width: width, ..Default::default() }
-    // }
+    //     Self { stroke: Some(color), stroke_width: width, ..Default::default()
+    // } }
 
     pub fn fill(mut self, color: C) -> Self {
         self.fill = Some(color);

@@ -12,10 +12,9 @@ use rsact_tiny_icons::{common::CommonIcon, system::SystemIcon};
 use rsact_ui::{
     event::{message::UiQueue, simulator::simulator_single_encoder},
     layout::Align,
-    prelude::*,
     prelude::{
         Button, Icon, IntoInert, Label, ReadSignal, Scrollable, SignalMap,
-        UiMessage, WriteSignal, create_effect, create_signal,
+        UiMessage, WriteSignal, create_effect, create_signal, *,
     },
     style::theme::Theme,
     ui::UI,
@@ -69,7 +68,8 @@ fn main() {
         .el()
     };
 
-    // This is not a good way to implement animations/logic, this's just to simulate printing process
+    // This is not a good way to implement animations/logic, this's just to
+    // simulate printing process
     let mut printing_file = create_signal(String::new());
     let mut printing_progress_anim_ts = create_signal(Instant::now());
     let mut is_printing = create_signal(false);
@@ -234,7 +234,8 @@ fn main() {
 
     let temp_page_id = "temp";
     let mut bed_temp = create_signal(RangeU8::<0, 110>::new_clamped(60));
-    // I know that nozzle temperature can be bigger than 255, but that's just a simulation
+    // I know that nozzle temperature can be bigger than 255, but that's just a
+    // simulation
     let mut nozzle_temp = create_signal(RangeU8::<0, 250>::new_clamped(220));
 
     let mut cool_anim_ts = create_signal(Instant::now());
@@ -392,7 +393,8 @@ fn main() {
             //     GLOBAL.allocated() as f32 / 1024.0
             // );
 
-            // Leaked mem here mostly means for me that new data was allocated in reactive runtime, not actual "bad" leaks :)
+            // Leaked mem here mostly means for me that new data was allocated
+            // in reactive runtime, not actual "bad" leaks :)
             total_mem_leaked += mem_leaked;
 
             println!(

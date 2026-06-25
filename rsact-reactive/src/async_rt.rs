@@ -39,7 +39,8 @@ impl<T> AsyncState<T> {
     }
 }
 
-/// Waker-based bridge between the synchronous reactive graph and an async driver future.
+/// Waker-based bridge between the synchronous reactive graph and an async
+/// driver future.
 ///
 /// The reactive system calls [`notify`] when a source changes; the async driver
 /// calls [`poll_wait`] to suspend until the next notification.
@@ -76,12 +77,14 @@ impl AsyncNotify {
         }
     }
 
-    /// Called inside the driver future's `poll` to wait for the next notification.
+    /// Called inside the driver future's `poll` to wait for the next
+    /// notification.
     ///
     /// Returns `Poll::Ready(())` if a notification is pending (clearing it);
     /// otherwise registers the waker and returns `Poll::Pending`.
     pub fn poll_wait(&self, cx: &mut Context<'_>) -> Poll<()> {
-        // Always update the waker — the executor may provide a new one each poll.
+        // Always update the waker — the executor may provide a new one each
+        // poll.
         *self.waker.borrow_mut() = Some(cx.waker().clone());
         if self.pending.get() {
             self.pending.set(false);

@@ -1,9 +1,9 @@
 use crate::{geometry::*, primitives::Primitive};
-
 #[allow(unused)]
 use num::Float as _;
 
-// TODO: Canonize Line when constructing? Swap start and end in to always keep start.x < end.x?
+// TODO: Canonize Line when constructing? Swap start and end in to always keep
+// start.x < end.x?
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Line {
     pub from: Point,
@@ -54,7 +54,8 @@ impl Line {
             //     as f32
             //     / l2;
             // let t =
-            //     (point - self.start).dot(self.end - self.start) as f32 / len_sq;
+            //     (point - self.start).dot(self.end - self.start) as f32 /
+            // len_sq;
             let t = (point.x - self.from.x) * delta.x
                 + (point.y - self.from.y) * delta.y;
             let t = t as f32 / len_sq;

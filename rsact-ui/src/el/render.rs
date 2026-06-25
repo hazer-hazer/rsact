@@ -21,8 +21,9 @@ use rsact_render::color::ACCENT_COUNT;
 pub struct CtxReady;
 pub struct CtxUnready;
 
-// TODO: Make RenderCtx a delegate to renderer so u can do `Primitive::(...).render(ctx)`?
-// Maybe later, and surely not .render(ctx), at least .render(ctx.renderer), otherwise it breaks encapsulation of the crates.
+// TODO: Make RenderCtx a delegate to renderer so u can do
+// `Primitive::(...).render(ctx)`? Maybe later, and surely not .render(ctx), at
+// least .render(ctx.renderer), otherwise it breaks encapsulation of the crates.
 
 pub struct RenderShared<'a, W: WidgetCtx> {
     pub page_state: &'a PageState<W>,
@@ -213,7 +214,8 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
         hash_source: H,
         f: impl FnOnce(RenderCtx<'_, W, CtxReady>) -> RenderResult,
     ) -> RenderResult {
-        // Imperative force-dirty flags that triggers redraw even if no reactive dependencies changed in the `observe`
+        // Imperative force-dirty flags that triggers redraw even if no reactive
+        // dependencies changed in the `observe`
         let redraw = self.frame.parent_dirty || self.needs_redraw;
 
         let result = observe_with_force(
@@ -228,15 +230,17 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
                     indent = self.frame.nesting_level
                 );
 
-                // Track force_redraw so this observer automatically re-runs when
-                // the page-level force-redraw flag is set (e.g. after layout change).
+                // Track force_redraw so this observer automatically re-runs
+                // when the page-level force-redraw flag is set
+                // (e.g. after layout change).
                 self.shared.force_redraw.track();
 
                 // Clear the element rect unless the parent already did so.
                 //
-                // Moved inside `observe` (vs old code where it was outside) so the
-                // clear is always paired with an actual redraw — never a
-                // clear-without-redraw or a redraw-without-clear.
+                // Moved inside `observe` (vs old code where it was outside) so
+                // the clear is always paired with an actual
+                // redraw — never a clear-without-redraw or a
+                // redraw-without-clear.
                 if !self.frame.parent_dirty {
                     self.clear_outer()?;
                 }
@@ -251,8 +255,9 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
                     layout: self.layout,
                     visual: self.visual,
                     shared: self.shared,
-                    // Children inside this closure see parent_dirty=true because
-                    // we just cleared/drew into this element's area above.
+                    // Children inside this closure see parent_dirty=true
+                    // because we just cleared/drew into
+                    // this element's area above.
                     frame: RenderFrame {
                         parent_dirty: true,
                         nesting_level: self.frame.nesting_level + 1,
@@ -276,7 +281,8 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
         &mut self,
         f: impl FnOnce(RenderCtx<'_, W, CtxReady>) -> RenderResult,
     ) -> RenderResult {
-        // TODO: Maybe we can store preformatted string render_id for each widget?
+        // TODO: Maybe we can store preformatted string render_id for each
+        // widget?
         let render_id = format!("{}[render_self]", self.debug_name);
         self.render_part(&render_id, f)
     }
@@ -285,9 +291,10 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
 impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
     fn clear_outer(&mut self) -> RenderResult {
         // TODO: Feature-gated or debug-redraw flag
-        // Debug redraws, works good only for colors with alpha. But we can use some bright background too
-        // TODO: Actually, this should happen after draw
-        // [ ] better when render_pass added, or do it right now as a separate call.
+        // Debug redraws, works good only for colors with alpha. But we can use
+        // some bright background too TODO: Actually, this should happen
+        // after draw [ ] better when render_pass added, or do it right
+        // now as a separate call.
 
         // self.renderer.rect(
         //     self.layout.outer,

@@ -9,8 +9,11 @@ pub trait Color: Copy + PartialEq + Debug {
     fn default_foreground() -> Self;
     fn default_background() -> Self;
 
-    /// Accents are used for internal UI elements. For RGB color it contains different colors to be used for contrasting element.
-    /// For colors with low resolution like BinaryColor or 2-bit color (4 colors only) it is constrained to never contain same colors subsequently, so for BinaryColor it is [black, white, black, white, black, white].
+    /// Accents are used for internal UI elements. For RGB color it contains
+    /// different colors to be used for contrasting element. For colors with
+    /// low resolution like BinaryColor or 2-bit color (4 colors only) it is
+    /// constrained to never contain same colors subsequently, so for
+    /// BinaryColor it is [black, white, black, white, black, white].
     fn accents() -> [Self; ACCENT_COUNT];
 
     fn map(&self, f: impl Fn(u8) -> u8) -> Self;

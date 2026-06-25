@@ -102,8 +102,8 @@ fn main() {
     // let polygon_edges = 5;
     // let polygon_center = Point::new(50, 200);
     // let polygon_radius = 25;
-    // let polygon_vertices = (0..360).step_by(360 / polygon_edges).map(|angle| {
-    //     let point = (angle as f32 * PI / 180.0).sin_cos();
+    // let polygon_vertices = (0..360).step_by(360 / polygon_edges).map(|angle|
+    // {     let point = (angle as f32 * PI / 180.0).sin_cos();
     //     polygon_center
     //         .add_x_round(point.1 * polygon_radius as f32)
     //         .add_y_round(point.0 * polygon_radius as f32)

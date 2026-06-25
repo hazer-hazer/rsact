@@ -108,8 +108,8 @@ impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction + 'static> Widget<W>
             )?;
 
             // ctx.renderer.line(
-            //     Line::new(start, end).into_styled(style.line_style(bar_width)),
-            // )?;
+            //     Line::new(start,
+            // end).into_styled(style.line_style(bar_width)), )?;
 
             Ok(())
         })

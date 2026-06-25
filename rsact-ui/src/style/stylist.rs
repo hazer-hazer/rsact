@@ -9,7 +9,13 @@ use crate::{
 use core::marker::PhantomData;
 use rsact_render::{color::Color, renderer::NullColor};
 
-// TODO: We can implement Stylist<S: Style> for T where T: ReadSignal<Stylist<S>> so that user can make reactive styles without much effort. But the problem is that this would make coarse-grained reactivity, so whole page will reload on any change. But root styles updates are not expected to happen frequently, it is common only for light/dark theme change or user preferences changes, for real fine-grained reactive styles user sets style functions in widgets.
+// TODO: We can implement Stylist<S: Style> for T where T:
+// ReadSignal<Stylist<S>> so that user can make reactive styles without much
+// effort. But the problem is that this would make coarse-grained reactivity, so
+// whole page will reload on any change. But root styles updates are not
+// expected to happen frequently, it is common only for light/dark theme change
+// or user preferences changes, for real fine-grained reactive styles user sets
+// style functions in widgets.
 
 pub trait Stylist<S: Style> {
     fn style(&self, base: &S, selector: &StyleSelector) -> S;

@@ -6,8 +6,8 @@ use rsact_reactive::prelude::*;
 // pub type Row<C> = Flex<C, RowDir>;
 // pub type Col<C> = Flex<C, ColDir>;
 
-// TODO: Do we need flex style? Using Container as combinator to have box style in flex may not be handy
-// declare_widget_style! {
+// TODO: Do we need flex style? Using Container as combinator to have box style
+// in flex may not be handy declare_widget_style! {
 //     FlexStyle () {
 //         container: container,
 //     }
@@ -192,6 +192,14 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Flex<W, Dir> {
     //     );
     //     self
     // }
+}
+
+impl<W: WidgetCtx + 'static, Dir: Direction + 'static> LayoutWidget<W>
+    for Flex<W, Dir>
+{
+    fn layout_mut(&mut self) -> &mut Layout {
+        &mut self.layout
+    }
 }
 
 impl<W: WidgetCtx + 'static, Dir: Direction + 'static> SizedWidget<W>

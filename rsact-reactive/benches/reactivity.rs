@@ -155,7 +155,8 @@ fn memo_read_cached(c: &mut Criterion) {
             fresh(|| {
                 let s = create_signal(1i32);
                 let m = create_memo(move || s.get() * 2);
-                // First read triggers evaluation; subsequent reads return cached value.
+                // First read triggers evaluation; subsequent reads return
+                // cached value.
                 std::hint::black_box(m.get());
                 std::hint::black_box(m.get());
                 std::hint::black_box(m.get());

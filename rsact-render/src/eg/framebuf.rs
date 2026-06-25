@@ -18,7 +18,8 @@ use embedded_graphics::{
 pub trait PackedColor {
     type Storage: Clone + Send + Sync + 'static;
 
-    /// Pixels-per-storage for a specific color (e.g. BinaryColor is one bit and 8 of it can be stored inside a single byte)
+    /// Pixels-per-storage for a specific color (e.g. BinaryColor is one bit and
+    /// 8 of it can be stored inside a single byte)
     fn pps() -> usize;
 
     fn into_storage(&self) -> Self::Storage;
@@ -223,7 +224,8 @@ impl<C: Color + PackedColor> Framebuf<C> for PackedFramebuf<C> {
 
 impl<C: Color + PackedColor> PackedFramebuf<C> {
     pub fn new(size: Size, initial_color: C) -> Self {
-        // TODO: Not really, unused space is possible, just choose least sufficient framebuf size
+        // TODO: Not really, unused space is possible, just choose least
+        // sufficient framebuf size
         assert!(
             size.area() as usize % C::pps() == 0,
             "PackedFramebuf area must be divisible by {} to store pixels packed",
@@ -238,8 +240,8 @@ impl<C: Color + PackedColor> PackedFramebuf<C> {
 }
 
 // TODO: When #[feature(generic_const_exprs)] is stabilized
-// pub struct CPackedFramebuf<C: Color, const WIDTH: usize, const HEIGHT: usize> {
-//     size: Size,
+// pub struct CPackedFramebuf<C: Color, const WIDTH: usize, const HEIGHT: usize>
+// {     size: Size,
 //     pixels: [[C::Storage; WIDTH]; HEIGHT],
 // }
 
@@ -299,8 +301,8 @@ impl<C: Color + PackedColor> PackedFramebuf<C> {
 // {
 //     pub fn new(size: Size) -> Self {
 //         let pixels = []
-//         let pixels = vec![C::none(); size.area() as usize / C::stored_pixels()]
-//             .into_boxed_slice();
+//         let pixels = vec![C::none(); size.area() as usize /
+// C::stored_pixels()]             .into_boxed_slice();
 //         Self { size, pixels }
 //     }
 // }
@@ -316,7 +318,8 @@ mod tests {
 
     #[test]
     fn rgb_framebuf_indexing() {
-        // This should work as a straightforward framebuffer without packing, because Rgb888 stored in a single u32
+        // This should work as a straightforward framebuffer without packing,
+        // because Rgb888 stored in a single u32
 
         const WIDTH: u32 = 120;
         const HEIGHT: u32 = 180;

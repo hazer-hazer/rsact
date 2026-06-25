@@ -6,8 +6,13 @@ pub mod stylist;
 pub mod theme;
 
 /*
- * TODO: Style possibly can be unified by StyleProp trait, instead of Style, and every property that can be used inside styles should implement it.
- * For example BlockStyle: StyleProp, ColorStyle: StyleProp, Angle: StyleProp. So style becomes a structure built out of itself where everything is generalized. Pros are general implementations, cons are dangerous default values (for example for Knob start angle and sweep angle should not be the same "default value")
+ * TODO: Style possibly can be unified by StyleProp trait, instead of Style,
+ * and every property that can be used inside styles should implement it. For
+ * example BlockStyle: StyleProp, ColorStyle: StyleProp, Angle: StyleProp. So
+ * style becomes a structure built out of itself where everything is
+ * generalized. Pros are general implementations, cons are dangerous default
+ * values (for example for Knob start angle and sweep angle should not be the
+ * same "default value")
  */
 
 pub trait Style {

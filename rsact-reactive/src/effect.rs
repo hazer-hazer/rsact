@@ -53,7 +53,8 @@ where
 /// Handle to a reactive side-effect.
 ///
 /// Returned by [`create_effect`]. The effect is tied to the innermost active
-/// [`crate::scope::ScopeHandle`] and is disposed (stopped) when the scope drops.
+/// [`crate::scope::ScopeHandle`] and is disposed (stopped) when the scope
+/// drops.
 ///
 /// `Effect<T>` can be used to query liveness via [`Effect::is_alive`], but
 /// normally you do not need to interact with it directly after creation.

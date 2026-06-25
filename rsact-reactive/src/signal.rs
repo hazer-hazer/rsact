@@ -12,8 +12,8 @@ use core::{marker::PhantomData, panic::Location};
 /// Create a new [`Signal<T>`] in the current runtime scope.
 ///
 /// This is the primary constructor for writable reactive state. The signal
-/// is owned by the innermost active [`crate::scope::ScopeHandle`]; when the scope is
-/// dropped all of its signals (and their dependent effects/memos) are
+/// is owned by the innermost active [`crate::scope::ScopeHandle`]; when the
+/// scope is dropped all of its signals (and their dependent effects/memos) are
 /// disposed automatically.
 ///
 /// # Example
@@ -45,12 +45,14 @@ impl<S, T: 'static> RwSignal<T> for S where S: ReadSignal<T> + WriteSignal<T> {}
 /// The [`Signal<T, M>`] struct carries `M` as a phantom type parameter.  
 /// Three concrete markers exist:
 /// - [`marker::Rw`] (default) — read **and** write access.
-/// - [`marker::ReadOnly`] — read access only; produced by splitting an `Rw` signal.
+/// - [`marker::ReadOnly`] — read access only; produced by splitting an `Rw`
+///   signal.
 /// - [`marker::WriteOnly`] — write access only.
 ///
-/// The [`marker::CanRead`] and [`marker::CanWrite`] sub-traits gate the [`crate::read::ReadSignal`] and
-/// [`crate::write::WriteSignal`] trait impls respectively, so passing a read-only signal
-/// where a write is required is a compile-time error.
+/// The [`marker::CanRead`] and [`marker::CanWrite`] sub-traits gate the
+/// [`crate::read::ReadSignal`] and [`crate::write::WriteSignal`] trait impls
+/// respectively, so passing a read-only signal where a write is required is a
+/// compile-time error.
 pub mod marker {
     #[derive(Clone, Copy)]
     pub struct ReadOnly;
@@ -147,11 +149,13 @@ impl<T: 'static, M: marker::Any> Signal<T, M> {
         }
     }
 
-    /// Construct a `Signal` handle over an already-existing runtime [`ValueId`].
+    /// Construct a `Signal` handle over an already-existing runtime
+    /// [`ValueId`].
     ///
-    /// This does not create a new value; it only re-wraps an existing one. It is
-    /// meant for reactive-on-write wrappers that manage an id's inert/reactive
-    /// transition themselves (see [`crate::runtime::Runtime::make_reactive`]).
+    /// This does not create a new value; it only re-wraps an existing one. It
+    /// is meant for reactive-on-write wrappers that manage an id's
+    /// inert/reactive transition themselves (see
+    /// [`crate::runtime::Runtime::make_reactive`]).
     ///
     /// # Safety
     /// The caller must ensure `id` refers to a live value of type `T` in the
@@ -294,7 +298,8 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MaybeReactive<U>>
                 self.setter(memo_chain, set_map)
             },
             // MaybeReactive::Derived(derived) => {
-            //     // TODO: use_effect or not to use effect? How do we know if derived function is using reactive values or not
+            //     // TODO: use_effect or not to use effect? How do we know if
+            // derived function is using reactive values or not
             //     let derived = Rc::clone(&derived);
             //     self.update(|this| set_map(this, &derived.borrow_mut()()));
             // },
@@ -327,14 +332,16 @@ impl<T: 'static, M: marker::CanWrite> Signal<T, M> {
 }
 
 impl<T: PartialEq + 'static, M: marker::CanRead> IntoMemo<T> for Signal<T, M> {
-    /// Converting Signal to Memo is cheap, and does not actually create new memo instance!
+    /// Converting Signal to Memo is cheap, and does not actually create new
+    /// memo instance!
     #[track_caller]
     fn memo(self) -> Memo<T> {
         Memo::Signal(self.read_only())
     }
 }
 
-/// Convert a value into a [`Signal`], or pass an existing signal through unchanged.
+/// Convert a value into a [`Signal`], or pass an existing signal through
+/// unchanged.
 ///
 /// Implemented for:
 /// - `T` → creates a new [`Signal<T>`] in the current scope.
@@ -347,12 +354,15 @@ impl<T: PartialEq + 'static, M: marker::CanRead> IntoMemo<T> for Signal<T, M> {
 /// # use rsact_reactive::prelude::*;
 /// # use rsact_reactive::runtime::with_new_runtime;
 /// # with_new_runtime(|_| {
-/// fn needs_signal(v: impl IntoSignal<u32>) -> Signal<u32> { v.signal() }
+/// fn needs_signal(v: impl IntoSignal<u32>) -> Signal<u32> {
+///     v.signal()
+/// }
 /// let _from_value = needs_signal(42u32);
 /// let _from_signal = needs_signal(create_signal(42u32));
 /// # });
 /// ```
-/// Helper trait which converts anything except [`Signal`] into signal, and leaves [`Signal`] as it is.
+/// Helper trait which converts anything except [`Signal`] into signal, and
+/// leaves [`Signal`] as it is.
 pub trait IntoSignal<T: 'static> {
     fn signal(self) -> Signal<T>;
 }
@@ -388,8 +398,9 @@ impl<T: 'static> IntoSignal<T> for T {
  * Most tests are stolen from Reactively framework :)
  *
  * Important notes:
- * - To count effect/memo calls, use [`WriteSignal::update_untracked`] and [`ReadSignal::get_untracked`]
- *   on counters, as they should not affect reactive context dependencies.
+ * - To count effect/memo calls, use [`WriteSignal::update_untracked`] and
+ *   [`ReadSignal::get_untracked`] on counters, as they should not affect
+ *   reactive context dependencies.
  */
 #[cfg(test)]
 mod tests {
@@ -860,8 +871,8 @@ mod tests {
     //         user.value.update(|_| {});
     //     });
 
-    //     // This could panic with borrowing error, but we run effects only in non-reactive contexts.
-    //     user.update(|user| {
+    //     // This could panic with borrowing error, but we run effects only in
+    // non-reactive contexts.     user.update(|user| {
     //         user.value.update(|_| {});
     //     });
     // }

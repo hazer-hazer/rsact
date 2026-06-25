@@ -2,7 +2,8 @@ use crate::{runtime::with_current_runtime, storage::ValueId};
 use alloc::vec::Vec;
 use core::fmt::Display;
 
-/// Creates new scope, all reactive values will be dropped on scope drop. Scope dropped automatically when returned ScopeHandle drops.
+/// Creates new scope, all reactive values will be dropped on scope drop. Scope
+/// dropped automatically when returned ScopeHandle drops.
 #[must_use]
 #[track_caller]
 pub fn new_scope() -> ScopeHandle {
@@ -16,8 +17,10 @@ pub fn new_scope() -> ScopeHandle {
     })
 }
 
-// TODO: Rename to something tautology like `new_void_scope` or `new_childless_scope` or `new_inert_scope`
-/// Creates new scope where creation of new reactive values is disallowed and will cause a panic. Useful mostly only for debugging.
+// TODO: Rename to something tautology like `new_void_scope` or
+// `new_childless_scope` or `new_inert_scope`
+/// Creates new scope where creation of new reactive values is disallowed and
+/// will cause a panic. Useful mostly only for debugging.
 #[track_caller]
 pub fn new_deny_new_scope() -> ScopeHandle {
     #[cfg(feature = "debug-info")]
@@ -177,8 +180,9 @@ mod tests {
                 });
             }
             // Scope dropped → effect disposed.
-            // Writing the signal must not panic even though the effect previously
-            // subscribed to it. (ghost entry would cause a mark on a dead ValueId)
+            // Writing the signal must not panic even though the effect
+            // previously subscribed to it. (ghost entry would cause
+            // a mark on a dead ValueId)
             sig.set(1);
             sig.set(2);
         });
@@ -204,7 +208,8 @@ mod tests {
 
             let after_scope = run_count.get(); // ran once on creation
 
-            // Signal write after scope drop must not re-run the disposed effect.
+            // Signal write after scope drop must not re-run the disposed
+            // effect.
             sig.set(99);
             assert_eq!(
                 run_count.get(),

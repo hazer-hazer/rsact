@@ -100,7 +100,8 @@ pub trait Axial {
         (f(self.x()), f(self.y()))
     }
 
-    // TODO: Rename to `destruct_by_axis`, add `destruct` to destruct by main axis
+    // TODO: Rename to `destruct_by_axis`, add `destruct` to destruct by main
+    // axis
     fn destruct(&self, main: Axis) -> (Self::Data, Self::Data) {
         match main {
             Axis::X => (self.x(), self.y()),

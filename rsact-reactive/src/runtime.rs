@@ -121,7 +121,8 @@ crate::thread_local::thread_local_impl! {
     };
 }
 
-/// Defers effect flushing until the guard is dropped (or [`DeferEffectsGuard::run`] is called).
+/// Defers effect flushing until the guard is dropped (or
+/// [`DeferEffectsGuard::run`] is called).
 ///
 /// Obtained from [`defer_effects`]. Equivalent to a single nesting level of
 /// [`batch`]: effects are only flushed when the outermost
@@ -155,14 +156,16 @@ impl Drop for DeferEffectsGuard {
             rt.defer_effects.set(count);
             // Only flush when the outermost batch ends
             if count == 0 {
-                // TODO: Not an Option but Requester enum with DeferEffectsGuard?
+                // TODO: Not an Option but Requester enum with
+                // DeferEffectsGuard?
                 rt.run_effects(None, caller);
             }
         })
     }
 }
 
-// TODO: ObserverGuard to flatten callbacks into `start_observe` and `end_observe` (auto on drop)
+// TODO: ObserverGuard to flatten callbacks into `start_observe` and
+// `end_observe` (auto on drop)
 
 /// Like [`observe`] but identifies the call-site by its source location
 /// rather than an explicit key.  
@@ -177,7 +180,8 @@ pub fn observe_by_location<R>(f: impl FnOnce() -> R) -> Option<R> {
     })
 }
 
-// TODO: Should observes be scoped? Like 1 { 2 {} } should not be the same observers as 2 { 1 {} } in the storage.
+// TODO: Should observes be scoped? Like 1 { 2 {} } should not be the same
+// observers as 2 { 1 {} } in the storage.
 /// Run `f` identified by an arbitrary hashable key; re-runs only if reactive
 /// dependencies from the previous call changed.
 ///
@@ -194,7 +198,8 @@ pub fn observe<H: Hash, R>(id: H, f: impl FnOnce() -> R) -> Option<R> {
     })
 }
 
-/// Observe version with `force` option to force execution even if no reactive dependencies changed.
+/// Observe version with `force` option to force execution even if no reactive
+/// dependencies changed.
 #[track_caller]
 pub fn observe_with_force<H: Hash, R>(
     id: H,
@@ -256,7 +261,8 @@ pub fn batch<T>(f: impl FnOnce() -> T) -> T {
 /// ```text
 /// let memo = create_memo(move |_| signal.get())
 /// ```
-/// Here `signal` is a *source* of `memo`, and `memo` is a *subscriber* of `signal`.
+/// Here `signal` is a *source* of `memo`, and `memo` is a *subscriber* of
+/// `signal`.
 #[derive(Default)]
 pub struct Runtime {
     pub(crate) storage: Storage,
@@ -268,14 +274,19 @@ pub struct Runtime {
     pub(crate) observer: Cell<Option<ValueId>>,
     /// Signals subscribers.
     pub(crate) subscribers: RefCell<SecondaryMap<ValueId, BTreeSet<ValueId>>>,
-    /// Sources of signal changes. Signals that affect this observer (memo, effect, etc.).
+    /// Sources of signal changes. Signals that affect this observer (memo,
+    /// effect, etc.).
     pub(crate) sources: RefCell<SecondaryMap<ValueId, BTreeSet<ValueId>>>,
-    // TODO: Maybe use Vec or BTreeMap<Vec<>> so values are pre-sorted in topological order, so we don't need to sort them on every update?
-    /// Effects to run after value changed or after [`DeferEffectsGuard`] runs/drops if defer_effects is enabled.
+    // TODO: Maybe use Vec or BTreeMap<Vec<>> so values are pre-sorted in
+    // topological order, so we don't need to sort them on every update?
+    /// Effects to run after value changed or after [`DeferEffectsGuard`]
+    /// runs/drops if defer_effects is enabled.
     pub(crate) pending_effects: RefCell<BTreeSet<ValueId>>,
-    /// Nesting depth of active `batch()`/`defer_effects()` guards. Effects are deferred while > 0.
+    /// Nesting depth of active `batch()`/`defer_effects()` guards. Effects are
+    /// deferred while > 0.
     pub(crate) defer_effects: Cell<u32>,
-    /// Mapping from [`observe`] call location to its value id. Calling the same [`observe`] twice gives the same [`ValueId`]
+    /// Mapping from [`observe`] call location to its value id. Calling the
+    /// same [`observe`] twice gives the same [`ValueId`]
     static_observers: RefCell<BTreeMap<u64, ValueId>>,
     hasher: RandomState,
 }
@@ -442,11 +453,11 @@ impl Runtime {
             .unwrap_or(false)
     }
 
-    /// Upgrade an inert [`ValueKind::Stored`] value into a [`ValueKind::Signal`]
-    /// in place, keeping the same [`ValueId`]. This is the reactive-on-write
-    /// transition: because reactivity is keyed by `ValueId`, every existing
-    /// handle to `id` becomes reactive at once. No-op if `id` is already
-    /// reactive or absent.
+    /// Upgrade an inert [`ValueKind::Stored`] value into a
+    /// [`ValueKind::Signal`] in place, keeping the same [`ValueId`]. This
+    /// is the reactive-on-write transition: because reactivity is keyed by
+    /// `ValueId`, every existing handle to `id` becomes reactive at once.
+    /// No-op if `id` is already reactive or absent.
     pub fn make_reactive(&self, id: ValueId) {
         let mut values = self.storage.values.borrow_mut();
         if let Some(value) = values.get_mut(id) {
@@ -574,7 +585,9 @@ impl Runtime {
             // in static_observers but is no longer alive, so we must recreate
             // it; otherwise every subsequent observe call silently returns
             // None and the subtree is never redrawn.
-            // TODO: This logic is basically wrong. As if parent observer cleanups its owned observers, then we create new dirty observer each time, leading to rerun each time. We need tests for this.
+            // TODO: This logic is basically wrong. As if parent observer
+            // cleanups its owned observers, then we create new dirty observer
+            // each time, leading to rerun each time. We need tests for this.
             if !self.is_alive(existing) {
                 debug!("Reviving observe");
                 let new_id = self.add_value::<_, ()>(
@@ -591,12 +604,15 @@ impl Runtime {
         };
 
         self.subscribe(id);
-        // TODO: `maybe_update` call can be eliminated when `force=true` and just replaced with marking subscribers as dirty as we don't need to check deps.
+        // TODO: `maybe_update` call can be eliminated when `force=true` and
+        // just replaced with marking subscribers as dirty as we don't need to
+        // check deps.
         let updated = self.maybe_update(id, Some(id), location);
 
         if updated || force {
             let result = self.with_observer(id, |rt| {
-                // TODO: Cleanup is wrong, we need to delete only values from the previous call, as we might delete nested observer
+                // TODO: Cleanup is wrong, we need to delete only values from
+                // the previous call, as we might delete nested observer
                 // rt.cleanup(id);
                 f()
             });
@@ -657,7 +673,8 @@ impl Runtime {
     }
 
     pub(crate) fn drop_scope(&self, scope_id: ScopeId) {
-        // Release the borrow immediately so dispose() can run without conflicts.
+        // Release the borrow immediately so dispose() can run without
+        // conflicts.
         let scope_data = self.scopes.borrow_mut().remove(scope_id).unwrap();
 
         // TODO: Children scopes drop
@@ -745,12 +762,15 @@ impl Runtime {
     ) -> bool {
         if self.is(id, ValueState::Check) {
             let sources = {
-                // TODO: Optimize out cloned sources set. Maybe alloc a Vec instead of using BTreeSet.
+                // TODO: Optimize out cloned sources set. Maybe alloc a Vec
+                // instead of using BTreeSet.
                 let subs = self.sources.borrow();
                 subs.get(id).cloned().into_iter().flatten()
             };
             for source in sources {
-                // TODO: Should all sources by updates or we stop at the first change? If we stop at the first, why do even check if value could already be dirty?
+                // TODO: Should all sources by updates or we stop at the first
+                // change? If we stop at the first, why do even check if value
+                // could already be dirty?
                 self.maybe_update(source, Some(source), caller);
                 if self.is(id, ValueState::Dirty) {
                     // TODO: Cache check and use after break
@@ -856,7 +876,8 @@ impl Runtime {
     ) {
         self.mark_node(id, ValueState::Dirty, requester, caller);
 
-        // TODO: Find other way to deal with recursive dependencies than BTreeSet?
+        // TODO: Find other way to deal with recursive dependencies than
+        // BTreeSet?
         let mut deps = BTreeSet::new();
         Self::get_deep_deps(&self.subscribers.borrow(), &mut deps, id);
         for dep in deps {
@@ -922,8 +943,8 @@ impl Runtime {
     pub fn debug_info(&self, id: ValueId) -> crate::storage::ValueDebugInfo {
         let debug_info = self.storage.debug_info(id).unwrap();
 
-        // TODO: This is wrong, should not return current observer but subscribers list
-        // if let Some(crate::storage::ValueDebugInfo {
+        // TODO: This is wrong, should not return current observer but
+        // subscribers list if let Some(crate::storage::ValueDebugInfo {
         //     created_at: observer,
         //     ..
         // }) = self
@@ -946,7 +967,8 @@ impl Runtime {
     }
 
     /// Generate mermaid graph containing all values in runtime.
-    /// Be careful, this might be very expensive, use it only for debug purposes.
+    /// Be careful, this might be very expensive, use it only for debug
+    /// purposes.
     #[cfg(feature = "debug-info")]
     pub fn global_mermaid_graph(
         &self,
@@ -1113,7 +1135,8 @@ impl Runtime {
         {
             let sources = self.sources.borrow();
             if let Some(srcs) = sources.get(id) {
-                // Remove `id` from the subscriber set of every source it previously tracked.
+                // Remove `id` from the subscriber set of every source it
+                // previously tracked.
                 let mut subs = self.subscribers.borrow_mut();
                 for source in srcs {
                     if let Some(set) = subs.get_mut(*source) {
@@ -1123,14 +1146,16 @@ impl Runtime {
             }
         }
 
-        // Clear the source list so heights are recomputed on next re-subscription.
+        // Clear the source list so heights are recomputed on next
+        // re-subscription.
         if let Some(srcs) = self.sources.borrow_mut().get_mut(id) {
             srcs.clear();
         }
 
-        // FIXME: I am deleting the values created in this observer, but they could be leaked outside.
-        // Collect and clear owned list before calling dispose to avoid a double
-        // borrow of `owned` (dispose() also calls owned.borrow_mut()).
+        // FIXME: I am deleting the values created in this observer, but they
+        // could be leaked outside. Collect and clear owned list before
+        // calling dispose to avoid a double borrow of `owned`
+        // (dispose() also calls owned.borrow_mut()).
         let owned_snapshot: Vec<ValueId> = self
             .owned
             .borrow_mut()
@@ -1163,15 +1188,17 @@ impl Runtime {
             return;
         }
 
-        // Loop until stable: running effects may write signals that queue more effects.
+        // Loop until stable: running effects may write signals that queue more
+        // effects.
         loop {
             let pending = self.pending_effects.take();
             if pending.is_empty() {
                 break;
             }
 
-            // Sort by topological height so effects closer to source signals run first,
-            // preventing glitches (an observer never sees a stale intermediate value).
+            // Sort by topological height so effects closer to source signals
+            // run first, preventing glitches (an observer never
+            // sees a stale intermediate value).
             let mut sorted: Vec<ValueId> = pending.into_iter().collect();
             sorted.sort_unstable_by_key(|&id| self.storage.get_height(id));
 
@@ -1181,9 +1208,10 @@ impl Runtime {
         }
     }
 
-    /// Recompute the topological height of `id` from its current sources and update storage.
-    /// Height = max(height of sources) + 1.  Signals start at 0 (no sources).
-    /// Called after every new subscription so pending effects are always sorted correctly.
+    /// Recompute the topological height of `id` from its current sources and
+    /// update storage. Height = max(height of sources) + 1.  Signals start
+    /// at 0 (no sources). Called after every new subscription so pending
+    /// effects are always sorted correctly.
     fn update_height(&self, id: ValueId) {
         let new_height = {
             let sources = self.sources.borrow();
@@ -1255,8 +1283,8 @@ impl Runtime {
     //             fs.borrow_mut()
     //                 .entry(order)
     //                 .or_default()
-    //                 .push(Rc::new(RefCell::new(MemoChainCallback::new(map))));
-    //         },
+    //
+    // .push(Rc::new(RefCell::new(MemoChainCallback::new(map))));         },
     //         _ => panic!("Cannot add memo chain to {}", kind),
     //     }
     // }
@@ -1622,7 +1650,8 @@ mod tests {
             condition.set(false);
             assert_eq!(reads.get(), 2);
 
-            // `a` should have no subscribers now (cleanup removed the stale sub).
+            // `a` should have no subscribers now (cleanup removed the stale
+            // sub).
             let a_id = a.id().unwrap();
             let a_subs =
                 rt.subscribers.borrow().get(a_id).map(|s| s.len()).unwrap_or(0);
@@ -1631,7 +1660,8 @@ mod tests {
                 "stale subscription to `a` not removed after cleanup"
             );
 
-            // Writing `a` must not trigger the effect (it no longer depends on it).
+            // Writing `a` must not trigger the effect (it no longer depends on
+            // it).
             let before = reads.get();
             a.set(99);
             assert_eq!(

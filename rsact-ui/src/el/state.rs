@@ -1,7 +1,8 @@
-use crate::el::WidgetFlags;
-use crate::{el::WidgetCtx, widget::Widget};
-use core::fmt::Debug;
-use core::marker::PhantomData;
+use crate::{
+    el::{WidgetCtx, WidgetFlags},
+    widget::Widget,
+};
+use core::{fmt::Debug, marker::PhantomData};
 
 #[derive(Debug, Clone, Copy)]
 pub enum ClipPath {
@@ -68,7 +69,8 @@ impl<W: WidgetCtx> ElState<W> {
 
     pub fn maybe_hover_from_child(&mut self, child_hover: bool) {
         if self.flags.hoverable_from_children {
-            // Child hovered only affects true values because we could already hover this element directly
+            // Child hovered only affects true values because we could already
+            // hover this element directly
             self.hovered = self.hovered || child_hover;
         }
 

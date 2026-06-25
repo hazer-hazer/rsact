@@ -1,6 +1,5 @@
 use super::{FontHandler, FontStyle, ResolvedFontProps};
-use crate::render::prelude::*;
-use crate::{el::ctx::*, layout::Limits};
+use crate::{el::ctx::*, layout::Limits, render::prelude::*};
 use alloc::collections::btree_map::BTreeMap;
 use core::fmt::Display;
 
@@ -46,7 +45,8 @@ impl FontHandler for FixedFont {
 
                 Some(Limits::new(max_size, max_size))
             },
-            // TODO: How does initial point affects dimensions? Maybe we should add position to size to compute real bounding box
+            // TODO: How does initial point affects dimensions? Maybe we should
+            // add position to size to compute real bounding box
             #[cfg(feature = "u8g2-fonts")]
             Self::U8G2(font) => {
                 let bounds = font
@@ -149,8 +149,10 @@ impl PartialEq for FixedFont {
 }
 
 /// Fixed-size fonts collection mapped by size and style.
-/// It is used for dynamically sized pre-rendered fonts such as embedded_graphics MonoFont and U8G2 which aren't vector graphics font and not rendered at runtime, so we only have pre-generated sizes sets.
-/// Font size here is absolute font height.
+/// It is used for dynamically sized pre-rendered fonts such as
+/// embedded_graphics MonoFont and U8G2 which aren't vector graphics font and
+/// not rendered at runtime, so we only have pre-generated sizes sets. Font size
+/// here is absolute font height.
 pub struct FixedFontCollection {
     sizes_styles: BTreeMap<u32, BTreeMap<FontStyle, FixedFont>>,
 }

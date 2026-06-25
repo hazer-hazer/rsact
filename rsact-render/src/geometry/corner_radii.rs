@@ -4,7 +4,8 @@ use crate::geometry::{
     vector::{ByUnitV2, UnitV2},
 };
 
-/// First-class corner radii, replacing embedded_graphics::primitives::CornerRadii.
+/// First-class corner radii, replacing
+/// embedded_graphics::primitives::CornerRadii.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CornerRadii {
     pub top_left: Size,
@@ -45,7 +46,8 @@ impl CornerRadii {
         }
     }
 
-    /// Clamp radius for a rect of the given size, ensuring that radii do not overlap.
+    /// Clamp radius for a rect of the given size, ensuring that radii do not
+    /// overlap.
     pub fn clamp_for(&self, size: Size) -> Self {
         let w = size.width;
         let h = size.height;

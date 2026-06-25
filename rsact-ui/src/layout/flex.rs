@@ -1,18 +1,20 @@
 use super::{FlexLayout, LayoutCtx, Limits, length::Length};
-use crate::layout::{
-    Align,
-    length::{DivFactors, LengthSize},
-    model::{LayoutModel, model_layout},
+use crate::{
+    layout::{
+        Align,
+        length::{DivFactors, LengthSize},
+        model::{LayoutModel, model_layout},
+    },
+    render::prelude::*,
 };
-use crate::render::prelude::*;
 use alloc::vec::Vec;
 use itertools::Itertools as _;
 use rsact_reactive::prelude::*;
 
 // TODO: Wrap and gap are not taken into account
-// TODO: Move usage of this function into FlexLayout::base function accepting list of maybe reactive children
-// pub fn flex_content_size<'a, W: WidgetCtx, E: Widget<W> + 'a>(
-//     axis: Axis,
+// TODO: Move usage of this function into FlexLayout::base function accepting
+// list of maybe reactive children pub fn flex_content_size<'a, W: WidgetCtx, E:
+// Widget<W> + 'a>(     axis: Axis,
 //     children: impl Iterator<Item = &'a E>,
 // ) -> Limits {
 //     children.fold(Limits::unlimited(), |limits, child| {
@@ -49,7 +51,8 @@ struct FlexLine {
     items_count: u32,
     /// Available main axis left
     free_main: u32,
-    /// The amount of main axis length left for fluid items determined by their minimum size.
+    /// The amount of main axis length left for fluid items determined by their
+    /// minimum size.
     fluid_main_space: u32,
     /// Maximum item cross axis size in line
     max_cross: u32,
@@ -57,7 +60,8 @@ struct FlexLine {
 
 pub fn model_flex(
     ctx: &LayoutCtx,
-    // TODO: Replace with parent max size as parent_limits.min is not used at all.
+    // TODO: Replace with parent max size as parent_limits.min is not used at
+    // all.
     parent_limits: Limits,
     flex_layout: &FlexLayout,
     size: LengthSize, // viewport: Memo<Size>,
@@ -171,15 +175,20 @@ pub fn model_flex(
 
                 children_layouts[item_index] = child_layout;
 
-                // Subtract known children main axis length from free space to overflow. Free cross axis is calculated on wrap
+                // Subtract known children main axis length from free space to
+                // overflow. Free cross axis is calculated on wrap
                 line.free_main =
                     line.free_main.saturating_sub(child_layout_size.main(axis));
 
                 line.max_cross =
                     line.max_cross.max(child_layout_size.cross(axis));
             } else {
-                // TODO: Is it right to use min size of a child to determine max_cross? It won't let fill sized elements to grow.
-                // - But otherwise how do we determine the amount the element should grow? We only exactly know fixed sizes of elements before computing fluid sizes. So fluid elements grow to maximum of fixed size used.
+                // TODO: Is it right to use min size of a child to determine
+                // max_cross? It won't let fill sized elements to grow.
+                // - But otherwise how do we determine the amount the element
+                //   should grow? We only exactly know fixed sizes of elements
+                //   before computing fluid sizes. So fluid elements grow to
+                //   maximum of fixed size used.
                 line.max_cross = line.max_cross.max(child_min_size.cross(axis));
                 line.fluid_main_space += needed_item_space.main(axis);
             }
@@ -216,7 +225,8 @@ pub fn model_flex(
 
     let container_free_cross_div =
         container_free_cross.checked_div(lines_count).unwrap_or(0);
-    // TODO: Should find GCD or use some other technique to avoid remainders greater than children count.
+    // TODO: Should find GCD or use some other technique to avoid remainders
+    // greater than children count.
     let mut container_free_cross_rem =
         container_free_cross.checked_rem(lines_count).unwrap_or(0);
     let mut model_lines = lines
@@ -391,7 +401,8 @@ pub fn model_flex(
         (horizontal_align, vertical_align),
         (Align::Start, Align::Start)
     ) {
-        // TODO: Optimize, each line free main axis space recomputed for each item in line
+        // TODO: Optimize, each line free main axis space recomputed for each
+        // item in line
         for (child_layout, item) in children_layouts.iter_mut().zip(items) {
             let line = model_lines[item.line];
 
@@ -416,9 +427,9 @@ pub fn model_flex(
         crate::layout::DevLayout::new(
             size,
             crate::layout::DevLayoutKind::Flex(crate::layout::DevFlexLayout {
-                // TODO: Implement dev representation of lines such as browsers does.
-                // lines: model_lines.iter().fold((Vec::new(),
-                // Point::zero()),|line| {
+                // TODO: Implement dev representation of lines such as browsers
+                // does. lines: model_lines.iter().
+                // fold((Vec::new(), Point::zero()),|line| {
                 //     Rectangle::new(line.)
                 // }),
                 real: flex_layout.clone(),

@@ -1,5 +1,3 @@
-use core::fmt::Display;
-
 use crate::{
     geometry::{
         anchor::{AnchorPoint, AnchorX, AnchorY},
@@ -9,6 +7,7 @@ use crate::{
     },
     primitives::Primitive,
 };
+use core::fmt::Display;
 
 /// First-class 2D axis-aligned rectangle.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

@@ -1,10 +1,9 @@
-use crate::el::ctx::WidgetCtx;
-use crate::font::FontCtx;
-use crate::render::prelude::*;
 use crate::{
+    el::ctx::WidgetCtx,
+    font::FontCtx,
     layout::DevHoveredLayout,
     prelude::{BlockStyle, BorderStyle},
-    render::color::Color,
+    render::{color::Color, prelude::*},
 };
 use rsact_reactive::prelude::*;
 
@@ -51,7 +50,8 @@ impl DevHoveredEl {
             Self::block(area - padding, inner_color).render(r)?;
         }
 
-        // TODO: Viewport-dependent font props resolution similar to layout computation for text widget.
+        // TODO: Viewport-dependent font props resolution similar to layout
+        // computation for text widget.
         font_ctx.with(|font_ctx| {
             font_ctx.render::<W>(
                 crate::font::Font::Auto,

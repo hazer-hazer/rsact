@@ -1,9 +1,8 @@
-use embedded_graphics::pixelcolor::Rgb888;
-
 use crate::{
     color::{Color, RgbColor},
     output::MapColor,
 };
+use embedded_graphics::pixelcolor::Rgb888;
 
 impl Color for tiny_skia::Color {
     const WHITE: Self = tiny_skia::Color::WHITE;
@@ -42,7 +41,9 @@ impl Color for tiny_skia::Color {
         }
     }
 
-    // TODO: Does mapping f32 -> u8 -> f32 lose any precision significant for tiny_skia or it is only required for tiny_skia internals and we are okay operating on u8?
+    // TODO: Does mapping f32 -> u8 -> f32 lose any precision significant for
+    // tiny_skia or it is only required for tiny_skia internals and we are okay
+    // operating on u8?
     fn map(&self, f: impl Fn(u8) -> u8) -> Self {
         let u8 = self.to_color_u8();
         tiny_skia::Color::from_rgba8(

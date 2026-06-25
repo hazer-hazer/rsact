@@ -7,7 +7,8 @@ pub enum Easing {
     // TODO:
     // CubicBezier,
 
-    // TODO: Write down what feelings each function gives for user to help pick the right one?
+    // TODO: Write down what feelings each function gives for user to help
+    // pick the right one?
     EaseInSine,
     EaseOutSine,
     EaseInOutSine,
@@ -71,7 +72,8 @@ pub enum Easing {
 
 impl Easing {
     // TODO: Possible optimization is LUTs
-    /// `f(x) = y` timing function where x is the time point strictly inside 0.0-1.0 range
+    /// `f(x) = y` timing function where x is the time point strictly inside
+    /// 0.0-1.0 range
     pub fn point(&self, x: f32) -> f32 {
         debug_assert!(x >= 0.0 && x <= 1.0);
 

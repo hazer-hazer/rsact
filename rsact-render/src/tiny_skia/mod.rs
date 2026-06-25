@@ -5,13 +5,12 @@ use crate::{
     tiny_skia::path::PathBuilderExt,
 };
 use core::marker::PhantomData;
+#[allow(unused)]
+use num::Float as _;
 use tiny_skia::{
     IntSize, Paint, Pixmap, PixmapPaint, PixmapRef, PremultipliedColorU8,
     Transform,
 };
-
-#[allow(unused)]
-use num::Float as _;
 
 pub mod color;
 pub mod geometry;
@@ -19,9 +18,13 @@ pub mod path;
 
 impl Surface for Pixmap {
     fn new(size: Size) -> Self {
-        // To avoid using new + fill we preallocate a vector for Pixmap with opaque white background.
-        // TODO: We better get rid of default_background and default_foreground for Color as we usually expect white and black for these and Color type must not dictate it as it is not color-type-dependent property, but actual default. Color must have BLACK and WHITE constants instead.
-        // TODO: Copy overflow-safe data length computation from tiny-skia?
+        // To avoid using new + fill we preallocate a vector for Pixmap with
+        // opaque white background. TODO: We better get rid of
+        // default_background and default_foreground for Color as we usually
+        // expect white and black for these and Color type must not dictate it
+        // as it is not color-type-dependent property, but actual default. Color
+        // must have BLACK and WHITE constants instead. TODO: Copy
+        // overflow-safe data length computation from tiny-skia?
         let data = vec![0xff; size.width as usize * size.height as usize * 4];
         Pixmap::from_vec(
             data,
@@ -46,14 +49,19 @@ impl TinySkiaRenderer<tiny_skia::Color> {
         Rect::new(Point::zero(), self.size)
     }
 
-    // TODO: Add `current_paint`/`current_transform` used via callbacks like Renderer::with_transform(transform, |renderer| ...). But before this we need to move from EG to our implementation of Path.
+    // TODO: Add `current_paint`/`current_transform` used via callbacks like
+    // Renderer::with_transform(transform, |renderer| ...). But before this we
+    // need to move from EG to our implementation of Path.
     fn base_paint<'a>(&self) -> Paint<'a> {
         let paint = Paint::default();
         // TODO: Renderer options: anti-aliasing, colorspace, etc.
         paint
     }
 
-    // TODO: How do we deal with the StrokeAlignment that is supported by embedded graphics but not by tiny-skia? Do we just ignore it and always stroke centered on the path? Or do we implement it ourselves by stroking with offset?
+    // TODO: How do we deal with the StrokeAlignment that is supported by
+    // embedded graphics but not by tiny-skia? Do we just ignore it and always
+    // stroke centered on the path? Or do we implement it ourselves by stroking
+    // with offset?
     fn tiny_skia_path(
         &mut self,
         path: &tiny_skia::Path,
@@ -170,7 +178,8 @@ impl Renderer for TinySkiaRenderer<tiny_skia::Color> {
     }
 
     fn pixel(&mut self, point: Point, color: Self::Color) -> RenderResult {
-        // TODO: Replace with a distinct `contains` method to avoid creating a Rect each time.
+        // TODO: Replace with a distinct `contains` method to avoid creating a
+        // Rect each time.
         if !self.bounding_box().contains(point) {
             return Ok(());
         }
@@ -183,7 +192,8 @@ impl Renderer for TinySkiaRenderer<tiny_skia::Color> {
         Ok(())
     }
 
-    // TODO: Shouldn't line only have stroke and no fill? tiny-skia allows line to have both which seems incorrect.
+    // TODO: Shouldn't line only have stroke and no fill? tiny-skia allows line
+    // to have both which seems incorrect.
     fn line(
         &mut self,
         from: Point,

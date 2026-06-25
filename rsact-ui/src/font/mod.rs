@@ -27,13 +27,18 @@ pub enum TextVerticalAlign {
     Bottom,
 }
 
-// TODO: Get rid of FontProps in every widget, Remove FontSettingWidget, create TextStyle widget that sets font properties and styles in the tree to be applied to all children. Not any node must contain FontProps, only TextStyle and Content will, TextStyle will propagate FontProps down the tree in layout modeling pass.
-/// Tree-targeting font properties stored inside layouts with contents and passed on mount to widgets.
+// TODO: Get rid of FontProps in every widget, Remove FontSettingWidget, create
+// TextStyle widget that sets font properties and styles in the tree to be
+// applied to all children. Not any node must contain FontProps, only TextStyle
+// and Content will, TextStyle will propagate FontProps down the tree in layout
+// modeling pass.
+/// Tree-targeting font properties stored inside layouts with contents and
+/// passed on mount to widgets.
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
 pub struct FontProps {
-    pub font: Option<MaybeReactive<Font>>,
-    pub font_size: Option<MaybeReactive<FontSize>>,
-    pub font_style: Option<MaybeReactive<FontStyle>>,
+    pub font: Option<Font>,
+    pub font_size: Option<FontSize>,
+    pub font_style: Option<FontStyle>,
 }
 
 impl FontProps {
@@ -57,23 +62,17 @@ impl FontProps {
     }
 
     pub fn resolve(&self, viewport: Size) -> ResolvedFontProps {
-        let font_size = self
-            .font_size
-            .map(|font_size| font_size.get())
-            .unwrap_or_default()
-            .resolve(viewport);
+        let font_size = self.font_size.unwrap_or_default().resolve(viewport);
 
-        let font_style = self
-            .font_style
-            .map(|font_style| font_style.get())
-            .unwrap_or_default();
+        let font_style = self.font_style.unwrap_or_default();
 
         ResolvedFontProps { size: font_size, style: font_style }
     }
 
     pub fn font(&self) -> Font {
-        // TODO: Is font required to be set at least by global default or we should fallback here?
-        self.font.unwrap().get()
+        // TODO: Is font required to be set at least by global default or we
+        // should fallback here?
+        self.font.unwrap()
     }
 }
 
@@ -174,7 +173,9 @@ pub enum FontFamily {
     // TODO: Custom?
 }
 
-/// Font setting found in text widget. It is an identifier pointing to the actual font or a fixed-size font set for a specific text widget (e.g. embedded_graphics MonoFont or u8g2 font)
+/// Font setting found in text widget. It is an identifier pointing to the
+/// actual font or a fixed-size font set for a specific text widget (e.g.
+/// embedded_graphics MonoFont or u8g2 font)
 #[derive(Clone, Copy, Debug, PartialEq, IntoMaybeReactive)]
 pub enum Font {
     // TODO: Common fonts similar to egui: small, button, heading, etc.
@@ -317,7 +318,8 @@ impl FontImport {
     }
 
     pub fn named(mut self, name: &'static str) -> Self {
-        // Note: Here unique identifier is left unused, but AtomicUsize range is very large and we can ignore this
+        // Note: Here unique identifier is left unused, but AtomicUsize range is
+        // very large and we can ignore this
         self.id = FontId::Name(name);
         self
     }

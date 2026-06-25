@@ -1,5 +1,7 @@
-use crate::render::prelude::*;
-use crate::{el::ElId, el::ctx::WidgetCtx};
+use crate::{
+    el::{ElId, ctx::WidgetCtx},
+    render::prelude::*,
+};
 use core::{fmt::Debug, ops::ControlFlow};
 
 pub mod message;
@@ -79,7 +81,8 @@ impl Into<i32> for MouseWheelDir {
 
 #[derive(Debug, Clone, Copy)]
 pub enum MouseEvent {
-    /// `Option<Point>`: explicit position from input device, or `None` to fall back to last known cursor position
+    /// `Option<Point>`: explicit position from input device, or `None` to fall
+    /// back to last known cursor position
     ButtonDown(MouseButton, Option<Point>),
     ButtonUp(MouseButton, Option<Point>),
     MouseMove(Point),
@@ -127,8 +130,8 @@ impl<Custom> Event<Custom> {
             | Event::Exit
             | Event::DevTools(_) => None,
             Event::Mouse(mouse_event) => match mouse_event {
-                MouseEvent::ButtonDown(_, _)
-                | MouseEvent::ButtonUp(_, _)
+                MouseEvent::ButtonDown(..)
+                | MouseEvent::ButtonUp(..)
                 | MouseEvent::MouseMove(_) => None,
                 MouseEvent::Wheel(point, dir) => match dir {
                     MouseWheelDir::Normal => Some(point.y as i32),
@@ -149,8 +152,8 @@ impl<Custom> Event<Custom> {
             | Event::Exit
             | Event::DevTools(_) => None,
             Event::Mouse(mouse_event) => match mouse_event {
-                MouseEvent::ButtonDown(_, _)
-                | MouseEvent::ButtonUp(_, _)
+                MouseEvent::ButtonDown(..)
+                | MouseEvent::ButtonUp(..)
                 | MouseEvent::MouseMove(_) => None,
                 // TODO: What about X movement?
                 &MouseEvent::Wheel(point, dir) => {
@@ -162,7 +165,8 @@ impl<Custom> Event<Custom> {
     }
 
     /// Returns the cursor position carried by this event, if any.
-    /// For `ButtonDown`/`ButtonUp` with `None` position, the caller should fall back to `PageState::pointer.pos`.
+    /// For `ButtonDown`/`ButtonUp` with `None` position, the caller should fall
+    /// back to `PageState::pointer.pos`.
     pub fn cursor_point(&self) -> Option<Point> {
         match self {
             Event::Mouse(mouse_event) => match mouse_event {
@@ -203,14 +207,16 @@ impl<W: WidgetCtx> Debug for UnhandledEvent<W> {
 //     }
 // }
 
-/// Info about element that captured event. Useful in such elements where child event handling affects parent behavior.
+/// Info about element that captured event. Useful in such elements where child
+/// event handling affects parent behavior.
 #[derive(Debug)]
 pub struct CaptureData {
     /// Absolute position of the layout model of element captured the event
     pub absolute_position: Point,
 }
 
-// TODO: Rename Capture to Eat or something to avoid ambiguity with capturing mouse cursor.
+// TODO: Rename Capture to Eat or something to avoid ambiguity with capturing
+// mouse cursor.
 #[derive(Debug)]
 pub enum Capture {
     /// Event is captured by element and should not be handled by its parents

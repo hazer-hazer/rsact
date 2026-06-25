@@ -175,8 +175,8 @@ mod tests {
     // fn into_maybe_iterator_inert_generic() {
     //     let _deny_new_reactive = new_deny_new_scope();
 
-    //     fn accept_maybe_iterator(items: impl IntoMaybeReactiveIterator<u32>) {
-    //         let items: MaybeReactive<_> = items.maybe_reactive_iter();
+    //     fn accept_maybe_iterator(items: impl IntoMaybeReactiveIterator<u32>)
+    // {         let items: MaybeReactive<_> = items.maybe_reactive_iter();
     //         assert_eq!(
     //             items.with(|c| c.into_iter().collect::<Vec<_>>()),
     //             vec![1, 2, 3]

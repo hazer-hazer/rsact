@@ -16,7 +16,9 @@ pub struct Block<C: Color> {
     rect: Rect,
     background: Option<C>,
 
-    // All properties from BorderStyle and OutlineStyle are resolved because Block as other primitives are to be used by value without mutations which allows caching them.
+    // All properties from BorderStyle and OutlineStyle are resolved because
+    // Block as other primitives are to be used by value without mutations
+    // which allows caching them.
     border_color: Option<C>,
     border_radius: CornerRadii,
     border_width: u32,

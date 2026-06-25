@@ -35,7 +35,13 @@ impl<C: Color> PageStyle<C> {
     }
 }
 
-// TODO: As we now have element arena we can split functionality to add optimization structures. For example, not all drivers have focusing logic, so we can have it behind a generic or other abstraction to toggle, and pre-build focusable elements list only when it's needed. Same for hoverable, etc. Hoverable is kinda more interesting case because with element arena we can build spatial index like an R-Tree or just cache hit-tests which is also good.
+// TODO: As we now have element arena we can split functionality to add
+// optimization structures. For example, not all drivers have focusing logic, so
+// we can have it behind a generic or other abstraction to toggle, and pre-build
+// focusable elements list only when it's needed. Same for hoverable, etc.
+// Hoverable is kinda more interesting case because with element arena we can
+// build spatial index like an R-Tree or just cache hit-tests which is also
+// good.
 
 pub struct Page<W: WidgetCtx> {
     id: W::PageId,
@@ -66,8 +72,10 @@ impl<W: WidgetCtx> Drop for Page<W> {
 impl<W: WidgetCtx> Page<W> {
     pub(crate) fn new(
         id: W::PageId,
-        // TODO: Do we really need to accept Into<El> and expect it to always be a El::New, or we can require root to be a Widget non-wrapped?
-        // No, ElData can contain additional information raw widget does not provide
+        // TODO: Do we really need to accept Into<El> and expect it to always
+        // be a El::New, or we can require root to be a Widget non-wrapped?
+        // No, ElData can contain additional information raw widget does not
+        // provide
         root: impl Into<El<W>>,
         arena: Signal<ElArena<W>>,
         viewport: MaybeReactive<Size>,
@@ -91,13 +99,15 @@ impl<W: WidgetCtx> Page<W> {
                 .layout()
                 .name("Layout tree")
         });
-        // TODO: If we make fonts MaybeReactive, we can go fully MaybeReactive LayoutModel here
+        // TODO: If we make fonts MaybeReactive, we can go fully MaybeReactive
+        // LayoutModel here
         let layout_model = map!(move |fonts, viewport| {
             info!("Relayout page {:?}", id);
 
             // TODO: Possible optimization is to use previous memo result.
-            // [ ] Pass it to model_layout as tree and don't relayout parents if layouts
-            // inside Fixed-sized container changed, returning previous result
+            // [ ] Pass it to model_layout as tree and don't relayout parents if
+            // layouts inside Fixed-sized container changed,
+            // returning previous result
 
             let viewport = *viewport;
             let layout = model_layout(
@@ -105,7 +115,7 @@ impl<W: WidgetCtx> Page<W> {
                     fonts,
                     viewport,
                     font_props: FontProps {
-                        font: Some(Font::Auto.maybe_reactive()),
+                        font: Some(Font::Auto),
                         font_size: None,
                         font_style: None,
                     },
@@ -116,7 +126,8 @@ impl<W: WidgetCtx> Page<W> {
             );
 
             // TODO: Do we need full page redraw on layout change?
-            // [ ] No, we need smart bottom-up propagation to the nearest fixed parent layout.
+            // [ ] No, we need smart bottom-up propagation to the nearest fixed
+            // parent layout.
             force_redraw.set(true);
 
             debug!("{}", PPLayoutModel::root(&layout));
@@ -171,7 +182,8 @@ impl<W: WidgetCtx> Page<W> {
     pub fn clear(&mut self) -> &mut Self {
         let viewport = self.viewport.get();
         self.style.with(|style| {
-            // TODO: Will not work without background, must always have a background
+            // TODO: Will not work without background, must always have a
+            // background
             if let Some(bg) = style.background_color {
                 self.renderer
                     .update_untracked(|r| {
@@ -219,10 +231,10 @@ impl<W: WidgetCtx> Page<W> {
     //         .focusable
     //         .with(|focusable| focusable.get(new_focus_offset).copied());
 
-    //     // Set new focus only in case there's a corresponding element by index. Otherwise it means buggy meta collection
-    //     if let Some(new_focus_id) = new_focus_id {
-    //         Some((new_focus_id, new_focus_offset))
-    //     } else {
+    //     // Set new focus only in case there's a corresponding element by
+    // index. Otherwise it means buggy meta collection     if let
+    // Some(new_focus_id) = new_focus_id {         Some((new_focus_id,
+    // new_focus_offset))     } else {
     //         None
     //     }
     // }
@@ -235,7 +247,8 @@ impl<W: WidgetCtx> Page<W> {
     // fn focus_el(&mut self, offset: i32) -> Option<UnhandledEvent<W>> {
     //     if let Some(new_focus) = self.find_focus(offset) {
     //         let response =
-    //             self.send_event(Event::Focus(FocusEvent::Focus(new_focus.0)));
+    //
+    // self.send_event(Event::Focus(FocusEvent::Focus(new_focus.0)));
 
     //         if response.is_none() {
     //             self.apply_focus(new_focus);
@@ -259,15 +272,16 @@ impl<W: WidgetCtx> Page<W> {
 
     /// Apply global logic for unhandled events.
     /// Some events have different interpretations.
-    /// For example `MoveEvent` can be treated as focus move, and if no element captured this event, we move the focus.
+    /// For example `MoveEvent` can be treated as focus move, and if no element
+    /// captured this event, we move the focus.
     fn on_unhandled_event(
         &mut self,
         unhandled: Event<W::CustomEvent>,
     ) -> Option<UnhandledEvent<W>> {
         // if let Some(focus_offset) = unhandled.interpret_as_focus_move() {
-        //     // TODO: Focus event is eaten here, even if no element focused. This might be incorrect
-        //     return self.focus_el(focus_offset);
-        // }
+        //     // TODO: Focus event is eaten here, even if no element focused.
+        // This might be incorrect     return
+        // self.focus_el(focus_offset); }
 
         Some(UnhandledEvent::Event(unhandled))
     }
@@ -277,7 +291,11 @@ impl<W: WidgetCtx> Page<W> {
         &mut self,
         event: &Event<W::CustomEvent>,
     ) -> EventResponse {
-        // Note: Need to have special deferred reactive updates zone. Because if some child node depends on value it's children set, then there will be a BorrowRefMut error because children are borrowed mutably for update on events. This happens for example if flex layout contains a checkbox toggling this flex layout wrap.
+        // Note: Need to have special deferred reactive updates zone. Because if
+        // some child node depends on value it's children set, then there will
+        // be a BorrowRefMut error because children are borrowed mutably for
+        // update on events. This happens for example if flex layout contains a
+        // checkbox toggling this flex layout wrap.
 
         let defer_effects = defer_effects();
 
@@ -293,7 +311,8 @@ impl<W: WidgetCtx> Page<W> {
             });
 
             // TODO: notify root on event capture?
-            //  - No, root is not used reactively, it is a signal only to be usable in reactive contexts. Need `StoredValue`
+            //  - No, root is not used reactively, it is a signal only to be
+            //    usable in reactive contexts. Need `StoredValue`
 
             response
         });
@@ -341,7 +360,9 @@ impl<W: WidgetCtx> Page<W> {
                 });
 
                 if dev_hovered_changed {
-                    // TODO: Real rendering requires smarter dirty rectangles as dev tools are overlaying and have absolute position. Clearing whole screen is bad
+                    // TODO: Real rendering requires smarter dirty rectangles as
+                    // dev tools are overlaying and have absolute position.
+                    // Clearing whole screen is bad
 
                     self.force_redraw();
                 }
@@ -371,8 +392,9 @@ impl<W: WidgetCtx> Page<W> {
             return None;
         }
 
-        // TODO: Capture mouse movement? - Yes, it is required for sliders, knobs, etc.
-        // Pointer capture: route mouse button events directly to the capturing widget first
+        // TODO: Capture mouse movement? - Yes, it is required for sliders,
+        // knobs, etc. Pointer capture: route mouse button events
+        // directly to the capturing widget first
         let captured_by = self.state.pointer.captured_by;
         if let Some(_captured_id) = captured_by {
             if matches!(
@@ -381,8 +403,9 @@ impl<W: WidgetCtx> Page<W> {
                     MouseEvent::ButtonDown(_, _) | MouseEvent::ButtonUp(_, _)
                 )
             ) {
-                // Route through the normal tree — the capturing widget receives the
-                // event via pass_to_children and uses its own drag state to handle it.
+                // Route through the normal tree — the capturing widget receives
+                // the event via pass_to_children and uses its
+                // own drag state to handle it.
                 let _ = self.send_specific_event(&event);
 
                 // Clear capture on any ButtonUp
@@ -406,7 +429,8 @@ impl<W: WidgetCtx> Page<W> {
                 self.on_unhandled_event(event)
             },
             EventResponse::Break(capture) => match capture {
-                // TODO: Captured data may be useful for debugging, for example we can point where on screen user clicked or something
+                // TODO: Captured data may be useful for debugging, for example
+                // we can point where on screen user clicked or something
                 Capture::Captured(_capture) => {
                     info!(
                         "Event {:?} was captured, stopping propagation",
@@ -522,7 +546,7 @@ impl<W: WidgetCtx> Page<W> {
                                 RenderVisual {
                                     tree_style: TreeStyle::base(),
                                     font_props: FontProps {
-                                        font: Some(Font::Auto.maybe_reactive()),
+                                        font: Some(Font::Auto),
                                         font_size: None,
                                         font_style: None,
                                     },
@@ -600,7 +624,8 @@ mod tests {
 
         assert_eq!(page.take_draw_calls(), 0);
 
-        // First draw request without changes subscribes to reactive values inside drawing context.
+        // First draw request without changes subscribes to reactive values
+        // inside drawing context.
         page.use_renderer(|_| {});
         assert_eq!(page.take_draw_calls(), 1);
 
@@ -617,5 +642,62 @@ mod tests {
         assert_eq!(page.take_draw_calls(), 0);
         page.use_renderer(|_| {});
         assert_eq!(page.take_draw_calls(), 0);
+    }
+
+    // Regression: a reactive source set through the trait-default setter
+    // (`SizedWidget::width` -> `self.layout_mut().setter(...)`) must persist
+    // the reactive-on-write upgrade in the widget's own `Layout`.
+    // Previously the upgrade landed on a discarded `self.layout()` copy,
+    // which disposed the inert id and panicked when the layout was later
+    // read.
+    #[test]
+    fn reactive_width_setter_persists_and_reacts() {
+        use crate::{layout::length::Length, widget::edge::Edge};
+
+        with_new_runtime(|_| {
+            let mut w = create_signal(Length::fill());
+            let edge = Edge::<NullWtf>::new().width(w);
+            let layout = edge.layout();
+
+            // Reading the layout must not panic (the disposed-id bug) and must
+            // be tracked so observers re-run on change.
+            let mut runs = create_signal(0u32);
+            create_effect(move |_| {
+                runs.update_untracked(|r| *r += 1);
+                layout.with(|l| {
+                    let _ = l.size.width();
+                });
+            });
+            assert_eq!(runs.get_untracked(), 1);
+
+            w.set(Length::Fixed(50));
+            assert_eq!(runs.get_untracked(), 2);
+        });
+    }
+
+    // Same guarantee for `FontSettingWidget::font_size` on a `Label` (whose
+    // Text layout owns `FontProps`). Font props are now plain data;
+    // reactivity flows through the `Layout` signal driven by the setter.
+    #[test]
+    fn reactive_font_size_setter_persists_and_reacts() {
+        use crate::font::FontSize;
+
+        with_new_runtime(|_| {
+            let mut fs = create_signal(FontSize::Fixed(10));
+            let label = Label::<NullWtf>::new("x").font_size(fs);
+            let layout = label.layout();
+
+            let mut runs = create_signal(0u32);
+            create_effect(move |_| {
+                runs.update_untracked(|r| *r += 1);
+                layout.with(|l| {
+                    let _ = l.font_props().map(|fp| fp.font_size);
+                });
+            });
+            assert_eq!(runs.get_untracked(), 1);
+
+            fs.set(FontSize::Fixed(20));
+            assert_eq!(runs.get_untracked(), 2);
+        });
     }
 }

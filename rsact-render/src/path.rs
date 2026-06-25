@@ -6,7 +6,8 @@ use alloc::vec::Vec;
 pub enum PathSegment {
     MoveTo(Point),
     LineTo(Point),
-    // TODO: If we get better at our own arc drawing we should support full SVG-like arc functionality.
+    // TODO: If we get better at our own arc drawing we should support full
+    // SVG-like arc functionality.
     ArcTo { center: Point, radius: u32, start: Angle, sweep: Angle },
     Close,
 }

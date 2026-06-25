@@ -31,7 +31,9 @@ impl Display for ValueId {
 }
 
 impl ValueId {
-    // TODO: In an ideal world I would love track methods in ReadSignal to return `true` if the value is the source of change of the current observer. This would be perfect for debugging.
+    // TODO: In an ideal world I would love track methods in ReadSignal to
+    // return `true` if the value is the source of change of the current
+    // observer. This would be perfect for debugging.
     // TODO: Add `subscribe_with_current_rt` for simplicity
     pub(crate) fn subscribe(&self, rt: &Runtime) {
         rt.subscribe(*self);
@@ -322,8 +324,9 @@ pub struct Value {
     pub value: Rc<RefCell<dyn Any>>,
     pub kind: ValueKind,
     pub state: ValueState,
-    /// Topological height in the reactive graph (0 = source signal, n+1 = subscriber of height-n node).
-    /// Used to run pending effects in topological order, preventing glitches.
+    /// Topological height in the reactive graph (0 = source signal, n+1 =
+    /// subscriber of height-n node). Used to run pending effects in
+    /// topological order, preventing glitches.
     pub height: u32,
     #[cfg(feature = "debug-info")]
     pub debug: ValueDebugInfo,

@@ -9,17 +9,21 @@ use crate::{
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 
-// TODO: Get rid of MemoChain, it is anti-pattern from the start. It was created for styles but now we don't need it.
-// TODO: Can we hack reactive values so PartialEq won't be required? One way is to make ValueId generic over reactive value type, for example `as_memo_with_untracked` and `as_signal_with_untracked` implementations that will be dispatched based on the MaybeReactive variant.
+// TODO: Get rid of MemoChain, it is anti-pattern from the start. It was created
+// for styles but now we don't need it. TODO: Can we hack reactive values so
+// PartialEq won't be required? One way is to make ValueId generic over reactive
+// value type, for example `as_memo_with_untracked` and
+// `as_signal_with_untracked` implementations that will be dispatched based on
+// the MaybeReactive variant.
 /// An optionally reactive, **read-only** value.
 ///
 /// Unifies three read sources under one type:
-/// - [`MaybeReactive::Inert`] — a static value; reads are never tracked and
-///   do not register the caller as a subscriber.
+/// - [`MaybeReactive::Inert`] — a static value; reads are never tracked and do
+///   not register the caller as a subscriber.
 /// - [`MaybeReactive::Memo`] — a derived reactive value; reads inside a
 ///   reactive context register a dependency.
-/// - [`MaybeReactive::MemoChain`] — a chainable memo; same tracking
-///   semantics as [`Memo`].
+/// - [`MaybeReactive::MemoChain`] — a chainable memo; same tracking semantics
+///   as [`Memo`].
 ///
 /// # Common pattern
 ///
@@ -157,8 +161,8 @@ impl<T: PartialEq + 'static, U: PartialEq + 'static> SignalMap<T, U>
             },
             // MaybeReactive::Derived(derived) => {
             //     let derived = Rc::clone(derived);
-            //     MaybeReactive::new_derived(move || map(&derived.borrow_mut()()))
-            // },
+            //     MaybeReactive::new_derived(move ||
+            // map(&derived.borrow_mut()())) },
         }
     }
 }
@@ -171,10 +175,9 @@ impl<T: PartialEq + 'static, U: PartialEq + 'static> SignalMap<T, U>
 /// - [`Memo<T>`] — identity.
 /// - [`MemoChain<T>`] — identity.
 /// - [`Inert<T>`] — wraps as [`MaybeReactive::Inert`].
-/// - Primitive types (`u8`–`u128`, `i8`–`i128`, `f32`, `f64`, `bool`,
-///   `char`, `()`, `String`, tuples up to 12 elements, `Option<T>`,
-///   `Result<T,E>`, `Vec<T>`, `&'static [T]`) — automatically wrapped as
-///   inert.
+/// - Primitive types (`u8`–`u128`, `i8`–`i128`, `f32`, `f64`, `bool`, `char`,
+///   `()`, `String`, tuples up to 12 elements, `Option<T>`, `Result<T,E>`,
+///   `Vec<T>`, `&'static [T]`) — automatically wrapped as inert.
 ///
 /// A derive macro is available for user-defined copy types in rsact-macros:
 ///

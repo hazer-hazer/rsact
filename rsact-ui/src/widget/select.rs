@@ -139,10 +139,24 @@ where
 
         let mut selected = selected.maybe_signal();
 
-        // TODO: This maybe-reactive optimization not working, as when selected is inert, it is then converted into a signal inside `selected.setter`, but this signal is unavailable outside, user still holds they Inert value and selected signal doesn't need to be tracked. So we either do runtime check like `if selected.is_inert() { ... }` or we just require selected to always be a signal. Or we can do two constructors: one for inert selected and one for reactive selected.
-        // TODO: ... For this to work as expected we need `SelectState` to be Signal still its `selected` to be mapped as MaybeReactive. Select widget stylist expects full `SelectState` to be a signal.
-        // TODO: ... What idea I like is just to remove `SignalSetter` implementation from `MaybeSignal` to avoid such problems and just dynamically check if `selected` is reactive or inert and create setter effect depending on that.
-        // TODO: ... Wait wait wait. We receive selected and then make a setter for it, why not just put it inside the `SelectState`? It's not a problem to pass this when accepting styles as it's just a copy-type boolean.
+        // TODO: This maybe-reactive optimization not working, as when selected
+        // is inert, it is then converted into a signal inside
+        // `selected.setter`, but this signal is unavailable outside, user still
+        // holds they Inert value and selected signal doesn't need to be
+        // tracked. So we either do runtime check like `if selected.is_inert() {
+        // ... }` or we just require selected to always be a signal. Or we can
+        // do two constructors: one for inert selected and one for reactive
+        // selected. TODO: ... For this to work as expected we need
+        // `SelectState` to be Signal still its `selected` to be mapped as
+        // MaybeReactive. Select widget stylist expects full `SelectState` to be
+        // a signal. TODO: ... What idea I like is just to remove
+        // `SignalSetter` implementation from `MaybeSignal` to avoid such
+        // problems and just dynamically check if `selected` is reactive or
+        // inert and create setter effect depending on that.
+        // TODO: ... Wait wait wait. We receive selected and then make a setter
+        // for it, why not just put it inside the `SelectState`? It's not a
+        // problem to pass this when accepting styles as it's just a copy-type
+        // boolean.
         let state = SelectState::initial(with!(move |selected, options| {
             options.iter().position(|opt| &opt.key == selected)
         }))
@@ -205,8 +219,8 @@ where
     //     value.setter(self.selected, move |pos, value| {
     //         if let &Some(pos) = pos {
     //             if let Some(opt) = options
-    //                 .with(|options| options.get(pos).map(|opt| opt.key.clone()))
-    //             {
+    //                 .with(|options| options.get(pos).map(|opt|
+    // opt.key.clone()))             {
     //                 *value = opt
     //             }
     //         }
@@ -214,6 +228,16 @@ where
 
     //     self
     // }
+}
+
+impl<W: WidgetCtx, K, Dir> LayoutWidget<W> for Select<W, K, Dir>
+where
+    K: PartialEq + Display + 'static,
+    Dir: Direction + 'static,
+{
+    fn layout_mut(&mut self) -> &mut Layout {
+        &mut self.layout
+    }
 }
 
 impl<W: WidgetCtx, K, Dir> BlockModelWidget<W> for Select<W, K, Dir>
@@ -298,7 +322,13 @@ impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction + 'static> Widget<W>
                         .zip_eq(children_layouts.iter())
                         .enumerate()
                         .try_for_each(|(index, (option, option_layout))| {
-                            // TODO: Need to thing how to properly handle select widget. Should options be real widgets or hidden inside Select just to render? Maybe we even don't need to have real Text widgets, instead storing only text and rendering it through renderer, but then we'll probably lose some text properties handling.
+                            // TODO: Need to thing how to properly handle select
+                            // widget. Should options be real widgets or hidden
+                            // inside Select just to render? Maybe we even don't
+                            // need to have real Text widgets, instead storing
+                            // only text and rendering it through renderer, but
+                            // then we'll probably lose some text properties
+                            // handling.
                             todo!()
                             // ctx.with_tree_style(
                             //     |tree_style| {

@@ -22,9 +22,11 @@ extern crate log;
 use rsact_render as render;
 
 pub mod prelude {
-    pub use crate::font::FontImport;
+    #[cfg(feature = "tiny-icons")]
+    pub use crate::widget::icon::*;
     pub use crate::{
         el::*,
+        font::FontImport,
         page::id::{PageId, SinglePage},
         style::{declare_widget_style, theme::Theme},
         ui::UI,
@@ -33,10 +35,6 @@ pub mod prelude {
             prelude::*, scrollable::*, select::*, slider::*, space::*,
         },
     };
-
-    #[cfg(feature = "tiny-icons")]
-    pub use crate::widget::icon::*;
-
     pub use rsact_reactive::prelude::*;
     pub use rsact_render::prelude::*;
     #[cfg(feature = "tiny-icons")]

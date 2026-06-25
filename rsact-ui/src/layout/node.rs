@@ -3,9 +3,17 @@ use core::panic::Location;
 use rsact_reactive::{prelude::*, storage::ValueId};
 
 /**
- * Layout is a custom Signal type that is Reactive-on-Write, it means that it is inert until it is set by a reactive source. This is kinda unsafe to use, at least inaccurate in its behavior because in some cases it won't work as expected, because of this, we don't have RoW primitive inside rsact-reactive and declare it here for a specific case of layouts. It MUST not be used by a user and should be used carefully in rsact-ui.
- * Here are the main restrictions of Layout:
- * - Layout does not implement WriteSignal, because `create_effect(|| layout.set(...))` won't work as expected, it will set the layout but won't make it reactive, as we don't know if value in `.set` comes from reactive or inert source.
+ * Layout is a custom Signal type that is Reactive-on-Write, it means that
+ * it is inert until it is set by a reactive source. This is kinda unsafe to
+ * use, at least inaccurate in its behavior because in some cases it won't
+ * work as expected, because of this, we don't have RoW primitive inside
+ * rsact-reactive and declare it here for a specific case of layouts. It
+ * MUST not be used by a user and should be used carefully in rsact-ui. Here
+ * are the main restrictions of Layout:
+ * - Layout does not implement WriteSignal, because `create_effect(||
+ *   layout.set(...))` won't work as expected, it will set the layout but
+ *   won't make it reactive, as we don't know if value in `.set` comes from
+ *   reactive or inert source.
  */
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Layout {
@@ -17,7 +25,8 @@ impl Layout {
     #[track_caller]
     pub(super) fn inert(layout: LayoutData) -> Self {
         let caller = Location::caller();
-        // Note: We use Inert value, but it is fake Inert as we write to it, reactive runtime allows this.
+        // Note: We use Inert value, but it is fake Inert as we write to it,
+        // reactive runtime allows this.
 
         Self::Static(with_current_runtime(|rt| rt.create_inert(layout, caller)))
     }
@@ -28,7 +37,8 @@ impl Layout {
 
         match self {
             Self::Static(inert) => {
-                // TODO: rsact-reactive unsafe-denoted method to convert between ValueId reactive types, for Inert -> Signal.
+                // TODO: rsact-reactive unsafe-denoted method to convert between
+                // ValueId reactive types, for Inert -> Signal.
                 let signal = with_current_runtime(|rt| -> LayoutData {
                     inert.with_untracked(rt, Clone::clone, caller)
                 })

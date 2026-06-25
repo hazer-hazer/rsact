@@ -83,8 +83,8 @@ bitflags! {
 
 // #[derive(PartialEq, Clone, Copy)]
 // pub struct MetaTree {
-//     // TODO: I don't see a place where meta needs to be reactive (or MaybeReactive).
-//     meta: Meta,
+//     // TODO: I don't see a place where meta needs to be reactive (or
+// MaybeReactive).     meta: Meta,
 //     // TODO: Optional vec to avoid useless allocations?
 //     children: MaybeReactive<Vec<MetaTree>>,
 // }
@@ -168,10 +168,19 @@ where
     fn render(&self, ctx: RenderCtx<'_, W>) -> RenderResult;
 }
 
+/// Mutable access to a widget's own [`Layout`], used by the reactive-on-write
+/// setters (`SizedWidget`/`BlockModelWidget`/`FontSettingWidget`) so a reactive
+/// upgrade persists in the widget's stored field rather than a discarded copy.
+/// Kept separate from [`Widget`] because some widgets (e.g. `Unit`, `Show`) do
+/// not own a `Layout` and must not expose `layout_mut`.
+pub trait LayoutWidget<W: WidgetCtx>: Widget<W> {
+    fn layout_mut(&mut self) -> &mut Layout;
+}
+
 /// Not implementing [`SizedWidget`] and [`BlockModelWidget`] does not mean that
 /// Widget has layout without size or box model, it can be intentional to
 /// disallow user to set size or box model properties.
-pub trait SizedWidget<W: WidgetCtx>: Widget<W> {
+pub trait SizedWidget<W: WidgetCtx>: LayoutWidget<W> {
     // TODO: MaybeReactive!
     fn size(self, size: impl Into<LengthSize>) -> Self
     where
@@ -203,26 +212,26 @@ pub trait SizedWidget<W: WidgetCtx>: Widget<W> {
     }
 
     fn width<L: Into<Length> + PartialEq + Copy + 'static>(
-        self,
+        mut self,
         width: impl IntoMaybeReactive<L>,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout().setter(width.maybe_reactive(), |layout, &width| {
+        self.layout_mut().setter(width.maybe_reactive(), |layout, &width| {
             layout.size.set_width(width.into());
         });
         self
     }
 
     fn height<L: Into<Length> + PartialEq + Copy + 'static>(
-        self,
+        mut self,
         height: impl IntoMaybeReactive<L> + 'static,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout().setter(height.maybe_reactive(), |layout, &height| {
+        self.layout_mut().setter(height.maybe_reactive(), |layout, &height| {
             layout.size.set_height(height.into());
         });
         self
@@ -236,15 +245,15 @@ pub trait SizedWidget<W: WidgetCtx>: Widget<W> {
     }
 }
 
-pub trait BlockModelWidget<W: WidgetCtx>: Widget<W> {
+pub trait BlockModelWidget<W: WidgetCtx>: LayoutWidget<W> {
     fn border_width(
-        self,
+        mut self,
         border_width: impl IntoMaybeReactive<u32> + 'static,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout().setter(
+        self.layout_mut().setter(
             border_width.maybe_reactive(),
             |layout, &border_width| {
                 layout.set_border_width(border_width);
@@ -254,27 +263,27 @@ pub trait BlockModelWidget<W: WidgetCtx>: Widget<W> {
     }
 
     fn padding<P: Into<Padding> + PartialEq + Copy + 'static>(
-        self,
+        mut self,
         padding: impl IntoMaybeReactive<P> + 'static,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout().setter(padding.maybe_reactive(), |layout, &padding| {
-            layout.set_padding(padding.into());
-        });
+        self.layout_mut().setter(
+            padding.maybe_reactive(),
+            |layout, &padding| {
+                layout.set_padding(padding.into());
+            },
+        );
         self
     }
 }
 
-pub trait FontSettingWidget<W: WidgetCtx>: Widget<W> + Sized + 'static {
+pub trait FontSettingWidget<W: WidgetCtx>:
+    LayoutWidget<W> + Sized + 'static
+{
     fn font_props(&self) -> FontProps {
         self.layout().with(|layout| layout.font_props().unwrap())
-    }
-
-    fn update_font_props(&mut self, update: impl FnOnce(&mut FontProps)) {
-        self.layout()
-            .update_untracked(|layout| update(layout.font_props_mut().unwrap()))
     }
 
     // Constructors //
@@ -282,14 +291,14 @@ pub trait FontSettingWidget<W: WidgetCtx>: Widget<W> + Sized + 'static {
         mut self,
         font_size: impl IntoMaybeReactive<S>,
     ) -> Self {
-        self.update_font_props(|font_props| {
-            font_props.font_size = Some(
-                font_size
-                    .maybe_reactive()
-                    .map(|font_size| font_size.clone().into()),
-            )
-        });
-
+        self.layout_mut().setter(
+            font_size.maybe_reactive(),
+            |layout, font_size| {
+                if let Some(font_props) = layout.font_props_mut() {
+                    font_props.font_size = Some(font_size.clone().into());
+                }
+            },
+        );
         self
     }
 
@@ -297,9 +306,14 @@ pub trait FontSettingWidget<W: WidgetCtx>: Widget<W> + Sized + 'static {
         mut self,
         font_style: impl IntoMaybeReactive<FontStyle>,
     ) -> Self {
-        self.update_font_props(|font_props| {
-            font_props.font_style = Some(font_style.maybe_reactive())
-        });
+        self.layout_mut().setter(
+            font_style.maybe_reactive(),
+            |layout, &font_style| {
+                if let Some(font_props) = layout.font_props_mut() {
+                    font_props.font_style = Some(font_style);
+                }
+            },
+        );
         self
     }
 
@@ -307,16 +321,16 @@ pub trait FontSettingWidget<W: WidgetCtx>: Widget<W> + Sized + 'static {
         mut self,
         font: impl IntoMaybeReactive<F>,
     ) -> Self {
-        self.update_font_props(|font_props| {
-            font_props.font =
-                Some(font.maybe_reactive().map(|font| font.clone().into()))
+        self.layout_mut().setter(font.maybe_reactive(), |layout, font| {
+            if let Some(font_props) = layout.font_props_mut() {
+                font_props.font = Some(font.clone().into());
+            }
         });
         self
     }
 }
 
 pub mod prelude {
-    pub use crate::render::prelude::*;
     pub use crate::{
         el::*,
         event::{
@@ -330,10 +344,14 @@ pub mod prelude {
             self, Align, ContainerLayout, FlexLayout, LayoutKind, Limits,
             length::Length, node::Layout,
         },
+        render::prelude::*,
         style::{
             StyleFn, StylePseudoClass, WidgetStyleFn, declare_widget_style,
         },
-        widget::{BlockModelWidget, FontSettingWidget, SizedWidget, Widget},
+        widget::{
+            BlockModelWidget, FontSettingWidget, LayoutWidget, SizedWidget,
+            Widget,
+        },
     };
     pub use alloc::{boxed::Box, string::String, vec::Vec};
     pub use rsact_reactive::prelude::*;

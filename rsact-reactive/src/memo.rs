@@ -73,7 +73,8 @@ where
     }
 }
 
-/// A derived reactive value that caches its result until its dependencies change.
+/// A derived reactive value that caches its result until its dependencies
+/// change.
 ///
 /// A `Memo<T>` is either:
 /// - `Memo::Memo` — a proper memoized computation created by [`create_memo`].
@@ -98,7 +99,8 @@ pub enum Memo<T: ?Sized + PartialEq> {
         id: ValueId,
         ty: PhantomData<T>,
     },
-    /// Identity-mapped signal as memo. Stored in memo as is to avoid creation of new memos for signals mapped as readonly identity values.
+    /// Identity-mapped signal as memo. Stored in memo as is to avoid creation
+    /// of new memos for signals mapped as readonly identity values.
     Signal(Signal<T, crate::signal::marker::ReadOnly>),
 }
 
@@ -116,10 +118,10 @@ impl<T: PartialEq + 'static> Memo<T> {
 
     // TODO: As a simplification and replacement of MemoChain
     // pub fn after_map(&mut self, f: impl FnMut(&T) -> T + 'static) -> Self {
-    //     // Replace old callback with new one. Now, passed callback is called first. [`replace_callback`] removes all subs and sources
-    //     // let old_callback = runtime.replace_callback(self.id, f);
-    //     // create_memo(move || )
-    // }
+    //     // Replace old callback with new one. Now, passed callback is called
+    // first. [`replace_callback`] removes all subs and sources     // let
+    // old_callback = runtime.replace_callback(self.id, f);     //
+    // create_memo(move || ) }
 }
 
 impl<T: PartialEq + 'static> Clone for Memo<T> {
@@ -304,7 +306,9 @@ impl PartialEq for NeverEqual {
     }
 }
 
-/// [`Keyed`] is a helper for memos which you can use to avoid computationally expensive comparisons in some cases. It is a pair of data and its key, where, unlike in raw memo, key is used for memoization comparisons.
+/// [`Keyed`] is a helper for memos which you can use to avoid computationally
+/// expensive comparisons in some cases. It is a pair of data and its key,
+/// where, unlike in raw memo, key is used for memoization comparisons.
 #[derive(Debug)]
 pub struct Keyed<K: PartialEq, V> {
     key: K,

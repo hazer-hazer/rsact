@@ -14,14 +14,15 @@ pub enum UiMessage<W: WidgetCtx> {
 }
 
 // TODO: Rename, this is not only about messages.
-/// MessageQueue is indented to publish messages UI processes on `tick` synchronously
+/// MessageQueue is indented to publish messages UI processes on `tick`
+/// synchronously
 pub struct UiQueue<W: WidgetCtx> {
     messages: Signal<Vec<UiMessage<W>>>,
     now_millis: Signal<u32>,
-    /// Pre-stored Memo of `now_millis` to avoid creating Memo for each animation.
+    /// Pre-stored Memo of `now_millis` to avoid creating Memo for each
+    /// animation.
     anim_now_millis: Memo<u32>,
 }
-
 
 impl<W: WidgetCtx> Clone for UiQueue<W> {
     fn clone(&self) -> Self {

@@ -11,12 +11,11 @@ use crate::{
 ///
 /// Unifies a static inline value and a reactive [`Signal`] under one type:
 /// - `Inert(Option<T>)` — value stored inline in the enum. Reads are not
-///   tracked; writes mutate the value but have no subscribers to notify.
-///   The `Option` is `None` only transiently during lazy promotion to a
-///   `Signal` inside `now_reactive` — externally it is always
-///   `Some`.
-/// - `Signal(Signal<T>)` — full reactive signal with tracked reads and
-///   notified writes.
+///   tracked; writes mutate the value but have no subscribers to notify. The
+///   `Option` is `None` only transiently during lazy promotion to a `Signal`
+///   inside `now_reactive` — externally it is always `Some`.
+/// - `Signal(Signal<T>)` — full reactive signal with tracked reads and notified
+///   writes.
 ///
 /// # Lazy promotion
 ///
@@ -243,18 +242,19 @@ impl<T: 'static, U: PartialEq + 'static> SignalMap<T, U> for MaybeSignal<T> {
     }
 }
 
-// TODO: Implement `SignalSetter` for `MaybeSignal` for any source `impl IntoMaybeReactive<U>`
+// TODO: Implement `SignalSetter` for `MaybeSignal` for any source `impl
+// IntoMaybeReactive<U>`
 /// [`SignalSetter`] implementation for [`MaybeSignal`] that accepts any
 /// [`MaybeReactive<U>`] as a source.
 ///
 /// Behaviour depends on the source variant:
-/// - **`MaybeReactive::Inert`** — applies `set_map` once as a one-shot
-///   update. No ongoing binding is created; if the source value changes
-///   later the target is not updated.
+/// - **`MaybeReactive::Inert`** — applies `set_map` once as a one-shot update.
+///   No ongoing binding is created; if the source value changes later the
+///   target is not updated.
 /// - **`MaybeReactive::Memo`** / **`MaybeReactive::MemoChain`** — promotes
-///   `self` to a [`Signal`] via `now_reactive` and creates
-///   a reactive effect that keeps the signal in sync with the source memo.
-///   After this call `self` is always [`MaybeSignal::Signal`].
+///   `self` to a [`Signal`] via `now_reactive` and creates a reactive effect
+///   that keeps the signal in sync with the source memo. After this call `self`
+///   is always [`MaybeSignal::Signal`].
 ///
 /// Use [`SignalSetter::set_from`] for the common case of
 /// `T = U` with a simple clone mapping:
@@ -287,7 +287,8 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MaybeReactive<U>>
                 self.now_reactive().setter(memo_chain, set_map)
             },
             // MaybeReactive::Derived(derived) => {
-            //     // TODO: use_effect or not to use effect? See [`Signal: SignalSetter<T, MaybeReactive<U>>`] case for Derived
+            //     // TODO: use_effect or not to use effect? See [`Signal:
+            // SignalSetter<T, MaybeReactive<U>>`] case for Derived
             //     let derived = Rc::clone(&derived);
             //     self.update(|this| set_map(this, &derived.borrow_mut()()))
             // },
@@ -302,8 +303,8 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MaybeReactive<U>>
 //     fn setter(
 //         &mut self,
 //         source: StaticSignal<T>,
-//         set_map: impl Fn(&mut T, &<StaticSignal<T> as SignalValue>::Value) + 'static,
-//     ) {
+//         set_map: impl Fn(&mut T, &<StaticSignal<T> as SignalValue>::Value) +
+// 'static,     ) {
 //         match self {
 //             MaybeSignal::Static(raw) => {
 //                 source.with(|source| set_map(&mut raw.borrow_mut(), source))
@@ -317,8 +318,8 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MaybeReactive<U>>
 //     fn setter(
 //         &mut self,
 //         source: Signal<T>,
-//         set_map: impl Fn(&mut T, &<Signal<T> as SignalValue>::Value) + 'static,
-//     ) {
+//         set_map: impl Fn(&mut T, &<Signal<T> as SignalValue>::Value) +
+// 'static,     ) {
 //         match self {
 //             MaybeSignal::Static(raw) => {
 //                 source.with(|source| set_map(&mut raw.borrow_mut(), source))
@@ -343,12 +344,12 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MaybeReactive<U>>
 //     }
 // }
 
-// impl<T: PartialEq + 'static> SignalSetter<T, MemoChain<T>> for MaybeSignal<T> {
-//     fn setter(
+// impl<T: PartialEq + 'static> SignalSetter<T, MemoChain<T>> for MaybeSignal<T>
+// {     fn setter(
 //         &mut self,
 //         source: MemoChain<T>,
-//         set_map: impl Fn(&mut T, &<MemoChain<T> as SignalValue>::Value) + 'static,
-//     ) {
+//         set_map: impl Fn(&mut T, &<MemoChain<T> as SignalValue>::Value) +
+// 'static,     ) {
 //         match self {
 //             MaybeSignal::Static(raw) => {
 //                 source.with(|source| set_map(&mut raw.borrow_mut(), source))
