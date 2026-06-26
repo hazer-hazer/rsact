@@ -1,8 +1,11 @@
 use crate::{
-    el::{WidgetCtx, WidgetFlags},
+    el::{UpdateResult, WidgetCtx, WidgetFlags},
     widget::Widget,
 };
-use core::{fmt::Debug, marker::PhantomData};
+use core::{
+    fmt::{Debug, Display},
+    marker::PhantomData,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub enum ClipPath {
@@ -10,10 +13,19 @@ pub enum ClipPath {
     InnerRect,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum RedrawReason {
     PseudoclassChange,
     ChildDirty,
+}
+
+impl Display for RedrawReason {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            RedrawReason::PseudoclassChange => write!(f, "PseudoclassChange"),
+            RedrawReason::ChildDirty => write!(f, "ChildDirty"),
+        }
+    }
 }
 
 pub struct ElState<W: WidgetCtx> {
@@ -60,21 +72,31 @@ impl<W: WidgetCtx> ElState<W> {
         debug_name
     }
 
-    pub fn maybe_hover(&mut self, hover: bool) {
+    pub fn maybe_hover(&mut self, hover: bool) -> UpdateResult {
         if self.flags.hoverable {
             self.hovered = hover;
             self.set_needs_redraw(RedrawReason::PseudoclassChange);
+            UpdateResult::request_redraw()
+        } else {
+            UpdateResult::none()
         }
     }
 
-    pub fn maybe_hover_from_child(&mut self, child_hover: bool) {
-        if self.flags.hoverable_from_children {
+    pub fn maybe_hover_from_child(
+        &mut self,
+        child_hover: bool,
+    ) -> UpdateResult {
+        if self.flags.hoverable && self.flags.hoverable_from_children {
             // Child hovered only affects true values because we could already
             // hover this element directly
             self.hovered = self.hovered || child_hover;
-        }
 
-        self.set_needs_redraw(RedrawReason::ChildDirty);
+            self.set_needs_redraw(RedrawReason::ChildDirty);
+
+            UpdateResult::request_redraw()
+        } else {
+            UpdateResult::none()
+        }
     }
 
     #[inline(always)]
@@ -83,6 +105,11 @@ impl<W: WidgetCtx> ElState<W> {
     }
 
     pub fn set_needs_redraw(&mut self, reason: RedrawReason) {
+        log::debug!(
+            "Set {} needs redraw because of {}",
+            self.debug_name,
+            reason
+        );
         self.needs_redraw = Some(reason);
     }
 

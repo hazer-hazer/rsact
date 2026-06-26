@@ -1,7 +1,6 @@
 pub mod bar;
 pub mod button;
 pub mod canvas;
-#[cfg(feature = "tiny-icons")]
 pub mod checkbox;
 pub mod combinators;
 pub mod container;
@@ -30,106 +29,6 @@ use core::any::Any;
 use prelude::*;
 use rsact_reactive::prelude::*;
 
-bitflags! {
-    #[derive(Clone, Copy, PartialEq)]
-    pub struct Behavior: u8 {
-        const NONE = 0;
-        const FOCUSABLE = 1 << 0;
-        const HOVERABLE = 1 << 1;
-    }
-}
-
-// #[derive(Clone, Copy, PartialEq)]
-// pub struct Meta {
-//     pub behavior: Behavior,
-//     pub id: Option<ElId>,
-// }
-
-// impl Default for Meta {
-//     fn default() -> Self {
-//         Self::none()
-//     }
-// }
-
-// impl Meta {
-//     pub fn none() -> Self {
-//         Self { behavior: Behavior::NONE, id: None }
-//     }
-
-//     pub fn focusable(id: ElId) -> Self {
-//         Self { behavior: Behavior::FOCUSABLE, id: Some(id) }
-//     }
-
-//     pub fn hoverable(id: ElId) -> Self {
-//         Self { behavior: Behavior::HOVERABLE, id: Some(id) }
-//     }
-
-//     pub fn focusable_hoverable(id: ElId) -> Self {
-//         Self {
-//             behavior: Behavior::FOCUSABLE | Behavior::HOVERABLE,
-//             id: Some(id),
-//         }
-//     }
-
-//     // pub fn with_id(mut self, id: ElId) -> Self {
-//     //     self.id = Some(id);
-//     //     self
-//     // }
-// }
-
-// TODO: MaybeReactive MetaTree
-// TODO: Custom MemoTree with SmallVec<T, 1>
-// pub type MetaTree = MemoTree<Meta>;
-
-// #[derive(PartialEq, Clone, Copy)]
-// pub struct MetaTree {
-//     // TODO: I don't see a place where meta needs to be reactive (or
-// MaybeReactive).     meta: Meta,
-//     // TODO: Optional vec to avoid useless allocations?
-//     children: MaybeReactive<Vec<MetaTree>>,
-// }
-
-// impl MetaTree {
-//     pub fn none() -> Self {
-//         Self::childless(Meta::none())
-//     }
-
-//     pub fn new(
-//         meta: Meta,
-//         children: impl IntoMaybeReactive<Vec<MetaTree>>,
-//     ) -> Self {
-//         Self { meta, children: children.maybe_reactive() }
-//     }
-
-//     pub fn childless(meta: Meta) -> Self {
-//         Self::new(meta, Vec::new().maybe_reactive())
-//     }
-
-//     pub fn flat_collect(&self) -> Vec<Meta> {
-//         self.children.with(|children| {
-//             core::iter::once(self.meta)
-//                 .chain(children.iter().map(MetaTree::flat_collect).flatten())
-//                 .collect()
-//         })
-//     }
-// }
-
-// #[derive(PartialEq)]
-// pub struct MetaTree {
-//     data: MaybeReactive<Meta>,
-//     children: MaybeReactive<Vec<MetaTree>>,
-// }
-
-// impl MetaTree {
-//     pub fn flat_collect(&self) -> Vec<MaybeReactive<Meta>> {
-//         self.children.with(|children| {
-//             core::iter::once(self.data)
-//                 .chain(children.iter().map(MetaTree::flat_collect).flatten())
-//                 .collect()
-//         })
-//     }
-// }
-
 pub trait Widget<W>: Any
 where
     W: WidgetCtx,
@@ -151,8 +50,8 @@ where
 
     fn build(&mut self, ctx: BuildCtx<W>);
 
-    fn update(&mut self, mut ctx: UpdateCtx<'_, W>) {
-        ctx.handle();
+    fn update(&mut self, mut ctx: UpdateCtx<'_, W>) -> UpdateResult {
+        ctx.handle()
     }
 
     // TODO: Meta can be collected in build pass
@@ -342,7 +241,8 @@ pub mod prelude {
         },
         layout::{
             self, Align, ContainerLayout, FlexLayout, LayoutKind, Limits,
-            length::Length, node::Layout,
+            length::{Length, LengthSize},
+            node::Layout,
         },
         render::prelude::*,
         style::{

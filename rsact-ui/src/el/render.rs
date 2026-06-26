@@ -1,6 +1,6 @@
 use crate::{
     el::{
-        ClipPath, ElId, WidgetFlags, WithElId,
+        ClipPath, ElId, RedrawReason, WidgetFlags, WithElId,
         arena::{ArenaChildren, ArenaEls, ElArena},
         ctx::{PageState, WidgetCtx},
     },
@@ -71,7 +71,7 @@ pub struct RenderCtx<'a, W: WidgetCtx, S = CtxUnready> {
     pub id: ElId,
     debug_name: &'a str,
     dirten: &'a mut bool,
-    needs_redraw: bool,
+    needs_redraw: Option<RedrawReason>,
     hovered: bool,
 
     pub renderer: &'a mut W::Renderer,
@@ -107,6 +107,7 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
         })
     }
 
+    // TODO: Call automatically based on behavior
     #[must_use]
     pub fn render_focus_outline(&mut self, id: ElId) -> RenderResult {
         if self.shared.page_state.is_focused(id) {
@@ -216,17 +217,19 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
     ) -> RenderResult {
         // Imperative force-dirty flags that triggers redraw even if no reactive
         // dependencies changed in the `observe`
-        let redraw = self.frame.parent_dirty || self.needs_redraw;
+        let redraw = self.frame.parent_dirty || self.needs_redraw.is_some();
 
         let result = observe_with_force(
             WithElId::new(self.id, hash_source),
             redraw,
             || {
                 debug!(
-                    "{:indent$}Render {} [#{:?}]",
+                    "{:indent$}Render {} [#{:?}] (parent_dirty={}, needs_redraw={:?})",
                     "",
                     hash_source,
                     self.id,
+                    self.frame.parent_dirty,
+                    self.needs_redraw,
                     indent = self.frame.nesting_level
                 );
 
@@ -415,10 +418,8 @@ fn render_subtree_body<W: WidgetCtx>(
     visual: RenderVisual<W>,
     frame: RenderFrame,
 ) -> RenderResult {
-    let needs_redraw = els
-        .expect_mut(id)
-        .map(|data| data.state.take_needs_redraw().is_some())
-        .unwrap_or(false);
+    let needs_redraw =
+        els.expect_mut(id).and_then(|data| data.state.take_needs_redraw());
 
     let Some(data) = els.expect(id) else { return Ok(()) };
 
@@ -447,7 +448,7 @@ fn render_subtree_body<W: WidgetCtx>(
     data.widget.render(ctx)?;
 
     let children_frame = RenderFrame {
-        parent_dirty: dirten,
+        parent_dirty: dirten || frame.parent_dirty,
         nesting_level: frame.nesting_level + 1,
         ..frame
     };
@@ -508,6 +509,17 @@ fn render_subtree_body<W: WidgetCtx>(
             }
         }
     }
+
+    // // TODO: Remove/hide debug only
+    // if needs_redraw.is_some() {
+    //     renderer.arc(
+    //         layout.outer.top_left,
+    //         5,
+    //         Angle::ZERO,
+    //         Angle::FULL_CIRCLE,
+    //         &DrawStyle::default().fill(W::Color::accents()[1]),
+    //     )?;
+    // }
 
     debug!("{:indent$}<-", "", indent = frame.nesting_level);
 

@@ -1,9 +1,10 @@
 use crate::{
-    style::{Style, StylePseudoClass, StyleSelector},
+    style::{Style, StyleSelector},
     widget::{
-        bar::BarStyle, button::ButtonStyle, container::ContainerStyle,
-        edge::EdgeStyle, knob::KnobStyle, label::LabelStyle,
-        scrollable::ScrollableStyle, select::SelectStyle, slider::SliderStyle,
+        bar::BarStyle, button::ButtonStyle, checkbox::CheckboxStyle,
+        container::ContainerStyle, edge::EdgeStyle, knob::KnobStyle,
+        label::LabelStyle, scrollable::ScrollableStyle, select::SelectStyle,
+        slider::SliderStyle,
     },
 };
 use core::marker::PhantomData;
@@ -24,6 +25,7 @@ pub trait Stylist<S: Style> {
 pub trait InternalStylist<C: Color>:
     Stylist<BarStyle<C>>
     + Stylist<ButtonStyle<C>>
+    + Stylist<CheckboxStyle<C>>
     + Stylist<ContainerStyle<C>>
     + Stylist<EdgeStyle<C>>
     + Stylist<KnobStyle<C>>
@@ -72,6 +74,7 @@ macro_rules! declare_null_stylist {
 declare_null_stylist!(
     BarStyle<NullColor>,
     ButtonStyle<NullColor>,
+    CheckboxStyle<NullColor>,
     ContainerStyle<NullColor>,
     EdgeStyle<NullColor>,
     KnobStyle<NullColor>,

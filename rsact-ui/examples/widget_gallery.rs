@@ -13,7 +13,10 @@ use rsact_ui::{
     row,
     style::theme::Theme,
     ui::UI,
-    widget::{SizedWidget, Widget, container::Container, flex::Flex},
+    widget::{
+        SizedWidget, Widget, checkbox::Checkbox, container::Container,
+        flex::Flex,
+    },
 };
 use std::{
     fmt::Display,
@@ -26,12 +29,13 @@ type W = Wtf<TinySkiaRenderer<Color>, SinglePage, Theme<Color>, ()>;
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 enum WidgetTab {
     Button,
+    Checkbox,
     Label,
 }
 
 impl WidgetTab {
     fn each() -> impl Iterator<Item = Self> {
-        [Self::Button, Self::Label].into_iter()
+        [Self::Button, Self::Checkbox, Self::Label].into_iter()
     }
 }
 
@@ -39,33 +43,40 @@ impl Display for WidgetTab {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             WidgetTab::Button => write!(f, "Button"),
+            WidgetTab::Checkbox => write!(f, "Checkbox"),
             WidgetTab::Label => write!(f, "Label"),
         }
     }
 }
 
 fn page() -> impl Into<El<W>> {
-    let mut widget = create_signal(WidgetTab::Button);
+    let mut widget = create_signal(WidgetTab::Checkbox);
     // let select_widget =
     //     Select::vertical(widget,
     // WidgetTab::each().collect::<Vec<_>>().inert());
 
-    let select_widget = Flex::col(
-        WidgetTab::each()
-            .map(|w| {
-                Button::new(w.to_string())
-                    .on_click(move || {
-                        widget.set(w);
-                    })
-                    .el()
-            })
-            .collect::<Vec<_>>(),
+    let select_widget = Container::new(
+        Flex::col(
+            WidgetTab::each()
+                .map(|w| {
+                    Button::new(w.to_string())
+                        .on_click(move || {
+                            widget.set(w);
+                        })
+                        .el()
+                })
+                .collect::<Vec<_>>(),
+        )
+        .gap(5u32)
+        .fill(),
     )
+    .padding(5u32)
     .fill();
 
     let widget_view = Container::new(
         dynamic(move || match widget.get() {
             WidgetTab::Button => Button::new("Some button text").el(),
+            WidgetTab::Checkbox => Checkbox::new(true).el(),
             WidgetTab::Label => Label::new("Some text").el(),
         })
         .el(),

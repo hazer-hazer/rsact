@@ -51,6 +51,17 @@ impl PathBuilder {
         self
     }
 
+    pub fn with_lines(mut self, points: impl Iterator<Item = Point>) -> Self {
+        for point in points {
+            if self.segments.is_empty() {
+                self.segments.push(PathSegment::MoveTo(point));
+            } else {
+                self.segments.push(PathSegment::LineTo(point));
+            }
+        }
+        self
+    }
+
     pub fn arc_to(
         mut self,
         center: Point,

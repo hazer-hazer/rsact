@@ -8,7 +8,6 @@ use crate::{
     },
     render::prelude::*,
     style::TreeStyle,
-    widget::Widget,
 };
 use alloc::vec::Vec;
 use dev::{DevHoveredEl, DevTools};
@@ -46,6 +45,7 @@ impl<C: Color> PageStyle<C> {
 pub struct Page<W: WidgetCtx> {
     id: W::PageId,
     root: ElId,
+    needs_redraw: bool,
     arena: Signal<ElArena<W>>,
     // TODO: MaybeReactive
     layout: Memo<LayoutModel>,
@@ -141,6 +141,7 @@ impl<W: WidgetCtx> Page<W> {
         Self {
             id,
             root,
+            needs_redraw: true,
             arena,
             layout: layout_model,
             state,
@@ -322,27 +323,37 @@ impl<W: WidgetCtx> Page<W> {
         res
     }
 
-    fn bubble_from_child(child: ElId, update: Update, arena: &mut ElArena<W>) {
-        let Some(parent) = arena.parents.get(child).copied() else { return };
-        Self::send_update_inner(parent, update, arena);
-        Self::bubble_from_child(parent, update, arena);
-    }
-
-    fn send_update_inner(id: ElId, update: Update, arena: &mut ElArena<W>) {
-        let Some(el) = arena.expect_mut(id) else { return };
+    fn send_update_inner(
+        id: ElId,
+        update: Update,
+        arena: &mut ElArena<W>,
+    ) -> UpdateResult {
+        let Some(el) = arena.expect_mut(id) else {
+            return UpdateResult::none();
+        };
 
         debug!("Send update {:?} to {}[{:?}]", update, el.state.debug_name, id);
-        el.widget.update(UpdateCtx { id, update, state: &mut el.state });
+        let result =
+            el.widget.update(UpdateCtx { id, update, state: &mut el.state });
+
+        if result.should_bubble()
+            && let Some(bubble) = update.as_bubble()
+            && let Some(parent) = arena.parents.get(id).copied()
+        {
+            Self::send_update_inner(parent, bubble, arena).merge(result)
+        } else {
+            result
+        }
     }
 
     fn send_update(&mut self, id: ElId, update: Update) {
-        self.arena.update_untracked(|arena| {
-            Self::send_update_inner(id, update, arena);
-
-            if let Some(bubble) = update.as_bubble() {
-                Self::bubble_from_child(id, bubble, arena);
-            }
+        let result = self.arena.update_untracked(|arena| {
+            Self::send_update_inner(id, update, arena)
         });
+
+        if result.is_redraw_requested() {
+            self.needs_redraw = true;
+        }
     }
 
     #[must_use]
@@ -476,7 +487,7 @@ impl<W: WidgetCtx> Page<W> {
         let redraw_reason = self.arena.update_untracked(|arena| {
             arena.expect_mut(self.root).unwrap().state.take_needs_redraw()
         });
-        let needs_redraw = redraw_reason.is_some();
+        let needs_redraw = redraw_reason.is_some() || self.needs_redraw;
 
         let drawn =
             observe_with_force(("render_page", self.id), needs_redraw, || {
@@ -574,6 +585,7 @@ impl<W: WidgetCtx> Page<W> {
 
         //
         self.force_redraw.set_untracked(false);
+        self.needs_redraw = false;
 
         // TODO: Can be put directly into the observe
         if drawn.is_some() {

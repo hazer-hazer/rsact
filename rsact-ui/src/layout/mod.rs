@@ -435,6 +435,7 @@ pub enum LayoutKind {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LayoutData {
     kind: LayoutKind,
+    // TODO: Does any LayoutKind require size?
     pub size: LengthSize,
     show: Option<Memo<bool>>,
 }

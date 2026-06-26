@@ -7,6 +7,12 @@ pub struct Angle {
 }
 
 impl Angle {
+    pub const ZERO: Self = Self { radians: 0.0 };
+    pub const QUARTER_CIRCLE: Self =
+        Self { radians: core::f32::consts::FRAC_PI_2 };
+    pub const HALF_CIRCLE: Self = Self { radians: core::f32::consts::PI };
+    pub const FULL_CIRCLE: Self = Self { radians: core::f32::consts::TAU };
+
     pub const fn zero() -> Self {
         Self { radians: 0.0 }
     }

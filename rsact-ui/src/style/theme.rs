@@ -2,13 +2,14 @@ use crate::{
     render::color::Color,
     style::stylist::{InternalStylist, Stylist},
     widget::{
-        bar::BarStyle, button::ButtonStyle, container::ContainerStyle,
-        edge::EdgeStyle, knob::KnobStyle, label::LabelStyle,
-        scrollable::ScrollableStyle, select::SelectStyle, slider::SliderStyle,
+        bar::BarStyle, button::ButtonStyle, checkbox::CheckboxStyle,
+        container::ContainerStyle, edge::EdgeStyle, knob::KnobStyle,
+        label::LabelStyle, scrollable::ScrollableStyle, select::SelectStyle,
+        slider::SliderStyle,
     },
 };
 use rsact_render::{
-    color::{RgbColor, Rgba},
+    color::RgbColor,
     geometry::Angle,
     style::block::{BlockStyle, BorderStyle, Radius},
 };
@@ -75,6 +76,20 @@ impl<C: RgbColor> Stylist<ButtonStyle<C>> for Theme<C> {
         base: &ButtonStyle<C>,
         selector: &super::StyleSelector,
     ) -> ButtonStyle<C> {
+        if selector.pseudoclass.hovered {
+            base.container(self.container().background_color(self.bg_muted))
+        } else {
+            base.container(self.container())
+        }
+    }
+}
+
+impl<C: RgbColor> Stylist<CheckboxStyle<C>> for Theme<C> {
+    fn style(
+        &self,
+        base: &CheckboxStyle<C>,
+        selector: &super::StyleSelector,
+    ) -> CheckboxStyle<C> {
         if selector.pseudoclass.hovered {
             base.container(self.container().background_color(self.bg_muted))
         } else {
