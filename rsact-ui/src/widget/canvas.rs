@@ -205,6 +205,12 @@ impl<C: Color> DrawQueue<C> {
     }
 }
 
+impl<W: WidgetCtx> View<W> for Canvas<W> {
+    fn into_el(self) -> El<W> {
+        self.el()
+    }
+}
+
 pub struct Canvas<W: WidgetCtx> {
     queue: DrawQueue<W::Color>,
     layout: Layout,

@@ -28,6 +28,14 @@ pub enum IconValue<I: IconSet> {
     Relative(Signal<FontSize>, MaybeReactive<I>),
 }
 
+impl<W: WidgetCtx, I: IconSet + 'static, R: ReactivityMarker> View<W>
+    for Icon<W, I, R>
+{
+    fn into_el(self) -> El<W> {
+        self.el()
+    }
+}
+
 pub struct Icon<W: WidgetCtx, I: IconSet, R: ReactivityMarker> {
     value: IconValue<I>,
     layout: Layout,

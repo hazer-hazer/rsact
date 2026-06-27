@@ -28,6 +28,10 @@ pub mod prelude {
         el::*,
         font::FontImport,
         page::id::{PageId, SinglePage},
+        style::{
+            Style, StylePseudoClass, StyleSelector,
+            stylist::{InheritedStylist, InternalStylist, Stylist},
+        },
         style::{declare_widget_style, theme::Theme},
         ui::UI,
         widget::{

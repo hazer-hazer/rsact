@@ -8,9 +8,15 @@ pub fn dynamic<W, F, E>(mut factory: F) -> Dynamic<W>
 where
     W: WidgetCtx + 'static,
     F: FnMut() -> E + 'static,
-    E: Into<El<W>>,
+    E: View<W>,
 {
-    Dynamic::new(move || factory().into())
+    Dynamic::new(move || factory().into_el())
+}
+
+impl<W: WidgetCtx + 'static> View<W> for Dynamic<W> {
+    fn into_el(self) -> El<W> {
+        self.el()
+    }
 }
 
 pub struct Dynamic<W: WidgetCtx> {
@@ -26,13 +32,11 @@ pub struct Dynamic<W: WidgetCtx> {
 }
 
 impl<W: WidgetCtx + 'static> Dynamic<W> {
-    pub fn new<E: Into<El<W>>>(
-        mut factory: impl FnMut() -> E + 'static,
-    ) -> Self {
+    pub fn new<E: View<W>>(mut factory: impl FnMut() -> E + 'static) -> Self {
         let mut current = create_signal(None::<El<W>>);
 
         let layout = create_effect(move |_| {
-            let el = factory().into();
+            let el = factory().into_el();
             let layout = el.layout();
             current.set(Some(el));
             layout
@@ -78,13 +82,20 @@ impl<W: WidgetCtx + 'static> Widget<W> for Dynamic<W> {
     }
 }
 
-impl<W, E, F> From<F> for El<W>
+// A factory closure is itself a `View`: it builds a reactive [`Dynamic`] child
+// that re-runs the closure (and rebuilds) when any signal read inside changes.
+//
+// This is a blanket impl over `FnMut`, which coexists with the concrete leaf
+// impls (`View for &str`, ...) and the per-widget derived impls because the
+// compiler can do negative reasoning for the `Fn` traits (no user type can
+// implement them on stable), so no overlap is possible.
+impl<W, E, F> View<W> for F
 where
-    W: WidgetCtx,
-    E: Into<El<W>>,
+    W: WidgetCtx + 'static,
+    E: View<W>,
     F: FnMut() -> E + 'static,
 {
-    fn from(factory: F) -> Self {
-        dynamic(factory).el()
+    fn into_el(self) -> El<W> {
+        dynamic(self).el()
     }
 }

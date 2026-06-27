@@ -54,15 +54,15 @@ pub struct StyleSelector {
 }
 
 // TODO: Should there be StyledWidget with exposed fn style() builder method?
-pub type WidgetStyleFn<S> = Option<Box<dyn Fn(&S, &StyleSelector) -> S>>;
+pub type WidgetStyleFn<S> = Option<Box<dyn Fn(S, &StyleSelector) -> S>>;
 
 pub trait StyleFn<S: Style + 'static>:
-    Fn(&S, &StyleSelector) -> S + 'static
+    Fn(S, &StyleSelector) -> S + 'static
 {
 }
 
-impl<S: Style + 'static> StyleFn<S>
-    for dyn Fn(&S, &StyleSelector) -> S + 'static
+impl<S: Style + 'static, F: Fn(S, &StyleSelector) -> S + 'static> StyleFn<S>
+    for F
 {
 }
 

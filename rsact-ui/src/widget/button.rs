@@ -21,6 +21,12 @@ declare_widget_style! {
     }
 }
 
+impl<W: WidgetCtx + 'static> View<W> for Button<W> {
+    fn into_el(self) -> El<W> {
+        self.el()
+    }
+}
+
 pub struct Button<W: WidgetCtx> {
     layout: Layout,
     content: El<W>,
@@ -30,8 +36,8 @@ pub struct Button<W: WidgetCtx> {
 }
 
 impl<W: WidgetCtx + 'static> Button<W> {
-    pub fn new(content: impl Into<El<W>>) -> Self {
-        let content = content.into();
+    pub fn new(content: impl View<W>) -> Self {
+        let content = content.into_el();
         let state = create_signal(ButtonState::none());
 
         let layout = Layout::shrink(LayoutKind::Container(ContainerLayout {

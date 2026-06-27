@@ -1,6 +1,12 @@
 use crate::{layout::LayoutKind, widget::prelude::*};
 use core::marker::PhantomData;
 
+impl<W: WidgetCtx, Dir: Direction + 'static> View<W> for Space<W, Dir> {
+    fn into_el(self) -> El<W> {
+        self.el()
+    }
+}
+
 pub struct Space<W: WidgetCtx, Dir: Direction> {
     layout: Layout,
     ctx: PhantomData<W>,

@@ -211,9 +211,9 @@ impl<W: WidgetCtx> Widget<W> for Unit {
     }
 }
 
-impl<W: WidgetCtx, T: Widget<W> + 'static> Into<El<W>> for Option<T> {
-    fn into(self) -> El<W> {
-        self.map(El::new).unwrap_or(Unit.el())
+impl<W: WidgetCtx, V: View<W>> View<W> for Option<V> {
+    fn into_el(self) -> El<W> {
+        self.map(View::into_el).unwrap_or_else(|| Unit.el())
     }
 }
 

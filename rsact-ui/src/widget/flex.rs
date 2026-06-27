@@ -17,7 +17,7 @@ use rsact_reactive::prelude::*;
 macro_rules! row {
     ($($el: expr),* $(,)?) => [
         Flex::row([
-            $($el.el()),*
+            $($crate::el::View::into_el($el)),*
         ])
     ];
 }
@@ -25,7 +25,7 @@ macro_rules! row {
 macro_rules! col {
     ($($el: expr),* $(,)?) => [
         Flex::col([
-            $($el.el()),*
+            $($crate::el::View::into_el($el)),*
         ])
     ];
 }
@@ -55,6 +55,14 @@ impl<W: WidgetCtx + 'static> IntoChildren<W> for Vec<El<W>> {
 impl<W: WidgetCtx + 'static> IntoChildren<W> for Signal<Vec<El<W>>> {
     fn into_children(self) -> MaybeSignal<Vec<El<W>>> {
         self.into()
+    }
+}
+
+impl<W: WidgetCtx + 'static, Dir: Direction + 'static> View<W>
+    for Flex<W, Dir>
+{
+    fn into_el(self) -> El<W> {
+        self.el()
     }
 }
 

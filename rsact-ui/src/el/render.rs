@@ -169,7 +169,7 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
 
     pub fn get_style<S: Style>(
         &self,
-        style: Option<&dyn Fn(&S, &StyleSelector) -> S>,
+        style: Option<&dyn Fn(S, &StyleSelector) -> S>,
     ) -> S
     where
         W::Stylist: Stylist<S>,
@@ -177,7 +177,11 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
         let pseudoclass = self.pseudoclass();
         let selector = StyleSelector { pseudoclass };
         let base = self.shared.stylist.style(&S::base(), &selector);
-        style.map(|f| f(&base, &selector)).unwrap_or(base)
+        if let Some(style_fn) = style {
+            style_fn(base, &selector)
+        } else {
+            base
+        }
     }
 
     /// Clip subsequent drawing operations to the layout's inner rect.

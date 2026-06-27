@@ -9,6 +9,12 @@ declare_widget_style! {
     }
 }
 
+impl<W: WidgetCtx + 'static> View<W> for Container<W> {
+    fn into_el(self) -> El<W> {
+        self.el()
+    }
+}
+
 pub struct Container<W: WidgetCtx> {
     pub layout: Layout,
     pub content: El<W>,
@@ -16,8 +22,8 @@ pub struct Container<W: WidgetCtx> {
 }
 
 impl<W: WidgetCtx + 'static> Container<W> {
-    pub fn new(content: impl Into<El<W>>) -> Self {
-        let content = content.into();
+    pub fn new(content: impl View<W>) -> Self {
+        let content = content.into_el();
 
         Self {
             layout: Layout::shrink(LayoutKind::Container(

@@ -8,6 +8,12 @@ declare_widget_style! {
     }
 }
 
+impl<W: WidgetCtx + 'static> View<W> for Edge<W> {
+    fn into_el(self) -> El<W> {
+        self.el()
+    }
+}
+
 pub struct Edge<W: WidgetCtx> {
     pub layout: Layout,
     style: WidgetStyleFn<EdgeStyle<W::Color>>,
@@ -34,6 +40,7 @@ impl<W: WidgetCtx + 'static> LayoutWidget<W> for Edge<W> {
 }
 
 impl<W: WidgetCtx + 'static> SizedWidget<W> for Edge<W> {}
+impl<W: WidgetCtx + 'static> BlockModelWidget<W> for Edge<W> {}
 
 impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
     fn debug_name(&self) -> &'static str {

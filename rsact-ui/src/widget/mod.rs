@@ -24,7 +24,6 @@ use crate::{
     font::{Font, FontProps, FontSize, FontStyle},
     layout::length::LengthSize,
 };
-use bitflags::bitflags;
 use core::any::Any;
 use prelude::*;
 use rsact_reactive::prelude::*;

@@ -10,6 +10,7 @@ pub mod flags;
 pub mod render;
 pub mod state;
 pub mod update;
+pub mod view;
 
 pub use build::*;
 pub use ctx::*;
@@ -18,6 +19,7 @@ pub use flags::WidgetFlags;
 pub use render::*;
 pub use state::*;
 pub use update::*;
+pub use view::*;
 
 slotmap::new_key_type! {
     pub struct ElId;

@@ -1,5 +1,5 @@
 use crate::{
-    el::{El, arena::ElArena, ctx::*},
+    el::{El, View, arena::ElArena, ctx::*},
     event::{
         Event, UnhandledEvent,
         message::{UiMessage, UiQueue},
@@ -39,10 +39,10 @@ pub trait PageInitFn<W: WidgetCtx> {
 impl<W: WidgetCtx, F, T> PageInitFn<W> for F
 where
     F: Fn() -> T,
-    T: Into<El<W>>,
+    T: View<W>,
 {
     fn init_page(&self) -> El<W> {
-        (self)().into()
+        (self)().into_el()
     }
 }
 

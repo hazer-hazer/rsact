@@ -14,6 +14,12 @@ declare_widget_style! {
     }
 }
 
+impl<W: WidgetCtx> View<W> for Label<W> {
+    fn into_el(self) -> El<W> {
+        self.el()
+    }
+}
+
 pub struct Label<W: WidgetCtx> {
     content: MaybeReactive<String>,
     layout: Layout,
@@ -122,20 +128,20 @@ impl<W: WidgetCtx> Widget<W> for Label<W> {
     }
 }
 
-impl<'a, W: WidgetCtx> Into<El<W>> for &'a str {
-    fn into(self) -> El<W> {
+impl<'a, W: WidgetCtx> View<W> for &'a str {
+    fn into_el(self) -> El<W> {
         Label::new(self.to_string().inert()).el()
     }
 }
 
-impl<W: WidgetCtx> Into<El<W>> for String {
-    fn into(self) -> El<W> {
+impl<W: WidgetCtx> View<W> for String {
+    fn into_el(self) -> El<W> {
         Label::new(self.inert()).el()
     }
 }
 
-impl<W: WidgetCtx> Into<El<W>> for Signal<String> {
-    fn into(self) -> El<W> {
+impl<W: WidgetCtx> View<W> for Signal<String> {
+    fn into_el(self) -> El<W> {
         Label::new(self).el()
     }
 }

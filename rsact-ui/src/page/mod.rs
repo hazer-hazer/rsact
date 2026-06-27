@@ -76,7 +76,7 @@ impl<W: WidgetCtx> Page<W> {
         // be a El::New, or we can require root to be a Widget non-wrapped?
         // No, ElData can contain additional information raw widget does not
         // provide
-        root: impl Into<El<W>>,
+        root: impl View<W>,
         arena: Signal<ElArena<W>>,
         viewport: MaybeReactive<Size>,
         stylist: Inert<W::Stylist>,
@@ -84,7 +84,7 @@ impl<W: WidgetCtx> Page<W> {
         renderer: Signal<W::Renderer>,
         fonts: Signal<FontCtx>,
     ) -> Self {
-        let mut root: El<W> = root.into();
+        let mut root: El<W> = root.into_el();
         let state = PageState::new();
 
         let mut force_redraw = create_signal(false).name("Force redraw");
@@ -602,7 +602,7 @@ impl<W: WidgetCtx> Page<W> {
 mod tests {
     use super::{Page, dev::DevTools};
     use crate::{
-        el::{El, arena::ElArena, ctx::*},
+        el::{El, arena::ElArena, ctx::*, view::View},
         font::FontCtx,
         prelude::*,
         style::theme::Theme,
@@ -613,7 +613,7 @@ mod tests {
 
     type NullWtf = Wtf<NullRenderer, (), (), ()>;
 
-    fn create_null_page(root: impl Into<El<NullWtf>>) -> Page<NullWtf> {
+    fn create_null_page(root: impl View<NullWtf>) -> Page<NullWtf> {
         let arena = create_signal(ElArena::new()).name("Page arena");
 
         Page::new(
@@ -654,6 +654,34 @@ mod tests {
         assert_eq!(page.take_draw_calls(), 0);
         page.use_renderer(|_| {});
         assert_eq!(page.take_draw_calls(), 0);
+    }
+
+    // The `View` migration: `row!`/`col!` and `impl View<W>` APIs accept bare
+    // widgets *and* leaf values (`&str`, `String`, `Option<View>`, existing
+    // `El`) uniformly, without an explicit `.el()`. A bare `Button` in `row!`
+    // did not compile under the old `Into<El>` path (no `From<Button> for El`);
+    // it works now because every widget gets its own concrete `View` impl
+    // (a one-liner next to its `Widget` impl), which coexists with the leaf
+    // impls.
+    #[test]
+    fn view_accepts_bare_widgets_and_leaves() {
+        fn build(v: impl View<NullWtf>) -> El<NullWtf> {
+            v.into_el()
+        }
+
+        let _: El<NullWtf> = build(row![
+            Button::new("bare button"), // bare widget, no `.el()`
+            "string literal",           // &str leaf
+            String::from("owned string"), // String leaf
+            Container::new("nested str"), // container takes `impl View`
+            Label::new("explicit").el(), // existing El still fine
+            Some(Button::new("optional")), // Option<View>
+        ]);
+
+        let _: El<NullWtf> = build(col![Button::new("a"), "b"]);
+
+        // And it composes as a real page root (`PageInitFn` is `View`-based).
+        let _ = create_null_page(row![Button::new("root"), "title"]);
     }
 
     // Regression: a reactive source set through the trait-default setter

@@ -14,8 +14,8 @@ use rsact_ui::{
     style::theme::Theme,
     ui::UI,
     widget::{
-        SizedWidget, Widget, checkbox::Checkbox, container::Container,
-        flex::Flex,
+        SizedWidget, Widget, canvas::Canvas, checkbox::Checkbox,
+        container::Container, flex::Flex,
     },
 };
 use std::{
@@ -28,29 +28,69 @@ type W = Wtf<TinySkiaRenderer<Color>, SinglePage, Theme<Color>, ()>;
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 enum WidgetTab {
+    Container,
     Button,
+    Canvas,
     Checkbox,
     Label,
 }
 
 impl WidgetTab {
     fn each() -> impl Iterator<Item = Self> {
-        [Self::Button, Self::Checkbox, Self::Label].into_iter()
+        [
+            Self::Container,
+            Self::Button,
+            Self::Checkbox,
+            Self::Label,
+            Self::Canvas,
+        ]
+        .into_iter()
     }
 }
 
 impl Display for WidgetTab {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            WidgetTab::Container => write!(f, "Container"),
             WidgetTab::Button => write!(f, "Button"),
+            WidgetTab::Canvas => write!(f, "Canvas"),
             WidgetTab::Checkbox => write!(f, "Checkbox"),
             WidgetTab::Label => write!(f, "Label"),
         }
     }
 }
 
-fn page() -> impl Into<El<W>> {
-    let mut widget = create_signal(WidgetTab::Checkbox);
+fn container() -> impl View<W> {
+    row![
+        "Container is a widget with a single child. You can set padding, border and its radius, background color, and alignment of the child.",
+
+        col![
+            "Padding [top 5px, right 10, bottom 15, left 20]",
+            Container::new(Edge::new().size(Size::new_equal(50)).style(|base, _| {
+                base.background_color(tiny_skia::Color::from_rgba8(255, 128, 0, 255))
+            }))
+            .padding(Padding::new(5, 10, 15, 20))
+        ],
+
+        col![
+            "Border [width 5px, color red, radius 10px]",
+            Container::new(
+                Edge::new().size(Size::new_equal(50)).border_width(5).style(
+                    |base, _| {
+                        base.background_color(tiny_skia::Color::from_rgba8(
+                            0, 128, 255, 255,
+                        ))
+                        .border_color(tiny_skia::Color::from_rgba8(255, 0, 0, 255))
+                        .border_radius(Radius::SizeEqual(10))
+                    },
+                ),
+            )
+        ],
+    ].fill()
+}
+
+fn page() -> impl View<W> {
+    let mut widget = create_signal(WidgetTab::Container);
     // let select_widget =
     //     Select::vertical(widget,
     // WidgetTab::each().collect::<Vec<_>>().inert());
@@ -71,11 +111,14 @@ fn page() -> impl Into<El<W>> {
         .fill(),
     )
     .padding(5u32)
-    .fill();
+    .width(Length::Shrink)
+    .height(Length::fill());
 
     let widget_view = Container::new(
         dynamic(move || match widget.get() {
+            WidgetTab::Container => container().into_el(),
             WidgetTab::Button => Button::new("Some button text").el(),
+            WidgetTab::Canvas => Label::new("TODO").el(),
             WidgetTab::Checkbox => Checkbox::new(true).el(),
             WidgetTab::Label => Label::new("Some text").el(),
         })

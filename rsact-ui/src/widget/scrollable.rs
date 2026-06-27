@@ -77,6 +77,12 @@ impl<C: Color> ScrollableStyle<C> {
     }
 }
 
+impl<W: WidgetCtx, Dir: Direction + 'static> View<W> for Scrollable<W, Dir> {
+    fn into_el(self) -> El<W> {
+        self.el()
+    }
+}
+
 pub struct Scrollable<W: WidgetCtx, Dir: Direction> {
     state: Signal<ScrollableState>,
     style: WidgetStyleFn<ScrollableStyle<W::Color>>,
@@ -87,20 +93,20 @@ pub struct Scrollable<W: WidgetCtx, Dir: Direction> {
 }
 
 impl<W: WidgetCtx> Scrollable<W, RowDir> {
-    pub fn horizontal(content: impl Into<El<W>>) -> Self {
+    pub fn horizontal(content: impl View<W>) -> Self {
         Self::new(content)
     }
 }
 
 impl<W: WidgetCtx> Scrollable<W, ColDir> {
-    pub fn vertical(content: impl Into<El<W>>) -> Self {
+    pub fn vertical(content: impl View<W>) -> Self {
         Self::new(content)
     }
 }
 
 impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
-    pub fn new(content: impl Into<El<W>>) -> Self {
-        let content = content.into();
+    pub fn new(content: impl View<W>) -> Self {
+        let content = content.into_el();
         let state = create_signal(ScrollableState::none());
 
         let layout = Layout::scrollable::<Dir>(content.layout());
