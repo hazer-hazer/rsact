@@ -5,19 +5,7 @@ use embedded_graphics::{
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
-use rsact_ui::{
-    col,
-    event::simulator::simulator_single_encoder,
-    page::id::SinglePage,
-    prelude::{IntoInert, Select, SignalMap, create_signal, *},
-    row,
-    style::theme::Theme,
-    ui::UI,
-    widget::{
-        SizedWidget, Widget, canvas::Canvas, checkbox::Checkbox,
-        container::Container, flex::Flex,
-    },
-};
+use rsact_ui::{event::simulator::simulator_single_encoder, prelude::*};
 use std::{
     fmt::Display,
     time::{Duration, Instant},
@@ -61,18 +49,18 @@ impl Display for WidgetTab {
 }
 
 fn container() -> impl View<W> {
-    row![
+    Flex::row((
         "Container is a widget with a single child. You can set padding, border and its radius, background color, and alignment of the child.",
 
-        col![
+        Flex::col((
             "Padding [top 5px, right 10, bottom 15, left 20]",
             Container::new(Edge::new().size(Size::new_equal(50)).style(|base, _| {
                 base.background_color(tiny_skia::Color::from_rgba8(255, 128, 0, 255))
             }))
             .padding(Padding::new(5, 10, 15, 20))
-        ],
+        )),
 
-        col![
+        Flex::col((
             "Border [width 5px, color red, radius 10px]",
             Container::new(
                 Edge::new().size(Size::new_equal(50)).border_width(5).style(
@@ -85,8 +73,8 @@ fn container() -> impl View<W> {
                     },
                 ),
             )
-        ],
-    ].fill()
+        )),
+    )).fill()
 }
 
 fn page() -> impl View<W> {
@@ -125,7 +113,9 @@ fn page() -> impl View<W> {
         .el(),
     );
 
-    let page = row![select_widget, col![widget_view].fill()].center().fill();
+    let page = Flex::row((select_widget, Flex::col((widget_view,)).fill()))
+        .center()
+        .fill();
 
     page
 }

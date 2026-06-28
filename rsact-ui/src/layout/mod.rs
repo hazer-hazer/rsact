@@ -559,6 +559,10 @@ impl Layout {
         Self::new(kind, LengthSize::shrink())
     }
 
+    pub fn fill(kind: LayoutKind) -> Self {
+        Self::new(kind, LengthSize::fill())
+    }
+
     pub fn edge(size: LengthSize) -> Self {
         Self::new(LayoutKind::Edge, size)
     }

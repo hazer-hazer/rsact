@@ -33,7 +33,7 @@ impl<W: WidgetCtx> Label<W> {
         let content =
             content.map_ref_maybe_reactive(|content| content.to_string());
 
-        let layout = Layout::shrink(super::LayoutKind::Content(
+        let layout = Layout::fill(super::LayoutKind::Content(
             ContentLayout::text(content),
         ));
 
@@ -128,6 +128,8 @@ impl<W: WidgetCtx> Widget<W> for Label<W> {
     }
 }
 
+// I am not sure if it is a good idea to treat any text type as a Label because if we add a new text widget (for example rich text), then it will be ambiguous, better use LabelView::label like "text".label() to convert to Label explicitly.
+
 impl<'a, W: WidgetCtx> View<W> for &'a str {
     fn into_el(self) -> El<W> {
         Label::new(self.to_string().inert()).el()
@@ -143,5 +145,37 @@ impl<W: WidgetCtx> View<W> for String {
 impl<W: WidgetCtx> View<W> for Signal<String> {
     fn into_el(self) -> El<W> {
         Label::new(self).el()
+    }
+}
+
+pub trait LabelView<W: WidgetCtx> {
+    fn label(self) -> Label<W>;
+
+    fn font_size<S: Into<FontSize> + Clone + PartialEq + 'static>(
+        self,
+        font_size: impl IntoMaybeReactive<S>,
+    ) -> Label<W>
+    where
+        Self: Sized,
+    {
+        self.label().font_size(font_size)
+    }
+}
+
+impl<'a, W: WidgetCtx> LabelView<W> for &'a str {
+    fn label(self) -> Label<W> {
+        Label::new(self.to_string().inert())
+    }
+}
+
+impl<W: WidgetCtx> LabelView<W> for String {
+    fn label(self) -> Label<W> {
+        Label::new(self.inert())
+    }
+}
+
+impl<W: WidgetCtx> LabelView<W> for Signal<String> {
+    fn label(self) -> Label<W> {
+        Label::new(self)
     }
 }

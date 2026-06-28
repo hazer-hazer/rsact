@@ -236,7 +236,7 @@ impl<'a> Display for PPLayoutModel<'a> {
     }
 }
 
-// TODO: Split layouts decorations and layout modeling logic into separate files
+// TODO: Split layouts declarations and layout modeling logic into separate files
 
 // TODO: Should viewport be unwrapped value as we depend modeling on viewport
 // value?

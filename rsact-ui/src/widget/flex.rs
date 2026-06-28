@@ -13,51 +13,6 @@ use rsact_reactive::prelude::*;
 //     }
 // }
 
-#[macro_export]
-macro_rules! row {
-    ($($el: expr),* $(,)?) => [
-        Flex::row([
-            $($crate::el::View::into_el($el)),*
-        ])
-    ];
-}
-#[macro_export]
-macro_rules! col {
-    ($($el: expr),* $(,)?) => [
-        Flex::col([
-            $($crate::el::View::into_el($el)),*
-        ])
-    ];
-}
-pub use col;
-pub use row;
-
-pub trait IntoChildren<W: WidgetCtx> {
-    fn into_children(self) -> MaybeSignal<Vec<El<W>>>;
-}
-
-impl<W: WidgetCtx + 'static, const SIZE: usize> IntoChildren<W>
-    for [El<W>; SIZE]
-{
-    #[track_caller]
-    fn into_children(self) -> MaybeSignal<Vec<El<W>>> {
-        create_signal(self.into_iter().collect()).into()
-    }
-}
-
-impl<W: WidgetCtx + 'static> IntoChildren<W> for Vec<El<W>> {
-    #[track_caller]
-    fn into_children(self) -> MaybeSignal<Vec<El<W>>> {
-        create_signal(self).into()
-    }
-}
-
-impl<W: WidgetCtx + 'static> IntoChildren<W> for Signal<Vec<El<W>>> {
-    fn into_children(self) -> MaybeSignal<Vec<El<W>>> {
-        self.into()
-    }
-}
-
 impl<W: WidgetCtx + 'static, Dir: Direction + 'static> View<W>
     for Flex<W, Dir>
 {
@@ -66,6 +21,7 @@ impl<W: WidgetCtx + 'static, Dir: Direction + 'static> View<W>
     }
 }
 
+// TODO: Shouldn't Flex support changing direction so we need to store a field instead of using a const param.
 pub struct Flex<W: WidgetCtx, Dir: Direction> {
     // TODO: Signal-vector type?
     // TODO: Can we do fixed size?
@@ -76,21 +32,21 @@ pub struct Flex<W: WidgetCtx, Dir: Direction> {
 
 impl<W: WidgetCtx + 'static> Flex<W, RowDir> {
     #[track_caller]
-    pub fn row(children: impl IntoChildren<W>) -> Self {
+    pub fn row(children: impl ViewSequence<W>) -> Self {
         Self::new(children)
     }
 }
 
 impl<W: WidgetCtx + 'static> Flex<W, ColDir> {
     #[track_caller]
-    pub fn col(children: impl IntoChildren<W>) -> Self {
+    pub fn col(children: impl ViewSequence<W>) -> Self {
         Self::new(children)
     }
 }
 
 impl<W: WidgetCtx + 'static, Dir: Direction> Flex<W, Dir> {
     #[track_caller]
-    fn new(children: impl IntoChildren<W>) -> Self {
+    fn new(children: impl ViewSequence<W>) -> Self {
         let children = children.into_children();
 
         let layout_children = children.map(|children| {

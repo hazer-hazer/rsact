@@ -44,11 +44,7 @@ default = []
 
 debug-info = ["rsact-reactive/debug-info"]
 defmt = ["dep:defmt"]
-simulator = [
-    "dep:embedded-graphics-simulator",
-    "embedded-graphics",
-    "u8g2-fonts",
-]
+simulator = ["dep:embedded-graphics-simulator", "embedded-graphics"]
 embedded-graphics = [
     "dep:embedded-graphics",
     "dep:embedded-graphics-core",

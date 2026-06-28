@@ -669,19 +669,41 @@ mod tests {
             v.into_el()
         }
 
-        let _: El<NullWtf> = build(row![
+        let _: El<NullWtf> = build(Flex::row((
             Button::new("bare button"), // bare widget, no `.el()`
             "string literal",           // &str leaf
             String::from("owned string"), // String leaf
             Container::new("nested str"), // container takes `impl View`
             Label::new("explicit").el(), // existing El still fine
             Some(Button::new("optional")), // Option<View>
-        ]);
+        )));
 
-        let _: El<NullWtf> = build(col![Button::new("a"), "b"]);
+        let _: El<NullWtf> = build(Flex::col((Button::new("a"), "b")));
 
         // And it composes as a real page root (`PageInitFn` is `View`-based).
-        let _ = create_null_page(row![Button::new("root"), "title"]);
+        let _ = create_null_page(Flex::row((Button::new("root"), "title")));
+    }
+
+    // ViewSequence: Flex accepts a heterogeneous tuple of widget types, a
+    // homogeneous widget array, a Vec of views, and the row!/col! macros,
+    // auto-erasing each element via `View::into_el` (no manual `.el()`), with
+    // static children stored inert (`MaybeSignal::new_inert`).
+    #[test]
+    fn flex_view_sequence() {
+        // Heterogeneous tuple of different widget types + a `&str` leaf:
+        let _ = create_null_page(Flex::row((
+            Button::new("a"),
+            "b",
+            Container::new("c"),
+        )));
+        // Homogeneous array of widgets:
+        let _ =
+            create_null_page(Flex::col([Button::new("x"), Button::new("y")]));
+        // Vec of views (here `&str`):
+        let _ = create_null_page(Flex::row(alloc::vec!["a", "b", "c"]));
+        // Macros still accept bare widgets + leaves:
+        let _ =
+            create_null_page(Flex::col((Container::new("x"), "y", Button::new("z"))));
     }
 
     // Regression: a reactive source set through the trait-default setter

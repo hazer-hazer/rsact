@@ -35,8 +35,9 @@ pub mod prelude {
         style::{declare_widget_style, theme::Theme},
         ui::UI,
         widget::{
-            button::*, container::*, dynamic::*, edge::*, flex::*, label::*,
-            prelude::*, scrollable::*, select::*, slider::*, space::*,
+            button::*, checkbox::*, container::*, dynamic::*, edge::*, flex::*,
+            label::*, prelude::*, scrollable::*, select::*, slider::*,
+            space::*,
         },
     };
     pub use rsact_reactive::prelude::*;

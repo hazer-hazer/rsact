@@ -43,7 +43,7 @@ impl FontHandler for FixedFont {
                     },
                 );
 
-                Some(Limits::new(max_size, max_size))
+                Some(Limits::new(Size::zero(), max_size))
             },
             // TODO: How does initial point affects dimensions? Maybe we should
             // add position to size to compute real bounding box
@@ -66,7 +66,7 @@ impl FontHandler for FixedFont {
                 // );
                 let max_size = bounds.size.into();
 
-                Some(Limits::new(max_size, max_size))
+                Some(Limits::new(Size::zero(), max_size))
             },
             _ => unreachable!(),
         }
