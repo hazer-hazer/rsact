@@ -1,6 +1,9 @@
+use super::Theme;
 use crate::{
-    render::color::Color,
-    style::stylist::{InternalStylist, Stylist},
+    style::{
+        StyleSelector,
+        stylist::{InternalStylist, Stylist},
+    },
     widget::{
         bar::BarStyle, button::ButtonStyle, checkbox::CheckboxStyle,
         container::ContainerStyle, edge::EdgeStyle, knob::KnobStyle,
@@ -13,22 +16,6 @@ use rsact_render::{
     geometry::Angle,
     style::block::{BlockStyle, BorderStyle, Radius},
 };
-
-/// Application-level theme: provides default styles for all built-in widgets.
-///
-/// Construct with [`Theme::default()`] and optionally customize with
-/// [`Theme::with_accent`].
-#[derive(Clone, Copy, PartialEq)]
-pub struct Theme<C: Color> {
-    bg: C,
-    fg: C,
-    primary: C,
-    border_radius: Radius,
-
-    // Derived //
-    bg_muted: C,
-    fg_muted: C,
-}
 
 impl<C: RgbColor> Default for Theme<C> {
     fn default() -> Self {
@@ -67,7 +54,7 @@ impl<C: RgbColor> Stylist<BarStyle<C>> for Theme<C> {
     fn style(
         &self,
         base: &BarStyle<C>,
-        _selector: &super::StyleSelector,
+        _selector: &StyleSelector,
     ) -> BarStyle<C> {
         base.color(self.fg)
     }
@@ -77,7 +64,7 @@ impl<C: RgbColor> Stylist<ButtonStyle<C>> for Theme<C> {
     fn style(
         &self,
         base: &ButtonStyle<C>,
-        selector: &super::StyleSelector,
+        selector: &StyleSelector,
     ) -> ButtonStyle<C> {
         if selector.pseudoclass.hovered {
             base.container(self.container().background_color(self.bg_muted))
@@ -91,7 +78,7 @@ impl<C: RgbColor> Stylist<CheckboxStyle<C>> for Theme<C> {
     fn style(
         &self,
         base: &CheckboxStyle<C>,
-        selector: &super::StyleSelector,
+        selector: &StyleSelector,
     ) -> CheckboxStyle<C> {
         if selector.pseudoclass.hovered {
             base.container(self.container().background_color(self.bg_muted))
@@ -105,7 +92,7 @@ impl<C: RgbColor> Stylist<ContainerStyle<C>> for Theme<C> {
     fn style(
         &self,
         base: &ContainerStyle<C>,
-        _selector: &super::StyleSelector,
+        _selector: &StyleSelector,
     ) -> ContainerStyle<C> {
         base.clone()
     }
@@ -115,7 +102,7 @@ impl<C: RgbColor> Stylist<EdgeStyle<C>> for Theme<C> {
     fn style(
         &self,
         base: &EdgeStyle<C>,
-        _selector: &super::StyleSelector,
+        _selector: &StyleSelector,
     ) -> EdgeStyle<C> {
         base.clone()
     }
@@ -125,7 +112,7 @@ impl<C: RgbColor> Stylist<KnobStyle<C>> for Theme<C> {
     fn style(
         &self,
         base: &KnobStyle<C>,
-        _selector: &super::StyleSelector,
+        _selector: &StyleSelector,
     ) -> KnobStyle<C> {
         base.color(self.primary)
             .angle_start(Angle::from_degrees(-120.0))
@@ -137,7 +124,7 @@ impl<C: RgbColor> Stylist<LabelStyle<C>> for Theme<C> {
     fn style(
         &self,
         base: &LabelStyle<C>,
-        _selector: &super::StyleSelector,
+        _selector: &StyleSelector,
     ) -> LabelStyle<C> {
         base.text_color(self.fg)
     }
@@ -147,7 +134,7 @@ impl<C: RgbColor> Stylist<ScrollableStyle<C>> for Theme<C> {
     fn style(
         &self,
         base: &ScrollableStyle<C>,
-        _selector: &super::StyleSelector,
+        _selector: &StyleSelector,
     ) -> ScrollableStyle<C> {
         base.track_color(self.bg)
             .thumb_color(self.bg_muted)
@@ -160,7 +147,7 @@ impl<C: RgbColor> Stylist<SelectStyle<C>> for Theme<C> {
     fn style(
         &self,
         base: &SelectStyle<C>,
-        _selector: &super::StyleSelector,
+        _selector: &StyleSelector,
     ) -> SelectStyle<C> {
         base.selected_background_color(self.bg_muted)
             .selected_border_radius(self.border_radius)
@@ -171,7 +158,7 @@ impl<C: RgbColor> Stylist<SliderStyle<C>> for Theme<C> {
     fn style(
         &self,
         base: &SliderStyle<C>,
-        _selector: &super::StyleSelector,
+        _selector: &StyleSelector,
     ) -> SliderStyle<C> {
         base.track_width(10)
             .track_color(self.bg_muted)
@@ -217,6 +204,3 @@ impl<C: RgbColor> Theme<C> {
         self
     }
 }
-
-// TODO: MaterialYou? HCT it is too complex and heavy, better implement just
-// something like a seed color scheme generation.
