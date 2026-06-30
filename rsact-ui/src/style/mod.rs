@@ -93,7 +93,7 @@ macro_rules! declare_widget_style {
         ),* $(,)?
     }) => {
         #[derive(derivative::Derivative)]
-        #[derivative(Clone, Copy, PartialEq)]
+        #[derivative(Clone, Copy, PartialEq, Debug)]
         pub struct $name<C: $crate::render::color::Color> {
             $(pub $field: $crate::style::declare_widget_style!(@ty $ty)),*
         }

@@ -27,12 +27,7 @@ declare_widget_style! {
 // TODO: Do we need `on_change` event if we have signal value?
 
 // TODO: Custom icon
-impl<W: WidgetCtx> View<W> for Checkbox<W> {
-    fn into_el(self) -> El<W> {
-        self.el()
-    }
-}
-
+#[derive(View)]
 pub struct Checkbox<W: WidgetCtx> {
     state: Signal<CheckboxState>,
     layout: Layout,

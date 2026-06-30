@@ -1,5 +1,8 @@
 use super::length::{DeterministicLength, Length};
-use crate::{layout::length::LengthSize, render::prelude::*};
+use crate::{
+    layout::{ContentSizing, length::LengthSize},
+    render::prelude::*,
+};
 use core::{fmt::Display, u32};
 use rsact_render::geometry::padding::Padding;
 
@@ -93,6 +96,7 @@ impl Limits {
                 let new_length =
                     fixed.min(self.max.main(axis)).max(self.min.main(axis));
 
+                // TODO: This doesn't seem to be right to set min limit to the max limit for Fixed length.
                 Self::new(
                     self.min.with_main(axis, new_length),
                     self.max.with_main(axis, new_length),
@@ -141,9 +145,41 @@ impl Limits {
             },
             Length::Fixed(fixed)
             | Length::InfiniteWindow(DeterministicLength::Fixed(fixed)) => {
-                fixed.min(self.max.main(axis)).max(self.min.main(axis))
+                fixed.min(self.max.main(axis))
+
+                // TODO: Investigate, I suppressed min limit
+                // fixed.min(self.max.main(axis)).max(self.min.main(axis))
             },
         }
+    }
+
+    /// Resolve a content leaf whose block-axis (height) extent depends on its
+    /// resolved inline-axis (width). The width is resolved first from the width
+    /// range in `sizing` (`Shrink` takes `max_content`, `Fill`/`Fixed`/`Pct`
+    /// as usual), then `height_for_width(width)` gives the content height and
+    /// the height axis resolves from that. Used by the `Content` arm of layout
+    /// modeling.
+    pub fn resolve_content_size(
+        &self,
+        size: LengthSize,
+        sizing: &ContentSizing,
+        height_for_width: impl Fn(u32) -> u32,
+    ) -> Size<u32> {
+        let self_limits = self.self_limits(size);
+        // Inline (width) axis resolves from the max-content width: `Shrink`
+        // clamps it into limits, `Fill`/`Pct`/`Fixed` behave as usual.
+        let width = self_limits.resolve_axis(
+            Axis::X,
+            size,
+            Size::new(sizing.max_content, 0),
+        );
+        // Block (height) axis resolves from the wrapped height at that width.
+        let height = self_limits.resolve_axis(
+            Axis::Y,
+            size,
+            Size::new(0, height_for_width(width)),
+        );
+        Size::new(width, height)
     }
 
     pub fn resolve_size(
@@ -187,5 +223,64 @@ impl Display for Limits {
 impl From<embedded_graphics::primitives::Rectangle> for Limits {
     fn from(value: embedded_graphics::primitives::Rectangle) -> Self {
         Self::new(Size::zero(), value.size.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::layout::ContentSizing;
+
+    fn sizing(min: u32, max: u32, line_height: u32) -> ContentSizing {
+        ContentSizing { min_content: min, max_content: max, line_height }
+    }
+
+    // Stand-in for a font's wrapping: one line at/above the unwrapped width,
+    // two lines below it.
+    fn height_for_width(
+        unwrapped: u32,
+        line_height: u32,
+    ) -> impl Fn(u32) -> u32 {
+        move |width| {
+            if width >= unwrapped { line_height } else { line_height * 2 }
+        }
+    }
+
+    #[test]
+    fn shrink_text_takes_unwrapped_width_on_one_line() {
+        let limits = Limits::only_max(Size::new(200, 100));
+        let size = LengthSize::shrink();
+        let resolved = limits.resolve_content_size(
+            size,
+            &sizing(20, 60, 10),
+            height_for_width(60, 10),
+        );
+        assert_eq!(resolved, Size::new(60, 10));
+    }
+
+    #[test]
+    fn fill_width_wraps_into_available_and_grows_height() {
+        let limits = Limits::only_max(Size::new(40, 100));
+        let mut size = LengthSize::shrink();
+        size.set_width(Length::Div(1)); // fill width, shrink height
+        let resolved = limits.resolve_content_size(
+            size,
+            &sizing(20, 60, 10),
+            height_for_width(60, 10),
+        );
+        assert_eq!(resolved, Size::new(40, 20));
+    }
+
+    #[test]
+    fn fixed_width_clamps_then_derives_wrapped_height() {
+        let limits = Limits::only_max(Size::new(200, 100));
+        let mut size = LengthSize::shrink();
+        size.set_width(Length::Fixed(30));
+        let resolved = limits.resolve_content_size(
+            size,
+            &sizing(20, 60, 10),
+            height_for_width(60, 10),
+        );
+        assert_eq!(resolved, Size::new(30, 20));
     }
 }

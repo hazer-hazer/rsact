@@ -13,12 +13,7 @@ where
     Dynamic::new(move || factory().into_el())
 }
 
-impl<W: WidgetCtx + 'static> View<W> for Dynamic<W> {
-    fn into_el(self) -> El<W> {
-        self.el()
-    }
-}
-
+#[derive(View)]
 pub struct Dynamic<W: WidgetCtx> {
     // Child that always some after construction, option is needed to be set on
     // initialization TODO: MaybeUninit can be used for optimization.

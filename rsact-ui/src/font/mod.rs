@@ -8,6 +8,36 @@ use fixed::{FixedFont, FixedFontCollection};
 use rsact_reactive::prelude::*;
 
 pub mod fixed;
+pub mod measure;
+
+/// How a text leaf behaves when its assigned width is smaller than its
+/// unwrapped (max-content) width.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "defmt", derive(::defmt::Format))]
+pub enum TextOverflow {
+    /// Soft-wrap at word boundaries into the available width; height grows.
+    #[default]
+    Wrap,
+    /// Keep one visual line per hard `'\n'`; clip horizontally at draw.
+    Clip,
+    /// Like [`TextOverflow::Clip`] but the last visible run is truncated with
+    /// an ellipsis at draw.
+    Ellipsis,
+}
+
+/// Intrinsic sizing of a text leaf along the inline (width) axis, plus the
+/// single-line height. Height for a concrete width is derived separately via
+/// [`FontHandler::text_height_for_width`] because it depends on wrapping.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextIntrinsics {
+    /// Width of the widest unbreakable unit (longest word) for [`TextOverflow::Wrap`];
+    /// `0` for [`TextOverflow::Clip`]/[`TextOverflow::Ellipsis`] (squeezable).
+    pub min_content_width: u32,
+    /// Width of the longest hard-`'\n'` line, with no soft wrapping.
+    pub max_content_width: u32,
+    /// Height of a single line.
+    pub line_height: u32,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum TextHorizontalAlign {
@@ -204,11 +234,27 @@ impl Font {
 
 /// The logic implemented by actual fonts such as StoredFont, FixedFont.
 pub trait FontHandler {
-    fn measure_text_size(
+    /// Intrinsic width range (min-content/max-content) and single-line height
+    /// of `content`. `overflow` only affects `min_content_width` (it is `0`
+    /// for clip/ellipsis, which can be squeezed). Returns `None` if the font
+    /// cannot measure the text.
+    fn measure_text(
         &self,
         content: &str,
         props: ResolvedFontProps,
-    ) -> Option<Limits>;
+        overflow: TextOverflow,
+    ) -> Option<TextIntrinsics>;
+
+    /// Total height `content` occupies when laid out into `width` pixels under
+    /// `overflow` (wrapping grows the height; clip/ellipsis keep one line per
+    /// hard `'\n'`).
+    fn text_height_for_width(
+        &self,
+        content: &str,
+        props: ResolvedFontProps,
+        width: u32,
+        overflow: TextOverflow,
+    ) -> u32;
 
     fn draw<W: WidgetCtx>(
         &self,
@@ -251,17 +297,35 @@ pub enum StoredFont {
 }
 
 impl FontHandler for StoredFont {
-    fn measure_text_size(
+    fn measure_text(
         &self,
         content: &str,
         props: ResolvedFontProps,
-    ) -> Option<Limits> {
+        overflow: TextOverflow,
+    ) -> Option<TextIntrinsics> {
         match self {
             StoredFont::Fixed(fixed_font) => {
-                fixed_font.measure_text_size(content, props)
+                fixed_font.measure_text(content, props, overflow)
             },
             StoredFont::FixedCollection(fixed_font_collection) => {
-                fixed_font_collection.measure_text_size(content, props)
+                fixed_font_collection.measure_text(content, props, overflow)
+            },
+        }
+    }
+
+    fn text_height_for_width(
+        &self,
+        content: &str,
+        props: ResolvedFontProps,
+        width: u32,
+        overflow: TextOverflow,
+    ) -> u32 {
+        match self {
+            StoredFont::Fixed(fixed_font) => fixed_font
+                .text_height_for_width(content, props, width, overflow),
+            StoredFont::FixedCollection(fixed_font_collection) => {
+                fixed_font_collection
+                    .text_height_for_width(content, props, width, overflow)
             },
         }
     }
@@ -334,7 +398,7 @@ fn pick_default_font() -> FontImport {
             FontImport::fixed_u8g2(&DEFAULT_U8G2_FONT)
         },
         feature = "embedded-graphics" => {
-            FontImport::fixed_eg_mono_font(&embedded_graphics::mono_font::ascii::FONT_9X15)
+            FontImport::fixed_eg_mono_font(&embedded_graphics::mono_font::ascii::FONT_8X13)
         },
     }
 }
@@ -385,26 +449,49 @@ impl FontCtx {
         self.fallback_font()
     }
 
-    pub fn measure_text_size(
+    pub fn measure_text(
         &self,
         font: Font,
         content: &str,
         props: ResolvedFontProps,
-    ) -> Limits {
+        overflow: TextOverflow,
+    ) -> TextIntrinsics {
         match font {
-            Font::Auto => self.auto_font().measure_text_size(content, props),
+            Font::Auto => {
+                self.auto_font().measure_text(content, props, overflow)
+            },
             Font::Id(font_id) => {
-                self.expect(font_id).measure_text_size(content, props)
+                self.expect(font_id).measure_text(content, props, overflow)
             },
             Font::Fixed(fixed_font) => {
-                fixed_font.measure_text_size(content, props)
+                fixed_font.measure_text(content, props, overflow)
             },
         }
         .unwrap_or_else(|| {
             self.fallback_font()
-                .measure_text_size(content, props)
+                .measure_text(content, props, overflow)
                 .expect("[BUG] Fallback font must be defined")
         })
+    }
+
+    pub fn text_height_for_width(
+        &self,
+        font: Font,
+        content: &str,
+        props: ResolvedFontProps,
+        width: u32,
+        overflow: TextOverflow,
+    ) -> u32 {
+        match font {
+            Font::Auto => self
+                .auto_font()
+                .text_height_for_width(content, props, width, overflow),
+            Font::Id(font_id) => self
+                .expect(font_id)
+                .text_height_for_width(content, props, width, overflow),
+            Font::Fixed(fixed_font) => fixed_font
+                .text_height_for_width(content, props, width, overflow),
+        }
     }
 
     // TODO: Background color!

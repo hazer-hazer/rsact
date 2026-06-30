@@ -4,6 +4,11 @@
 #[macro_use]
 extern crate alloc;
 
+// Lets the `#[derive(View)]` macro from `rsact-macros` refer to this crate by
+// its real name (`rsact_ui::...`) even from within the crate that defines the
+// widgets — the derive emits absolute paths.
+extern crate self as rsact_ui;
+
 pub mod anim;
 pub mod el;
 pub mod event;

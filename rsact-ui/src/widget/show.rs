@@ -5,12 +5,7 @@ use super::prelude::*;
 /// - Has zero layout
 /// - Isn't drawn
 /// - Ignores events
-impl<W: WidgetCtx> View<W> for Show<W> {
-    fn into_el(self) -> El<W> {
-        self.el()
-    }
-}
-
+#[derive(View)]
 pub struct Show<W: WidgetCtx> {
     // TODO: Do we need MaybeReactive overhead if user rarely needs element to
     // always be hidden or shown?

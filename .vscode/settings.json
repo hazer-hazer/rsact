@@ -3,6 +3,7 @@
   "rust-analyzer.cargo.allTargets": true,
   "cSpell.words": [
     "colorspace",
+    "combinators",
     "Deque",
     "dirten",
     "downcasting",
@@ -22,7 +23,8 @@
     "unfocusable",
     "Uninit",
     "vals",
-    "viewports"
+    "viewports",
+    "Xilem"
   ],
   "rust-analyzer.runnables.extraTestBinaryArgs": ["--test-threads=1"],
   "rust-analyzer.cargo.noDefaultFeatures": true,

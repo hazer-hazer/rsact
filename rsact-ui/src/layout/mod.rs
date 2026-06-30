@@ -1,5 +1,5 @@
 use crate::{
-    font::{FontCtx, FontProps, FontSize},
+    font::{FontCtx, FontProps, FontSize, TextOverflow},
     layout::{length::LengthSize, node::Layout},
     render::prelude::*,
     utils::DisplayTruncated,
@@ -60,20 +60,32 @@ impl Align {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ContentLayout {
-    Text { font_props: FontProps, content: MaybeReactive<String> },
+    Text {
+        font_props: FontProps,
+        content: MaybeReactive<String>,
+        overflow: TextOverflow,
+    },
     // TODO: MaybeReactive problem described in Icon widget
     Icon(Memo<FontSize>),
     Fixed(Size),
 }
 
+/// Intrinsic sizing of a content leaf: the inline-axis (width) range and the
+/// single-line (block-axis) height. The concrete block-axis size is derived
+/// from the resolved width via [`ContentLayout::height_for_width`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ContentSizing {
+    pub min_content: u32,
+    pub max_content: u32,
+    pub line_height: u32,
+}
+
 impl Display for ContentLayout {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            ContentLayout::Text { font_props: _, content } => {
-                content.with(|content| {
-                    write!(f, "Text [{}]", DisplayTruncated::new(content, 16))
-                })
-            },
+            ContentLayout::Text { content, .. } => content.with(|content| {
+                write!(f, "Text [{}]", DisplayTruncated::new(content, 16))
+            }),
             ContentLayout::Icon(size) => {
                 size.with(|size| write!(f, "Icon [{size}]"))
             },
@@ -84,7 +96,11 @@ impl Display for ContentLayout {
 
 impl ContentLayout {
     pub fn text(content: MaybeReactive<String>) -> Self {
-        Self::Text { font_props: Default::default(), content }
+        Self::Text {
+            font_props: Default::default(),
+            content,
+            overflow: TextOverflow::default(),
+        }
     }
 
     pub fn icon(size: Memo<FontSize>) -> Self {
@@ -95,22 +111,68 @@ impl ContentLayout {
         Self::Fixed(size)
     }
 
-    pub fn min_size(&self, ctx: &LayoutCtx) -> Size {
+    /// Intrinsic inline-axis (width) range and single-line height of this
+    /// content. Bottom-up; height for a concrete width comes from
+    /// [`ContentLayout::height_for_width`].
+    pub fn content_sizing(&self, ctx: &LayoutCtx) -> ContentSizing {
         match self {
-            &ContentLayout::Text { font_props, content } => {
+            &ContentLayout::Text { font_props, content, overflow } => {
                 let resolved = font_props.inherited(&ctx.font_props);
                 with!(move |content| {
                     let props = resolved.resolve(ctx.viewport);
                     let font = resolved.font();
-                    ctx.fonts.measure_text_size(font, content, props)
+                    let intrinsics =
+                        ctx.fonts.measure_text(font, content, props, overflow);
+                    ContentSizing {
+                        min_content: intrinsics.min_content_width,
+                        max_content: intrinsics.max_content_width,
+                        line_height: intrinsics.line_height,
+                    }
                 })
-                .min()
             },
             ContentLayout::Icon(memo) => {
-                Size::new_equal(memo.with(|size| size.resolve(ctx.viewport)))
+                let size = memo.with(|size| size.resolve(ctx.viewport));
+                ContentSizing {
+                    min_content: size,
+                    max_content: size,
+                    line_height: size,
+                }
             },
-            ContentLayout::Fixed(size) => *size,
+            ContentLayout::Fixed(size) => ContentSizing {
+                min_content: size.width,
+                max_content: size.width,
+                line_height: size.height,
+            },
         }
+    }
+
+    /// Block-axis (height) extent when laid out into `width` pixels. Text
+    /// wraps; icon/fixed ignore the width and return their fixed height.
+    pub fn height_for_width(&self, ctx: &LayoutCtx, width: u32) -> u32 {
+        match self {
+            &ContentLayout::Text { font_props, content, overflow } => {
+                let resolved = font_props.inherited(&ctx.font_props);
+                with!(move |content| {
+                    let props = resolved.resolve(ctx.viewport);
+                    let font = resolved.font();
+                    ctx.fonts.text_height_for_width(
+                        font, content, props, width, overflow,
+                    )
+                })
+            },
+            ContentLayout::Icon(memo) => {
+                memo.with(|size| size.resolve(ctx.viewport))
+            },
+            ContentLayout::Fixed(size) => size.height,
+        }
+    }
+
+    /// Honest lower-bound size: the min-content width and a single line's
+    /// height. Used by flex to bound items. For wrapping text this is the
+    /// widest unbreakable word, never `0`.
+    pub fn min_size(&self, ctx: &LayoutCtx) -> Size {
+        let sizing = self.content_sizing(ctx);
+        Size::new(sizing.min_content, sizing.line_height)
     }
 }
 
@@ -488,9 +550,7 @@ impl LayoutData {
             LayoutKind::Zero => None,
             LayoutKind::Edge => None,
             LayoutKind::Content(content_layout) => match content_layout {
-                ContentLayout::Text { font_props, content: _ } => {
-                    Some(*font_props)
-                },
+                ContentLayout::Text { font_props, .. } => Some(*font_props),
                 ContentLayout::Icon(_) => None,
                 ContentLayout::Fixed(_) => None,
             },
@@ -509,9 +569,7 @@ impl LayoutData {
             LayoutKind::Zero => None,
             LayoutKind::Edge => None,
             LayoutKind::Content(content_layout) => match content_layout {
-                ContentLayout::Text { font_props, content: _ } => {
-                    Some(font_props)
-                },
+                ContentLayout::Text { font_props, .. } => Some(font_props),
                 ContentLayout::Icon(_) => None,
                 ContentLayout::Fixed(_) => None,
             },
@@ -542,6 +600,18 @@ impl LayoutData {
                 block_model.padding = padding;
             },
             _ => {},
+        }
+    }
+
+    /// Set the [`TextOverflow`] mode of a text content layout. No-op for
+    /// non-text layouts.
+    pub fn set_text_overflow(&mut self, overflow: TextOverflow) {
+        if let LayoutKind::Content(ContentLayout::Text {
+            overflow: current,
+            ..
+        }) = &mut self.kind
+        {
+            *current = overflow;
         }
     }
 }

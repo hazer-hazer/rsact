@@ -36,20 +36,18 @@ impl<C: Color> Block<C> {
         &self,
         renderer: &mut R,
     ) -> RenderResult {
-        // TODO: Actually border_width = 0 can be used for hairline rendering.
-        if self.border_color.is_some() || self.border_width > 0 {
-            renderer.rounded_rect(
-                self.rect,
-                self.border_radius,
-                &DrawStyle {
-                    fill: self.background,
-                    stroke: self.border_color,
-                    stroke_width: self.border_width,
-                    stroke_alignment: StrokeAlignment::Inside,
-                },
-            )?;
-        }
+        renderer.rounded_rect(
+            self.rect,
+            self.border_radius,
+            &DrawStyle {
+                fill: self.background,
+                stroke: self.border_color,
+                stroke_width: self.border_width,
+                stroke_alignment: StrokeAlignment::Inside,
+            },
+        )?;
 
+        // TODO: Actually outline_width = 0 can be used for hairline rendering in tiny_skia, but do we support hairline in other renderers?
         if self.outline_color.is_some() && self.outline_width > 0 {
             let outline_rect = self.rect.resized_center(self.outline_size);
             renderer.rounded_rect(

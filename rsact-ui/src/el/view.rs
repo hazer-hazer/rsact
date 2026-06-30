@@ -30,6 +30,9 @@ impl<W: WidgetCtx> View<W> for El<W> {
     }
 }
 
+/// The idea taken from Xilem framework to resolve conflict for `ViewSequence` being implemented for all `View` types. This is automatically implemented when `#[derive(View)]` is used.
+pub trait SingleViewMarker {}
+
 /// A sequence of [`View`]s usable as the children of a multi-child widget
 /// (currently [`Flex`](crate::widget::flex::Flex)).
 ///
@@ -46,6 +49,17 @@ impl<W: WidgetCtx> View<W> for El<W> {
 /// list.
 pub trait ViewSequence<W: WidgetCtx> {
     fn into_children(self) -> MaybeSignal<Vec<El<W>>>;
+}
+
+// TODO: Macro for ViewSequence from arbitrary View list? views![...]
+// Or tuple is sufficient?
+
+impl<W: WidgetCtx + 'static, V: View<W> + SingleViewMarker> ViewSequence<W>
+    for V
+{
+    fn into_children(self) -> MaybeSignal<Vec<El<W>>> {
+        [self.into_el()].into_children()
+    }
 }
 
 impl<W: WidgetCtx + 'static, V: View<W>, const N: usize> ViewSequence<W>

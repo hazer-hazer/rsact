@@ -95,7 +95,7 @@ pub trait SizedWidget<W: WidgetCtx>: LayoutWidget<W> {
         self.width(Length::fill()).height(Length::fill())
     }
 
-    fn fill_width(self) -> Self
+    fn width_fill(self) -> Self
     where
         Self: Sized + 'static,
     {
@@ -109,37 +109,53 @@ pub trait SizedWidget<W: WidgetCtx>: LayoutWidget<W> {
         self.width(Length::Shrink).height(Length::Shrink)
     }
 
-    fn width<L: Into<Length> + PartialEq + Copy + 'static>(
+    fn width<L: Into<Length> + PartialEq + Clone + 'static>(
         mut self,
         width: impl IntoMaybeReactive<L>,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout_mut().setter(width.maybe_reactive(), |layout, &width| {
-            layout.size.set_width(width.into());
-        });
+        self.layout_mut()
+            .setter(width.maybe_reactive(), |layout, width| {
+                layout.size.set_width(width.clone().into());
+            });
         self
     }
 
-    fn height<L: Into<Length> + PartialEq + Copy + 'static>(
+    fn width_shrink(self) -> Self
+    where
+        Self: Sized + 'static,
+    {
+        self.width(Length::Shrink)
+    }
+
+    fn height<L: Into<Length> + PartialEq + Clone + 'static>(
         mut self,
         height: impl IntoMaybeReactive<L> + 'static,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout_mut().setter(height.maybe_reactive(), |layout, &height| {
-            layout.size.set_height(height.into());
-        });
+        self.layout_mut()
+            .setter(height.maybe_reactive(), |layout, height| {
+                layout.size.set_height(height.clone().into());
+            });
         self
     }
 
-    fn fill_height(self) -> Self
+    fn height_fill(self) -> Self
     where
         Self: Sized + 'static,
     {
         self.height(Length::fill())
+    }
+
+    fn height_shrink(self) -> Self
+    where
+        Self: Sized + 'static,
+    {
+        self.height(Length::Shrink)
     }
 }
 
@@ -219,11 +235,12 @@ pub trait FontSettingWidget<W: WidgetCtx>:
         mut self,
         font: impl IntoMaybeReactive<F>,
     ) -> Self {
-        self.layout_mut().setter(font.maybe_reactive(), |layout, font| {
-            if let Some(font_props) = layout.font_props_mut() {
-                font_props.font = Some(font.clone().into());
-            }
-        });
+        self.layout_mut()
+            .setter(font.maybe_reactive(), |layout, font| {
+                if let Some(font_props) = layout.font_props_mut() {
+                    font_props.font = Some(font.clone().into());
+                }
+            });
         self
     }
 }
@@ -253,5 +270,6 @@ pub mod prelude {
         },
     };
     pub use alloc::{boxed::Box, string::String, vec::Vec};
+    pub use rsact_macros::View;
     pub use rsact_reactive::prelude::*;
 }

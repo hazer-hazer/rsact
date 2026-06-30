@@ -1,5 +1,5 @@
 use super::{FontSettingWidget, prelude::*};
-use crate::font::{TextHorizontalAlign, TextVerticalAlign};
+use crate::font::{TextHorizontalAlign, TextOverflow, TextVerticalAlign};
 use alloc::string::{String, ToString};
 use layout::ContentLayout;
 use rsact_reactive::signal::Signal;
@@ -14,12 +14,7 @@ declare_widget_style! {
     }
 }
 
-impl<W: WidgetCtx> View<W> for Label<W> {
-    fn into_el(self) -> El<W> {
-        self.el()
-    }
-}
-
+#[derive(View)]
 pub struct Label<W: WidgetCtx> {
     content: MaybeReactive<String>,
     layout: Layout,
@@ -33,7 +28,10 @@ impl<W: WidgetCtx> Label<W> {
         let content =
             content.map_ref_maybe_reactive(|content| content.to_string());
 
-        let layout = Layout::fill(super::LayoutKind::Content(
+        // Shrink on both axes: the label hugs its text, but because the
+        // resolved width is clamped to the available space, text that exceeds
+        // it wraps and the height grows (see `Limits::resolve_content_size`).
+        let layout = Layout::shrink(super::LayoutKind::Content(
             ContentLayout::text(content),
         ));
 
@@ -43,6 +41,19 @@ impl<W: WidgetCtx> Label<W> {
     pub fn style(mut self, class: impl StyleFn<LabelStyle<W::Color>>) -> Self {
         self.style = Some(Box::new(class));
         self
+    }
+
+    // TODO: MaybeReactive
+    /// Set how the text behaves when its width is constrained: [`TextOverflow::Wrap`]
+    /// (default), [`TextOverflow::Clip`], or [`TextOverflow::Ellipsis`].
+    pub fn overflow(mut self, overflow: TextOverflow) -> Self {
+        self.layout.update_untracked(|data| data.set_text_overflow(overflow));
+        self
+    }
+
+    /// Wrap text into the available width (the default).
+    pub fn wrap(self) -> Self {
+        self.overflow(TextOverflow::Wrap)
     }
 
     // /// Sets fonts size by maybe reactive value.

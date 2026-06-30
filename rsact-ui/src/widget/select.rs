@@ -84,14 +84,7 @@ impl<W: WidgetCtx, K: PartialEq> PartialEq for SelectOption<W, K> {
     }
 }
 
-impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction + 'static> View<W>
-    for Select<W, K, Dir>
-{
-    fn into_el(self) -> El<W> {
-        self.el()
-    }
-}
-
+#[derive(View)]
 pub struct Select<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> {
     layout: Layout,
     state: Signal<SelectState>,

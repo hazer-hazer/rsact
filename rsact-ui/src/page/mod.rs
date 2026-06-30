@@ -702,8 +702,11 @@ mod tests {
         // Vec of views (here `&str`):
         let _ = create_null_page(Flex::row(alloc::vec!["a", "b", "c"]));
         // Macros still accept bare widgets + leaves:
-        let _ =
-            create_null_page(Flex::col((Container::new("x"), "y", Button::new("z"))));
+        let _ = create_null_page(Flex::col((
+            Container::new("x"),
+            "y",
+            Button::new("z"),
+        )));
     }
 
     // Regression: a reactive source set through the trait-default setter

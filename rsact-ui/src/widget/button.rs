@@ -21,12 +21,7 @@ declare_widget_style! {
     }
 }
 
-impl<W: WidgetCtx + 'static> View<W> for Button<W> {
-    fn into_el(self) -> El<W> {
-        self.el()
-    }
-}
-
+#[derive(View)]
 pub struct Button<W: WidgetCtx> {
     layout: Layout,
     content: El<W>,

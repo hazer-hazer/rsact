@@ -119,7 +119,7 @@ fn main() {
             core::iter::once(back_button())
                 .chain(files.into_iter().map(|filename| {
                     Button::new(filename.as_str())
-                        .fill_width()
+                        .width_fill()
                         .on_click(move || {
                             print_file(&filename);
                         })
@@ -127,7 +127,7 @@ fn main() {
                 }))
                 .collect::<Vec<_>>(),
         )
-        .fill_width()
+        .width_fill()
         .gap(1u32)
         .el(),
     )
@@ -192,7 +192,7 @@ fn main() {
                 .el(),
         ])
         .padding(1u32)
-        .fill_height()
+        .height_fill()
         .center()
         .gap(3u32)
         .el(),
@@ -213,7 +213,7 @@ fn main() {
         ])
         .center()
         .gap(1u32)
-        .fill_height()
+        .height_fill()
         .el(),
         Flex::col([
             position_button("Y-", UnitV2::UP),
@@ -226,7 +226,7 @@ fn main() {
         .el(),
         Flex::col([position_button("X+", UnitV2::RIGHT)])
             .center()
-            .fill_height()
+            .height_fill()
             .el(),
     ])
     .fill()
@@ -318,7 +318,7 @@ fn main() {
             .on_click(move || {
                 queue.publish(UiMessage::GoTo(files_page_id));
             })
-            .fill_width()
+            .width_fill()
             .el(),
             Button::new(
                 Flex::row([
@@ -330,7 +330,7 @@ fn main() {
             .on_click(move || {
                 queue.publish(UiMessage::GoTo(position_page_id));
             })
-            .fill_width()
+            .width_fill()
             .el(),
             Button::new(
                 Flex::row([
@@ -342,11 +342,11 @@ fn main() {
             .on_click(move || {
                 queue.publish(UiMessage::GoTo(temp_page_id));
             })
-            .fill_width()
+            .width_fill()
             .el(),
         ])
         .gap(1u32)
-        .fill_width()
+        .width_fill()
         .el(),
     )
     .tracker()

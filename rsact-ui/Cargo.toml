@@ -22,6 +22,7 @@ rsact-tiny-icons = { workspace = true, features = [
     "common",
     "all-sizes",
 ], optional = true }
+rsact-macros = { workspace = true }
 rsact-reactive = { workspace = true }
 rsact-render = { workspace = true }
 tinyvec = { workspace = true }

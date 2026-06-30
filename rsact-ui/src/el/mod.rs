@@ -21,6 +21,11 @@ pub use state::*;
 pub use update::*;
 pub use view::*;
 
+// The `View` derive macro lives in `rsact-macros`; re-export it alongside the
+// `View` trait (different namespaces, so the names coexist) so widget modules
+// get `#[derive(View)]` through the same prelude glob.
+pub use rsact_macros::View;
+
 slotmap::new_key_type! {
     pub struct ElId;
 }

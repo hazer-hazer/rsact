@@ -265,7 +265,7 @@ pub fn model_layout(
                 DevLayout::new(size, DevLayoutKind::Edge),
             ),
             LayoutKind::Content(content_layout) => {
-                let min_content = content_layout.min_size(ctx);
+                let sizing = content_layout.content_sizing(ctx);
                 let layout_font_props = match content_layout {
                     ContentLayout::Text { font_props: text_fp, .. }
                         if text_fp.has_any() =>
@@ -277,7 +277,11 @@ pub fn model_layout(
                 };
 
                 LayoutModel::new(
-                    parent_limits.resolve_size(size, min_content, None),
+                    parent_limits.resolve_content_size(
+                        size,
+                        &sizing,
+                        |width| content_layout.height_for_width(ctx, width),
+                    ),
                     vec![],
                     #[cfg(feature = "debug-info")]
                     DevLayout::new(

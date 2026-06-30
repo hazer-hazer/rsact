@@ -2,7 +2,7 @@ use crate::{declare_widget_style, widget::prelude::*};
 use core::{marker::PhantomData, ops::RangeInclusive};
 use rsact_reactive::prelude::*;
 
-#[derive(Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub enum SliderThumbShape {
     Dash,
     Square,
@@ -57,12 +57,7 @@ impl SliderState {
 
 // TODO: Floating label?
 // TODO: Exponential
-impl<W: WidgetCtx, Dir: Direction + 'static> View<W> for Slider<W, Dir> {
-    fn into_el(self) -> El<W> {
-        self.el()
-    }
-}
-
+#[derive(View)]
 pub struct Slider<W: WidgetCtx, Dir: Direction> {
     value: Signal<f32>,
     range: MaybeReactive<RangeInclusive<f32>>,

@@ -13,15 +13,8 @@ use rsact_reactive::prelude::*;
 //     }
 // }
 
-impl<W: WidgetCtx + 'static, Dir: Direction + 'static> View<W>
-    for Flex<W, Dir>
-{
-    fn into_el(self) -> El<W> {
-        self.el()
-    }
-}
-
 // TODO: Shouldn't Flex support changing direction so we need to store a field instead of using a const param.
+#[derive(View)]
 pub struct Flex<W: WidgetCtx, Dir: Direction> {
     // TODO: Signal-vector type?
     // TODO: Can we do fixed size?
@@ -213,5 +206,20 @@ where
 {
     fn from(value: Flex<W, Dir>) -> Self {
         El::new(value)
+    }
+}
+
+pub trait FlexExt<W: WidgetCtx> {
+    fn col(self) -> Flex<W, ColDir>;
+    fn row(self) -> Flex<W, RowDir>;
+}
+
+impl<W: WidgetCtx, T: ViewSequence<W>> FlexExt<W> for T {
+    fn col(self) -> Flex<W, ColDir> {
+        Flex::col(self)
+    }
+
+    fn row(self) -> Flex<W, RowDir> {
+        Flex::row(self)
     }
 }

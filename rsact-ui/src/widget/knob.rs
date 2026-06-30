@@ -36,12 +36,7 @@ impl<C: Color> KnobStyle<C> {
     }
 }
 
-impl<W: WidgetCtx, V: RangeValue + 'static> View<W> for Knob<W, V> {
-    fn into_el(self) -> El<W> {
-        self.el()
-    }
-}
-
+#[derive(View)]
 pub struct Knob<W: WidgetCtx, V: RangeValue> {
     layout: Layout,
     value: Signal<V>,

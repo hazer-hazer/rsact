@@ -49,32 +49,57 @@ impl Display for WidgetTab {
 }
 
 fn container() -> impl View<W> {
-    Flex::row((
-        "Container is a widget with a single child. You can set padding, border and its radius, background color, and alignment of the child.",
+    let border_color = tiny_skia::Color::from_rgba8(0, 128, 255, 255);
+    let background_color = tiny_skia::Color::from_rgba8(255, 128, 0, 255);
+    let content_color = tiny_skia::Color::from_rgba8(0, 255, 128, 255);
 
-        Flex::col((
-            "Padding [top 5px, right 10, bottom 15, left 20]",
-            Container::new(Edge::new().size(Size::new_equal(50)).style(|base, _| {
-                base.background_color(tiny_skia::Color::from_rgba8(255, 128, 0, 255))
-            }))
-            .padding(Padding::new(5, 10, 15, 20))
-        )),
+    (
+        (
+            "Container is a widget with a single child. You can set padding, border and its radius, background color, and alignment of the child.".container().fill(),
 
-        Flex::col((
-            "Border [width 5px, color red, radius 10px]",
-            Container::new(
-                Edge::new().size(Size::new_equal(50)).border_width(5).style(
-                    |base, _| {
-                        base.background_color(tiny_skia::Color::from_rgba8(
-                            0, 128, 255, 255,
-                        ))
-                        .border_color(tiny_skia::Color::from_rgba8(255, 0, 0, 255))
+            (
+                "Padding [top 5px, right 10, bottom 15, left 20]",
+                Space::col(10),
+                Container::new(Edge::new().size(Size::new_equal(50)).style(move |base, _| {
+                    base.background_color(content_color).border_color(border_color)
+                }))
+                .style(move |base, _| base.background_color(background_color))
+                .padding(Padding::new(5, 10, 15, 20))
+            ).col().fill(),
+
+            (
+                "Border [width 10px, color red, radius 10px]",
+                Space::col(10),
+                Edge::new()
+                .size(Size::new_equal(50))
+                .container()
+                .border_width(10)
+                .style(
+                    move |base, _| {
+                        base.background_color(background_color)
+                        .border_color(border_color)
                         .border_radius(Radius::SizeEqual(10))
                     },
-                ),
-            )
-        )),
-    )).fill()
+                )
+            ).col().fill(),
+        ).row().fill(),
+
+        (
+            "Alignment [horizontal center, vertical end]".container().fill(),
+
+            Edge::new()
+            .size(Size::new_equal(50))
+            .style(move |base, _| {
+                base.background_color(content_color)
+            })
+            .container()
+            .style(move |base, _| base.background_color(background_color).border_color(border_color))
+            .border_width(5)
+            .horizontal_align(Align::Center)
+            .vertical_align(Align::End)
+            .size(Size::new_equal(100)),
+        ).row().fill()
+    ).col().fill()
 }
 
 fn page() -> impl View<W> {
@@ -83,39 +108,34 @@ fn page() -> impl View<W> {
     //     Select::vertical(widget,
     // WidgetTab::each().collect::<Vec<_>>().inert());
 
-    let select_widget = Container::new(
-        Flex::col(
-            WidgetTab::each()
-                .map(|w| {
-                    Button::new(w.to_string())
-                        .on_click(move || {
-                            widget.set(w);
-                        })
-                        .el()
+    let select_widget = WidgetTab::each()
+        .map(|w| {
+            Button::new(w.to_string())
+                .on_click(move || {
+                    widget.set(w);
                 })
-                .collect::<Vec<_>>(),
-        )
-        .gap(5u32)
-        .fill(),
-    )
-    .padding(5u32)
-    .width(Length::Shrink)
-    .height(Length::fill());
-
-    let widget_view = Container::new(
-        dynamic(move || match widget.get() {
-            WidgetTab::Container => container().into_el(),
-            WidgetTab::Button => Button::new("Some button text").el(),
-            WidgetTab::Canvas => Label::new("TODO").el(),
-            WidgetTab::Checkbox => Checkbox::new(true).el(),
-            WidgetTab::Label => Label::new("Some text").el(),
+                .el()
         })
-        .el(),
-    );
+        .collect::<Vec<_>>()
+        .col()
+        .gap(5u32)
+        .fill()
+        .container()
+        .padding(5u32)
+        .width_shrink()
+        .height_fill();
 
-    let page = Flex::row((select_widget, Flex::col((widget_view,)).fill()))
-        .center()
-        .fill();
+    let widget_view = dynamic(move || match widget.get() {
+        WidgetTab::Container => container().into_el(),
+        WidgetTab::Button => Button::new("Some button text").el(),
+        WidgetTab::Canvas => Label::new("TODO").el(),
+        WidgetTab::Checkbox => Checkbox::new(true).el(),
+        WidgetTab::Label => Label::new("Some text").el(),
+    })
+    .container()
+    .fill();
+
+    let page = (select_widget, widget_view).row().center().fill();
 
     page
 }
@@ -130,6 +150,7 @@ fn main() {
     let mut display =
         SimulatorDisplay::<Rgb888>::new(Size::new(640, 360).into());
 
+    window.set_max_fps(9999999);
     window.update(&display);
 
     let mut ui = UI::new(

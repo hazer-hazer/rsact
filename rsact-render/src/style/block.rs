@@ -128,7 +128,7 @@ where
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct BorderStyle<C: Color> {
     pub color: ColorStyle<C>,
     pub radius: BorderRadius,
@@ -143,10 +143,7 @@ impl<C: Color> Copy for BorderStyle<C> {}
 
 impl<C: Color> BorderStyle<C> {
     pub fn base() -> Self {
-        Self {
-            color: ColorStyle::DefaultForeground,
-            radius: BorderRadius::zero(),
-        }
+        Self { color: ColorStyle::Unset, radius: BorderRadius::zero() }
     }
 
     pub fn color(mut self, color: C) -> Self {
@@ -160,7 +157,7 @@ impl<C: Color> BorderStyle<C> {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct OutlineStyle<C: Color> {
     pub color: ColorStyle<C>,
     pub radius: BorderRadius,
@@ -183,7 +180,7 @@ impl<C: Color> Copy for OutlineStyle<C> {}
 impl<C: Color> OutlineStyle<C> {
     pub fn base() -> Self {
         Self {
-            color: ColorStyle::DefaultForeground,
+            color: ColorStyle::Unset,
             radius: BorderRadius::zero(),
             offset: 0,
             width: 0,
@@ -213,7 +210,7 @@ impl<C: Color> OutlineStyle<C> {
 
 // TODO: Define styles with declare_widget_style for consistency and
 //  universality (deep setters such as border_radius)
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct BlockStyle<C: Color> {
     pub background_color: ColorStyle<C>,
     pub border: BorderStyle<C>,

@@ -43,3 +43,22 @@ This are the actions to be done by me or LLM. When LLM completes one, it should 
 - [] Add support for `fontdue` crate
 - [] Get rid of `unwrap`s, UI must never fail and should report errors via logs.
 - [x] `FontProps` per-field reactivity (`Option<MaybeReactive<...>>`) was redundant with `Layout`'s reactive-on-write. Now stores plain data (`Option<Font>` etc.) and `.font()/.font_size()/.font_style()` route through the layout setter like `.width()/.padding()`. NOTE: the setters cannot use `self.layout()` — it returns `Layout` by value, so `now_reactive()`'s `Static→Reactive` upgrade lands on a discarded copy (disposes the inert id → panic on read). Added a `LayoutWidget` supertrait providing `layout_mut(&mut self) -> &mut Layout`; all three setter traits (`SizedWidget`/`BlockModelWidget`/`FontSettingWidget`) now use `self.layout_mut().setter(...)`, which also fixes the same latent reactive-panic bug for width/height/padding/border. Still subsumable by the `font/mod.rs` `TextStyle`-widget TODO.
+- [ ] As we move to extension trait usage for containers (`ContainerExt`/`.container()`, `FlexExt`/`.row()`/`.col()`), should we have some common naming for these methods so it is clean that wrapping is done? I want some simple not verbose change `wrap_in_container`, at most `in_container` or `in_flex`. But with `in_container`/`in_flex` it is ambiguous because `(view1, view2, view3).in_flex()` is not actually "wrap in flex", it is an actual Flex widget creation. Maybe we can name them with Uppercase like `(view1, view2, view3).Flex()` and suppress the naming warning? But what to do with `.Row()` and `.Col()` which are not actual widgets but calls to `Flex` widget constructor? Maybe it is okay. This is needed because some long view declarations can appear, for example something like one below, where it is hard to see where the next widget nesting happens.
+
+```rust
+(view1, view2, view3)
+.col()
+.gap(5u32)
+.fill()
+.container()
+.padding(5u32)
+.width(Length::Shrink)
+.height(Length::fill())
+```
+
+## Ideas/RFCs
+
+### Views as widget builders
+
+The idea is too avoid storing widget's properties that needed only for building while unused in lifecycle passes (such as `on_event`, `render`, etc.). This can be achieved by many ways, for example splitting each widget into a Builder and actual Widget.
+Another path is to make

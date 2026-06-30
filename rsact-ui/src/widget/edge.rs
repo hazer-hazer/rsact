@@ -8,12 +8,9 @@ declare_widget_style! {
     }
 }
 
-impl<W: WidgetCtx + 'static> View<W> for Edge<W> {
-    fn into_el(self) -> El<W> {
-        self.el()
-    }
-}
+// TODO: Edge is wrong, LayoutKind::Edge is used while BlockStyle can be set in EdgeStyle::container, we need to decide what edge should be, maybe it even should be any renderable Primitive.
 
+#[derive(View)]
 pub struct Edge<W: WidgetCtx> {
     pub layout: Layout,
     style: WidgetStyleFn<EdgeStyle<W::Color>>,
@@ -21,10 +18,7 @@ pub struct Edge<W: WidgetCtx> {
 
 impl<W: WidgetCtx + 'static> Edge<W> {
     pub fn new() -> Self {
-        Self {
-            layout: Layout::shrink(LayoutKind::Edge).size(LengthSize::fill()),
-            style: None,
-        }
+        Self { layout: Layout::shrink(LayoutKind::Edge), style: None }
     }
 
     pub fn style(mut self, class: impl StyleFn<EdgeStyle<W::Color>>) -> Self {
@@ -40,7 +34,6 @@ impl<W: WidgetCtx + 'static> LayoutWidget<W> for Edge<W> {
 }
 
 impl<W: WidgetCtx + 'static> SizedWidget<W> for Edge<W> {}
-impl<W: WidgetCtx + 'static> BlockModelWidget<W> for Edge<W> {}
 
 impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
     fn debug_name(&self) -> &'static str {
@@ -59,6 +52,8 @@ impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
         ctx.render_self(|ctx| {
             let style = ctx.get_style(self.style.as_deref());
+
+            log::info!("Edge style: {:?}", style);
 
             Block::from_layout_style(
                 ctx.layout.outer,

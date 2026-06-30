@@ -9,12 +9,7 @@ declare_widget_style! {
     }
 }
 
-impl<W: WidgetCtx + 'static> View<W> for Container<W> {
-    fn into_el(self) -> El<W> {
-        self.el()
-    }
-}
-
+#[derive(View)]
 pub struct Container<W: WidgetCtx> {
     pub layout: Layout,
     pub content: El<W>,
@@ -43,27 +38,37 @@ impl<W: WidgetCtx + 'static> Container<W> {
     }
 
     // TODO: Use MaybeReactive
-    pub fn vertical_align(mut self, vertical_align: impl Into<Align>) -> Self {
-        self.layout.update_untracked(|layout| {
-            layout.expect_container_mut().vertical_align =
-                vertical_align.into();
-        });
+    pub fn vertical_align<A: Into<Align> + PartialEq + Clone + 'static>(
+        mut self,
+        vertical_align: impl IntoMaybeReactive<A>,
+    ) -> Self {
+        self.layout_mut().setter(
+            vertical_align.maybe_reactive(),
+            |layout, vertical_align| {
+                layout.expect_container_mut().vertical_align =
+                    vertical_align.clone().into();
+            },
+        );
         self
     }
 
-    pub fn horizontal_align(
+    pub fn horizontal_align<A: Into<Align> + PartialEq + Clone + 'static>(
         mut self,
-        horizontal_align: impl Into<Align>,
+        horizontal_align: impl IntoMaybeReactive<A>,
     ) -> Self {
-        self.layout.update_untracked(|layout| {
-            layout.expect_container_mut().horizontal_align =
-                horizontal_align.into();
-        });
+        self.layout_mut().setter(
+            horizontal_align.maybe_reactive(),
+            |layout, horizontal_align| {
+                layout.expect_container_mut().horizontal_align =
+                    horizontal_align.clone().into();
+            },
+        );
         self
     }
 
     pub fn center(self) -> Self {
-        self.vertical_align(Align::Center).horizontal_align(Align::Center)
+        self.vertical_align(Align::Center)
+            .horizontal_align(Align::Center)
     }
 
     // pub fn vertical_align(
@@ -133,5 +138,15 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
     fn on_event(&mut self, ctx: EventCtx<'_, W>) -> EventResponse {
         // self.content.control_flow(|content| ctx.pass_to_child(content))
         ctx.ignore()
+    }
+}
+
+pub trait ContainerExt<W: WidgetCtx> {
+    fn container(self) -> Container<W>;
+}
+
+impl<W: WidgetCtx, T: View<W>> ContainerExt<W> for T {
+    fn container(self) -> Container<W> {
+        Container::new(self)
     }
 }

@@ -22,14 +22,7 @@ impl<C: Color> BarStyle<C> {
     }
 }
 
-impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction + 'static> View<W>
-    for Bar<W, V, Dir>
-{
-    fn into_el(self) -> El<W> {
-        self.el()
-    }
-}
-
+#[derive(View)]
 pub struct Bar<W: WidgetCtx, V: RangeValue, Dir: Direction> {
     value: MaybeReactive<V>,
     layout: Layout,

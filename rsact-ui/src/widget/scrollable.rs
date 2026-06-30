@@ -6,7 +6,7 @@ use crate::{
 use core::marker::PhantomData;
 use rsact_reactive::prelude::*;
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum ScrollableMode {
     Interactive,
     Tracker,
@@ -14,7 +14,7 @@ pub enum ScrollableMode {
 
 // TODO: Add feature for meaningful focus. When scrollable does not overflow, it
 // is unfocusable and does not need to be allowed to be scrolled
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ScrollbarShow {
     Always,
     Never,
@@ -23,7 +23,7 @@ pub enum ScrollbarShow {
     Auto,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct ScrollableState {
     // offset: Size,
     // TODO: Maybe offset should be i32, so we can make smooth animations such
@@ -77,12 +77,7 @@ impl<C: Color> ScrollableStyle<C> {
     }
 }
 
-impl<W: WidgetCtx, Dir: Direction + 'static> View<W> for Scrollable<W, Dir> {
-    fn into_el(self) -> El<W> {
-        self.el()
-    }
-}
-
+#[derive(View)]
 pub struct Scrollable<W: WidgetCtx, Dir: Direction> {
     state: Signal<ScrollableState>,
     style: WidgetStyleFn<ScrollableStyle<W::Color>>,
@@ -135,43 +130,51 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
     }
 
     fn max_offset(&self, ctx: &EventCtx<'_, W>) -> u32 {
-        let content_length =
-            ctx.layout.children().next().unwrap().inner.size.main(Dir::AXIS);
+        let content_length = ctx
+            .layout
+            .children()
+            .next()
+            .unwrap()
+            .inner
+            .size
+            .main(Dir::AXIS);
 
         content_length.saturating_sub(ctx.layout.inner.size.main(Dir::AXIS))
     }
 }
 
 impl<W: WidgetCtx> SizedWidget<W> for Scrollable<W, RowDir> {
-    fn width<L: Into<Length> + PartialEq + Copy + 'static>(
+    fn width<L: Into<Length> + PartialEq + Clone + 'static>(
         mut self,
         width: impl IntoMaybeReactive<L>,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout_mut().setter(width.maybe_reactive(), |layout, &width| {
-            layout.size.set_width(Length::InfiniteWindow(
-                width.into().try_into().unwrap(),
-            ));
-        });
+        self.layout_mut()
+            .setter(width.maybe_reactive(), |layout, width| {
+                layout.size.set_width(Length::InfiniteWindow(
+                    width.clone().into().try_into().unwrap(),
+                ));
+            });
         self
     }
 }
 
 impl<W: WidgetCtx> SizedWidget<W> for Scrollable<W, ColDir> {
-    fn height<L: Into<Length> + PartialEq + Copy + 'static>(
+    fn height<L: Into<Length> + PartialEq + Clone + 'static>(
         mut self,
         height: impl IntoMaybeReactive<L> + 'static,
     ) -> Self
     where
         Self: Sized + 'static,
     {
-        self.layout_mut().setter(height.maybe_reactive(), |layout, &height| {
-            layout.size.set_height(Length::InfiniteWindow(
-                height.into().try_into().unwrap(),
-            ));
-        });
+        self.layout_mut()
+            .setter(height.maybe_reactive(), |layout, height| {
+                layout.size.set_height(Length::InfiniteWindow(
+                    height.clone().into().try_into().unwrap(),
+                ));
+            });
         self
     }
 }
