@@ -361,14 +361,14 @@ impl Length {
         base_div * div as u32
     }
 
-    pub fn max_fixed(&self, fixed: u32, max_size: u32) -> u32 {
+    pub fn max_fixed(&self, max: u32, max_size: u32) -> u32 {
         match self {
             Self::InfiniteWindow(length) => {
-                length.into_length().max_fixed(fixed, max_size)
+                length.into_length().max_fixed(max, max_size)
             },
             Self::Pct(pct) => (max_size as f32 * pct) as u32,
-            Self::Shrink | Self::Div(_) => fixed,
-            &Self::Fixed(fixed) => fixed.max(fixed),
+            Self::Shrink | Self::Div(_) => max,
+            &Self::Fixed(fixed) => fixed.max(max),
         }
     }
 }

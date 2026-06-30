@@ -36,7 +36,7 @@ impl Rect {
     }
 
     pub const fn is_zero_sized(&self) -> bool {
-        self.size.is_zero()
+        self.size.is_zero_area()
     }
 
     pub fn columns(&self) -> core::ops::Range<i32> {

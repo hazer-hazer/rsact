@@ -161,7 +161,7 @@ impl PathBuilderExt for tiny_skia::PathBuilder {
             self.line_to((right - tr.width as i32) as f32, y as f32);
         }
 
-        if !tr.is_zero() {
+        if !tr.is_zero_area() {
             self.single_quad_arc(
                 Point::new(right - tr.width as i32, y),
                 Point::new(right, y + tr.height as i32),
@@ -174,7 +174,7 @@ impl PathBuilderExt for tiny_skia::PathBuilder {
         // Bottom right
         self.line_to(right as f32, (bottom - br.height as i32) as f32);
 
-        if !br.is_zero() {
+        if !br.is_zero_area() {
             self.single_quad_arc(
                 Point::new(right, bottom - br.height as i32),
                 Point::new(right - br.width as i32, bottom),
@@ -190,7 +190,7 @@ impl PathBuilderExt for tiny_skia::PathBuilder {
         // Bottom left
         self.line_to((x + bl.width as i32) as f32, bottom as f32);
 
-        if !bl.is_zero() {
+        if !bl.is_zero_area() {
             self.single_quad_arc(
                 Point::new(x + bl.width as i32, bottom),
                 Point::new(x, bottom - bl.height as i32),
@@ -203,7 +203,7 @@ impl PathBuilderExt for tiny_skia::PathBuilder {
         // Top left
         self.line_to(x as f32, (y + tl.height as i32) as f32);
 
-        if !tl.is_zero() {
+        if !tl.is_zero_area() {
             self.single_quad_arc(
                 Point::new(x, y + tl.height as i32),
                 Point::new(x + tl.width as i32, y),

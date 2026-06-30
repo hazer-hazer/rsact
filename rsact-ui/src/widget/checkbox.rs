@@ -113,7 +113,7 @@ impl<W: WidgetCtx> Widget<W> for Checkbox<W> {
     fn on_event(&mut self, mut ctx: EventCtx<'_, W>) -> EventResponse {
         ctx.handle()?;
 
-        ctx.handle_focusable(|ctx, pressed| {
+        ctx.handle_focusable_or_clickable(|ctx, pressed| {
             let current_state = self.state.get();
 
             if current_state.pressed != pressed {

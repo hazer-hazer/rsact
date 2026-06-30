@@ -247,9 +247,10 @@ pub fn model_layout(
     parent_size: LengthSize, // viewport: Memo<Size>,
 ) -> LayoutModel {
     layout.with(|layout| {
-        if !layout.show.map(|show| show.get()).unwrap_or(true) {
-            // TODO: Should be zero or skipped? Doesn't zero layout take child
-            // place in flex?
+        if !layout.is_shown() {
+            // A hidden element resolves to a zero layout here; `model_flex`
+            // additionally filters hidden children out of its sizing/gap passes
+            // (via `LayoutData::is_shown`) so they leave no phantom gap.
             return LayoutModel::zero();
         }
 

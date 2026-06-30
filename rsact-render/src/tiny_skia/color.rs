@@ -2,7 +2,6 @@ use crate::{
     color::{Color, RgbColor},
     output::MapColor,
 };
-use embedded_graphics::pixelcolor::Rgb888;
 
 impl Color for tiny_skia::Color {
     const WHITE: Self = tiny_skia::Color::WHITE;
@@ -84,8 +83,15 @@ impl RgbColor for tiny_skia::Color {
     }
 }
 
-impl MapColor<Rgb888> for tiny_skia::PremultipliedColorU8 {
-    fn map_color(&self) -> Rgb888 {
-        Rgb888::new(self.red(), self.green(), self.blue())
+#[cfg(feature = "embedded-graphics")]
+impl MapColor<embedded_graphics::pixelcolor::Rgb888>
+    for tiny_skia::PremultipliedColorU8
+{
+    fn map_color(&self) -> embedded_graphics::pixelcolor::Rgb888 {
+        embedded_graphics::pixelcolor::Rgb888::new(
+            self.red(),
+            self.green(),
+            self.blue(),
+        )
     }
 }

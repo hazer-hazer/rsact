@@ -127,30 +127,32 @@ impl Limits {
         container_size: LengthSize,
         content_size: Size,
     ) -> u32 {
-        match container_size.main(axis) {
+        let min = self.min.main(axis);
+        let max = self.max.main(axis);
+
+        // Unclamped resolved length for this axis, before applying the limits.
+        let raw = match container_size.main(axis) {
             Length::Shrink
             | Length::InfiniteWindow(DeterministicLength::Shrink) => {
-                content_size
-                    .main(axis)
-                    .min(self.max.main(axis))
-                    .max(self.min.main(axis))
+                content_size.main(axis)
             },
-            Length::Pct(pct) => {
-                // TODO: Review
-                (self.max.main(axis) as f32 * pct) as u32
-            },
+            // TODO: Review percent semantics (rounding, whether it's relative
+            // to max or to the resolved parent size).
+            Length::Pct(pct) => (max as f32 * pct) as u32,
             Length::Div(_)
-            | Length::InfiniteWindow(DeterministicLength::Div(_)) => {
-                self.max.main(axis)
-            },
+            | Length::InfiniteWindow(DeterministicLength::Div(_)) => max,
             Length::Fixed(fixed)
             | Length::InfiniteWindow(DeterministicLength::Fixed(fixed)) => {
-                fixed.min(self.max.main(axis))
-
-                // TODO: Investigate, I suppressed min limit
-                // fixed.min(self.max.main(axis)).max(self.min.main(axis))
+                fixed
             },
-        }
+        };
+
+        // Clamp into the limits uniformly for every length kind, so the `min`
+        // limit is enforced for Fixed/Div/Pct exactly as it has always been for
+        // Shrink. `min` wins when the limits are inverted (`min > max`), which
+        // is reachable for a fluid child whose content min exceeds its computed
+        // share (see `Limits::new` call in `model_flex`).
+        raw.min(max).max(min)
     }
 
     /// Resolve a content leaf whose block-axis (height) extent depends on its
@@ -282,5 +284,29 @@ mod tests {
             height_for_width(60, 10),
         );
         assert_eq!(resolved, Size::new(30, 20));
+    }
+
+    #[test]
+    fn fixed_is_clamped_up_to_min_limit() {
+        // A `Fixed` length below the `min` limit is clamped UP to `min`, just
+        // like `Shrink` always was (previously the min limit was suppressed for
+        // Fixed, so this returned 30).
+        let limits = Limits::new(Size::new(50, 0), Size::new(100, 100));
+        let mut size = LengthSize::shrink();
+        size.set_width(Length::Fixed(30));
+        let resolved = limits.resolve_size(size, Size::zero(), None);
+        assert_eq!(resolved.width, 50);
+    }
+
+    #[test]
+    fn inverted_limits_resolve_to_min_uniformly() {
+        // `min > max` is reachable for a fluid child whose content min exceeds
+        // its computed share. `min` wins regardless of the length kind (here a
+        // fill width); previously `Div` returned `max` (50), ignoring `min`.
+        let limits = Limits::new(Size::new(80, 0), Size::new(50, 100));
+        let mut size = LengthSize::shrink();
+        size.set_width(Length::Div(1));
+        let resolved = limits.resolve_size(size, Size::zero(), None);
+        assert_eq!(resolved.width, 80);
     }
 }

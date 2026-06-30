@@ -400,6 +400,7 @@ fn pick_default_font() -> FontImport {
         feature = "embedded-graphics" => {
             FontImport::fixed_eg_mono_font(&embedded_graphics::mono_font::ascii::FONT_8X13)
         },
+        _ => compile_error!("Some of u8g2-fonts or embedded-graphics features must be enabled to provide a default font"),
     }
 }
 

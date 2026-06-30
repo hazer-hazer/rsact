@@ -162,6 +162,7 @@ impl FontHandler for FixedFont {
                 );
                 Some(Ok(()))
             },
+            _ => unreachable!(),
         }
     }
 }
@@ -297,8 +298,9 @@ mod eg_tests {
     #[test]
     fn egmono_measure_text_maps_word_line_and_height() {
         let font = FixedFont::EGMonoFont(&FONT_6X10);
-        let m =
-            font.measure_text("ab cde", props(), TextOverflow::Wrap).unwrap();
+        let m = font
+            .measure_text("ab cde", props(), TextOverflow::Wrap)
+            .unwrap();
         assert_eq!(
             m,
             TextIntrinsics {
@@ -312,8 +314,9 @@ mod eg_tests {
     #[test]
     fn egmono_clip_min_content_is_zero() {
         let font = FixedFont::EGMonoFont(&FONT_6X10);
-        let m =
-            font.measure_text("ab cde", props(), TextOverflow::Clip).unwrap();
+        let m = font
+            .measure_text("ab cde", props(), TextOverflow::Clip)
+            .unwrap();
         assert_eq!(m.min_content_width, 0);
         assert_eq!(m.max_content_width, line_px(6));
     }

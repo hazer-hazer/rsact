@@ -55,55 +55,58 @@ fn container() -> impl View<W> {
 
     (
         (
-            "Container is a widget with a single child. You can set padding, border and its radius, background color, and alignment of the child.".container().fill(),
+            "Container is a widget with a single child. You can set padding, border and its radius, background color, and alignment of the child.".Container().fill(),
 
             (
                 "Padding [top 5px, right 10, bottom 15, left 20]",
                 Space::col(10),
-                Container::new(Edge::new().size(Size::new_equal(50)).style(move |base, _| {
-                    base.background_color(content_color).border_color(border_color)
-                }))
-                .style(move |base, _| base.background_color(background_color))
-                .padding(Padding::new(5, 10, 15, 20))
-            ).col().fill(),
+                Edge::new()
+                    .size(Size::new_equal(50))
+                    .style(move |base, _| {
+                        base.background_color(content_color).border_color(border_color)
+                    })
+                    .Container()
+                    .style(move |base, _| base.background_color(background_color))
+                    .padding(Padding::new(5, 10, 15, 20))
+            ).Col().fill(),
 
             (
                 "Border [width 10px, color red, radius 10px]",
                 Space::col(10),
                 Edge::new()
-                .size(Size::new_equal(50))
-                .container()
-                .border_width(10)
-                .style(
-                    move |base, _| {
-                        base.background_color(background_color)
-                        .border_color(border_color)
-                        .border_radius(Radius::SizeEqual(10))
-                    },
-                )
-            ).col().fill(),
-        ).row().fill(),
+                    .size(Size::new_equal(50))
+                    .Container()
+                    .border_width(10)
+                    .style(
+                        move |base, _| {
+                            base.background_color(background_color)
+                            .border_color(border_color)
+                            .border_radius(Radius::SizeEqual(10))
+                        },
+                    )
+            ).Col().fill(),
+        ).Row().fill(),
 
         (
-            "Alignment [horizontal center, vertical end]".container().fill(),
+            "Alignment [horizontal center, vertical end]".Container().fill(),
 
             Edge::new()
-            .size(Size::new_equal(50))
-            .style(move |base, _| {
-                base.background_color(content_color)
-            })
-            .container()
-            .style(move |base, _| base.background_color(background_color).border_color(border_color))
-            .border_width(5)
-            .horizontal_align(Align::Center)
-            .vertical_align(Align::End)
-            .size(Size::new_equal(100)),
-        ).row().fill()
-    ).col().fill()
+                .size(Size::new_equal(50))
+                .style(move |base, _| {
+                    base.background_color(content_color)
+                })
+                .Container()
+                .style(move |base, _| base.background_color(background_color).border_color(border_color))
+                .border_width(5)
+                .horizontal_align(Align::Center)
+                .vertical_align(Align::End)
+                .size(Size::new_equal(100)),
+        ).Row().fill()
+    ).Col().fill()
 }
 
 fn page() -> impl View<W> {
-    let mut widget = create_signal(WidgetTab::Container);
+    let mut widget = create_signal(WidgetTab::Checkbox);
     // let select_widget =
     //     Select::vertical(widget,
     // WidgetTab::each().collect::<Vec<_>>().inert());
@@ -117,10 +120,10 @@ fn page() -> impl View<W> {
                 .el()
         })
         .collect::<Vec<_>>()
-        .col()
+        .Col()
         .gap(5u32)
         .fill()
-        .container()
+        .Container()
         .padding(5u32)
         .width_shrink()
         .height_fill();
@@ -132,10 +135,10 @@ fn page() -> impl View<W> {
         WidgetTab::Checkbox => Checkbox::new(true).el(),
         WidgetTab::Label => Label::new("Some text").el(),
     })
-    .container()
+    .Container()
     .fill();
 
-    let page = (select_widget, widget_view).row().center().fill();
+    let page = (select_widget, widget_view).Row().center().fill();
 
     page
 }

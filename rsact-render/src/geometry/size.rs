@@ -88,7 +88,9 @@ impl Size<u32> {
         Self::new_equal(min)
     }
 
-    pub const fn is_zero(&self) -> bool {
+    /// True when the size encloses no area, i.e. *either* dimension is zero.
+    /// Note: this is "zero-area", not "both dimensions are zero".
+    pub const fn is_zero_area(&self) -> bool {
         self.width == 0 || self.height == 0
     }
 }
@@ -100,10 +102,10 @@ impl Display for Size<u32> {
         } else {
             write!(f, "{}", self.width)
         }?;
-        if self.width == u32::MAX {
+        if self.height == u32::MAX {
             f.write_str("xInf")
         } else {
-            write!(f, "x{}", self.width)
+            write!(f, "x{}", self.height)
         }
     }
 }

@@ -49,14 +49,17 @@ impl<C: RgbColor> Default for Theme<C> {
     }
 }
 
-// TODO: Special support for BinaryColor
 impl<C: RgbColor> Theme<C> {
     fn border(&self) -> BorderStyle<C> {
-        BorderStyle::base().color(self.fg).radius(self.border_radius)
+        BorderStyle::base()
+            .color(self.fg)
+            .radius(self.border_radius)
     }
 
     fn container(&self) -> BlockStyle<C> {
-        BlockStyle::base().background_color(self.bg).border(self.border())
+        BlockStyle::base()
+            .background_color(self.bg)
+            .border(self.border())
     }
 }
 

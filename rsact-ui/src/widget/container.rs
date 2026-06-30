@@ -142,11 +142,12 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
 }
 
 pub trait ContainerExt<W: WidgetCtx> {
-    fn container(self) -> Container<W>;
+    #[allow(non_snake_case)]
+    fn Container(self) -> Container<W>;
 }
 
 impl<W: WidgetCtx, T: View<W>> ContainerExt<W> for T {
-    fn container(self) -> Container<W> {
+    fn Container(self) -> Container<W> {
         Container::new(self)
     }
 }

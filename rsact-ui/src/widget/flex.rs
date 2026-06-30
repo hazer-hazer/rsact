@@ -100,7 +100,8 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Flex<W, Dir> {
     }
 
     pub fn center(self) -> Self {
-        self.vertical_align(Align::Center).horizontal_align(Align::Center)
+        self.vertical_align(Align::Center)
+            .horizontal_align(Align::Center)
     }
 
     // pub fn wrap(self, wrap: impl MaybeSignal<bool> + 'static) -> Self {
@@ -210,16 +211,18 @@ where
 }
 
 pub trait FlexExt<W: WidgetCtx> {
-    fn col(self) -> Flex<W, ColDir>;
-    fn row(self) -> Flex<W, RowDir>;
+    #[allow(non_snake_case)]
+    fn Col(self) -> Flex<W, ColDir>;
+    #[allow(non_snake_case)]
+    fn Row(self) -> Flex<W, RowDir>;
 }
 
 impl<W: WidgetCtx, T: ViewSequence<W>> FlexExt<W> for T {
-    fn col(self) -> Flex<W, ColDir> {
+    fn Col(self) -> Flex<W, ColDir> {
         Flex::col(self)
     }
 
-    fn row(self) -> Flex<W, RowDir> {
+    fn Row(self) -> Flex<W, RowDir> {
         Flex::row(self)
     }
 }

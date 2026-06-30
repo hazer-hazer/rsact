@@ -426,7 +426,7 @@ impl Display for DevLayoutKind {
                     f.write_str("wrap ")?;
                 }
 
-                if !gap.is_zero() {
+                if !gap.is_zero_area() {
                     write!(f, "gap{} ", gap)?;
                 }
 
@@ -515,6 +515,13 @@ impl LayoutData {
             LayoutKind::Flex(flex) => flex,
             _ => unreachable!(),
         }
+    }
+
+    /// Whether this layout is currently shown. A `show` memo evaluating to
+    /// `false` hides the element (zero layout, not drawn). Reads the memo, so
+    /// callers inside a reactive layout pass track visibility changes.
+    pub fn is_shown(&self) -> bool {
+        self.show.map(|show| show.get()).unwrap_or(true)
     }
 
     pub fn min_size(&self, ctx: &LayoutCtx) -> Size {
