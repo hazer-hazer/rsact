@@ -29,22 +29,24 @@ declare_widget_style! {
 // TODO: Custom icon
 #[derive(View)]
 pub struct Checkbox<W: WidgetCtx> {
-    state: Signal<CheckboxState>,
+    state: CheckboxState,
     layout: Layout,
-    value: MaybeSignal<bool>,
+    value: Signal<bool>,
     style: WidgetStyleFn<CheckboxStyle<W::Color>>,
 }
 
 impl<W: WidgetCtx> Checkbox<W> {
-    pub fn new(value: impl Into<MaybeSignal<bool>>) -> Self {
-        let value = value.into();
-
+    pub fn new(value: impl IntoSignal<bool>) -> Self {
         Self {
-            state: CheckboxState::none().signal(),
+            state: CheckboxState::none(),
             // TODO: Maybe ContentLayout::Icon should be used as a single
             // char-sized square layout?
             layout: Layout::edge(Size::new_equal(16).into()),
-            value,
+            // Promote to a real `Signal` so the checked state is tracked on
+            // read in `render` and notified on write in `on_event`. A plain
+            // value (`Checkbox::new(true)`) becomes an owned signal; a passed
+            // `Signal` is reused, preserving two-way binding.
+            value: value.signal(),
             style: None,
         }
     }
@@ -114,14 +116,14 @@ impl<W: WidgetCtx> Widget<W> for Checkbox<W> {
         ctx.handle()?;
 
         ctx.handle_focusable_or_clickable(|ctx, pressed| {
-            let current_state = self.state.get();
+            let current_state = self.state;
 
             if current_state.pressed != pressed {
-                if !current_state.pressed && pressed {
+                if current_state.pressed && !pressed {
                     self.value.update(|value| *value = !*value);
                 }
 
-                self.state.update(|state| state.pressed = pressed);
+                self.state.pressed = pressed;
 
                 ctx.capture()
             } else {

@@ -656,6 +656,439 @@ mod tests {
         assert_eq!(page.take_draw_calls(), 0);
     }
 
+    // Regression: a `Checkbox` built from a plain `bool` (the "uncontrolled"
+    // case) must still redraw when toggled by a click/press. Previously the
+    // checked value was stored as a `MaybeSignal<bool>`, which is `Inert` for a
+    // plain value: the `value.get()` in `render` didn't track and the
+    // `value.update()` in `on_event` didn't notify, so the toggle changed the
+    // internal value but never triggered a redraw.
+    #[test]
+    fn checkbox_redraws_on_toggle() {
+        use crate::event::{Event, PressEvent};
+
+        // Isolate in a fresh runtime: all null pages share page id `()`, so the
+        // page-observer key `("render_page", ())` collides in the shared
+        // `static_observers` and tests would pollute each other otherwise.
+        with_new_runtime(|_| {
+            let mut page = create_null_page(Checkbox::new(false).el());
+
+            // Render until the page settles (the first passes warm up
+            // layout/style), then confirm it is quiescent with nothing changing.
+            for _ in 0..4 {
+                page.use_renderer(|_| {});
+            }
+            page.take_draw_calls();
+            page.use_renderer(|_| {});
+            assert_eq!(
+                page.take_draw_calls(),
+                0,
+                "page must be quiescent before the toggle"
+            );
+
+            // Focus the checkbox (it is the page root) and click it (press then
+            // release) — the checkbox toggles its value on release.
+            page.state.focused = Some((page.root, 0));
+            let _ = page.handle_events(
+                [
+                    Event::Press(PressEvent::Press),
+                    Event::Press(PressEvent::Release),
+                ]
+                .into_iter(),
+            );
+
+            // Toggling the checked value must redraw the checkbox. Before the
+            // fix the inert `MaybeSignal<bool>` neither tracked the read in
+            // `render` nor notified the write in `on_event`, so this stayed 0.
+            page.use_renderer(|_| {});
+            assert_eq!(
+                page.take_draw_calls(),
+                1,
+                "toggling the checkbox must trigger a redraw"
+            );
+        });
+    }
+
+    // Reproduce the real user scenario: a full mouse click (press + release,
+    // with the pointer hovering the widget). The checkbox toggles on release.
+    #[test]
+    fn checkbox_redraws_on_mouse_click() {
+        use crate::event::{Event, MouseButton, MouseEvent};
+
+        with_new_runtime(|_| {
+            let mut page = create_null_page(Checkbox::new(false).el());
+
+            for _ in 0..4 {
+                page.use_renderer(|_| {});
+            }
+            page.take_draw_calls();
+
+            let pt = page.layout.with(|m| m.tree_root().outer.center());
+
+            // Pointer hovers the checkbox, then settle any hover-driven redraw.
+            let _ = page.handle_events(core::iter::once(Event::Mouse(
+                MouseEvent::MouseMove(pt),
+            )));
+            page.use_renderer(|_| {});
+            page.take_draw_calls();
+
+            // Full left-button click (down then up) toggles the checkbox.
+            let _ = page.handle_events(
+                [
+                    Event::Mouse(MouseEvent::ButtonDown(
+                        MouseButton::Left,
+                        Some(pt),
+                    )),
+                    Event::Mouse(MouseEvent::ButtonUp(
+                        MouseButton::Left,
+                        Some(pt),
+                    )),
+                ]
+                .into_iter(),
+            );
+
+            page.use_renderer(|_| {});
+            assert_eq!(
+                page.take_draw_calls(),
+                1,
+                "a mouse click must trigger a redraw of the checkbox"
+            );
+        });
+    }
+
+    // Reproduce the widget_gallery structure: the checkbox lives inside a
+    // `dynamic(...)` factory (built in a `create_effect`, held in a Signal,
+    // inserted via `set_single_child`). This is the real-world embedding.
+    #[test]
+    fn dynamic_checkbox_redraws_on_toggle() {
+        use crate::el::ElId;
+        use crate::event::{Event, PressEvent};
+
+        fn find_checkbox<W: WidgetCtx>(
+            arena: &ElArena<W>,
+            id: ElId,
+        ) -> Option<ElId> {
+            if arena.expect(id).map_or(false, |d| {
+                d.state.flags.focusable && d.state.flags.clickable
+            }) {
+                return Some(id);
+            }
+            for &child in arena.children(id).unwrap_or(&[]) {
+                if let Some(found) = find_checkbox(arena, child) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+
+        with_new_runtime(|_| {
+            // Factory reads an external signal (like widget_gallery's tab
+            // signal), so the checkbox's own signals are created inside the
+            // tracking effect.
+            let tab = create_signal(0u8);
+            let mut page = create_null_page(dynamic(move || {
+                let _ = tab.get();
+                Checkbox::new(false)
+            }));
+
+            for _ in 0..4 {
+                page.use_renderer(|_| {});
+            }
+            page.take_draw_calls();
+            page.use_renderer(|_| {});
+            assert_eq!(
+                page.take_draw_calls(),
+                0,
+                "page must be quiescent before the toggle"
+            );
+
+            let checkbox_id = page
+                .arena
+                .with(|arena| find_checkbox(arena, page.root))
+                .expect("checkbox must be in the tree");
+            page.state.focused = Some((checkbox_id, 0));
+            let _ = page.handle_events(
+                [
+                    Event::Press(PressEvent::Press),
+                    Event::Press(PressEvent::Release),
+                ]
+                .into_iter(),
+            );
+
+            page.use_renderer(|_| {});
+            assert_eq!(
+                page.take_draw_calls(),
+                1,
+                "toggling a checkbox inside dynamic() must trigger a redraw"
+            );
+        });
+    }
+
+    // A renderer that records primitive draw calls. NullRenderer is a no-op and
+    // cannot reveal whether a primitive (e.g. the check-icon path) was actually
+    // drawn.
+    mod recording_renderer {
+        use crate::prelude::*;
+        use alloc::rc::Rc;
+        use core::cell::Cell;
+
+        #[derive(Clone, Default)]
+        pub struct RecordingRenderer {
+            pub paths: Rc<Cell<usize>>,
+        }
+
+        impl RenderTarget for RecordingRenderer {
+            type Color = NullColor;
+            fn draw(
+                &mut self,
+                _pixels: impl Iterator<
+                    Item = crate::render::output::pixel::Pixel<Self::Color>,
+                >,
+            ) {
+            }
+        }
+
+        impl<C> FinishRender<C> for RecordingRenderer {
+            fn finish_frame(
+                &mut self,
+                _target: &mut impl RenderTarget<Color = C>,
+            ) {
+            }
+        }
+
+        impl Renderer for RecordingRenderer {
+            type Color = NullColor;
+            type Options = ();
+
+            fn set_options(&mut self, _options: Self::Options) {}
+            fn size(&self) -> Size {
+                Size::new_equal(64)
+            }
+            fn clipped(
+                &mut self,
+                _area: Rect,
+                f: impl FnOnce(&mut Self) -> RenderResult,
+            ) -> RenderResult {
+                f(self)
+            }
+            fn fill_solid(
+                &mut self,
+                _rect: Rect,
+                _color: Self::Color,
+            ) -> RenderResult {
+                Ok(())
+            }
+            fn pixel(
+                &mut self,
+                _point: Point,
+                _color: Self::Color,
+            ) -> RenderResult {
+                Ok(())
+            }
+            fn line(
+                &mut self,
+                _from: Point,
+                _to: Point,
+                _style: &DrawStyle<Self::Color>,
+            ) -> RenderResult {
+                Ok(())
+            }
+            fn rect(
+                &mut self,
+                _rect: Rect,
+                _style: &DrawStyle<Self::Color>,
+            ) -> RenderResult {
+                Ok(())
+            }
+            fn rounded_rect(
+                &mut self,
+                _rect: Rect,
+                _corners: CornerRadii,
+                _style: &DrawStyle<Self::Color>,
+            ) -> RenderResult {
+                Ok(())
+            }
+            fn circle(
+                &mut self,
+                _top_left: Point,
+                _diameter: u32,
+                _style: &DrawStyle<Self::Color>,
+            ) -> RenderResult {
+                Ok(())
+            }
+            fn arc(
+                &mut self,
+                _top_left: Point,
+                _diameter: u32,
+                _start: Angle,
+                _sweep: Angle,
+                _style: &DrawStyle<Self::Color>,
+            ) -> RenderResult {
+                Ok(())
+            }
+            fn ellipse(
+                &mut self,
+                _bounding_box: Rect,
+                _style: &DrawStyle<Self::Color>,
+            ) -> RenderResult {
+                Ok(())
+            }
+            fn sector(
+                &mut self,
+                _top_left: Point,
+                _diameter: u32,
+                _start: Angle,
+                _sweep: Angle,
+                _style: &DrawStyle<Self::Color>,
+            ) -> RenderResult {
+                Ok(())
+            }
+            fn polygon(
+                &mut self,
+                _points: &[Point],
+                _style: &DrawStyle<Self::Color>,
+            ) -> RenderResult {
+                Ok(())
+            }
+            fn path(
+                &mut self,
+                _path: &Path,
+                _style: &DrawStyle<Self::Color>,
+            ) -> RenderResult {
+                self.paths.set(self.paths.get() + 1);
+                Ok(())
+            }
+            fn image<'a>(
+                &mut self,
+                _image: crate::render::image::DrawImage<'a, Self::Color>,
+            ) -> RenderResult {
+                Ok(())
+            }
+        }
+    }
+
+    // The exact user scenario, end-to-end: a checkbox that starts UNCHECKED,
+    // then is toggled to checked via a click. The resulting redraw must
+    // actually draw the check-icon path (the NullRenderer-based redraw tests
+    // only prove the page re-renders, not that the icon is drawn).
+    #[test]
+    fn toggling_checkbox_to_checked_draws_icon() {
+        use crate::event::{Event, PressEvent};
+        use recording_renderer::RecordingRenderer;
+
+        type RecWtf = Wtf<RecordingRenderer, (), (), ()>;
+
+        with_new_runtime(|_| {
+            let renderer = RecordingRenderer::default();
+            let paths = renderer.paths.clone();
+            let arena = create_signal(ElArena::new()).name("Page arena");
+            let mut page: Page<RecWtf> = Page::new(
+                (),
+                Checkbox::<RecWtf>::new(false),
+                arena,
+                Size::new_equal(64).maybe_reactive(),
+                ().inert(),
+                DevTools::default().signal(),
+                renderer.signal(),
+                FontCtx::new().signal(),
+            );
+
+            // Settle; value is false, so no icon is drawn yet.
+            for _ in 0..4 {
+                page.use_renderer(|_| {});
+            }
+            let before = paths.get();
+
+            // Click (press + release) the focused checkbox -> toggle to checked.
+            page.state.focused = Some((page.root, 0));
+            let _ = page.handle_events(
+                [
+                    Event::Press(PressEvent::Press),
+                    Event::Press(PressEvent::Release),
+                ]
+                .into_iter(),
+            );
+
+            page.use_renderer(|_| {});
+            let after = paths.get();
+
+            assert!(
+                after > before,
+                "toggling a checkbox to checked must draw the icon on the \
+                 redraw (path calls before={before}, after={after})"
+            );
+        });
+    }
+
+    // Same as above but the checkbox is NESTED (inside `dynamic`, like
+    // widget_gallery). Reproduces the real bug: the page re-renders on toggle,
+    // but the nested checkbox's render observer is skipped so the icon is never
+    // drawn.
+    #[test]
+    fn nested_checkbox_toggle_draws_icon() {
+        use crate::el::ElId;
+        use crate::event::{Event, PressEvent};
+        use recording_renderer::RecordingRenderer;
+
+        type RecWtf = Wtf<RecordingRenderer, (), (), ()>;
+
+        fn find_checkbox(arena: &ElArena<RecWtf>, id: ElId) -> Option<ElId> {
+            if arena.expect(id).map_or(false, |d| {
+                d.state.flags.focusable && d.state.flags.clickable
+            }) {
+                return Some(id);
+            }
+            for &child in arena.children(id).unwrap_or(&[]) {
+                if let Some(found) = find_checkbox(arena, child) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+
+        with_new_runtime(|_| {
+            let renderer = RecordingRenderer::default();
+            let paths = renderer.paths.clone();
+            let arena = create_signal(ElArena::new()).name("Page arena");
+            let mut page: Page<RecWtf> = Page::new(
+                (),
+                dynamic(|| Checkbox::<RecWtf>::new(false)),
+                arena,
+                Size::new_equal(64).maybe_reactive(),
+                ().inert(),
+                DevTools::default().signal(),
+                renderer.signal(),
+                FontCtx::new().signal(),
+            );
+
+            for _ in 0..4 {
+                page.use_renderer(|_| {});
+            }
+            let before = paths.get();
+
+            let checkbox_id = page
+                .arena
+                .with(|arena| find_checkbox(arena, page.root))
+                .expect("checkbox must be in the tree");
+            page.state.focused = Some((checkbox_id, 0));
+            let _ = page.handle_events(
+                [
+                    Event::Press(PressEvent::Press),
+                    Event::Press(PressEvent::Release),
+                ]
+                .into_iter(),
+            );
+
+            page.use_renderer(|_| {});
+            let after = paths.get();
+
+            assert!(
+                after > before,
+                "toggling a NESTED checkbox must draw the icon on the redraw \
+                 (path calls before={before}, after={after})"
+            );
+        });
+    }
+
     // The `View` migration: `row!`/`col!` and `impl View<W>` APIs accept bare
     // widgets *and* leaf values (`&str`, `String`, `Option<View>`, existing
     // `El`) uniformly, without an explicit `.el()`. A bare `Button` in `row!`

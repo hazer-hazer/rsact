@@ -25,7 +25,7 @@ declare_widget_style! {
 pub struct Button<W: WidgetCtx> {
     layout: Layout,
     content: El<W>,
-    state: Signal<ButtonState>,
+    state: ButtonState,
     style: WidgetStyleFn<ButtonStyle<W::Color>>,
     on_click: Option<Box<dyn FnMut()>>,
 }
@@ -33,7 +33,7 @@ pub struct Button<W: WidgetCtx> {
 impl<W: WidgetCtx + 'static> Button<W> {
     pub fn new(content: impl View<W>) -> Self {
         let content = content.into_el();
-        let state = create_signal(ButtonState::none());
+        let state = ButtonState::none();
 
         let layout = Layout::shrink(LayoutKind::Container(ContainerLayout {
             block_model: BlockModel::zero().padding(5).border_width(1),
@@ -47,7 +47,7 @@ impl<W: WidgetCtx + 'static> Button<W> {
     }
 
     // TODO: Allow function to return some value to be sent to the UI, so user
-    // can easily call ui events like goto page, etc.
+    // can easily call ui events like goto page, etc without getting access to the [`MessageQueue`].
     pub fn on_click<F: 'static>(mut self, on_click: F) -> Self
     where
         F: FnMut(),
@@ -56,11 +56,13 @@ impl<W: WidgetCtx + 'static> Button<W> {
         self
     }
 
-    // It's okay to replace state in builder, as it isn't used before startup
-    pub fn use_state(mut self, state: Signal<ButtonState>) -> Self {
-        self.state = state;
-        self
-    }
+    // TODO: Do we need to support such logic?
+    // This would allow us to have similar to what JS provides where we can acquire some element and dispatch events on it. Without this, users won't be able to trigger events on a button programmatically. But I am not sure if it is a first-tier requirement for a UI framework -\_(*_*)_/-
+    // // It's okay to replace state in builder, as it isn't used before startup
+    // pub fn use_state(mut self, state: Signal<ButtonState>) -> Self {
+    //     self.state = state;
+    //     self
+    // }
 
     pub fn style(mut self, class: impl StyleFn<ButtonStyle<W::Color>>) -> Self {
         self.style = Some(Box::new(class));
@@ -117,10 +119,10 @@ impl<W: WidgetCtx + 'static> Widget<W> for Button<W> {
     fn on_event(&mut self, mut ctx: EventCtx<'_, W>) -> EventResponse {
         let _ = ctx.handle_hover_move()?;
         ctx.handle_focusable_or_clickable(|ctx, pressed| {
-            let current_state = self.state.get();
+            let current_state = self.state;
 
             if current_state.pressed != pressed {
-                self.state.update(|state| state.pressed = pressed);
+                self.state.pressed = pressed;
 
                 if let Some(on_click) = self.on_click.as_mut() {
                     if !current_state.pressed && pressed {

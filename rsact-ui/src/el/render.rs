@@ -15,7 +15,9 @@ use crate::{
 use core::{fmt::Display, hash::Hash, marker::PhantomData};
 use itertools::Itertools as _;
 use log::{debug, error};
-use rsact_reactive::{prelude::*, signal::marker::ReadOnly};
+use rsact_reactive::{
+    debug::observer_debug_info, prelude::*, signal::marker::ReadOnly,
+};
 use rsact_render::color::ACCENT_COUNT;
 
 pub struct CtxReady;
@@ -223,57 +225,55 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
         // dependencies changed in the `observe`
         let redraw = self.frame.parent_dirty || self.needs_redraw.is_some();
 
-        let result = observe_with_force(
-            WithElId::new(self.id, hash_source),
-            redraw,
-            || {
-                debug!(
-                    "{:indent$}Render {} [#{:?}] (parent_dirty={}, needs_redraw={:?})",
-                    "",
-                    hash_source,
-                    self.id,
-                    self.frame.parent_dirty,
-                    self.needs_redraw,
-                    indent = self.frame.nesting_level
-                );
+        let render_id = WithElId::new(self.id, hash_source);
 
-                // Track force_redraw so this observer automatically re-runs
-                // when the page-level force-redraw flag is set
-                // (e.g. after layout change).
-                self.shared.force_redraw.track();
+        let result = observe_with_force(render_id, redraw, || {
+            debug!(
+                "{:indent$}Render {} [#{:?}] (parent_dirty={}, needs_redraw={:?})",
+                "",
+                hash_source,
+                self.id,
+                self.frame.parent_dirty,
+                self.needs_redraw,
+                indent = self.frame.nesting_level
+            );
 
-                // Clear the element rect unless the parent already did so.
-                //
-                // Moved inside `observe` (vs old code where it was outside) so
-                // the clear is always paired with an actual
-                // redraw — never a clear-without-redraw or a
-                // redraw-without-clear.
-                if !self.frame.parent_dirty {
-                    self.clear_outer()?;
-                }
+            // Track force_redraw so this observer automatically re-runs
+            // when the page-level force-redraw flag is set
+            // (e.g. after layout change).
+            self.shared.force_redraw.track();
 
-                f(RenderCtx {
-                    id: self.id,
-                    debug_name: self.debug_name,
-                    dirten: self.dirten,
-                    needs_redraw: self.needs_redraw,
-                    hovered: self.hovered,
-                    renderer: self.renderer,
-                    layout: self.layout,
-                    visual: self.visual,
-                    shared: self.shared,
-                    // Children inside this closure see parent_dirty=true
-                    // because we just cleared/drew into
-                    // this element's area above.
-                    frame: RenderFrame {
-                        parent_dirty: true,
-                        nesting_level: self.frame.nesting_level + 1,
-                        call: self.frame.call + 1,
-                    },
-                    _marker: PhantomData,
-                })
-            },
-        );
+            // Clear the element rect unless the parent already did so.
+            //
+            // Moved inside `observe` (vs old code where it was outside) so
+            // the clear is always paired with an actual
+            // redraw — never a clear-without-redraw or a
+            // redraw-without-clear.
+            if !self.frame.parent_dirty {
+                self.clear_outer()?;
+            }
+
+            f(RenderCtx {
+                id: self.id,
+                debug_name: self.debug_name,
+                dirten: self.dirten,
+                needs_redraw: self.needs_redraw,
+                hovered: self.hovered,
+                renderer: self.renderer,
+                layout: self.layout,
+                visual: self.visual,
+                shared: self.shared,
+                // Children inside this closure see parent_dirty=true
+                // because we just cleared/drew into
+                // this element's area above.
+                frame: RenderFrame {
+                    parent_dirty: true,
+                    nesting_level: self.frame.nesting_level + 1,
+                    call: self.frame.call + 1,
+                },
+                _marker: PhantomData,
+            })
+        });
 
         if result.is_some() {
             self.frame.parent_dirty = true;
@@ -316,7 +316,9 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
 
         self.shared.page_style.with(|style| {
             if let Some(bg) = style.background_color {
-                self.renderer.fill_solid(self.layout.outer, bg).map_err(|_| ())
+                self.renderer
+                    .fill_solid(self.layout.outer, bg)
+                    .map_err(|_| ())
             } else {
                 Ok(())
             }
@@ -422,13 +424,14 @@ fn render_subtree_body<W: WidgetCtx>(
     visual: RenderVisual<W>,
     frame: RenderFrame,
 ) -> RenderResult {
-    let needs_redraw =
-        els.expect_mut(id).and_then(|data| data.state.take_needs_redraw());
+    let needs_redraw = els
+        .expect_mut(id)
+        .and_then(|data| data.state.take_needs_redraw());
 
     let Some(data) = els.expect(id) else { return Ok(()) };
 
     debug!(
-        "{:indent$}Render `{}` [{:?}]",
+        "{:indent$}Check `{}` [{:?}]",
         "",
         data.state.debug_name,
         id,

@@ -168,7 +168,7 @@ impl Drop for DeferEffectsGuard {
 // `end_observe` (auto on drop)
 
 /// Like [`observe`] but identifies the call-site by its source location
-/// rather than an explicit key.  
+/// rather than an explicit key.
 /// Annotate the calling function with `#[track_caller]` to ensure each
 /// distinct call-site is treated as a separate observer.
 #[track_caller]
@@ -453,6 +453,11 @@ impl Runtime {
             .unwrap_or(false)
     }
 
+    pub fn get_observer<T: Hash>(&self, id: T) -> Option<ValueId> {
+        let hash = self.hasher.hash_one(id);
+        self.static_observers.borrow().get(&hash).copied()
+    }
+
     /// Upgrade an inert [`ValueKind::Stored`] value into a
     /// [`ValueKind::Signal`] in place, keeping the same [`ValueId`]. This
     /// is the reactive-on-write transition: because reactivity is keyed by
@@ -616,6 +621,12 @@ impl Runtime {
                 // rt.cleanup(id);
                 f()
             });
+
+            // Mark the observer clean only now that its closure has actually
+            // run. `update` deliberately does NOT clean observers (see there),
+            // so a parent observer's `maybe_update` dependency-walk cannot
+            // consume this observer's dirtiness before we re-run it here.
+            self.mark_clean(id, Some(id), location);
 
             Some(result)
         } else {
@@ -803,6 +814,14 @@ impl Runtime {
                 return;
             }
 
+            // An `Observer`'s work (its closure) runs in `use_observe`, not
+            // here. If we cleaned it here (during a *parent* observer's
+            // `maybe_update` dependency-walk), its dirtiness would be consumed
+            // before the nested `observe` call re-checks it, so the nested
+            // closure would be skipped. Observers are cleaned in `use_observe`
+            // after their closure actually runs.
+            let is_observer = matches!(value.kind, ValueKind::Observer);
+
             let changed = match &value.kind {
                 ValueKind::Stored => false,
                 ValueKind::MemoChain { memo, first, last } => {
@@ -855,7 +874,9 @@ impl Runtime {
                 }
             }
 
-            self.mark_clean(id, requester, caller);
+            if !is_observer {
+                self.mark_clean(id, requester, caller);
+            }
         }
     }
 
@@ -1453,7 +1474,7 @@ mod tests {
         memo::create_memo,
         read::ReadSignal,
         runtime::{
-            RUNTIMES, observe_by_location, with_current_runtime,
+            RUNTIMES, observe, observe_by_location, with_current_runtime,
             with_new_runtime,
         },
         scope::new_scope,
@@ -1568,6 +1589,49 @@ mod tests {
         signal.set(0);
         assert_eq!(run(), Some(()));
         assert_eq!(run(), None);
+    }
+
+    // Isolates the rsact-ui nested-widget redraw bug in pure reactive terms.
+    // An inner `observe` (like a widget's `render_part`) nested inside an outer
+    // `observe` (like the page render) reads a signal. When that signal changes
+    // externally, re-running the outer must also re-run the inner closure.
+    // The outer observer subscribes to the inner one, so the outer's
+    // `maybe_update` dependency-walk must not consume (clean) the inner
+    // observer's dirtiness before the inner `observe` call re-checks it.
+    #[test]
+    fn nested_observe_reruns_inner_on_external_dep_change() {
+        with_new_runtime(|_| {
+            let mut value = create_signal(0);
+            let inner_runs = Rc::new(Cell::new(0u32));
+
+            let ir = inner_runs.clone();
+            let run = move || {
+                observe("outer", || {
+                    observe("inner", || {
+                        ir.set(ir.get() + 1);
+                        value.get();
+                    });
+                });
+            };
+
+            run();
+            assert_eq!(inner_runs.get(), 1, "inner should run once initially");
+            run();
+            assert_eq!(
+                inner_runs.get(),
+                1,
+                "inner should not re-run with no change"
+            );
+
+            value.set(1);
+            run();
+            assert_eq!(
+                inner_runs.get(),
+                2,
+                "inner observe must re-run when a signal it reads changed \
+                 externally"
+            );
+        });
     }
 
     /// dispose() must remove the effect from the source signal's subscriber

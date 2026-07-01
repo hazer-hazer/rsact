@@ -8,7 +8,9 @@ use crate::{
     widget::prelude::*,
 };
 use itertools::Itertools as _;
-use log::{debug, error, warn};
+use log::{debug, error};
+
+// TODO: Do we need request_redraw flag as in update pass? Or all updates in event pass are reactive-only?
 
 pub struct EventPass<'a, W: WidgetCtx> {
     arena: &'a mut ArenaEls<W>,
@@ -141,7 +143,9 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
     /// Returns the cursor position for this event, falling back to the last
     /// known position.
     pub fn cursor_pos(&self) -> Option<Point> {
-        self.event.cursor_point().or_else(|| self.page_state.pointer.pos)
+        self.event
+            .cursor_point()
+            .or_else(|| self.page_state.pointer.pos)
     }
 
     /// Called by `HOVERABLE` widgets during a `MouseMove` pass to claim hover
@@ -213,7 +217,9 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
         let pos = self.cursor_pos();
         match self.event {
             Event::Mouse(MouseEvent::ButtonDown(btn, _)) => {
-                if pos.map(|pt| self.layout.outer.contains(pt)).unwrap_or(false)
+                if pos
+                    .map(|pt| self.layout.outer.contains(pt))
+                    .unwrap_or(false)
                 {
                     press(self, *btn, true)
                 } else {
@@ -221,7 +227,9 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
                 }
             },
             Event::Mouse(MouseEvent::ButtonUp(btn, _)) => {
-                if pos.map(|pt| self.layout.outer.contains(pt)).unwrap_or(false)
+                if pos
+                    .map(|pt| self.layout.outer.contains(pt))
+                    .unwrap_or(false)
                 {
                     press(self, *btn, false)
                 } else {
@@ -260,7 +268,9 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
         let pos = self.cursor_pos();
         match self.event {
             Event::Mouse(MouseEvent::ButtonDown(MouseButton::Left, _)) => {
-                if pos.map(|pt| self.layout.outer.contains(pt)).unwrap_or(false)
+                if pos
+                    .map(|pt| self.layout.outer.contains(pt))
+                    .unwrap_or(false)
                 {
                     press(self, true)
                 } else {
@@ -268,7 +278,9 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
                 }
             },
             Event::Mouse(MouseEvent::ButtonUp(MouseButton::Left, _)) => {
-                if pos.map(|pt| self.layout.outer.contains(pt)).unwrap_or(false)
+                if pos
+                    .map(|pt| self.layout.outer.contains(pt))
+                    .unwrap_or(false)
                 {
                     press(self, false)
                 } else {
