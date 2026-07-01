@@ -37,8 +37,10 @@ pub struct ElState<W: WidgetCtx> {
 
     pub flags: WidgetFlags,
 
+    // TODO: Can these states be stored only globally to avoid excessive memory usage?
     // Action state //
     hovered: bool,
+    pressed: bool,
 
     // // Styling //
     // pub pseudoclass: StylePseudoClass,
@@ -60,6 +62,7 @@ impl<W: WidgetCtx> ElState<W> {
             built: false,
 
             hovered: false,
+            pressed: false,
 
             needs_redraw: None,
             clip_path: None,
@@ -102,6 +105,26 @@ impl<W: WidgetCtx> ElState<W> {
     #[inline(always)]
     pub fn hovered(&self) -> bool {
         self.hovered
+    }
+
+    /// Update the cached "pressed" flag used for rendering (mirrors
+    /// [`maybe_hover`]). The single source of truth lives in
+    /// [`PageState`]/[`PointerState`]; this cache is kept in sync by
+    /// [`Update::PressChange`] so `render` needs no page-state access. A widget
+    /// is pressable if it is `clickable` (mouse) or `focusable` (encoder).
+    pub fn maybe_press(&mut self, pressed: bool) -> UpdateResult {
+        if self.flags.clickable || self.flags.focusable {
+            self.pressed = pressed;
+            self.set_needs_redraw(RedrawReason::PseudoclassChange);
+            UpdateResult::request_redraw()
+        } else {
+            UpdateResult::none()
+        }
+    }
+
+    #[inline(always)]
+    pub fn pressed(&self) -> bool {
+        self.pressed
     }
 
     pub fn set_needs_redraw(&mut self, reason: RedrawReason) {

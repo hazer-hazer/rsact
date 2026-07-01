@@ -5,6 +5,7 @@ use log::debug;
 pub enum Update {
     HoverChange(bool),
     ChildHoverChange(bool),
+    PressChange(bool),
     MouseEnter,
     ChildMouseEnter,
     MouseLeave,
@@ -18,6 +19,9 @@ impl Update {
                 Some(Self::ChildHoverChange(*hovered))
             },
             Self::ChildHoverChange(_) => Some(*self),
+            // Press does not bubble to parents: a pressed child does not make
+            // its container "pressed" (unlike hover).
+            Self::PressChange(_) => None,
             Self::MouseEnter => Some(Self::ChildMouseEnter),
             Self::ChildMouseEnter => Some(*self),
             Self::MouseLeave => Some(Self::ChildMouseLeave),
@@ -72,6 +76,9 @@ impl<'a, W: WidgetCtx> UpdateCtx<'a, W> {
             },
             Update::ChildHoverChange(child_hovered) => {
                 return self.state.maybe_hover_from_child(child_hovered);
+            },
+            Update::PressChange(pressed) => {
+                return self.state.maybe_press(pressed);
             },
             Update::MouseEnter => {},
             Update::ChildMouseEnter => {},

@@ -3,20 +3,9 @@ use crate::{
     style::{StyleFn, WidgetStyleFn},
 };
 
-#[derive(Clone, Copy)]
-pub struct ButtonState {
-    pub pressed: bool,
-}
-
-impl ButtonState {
-    pub fn none() -> Self {
-        Self { pressed: false }
-    }
-}
-
 // TODO: Add text style for dynamic styling on hover, press, etc.
 declare_widget_style! {
-    ButtonStyle (ButtonState) {
+    ButtonStyle () {
         container: container,
     }
 }
@@ -25,7 +14,6 @@ declare_widget_style! {
 pub struct Button<W: WidgetCtx> {
     layout: Layout,
     content: El<W>,
-    state: ButtonState,
     style: WidgetStyleFn<ButtonStyle<W::Color>>,
     on_click: Option<Box<dyn FnMut()>>,
 }
@@ -33,7 +21,6 @@ pub struct Button<W: WidgetCtx> {
 impl<W: WidgetCtx + 'static> Button<W> {
     pub fn new(content: impl View<W>) -> Self {
         let content = content.into_el();
-        let state = ButtonState::none();
 
         let layout = Layout::shrink(LayoutKind::Container(ContainerLayout {
             block_model: BlockModel::zero().padding(5).border_width(1),
@@ -43,7 +30,7 @@ impl<W: WidgetCtx + 'static> Button<W> {
             font_props: Default::default(),
         }));
 
-        Self { layout, content, state, style: None, on_click: None }
+        Self { layout, content, style: None, on_click: None }
     }
 
     // TODO: Allow function to return some value to be sent to the UI, so user
@@ -117,23 +104,12 @@ impl<W: WidgetCtx + 'static> Widget<W> for Button<W> {
     }
 
     fn on_event(&mut self, mut ctx: EventCtx<'_, W>) -> EventResponse {
-        let _ = ctx.handle_hover_move()?;
-        ctx.handle_focusable_or_clickable(|ctx, pressed| {
-            let current_state = self.state;
-
-            if current_state.pressed != pressed {
-                self.state.pressed = pressed;
-
-                if let Some(on_click) = self.on_click.as_mut() {
-                    if !current_state.pressed && pressed {
-                        on_click();
-                    }
-                }
-
-                ctx.capture()
-            } else {
-                ctx.ignore()
+        ctx.handle()?; // hover + press claim + pointer capture (automatic)
+        ctx.handle_click(|ctx| {
+            if let Some(on_click) = self.on_click.as_mut() {
+                on_click();
             }
+            ctx.capture()
         })
     }
 }

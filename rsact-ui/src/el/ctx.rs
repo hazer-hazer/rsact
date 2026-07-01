@@ -80,11 +80,17 @@ pub struct PointerState {
     /// The deepest `HOVERABLE` widget under the cursor as of the last
     /// `MouseMove`
     pub hovered: Option<ElId>,
+    /// The `CLICKABLE` widget currently held down by the mouse button, i.e. the
+    /// widget that received `ButtonDown` and has not yet seen the matching
+    /// `ButtonUp`. Claimed by the deepest clickable widget under the cursor and
+    /// cleared on `ButtonUp` regardless of cursor position. Single-source-of-
+    /// truth for the mouse "pressed" pseudo-class (mirrors `hovered`).
+    pub pressed: Option<ElId>,
 }
 
 impl PointerState {
     pub fn new() -> Self {
-        Self { pos: None, captured_by: None, hovered: None }
+        Self { pos: None, captured_by: None, hovered: None, pressed: None }
     }
 }
 
@@ -96,6 +102,12 @@ pub struct PageState<W: WidgetCtx> {
     /// [`PageTree`])
     pub focused: Option<(ElId, usize)>,
 
+    /// The focused widget's activation button (encoder/keyboard) is currently
+    /// held down. There is only one focused widget, so the pressed widget is
+    /// `focused.0`. This is the focus-driven analogue of `pointer.pressed` and
+    /// feeds the same "pressed" pseudo-class.
+    pub focus_pressed: bool,
+
     /// Page last known pointer state, updated on every `MouseMove` and is
     /// basically only needed on platforms like PC where pointer can go outside
     /// the window and we preserve last known position.
@@ -106,7 +118,12 @@ pub struct PageState<W: WidgetCtx> {
 
 impl<W: WidgetCtx> PageState<W> {
     pub fn new() -> Self {
-        Self { focused: None, pointer: PointerState::new(), ctx: PhantomData }
+        Self {
+            focused: None,
+            focus_pressed: false,
+            pointer: PointerState::new(),
+            ctx: PhantomData,
+        }
     }
 
     pub fn is_focused(&self, id: ElId) -> bool {

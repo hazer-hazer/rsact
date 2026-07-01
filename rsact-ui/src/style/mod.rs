@@ -22,6 +22,7 @@ pub trait Style {
 // TODO: Bitflags?
 pub struct StylePseudoClass {
     pub hovered: bool,
+    pub pressed: bool,
     pub focused: bool,
     pub active: bool,
 }
@@ -29,6 +30,11 @@ pub struct StylePseudoClass {
 impl StylePseudoClass {
     pub fn hovered(mut self, hovered: bool) -> Self {
         self.hovered = hovered;
+        self
+    }
+
+    pub fn pressed(mut self, pressed: bool) -> Self {
+        self.pressed = pressed;
         self
     }
 
@@ -45,7 +51,7 @@ impl StylePseudoClass {
 
 impl Default for StylePseudoClass {
     fn default() -> Self {
-        Self { hovered: false, focused: false, active: false }
+        Self { hovered: false, pressed: false, focused: false, active: false }
     }
 }
 

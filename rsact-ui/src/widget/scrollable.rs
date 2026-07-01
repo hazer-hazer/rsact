@@ -29,7 +29,8 @@ pub struct ScrollableState {
     // TODO: Maybe offset should be i32, so we can make smooth animations such
     // as IOS does
     pub offset: u32,
-    pub focus_pressed: bool,
+    // Press state (focus/encoder) is global now (see `PageState`); the
+    // widget-specific `active` mode and pointer `drag_pos` are stored locally.
     pub active: bool,
     /// Last cursor position when pointer-dragging, for delta calculation
     pub drag_pos: Option<i32>,
@@ -39,7 +40,7 @@ pub struct ScrollableState {
 
 impl ScrollableState {
     pub fn none() -> Self {
-        Self { offset: 0, focus_pressed: false, active: false, drag_pos: None }
+        Self { offset: 0, active: false, drag_pos: None }
     }
 }
 
@@ -195,6 +196,13 @@ impl<W: WidgetCtx, Dir: Direction + 'static> FontSettingWidget<W>
 impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Scrollable<W, Dir> {
     fn debug_name(&self) -> &'static str {
         "Scrollable"
+    }
+
+    fn flags(&self) -> WidgetFlags {
+        // Not `clickable`: the mouse press starts a drag (handled explicitly
+        // via `capture_pointer`/`drag_pos`), not a click. Only the
+        // focus/encoder press-to-activate is behavioral.
+        WidgetFlags::default().focusable()
     }
 
     fn build(&mut self, mut ctx: BuildCtx<W>) {
@@ -388,28 +396,10 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Scrollable<W, Dir> {
                     _ => {},
                 }
 
-                ctx.handle_focusable(|ctx, pressed| {
-                    let current_state = self.state.get();
-
-                    if current_state.focus_pressed != pressed {
-                        let toggle_active =
-                            if !current_state.focus_pressed && pressed {
-                                true
-                            } else {
-                                false
-                            };
-
-                        self.state.update(|state| {
-                            state.focus_pressed = pressed;
-                            if toggle_active {
-                                state.active = !state.active;
-                            }
-                        });
-
-                        ctx.capture()
-                    } else {
-                        ctx.ignore()
-                    }
+                ctx.handle()?; // focus press claim (encoder), automatic
+                ctx.handle_click(|ctx| {
+                    self.state.update(|state| state.active = !state.active);
+                    ctx.capture()
                 })
             },
             ScrollableMode::Tracker => {

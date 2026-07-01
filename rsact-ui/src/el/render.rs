@@ -75,6 +75,7 @@ pub struct RenderCtx<'a, W: WidgetCtx, S = CtxUnready> {
     dirten: &'a mut bool,
     needs_redraw: Option<RedrawReason>,
     hovered: bool,
+    pressed: bool,
 
     pub renderer: &'a mut W::Renderer,
     pub layout: &'a LayoutModelNode<'a>,
@@ -141,6 +142,7 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
             dirten: self.dirten,
             needs_redraw: self.needs_redraw,
             hovered: self.hovered,
+            pressed: self.pressed,
             renderer: self.renderer,
             layout: self.layout,
             visual: RenderVisual {
@@ -160,12 +162,14 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
     /// access.
     pub fn pseudoclass(&self) -> StylePseudoClass {
         debug!(
-            "State for pseudoclass: hovered={} focused={}",
+            "State for pseudoclass: hovered={} pressed={} focused={}",
             self.hovered,
+            self.pressed,
             self.shared.page_state.is_focused(self.id)
         );
         StylePseudoClass::default()
             .hovered(self.hovered)
+            .pressed(self.pressed)
             .focused(self.shared.page_state.is_focused(self.id))
     }
 
@@ -203,6 +207,7 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
                 dirten: self.dirten,
                 needs_redraw: self.needs_redraw,
                 hovered: self.hovered,
+                pressed: self.pressed,
                 renderer,
                 layout: self.layout,
                 visual: self.visual,
@@ -259,6 +264,7 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
                 dirten: self.dirten,
                 needs_redraw: self.needs_redraw,
                 hovered: self.hovered,
+                pressed: self.pressed,
                 renderer: self.renderer,
                 layout: self.layout,
                 visual: self.visual,
@@ -445,6 +451,7 @@ fn render_subtree_body<W: WidgetCtx>(
         dirten: &mut dirten,
         needs_redraw,
         hovered: data.state.hovered(),
+        pressed: data.state.pressed(),
         renderer,
         layout,
         visual,

@@ -5,13 +5,12 @@ use crate::{
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct KnobState {
-    pub pressed: bool,
     pub active: bool,
 }
 
 impl KnobState {
     pub fn none() -> Self {
-        Self { pressed: false, active: false }
+        Self { active: false }
     }
 }
 
@@ -74,6 +73,10 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Widget<W> for Knob<W, V> {
         "Knob"
     }
 
+    fn flags(&self) -> WidgetFlags {
+        WidgetFlags::default().focusable()
+    }
+
     fn build(&mut self, ctx: BuildCtx<W>) {
         let _ = ctx;
     }
@@ -125,25 +128,10 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Widget<W> for Knob<W, V> {
             }
         }
 
-        ctx.handle_focusable(|ctx, pressed| {
-            if current_state.pressed != pressed {
-                let toggle_active = if !current_state.pressed && pressed {
-                    true
-                } else {
-                    false
-                };
-
-                self.state.update(|state| {
-                    state.pressed = pressed;
-                    if toggle_active {
-                        state.active = !state.active;
-                    }
-                });
-
-                ctx.capture()
-            } else {
-                ctx.ignore()
-            }
+        ctx.handle()?; // focus press claim (encoder), automatic
+        ctx.handle_click(|ctx| {
+            self.state.update(|state| state.active = !state.active);
+            ctx.capture()
         })
     }
 }

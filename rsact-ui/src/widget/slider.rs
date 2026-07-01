@@ -45,13 +45,14 @@ impl<C: Color> SliderStyle<C> {
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct SliderState {
-    pub pressed: bool,
+    // Press state is global now (see `PageState`/`PointerState`); only the
+    // widget-specific `active` (value-adjust) mode is stored locally.
     pub active: bool,
 }
 
 impl SliderState {
     pub fn none() -> Self {
-        Self { pressed: false, active: false }
+        Self { active: false }
     }
 }
 
@@ -125,6 +126,10 @@ impl<W: WidgetCtx> Slider<W, RowDir> {
 impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Slider<W, Dir> {
     fn debug_name(&self) -> &'static str {
         "Slider"
+    }
+
+    fn flags(&self) -> WidgetFlags {
+        WidgetFlags::default().focusable()
     }
 
     fn build(&mut self, ctx: BuildCtx<W>) {
@@ -226,25 +231,10 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Slider<W, Dir> {
             }
         }
 
-        ctx.handle_focusable(|ctx, pressed| {
-            if current_state.pressed != pressed {
-                let toggle_active = if !current_state.pressed && pressed {
-                    true
-                } else {
-                    false
-                };
-
-                self.state.update(|state| {
-                    state.pressed = pressed;
-                    if toggle_active {
-                        state.active = !state.active;
-                    }
-                });
-
-                ctx.capture()
-            } else {
-                ctx.ignore()
-            }
+        ctx.handle()?; // focus press claim (encoder), automatic
+        ctx.handle_click(|ctx| {
+            self.state.update(|state| state.active = !state.active);
+            ctx.capture()
         })
     }
 }

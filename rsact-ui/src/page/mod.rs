@@ -1,6 +1,9 @@
 use crate::{
     el::{arena::ElArena, build::BuildCtx, *},
-    event::{Capture, Event, EventResponse, MouseEvent, UnhandledEvent},
+    event::{
+        Capture, Event, EventResponse, MouseButton, MouseEvent, PressEvent,
+        UnhandledEvent,
+    },
     font::{Font, FontCtx, FontProps},
     layout::{
         LayoutCtx, Limits,
@@ -323,6 +326,34 @@ impl<W: WidgetCtx> Page<W> {
         res
     }
 
+    /// Dispatch an event to a single widget (its layout node is resolved by
+    /// walking the tree). Used for pointer capture: the capturing widget
+    /// receives mouse events exclusively.
+    fn send_event_to(
+        &mut self,
+        target: ElId,
+        event: &Event<W::CustomEvent>,
+    ) -> EventResponse {
+        let defer_effects = defer_effects();
+
+        let res = self.layout.with(|layout| {
+            self.arena.update_untracked(|arena| {
+                EventPass::run_to(
+                    target,
+                    self.root,
+                    arena,
+                    event,
+                    &mut self.state,
+                    &layout.tree_root(),
+                )
+            })
+        });
+
+        defer_effects.run();
+
+        res
+    }
+
     fn send_update_inner(
         id: ElId,
         update: Update,
@@ -334,7 +365,8 @@ impl<W: WidgetCtx> Page<W> {
 
         debug!("Send update {:?} to {}[{:?}]", update, el.state.debug_name, id);
         let result =
-            el.widget.update(UpdateCtx { id, update, state: &mut el.state });
+            el.widget
+                .update(UpdateCtx { id, update, state: &mut el.state });
 
         if result.should_bubble()
             && let Some(bubble) = update.as_bubble()
@@ -361,6 +393,37 @@ impl<W: WidgetCtx> Page<W> {
         &mut self,
         event: Event<W::CustomEvent>,
     ) -> Option<UnhandledEvent<W>> {
+        // === Pointer capture ===
+        // While a widget holds the pointer capture, every mouse event is
+        // delivered to it exclusively — no hit-testing and no hover changes —
+        // so it can keep tracking the cursor even when it leaves its own bounds
+        // (drags, sliders, scrollbars). A `ButtonUp` ends the capture (and any
+        // in-flight press). Non-mouse events fall through to normal handling.
+        if let Some(captured_id) = self.state.pointer.captured_by
+            && let Event::Mouse(mouse) = &event
+        {
+            if let MouseEvent::MouseMove(pt) = mouse {
+                self.state.pointer.pos = Some(*pt);
+            }
+
+            let _ = self.send_event_to(captured_id, &event);
+
+            if matches!(mouse, MouseEvent::ButtonUp(_, _)) {
+                self.state.pointer.captured_by = None;
+
+                // End the mouse press and reset the pressed visual.
+                // Unconditional so a release outside the widget's bounds
+                // (drag-off) still ends the press; a no-op for non-click
+                // captures (e.g. a `Scrollable` drag leaves `pressed` `None`).
+                if let Some(pressed) = self.state.pointer.pressed {
+                    self.send_update(pressed, Update::PressChange(false));
+                    self.state.pointer.pressed = None;
+                }
+            }
+
+            return None;
+        }
+
         if let Event::Mouse(MouseEvent::MouseMove(point)) = event {
             if self.dev_tools.with(|dt| dt.enabled) {
                 let hovered_el = self.find_el_under_cursor(point);
@@ -403,33 +466,50 @@ impl<W: WidgetCtx> Page<W> {
             return None;
         }
 
-        // TODO: Capture mouse movement? - Yes, it is required for sliders,
-        // knobs, etc. Pointer capture: route mouse button events
-        // directly to the capturing widget first
-        let captured_by = self.state.pointer.captured_by;
-        if let Some(_captured_id) = captured_by {
-            if matches!(
-                event,
-                Event::Mouse(
-                    MouseEvent::ButtonDown(_, _) | MouseEvent::ButtonUp(_, _)
-                )
-            ) {
-                // Route through the normal tree — the capturing widget receives
-                // the event via pass_to_children and uses its
-                // own drag state to handle it.
-                let _ = self.send_specific_event(&event);
-
-                // Clear capture on any ButtonUp
-                if matches!(event, Event::Mouse(MouseEvent::ButtonUp(_, _))) {
-                    self.state.pointer.captured_by = None;
-                }
-
-                return None;
-            }
-        }
-
         // Global, page-level event handling //
+        // Press bookkeeping mirrors hover: the event pass claims the press
+        // (mouse via `pointer.pressed`, encoder via `focus_pressed`); here we
+        // turn that state change into the `pressed` pseudo-class. Clearing on
+        // mouse release happens in the capture branch above; focus release is
+        // handled below.
+        let old_pressed = self.state.pointer.pressed;
+
         let response = self.send_specific_event(&event);
+
+        match &event {
+            // Mouse press just claimed during this pass (normally `None ->
+            // Some`); notify the newly pressed widget.
+            Event::Mouse(MouseEvent::ButtonDown(MouseButton::Left, _)) => {
+                let new_pressed = self.state.pointer.pressed;
+                if old_pressed != new_pressed {
+                    if let Some(old) = old_pressed {
+                        self.send_update(old, Update::PressChange(false));
+                    }
+                    if let Some(new) = new_pressed {
+                        self.send_update(new, Update::PressChange(true));
+                    }
+                }
+            },
+            // Encoder/keyboard press claimed on the focused widget.
+            Event::Press(PressEvent::Press) => {
+                if self.state.focus_pressed
+                    && let Some((id, _)) = self.state.focused
+                {
+                    self.send_update(id, Update::PressChange(true));
+                }
+            },
+            // Encoder/keyboard release: the pass already fired `handle_click`
+            // (it saw `focus_pressed == true`); now end the press.
+            Event::Press(PressEvent::Release) => {
+                if self.state.focus_pressed {
+                    if let Some((id, _)) = self.state.focused {
+                        self.send_update(id, Update::PressChange(false));
+                    }
+                    self.state.focus_pressed = false;
+                }
+            },
+            _ => {},
+        }
 
         match response {
             EventResponse::Continue(()) => {
@@ -485,7 +565,11 @@ impl<W: WidgetCtx> Page<W> {
         }
 
         let redraw_reason = self.arena.update_untracked(|arena| {
-            arena.expect_mut(self.root).unwrap().state.take_needs_redraw()
+            arena
+                .expect_mut(self.root)
+                .unwrap()
+                .state
+                .take_needs_redraw()
         });
         let needs_redraw = redraw_reason.is_some() || self.needs_redraw;
 
@@ -717,11 +801,11 @@ mod tests {
         with_new_runtime(|_| {
             let mut page = create_null_page(Checkbox::new(false).el());
 
-            for _ in 0..4 {
-                page.use_renderer(|_| {});
-            }
-            page.take_draw_calls();
-
+            // Reading the layout memo builds/lays out the tree; no rendering is
+            // needed. (Rendering a `Label` in the null theme panics on the
+            // unset text color — the same pre-existing limitation as
+            // `draw_on_demand` — and the click logic under test runs entirely in
+            // `handle_events`, independent of rendering.)
             let pt = page.layout.with(|m| m.tree_root().outer.center());
 
             // Pointer hovers the checkbox, then settle any hover-driven redraw.
@@ -751,6 +835,178 @@ mod tests {
                 page.take_draw_calls(),
                 1,
                 "a mouse click must trigger a redraw of the checkbox"
+            );
+        });
+    }
+
+    // The click action fires once, on the release edge, and only when the
+    // release lands on the same widget that received the press (the globally
+    // tracked `pointer.pressed`). This is the release-edge semantics that
+    // replaced the per-widget press bool.
+    #[test]
+    fn button_click_fires_on_release_not_press() {
+        use crate::event::{Event, MouseButton, MouseEvent};
+
+        with_new_runtime(|_| {
+            let mut clicks = create_signal(0u32);
+            let mut page = create_null_page(
+                Button::new(Label::new("x"))
+                    .on_click(move || clicks.update(|c| *c += 1))
+                    .el(),
+            );
+
+            // Reading the layout memo builds/lays out the tree; no rendering is
+            // needed. (Rendering a `Label` in the null theme panics on the
+            // unset text color — the same pre-existing limitation as
+            // `draw_on_demand` — and the click logic under test runs entirely in
+            // `handle_events`, independent of rendering.)
+            let pt = page.layout.with(|m| m.tree_root().outer.center());
+            let _ = page.handle_events(core::iter::once(Event::Mouse(
+                MouseEvent::MouseMove(pt),
+            )));
+
+            // Press alone must NOT fire the click.
+            let _ = page.handle_events(core::iter::once(Event::Mouse(
+                MouseEvent::ButtonDown(MouseButton::Left, Some(pt)),
+            )));
+            assert_eq!(clicks.get(), 0, "click must not fire on press-down");
+            assert_eq!(
+                page.state.pointer.pressed,
+                Some(page.root),
+                "press-down claims the global press target"
+            );
+
+            // Release on the same widget fires the click exactly once and
+            // clears the global press state.
+            let _ = page.handle_events(core::iter::once(Event::Mouse(
+                MouseEvent::ButtonUp(MouseButton::Left, Some(pt)),
+            )));
+            assert_eq!(clicks.get(), 1, "click fires once on release");
+            assert_eq!(
+                page.state.pointer.pressed, None,
+                "press is cleared after release"
+            );
+        });
+    }
+
+    // Press on the widget then release outside its bounds (drag-off) must NOT
+    // fire the click, but the global press state is still cleared.
+    #[test]
+    fn button_click_cancelled_when_released_outside() {
+        use crate::event::{Event, MouseButton, MouseEvent};
+
+        with_new_runtime(|_| {
+            let mut clicks = create_signal(0u32);
+            let mut page = create_null_page(
+                Button::new(Label::new("x"))
+                    .on_click(move || clicks.update(|c| *c += 1))
+                    .el(),
+            );
+
+            // Reading the layout memo builds/lays out the tree; no rendering is
+            // needed. (Rendering a `Label` in the null theme panics on the
+            // unset text color — the same pre-existing limitation as
+            // `draw_on_demand` — and the click logic under test runs entirely in
+            // `handle_events`, independent of rendering.)
+            let pt = page.layout.with(|m| m.tree_root().outer.center());
+            let outside = Point::new(10_000, 10_000);
+
+            let _ = page.handle_events(
+                [
+                    Event::Mouse(MouseEvent::MouseMove(pt)),
+                    Event::Mouse(MouseEvent::ButtonDown(
+                        MouseButton::Left,
+                        Some(pt),
+                    )),
+                    Event::Mouse(MouseEvent::ButtonUp(
+                        MouseButton::Left,
+                        Some(outside),
+                    )),
+                ]
+                .into_iter(),
+            );
+
+            assert_eq!(
+                clicks.get(),
+                0,
+                "release outside bounds must not click"
+            );
+            assert_eq!(
+                page.state.pointer.pressed, None,
+                "press state is cleared on release even when released outside"
+            );
+        });
+    }
+
+    // Pointer capture: while a widget holds the pointer, mouse moves are routed
+    // to it exclusively — hover is frozen and the cursor is tracked even far
+    // outside the widget's bounds. Releasing ends the capture and resumes
+    // normal hit-testing.
+    #[test]
+    fn capture_freezes_hover_and_tracks_cursor_outside() {
+        use crate::event::{Event, MouseButton, MouseEvent};
+
+        with_new_runtime(|_| {
+            let mut page = create_null_page(Checkbox::new(false).el());
+            let cb = page.root;
+
+            let pt = page.layout.with(|m| m.tree_root().outer.center());
+            let outside = Point::new(10_000, 10_000);
+
+            // Hover the checkbox.
+            let _ = page.handle_events(core::iter::once(Event::Mouse(
+                MouseEvent::MouseMove(pt),
+            )));
+            assert_eq!(
+                page.state.pointer.hovered,
+                Some(cb),
+                "hovered before press"
+            );
+
+            // Press to capture the pointer, then move the cursor far outside.
+            let _ = page.handle_events(
+                [
+                    Event::Mouse(MouseEvent::ButtonDown(
+                        MouseButton::Left,
+                        Some(pt),
+                    )),
+                    Event::Mouse(MouseEvent::MouseMove(outside)),
+                ]
+                .into_iter(),
+            );
+
+            assert_eq!(
+                page.state.pointer.captured_by,
+                Some(cb),
+                "press captures the pointer"
+            );
+            // Capture freezes hover: moving outside does NOT clear it.
+            assert_eq!(
+                page.state.pointer.hovered,
+                Some(cb),
+                "hover is frozen while captured"
+            );
+            // The move was still processed — the captured widget follows the
+            // cursor even outside its own bounds.
+            assert_eq!(page.state.pointer.pos, Some(outside));
+
+            // Releasing (even outside) ends the capture.
+            let _ = page.handle_events(core::iter::once(Event::Mouse(
+                MouseEvent::ButtonUp(MouseButton::Left, Some(outside)),
+            )));
+            assert_eq!(
+                page.state.pointer.captured_by, None,
+                "release ends capture"
+            );
+
+            // With capture ended, moves resume normal hit-testing (the cursor
+            // is outside, so nothing is hovered).
+            let _ = page.handle_events(core::iter::once(Event::Mouse(
+                MouseEvent::MouseMove(outside),
+            )));
+            assert_eq!(
+                page.state.pointer.hovered, None,
+                "hover resumes after capture ends"
             );
         });
     }

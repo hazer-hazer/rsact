@@ -48,6 +48,20 @@ impl<C: RgbColor> Theme<C> {
             .background_color(self.bg)
             .border(self.border())
     }
+
+    /// Bordered container whose background reflects interaction state. `pressed`
+    /// takes priority over `hovered` because a held pointer stays "hovered"
+    /// (hover freezes on the pressed widget), so the two co-occur.
+    fn interactive_container(&self, selector: &StyleSelector) -> BlockStyle<C> {
+        if selector.pseudoclass.pressed {
+            // Strongest feedback: fill with the accent color while held.
+            self.container().background_color(self.primary)
+        } else if selector.pseudoclass.hovered {
+            self.container().background_color(self.bg_muted)
+        } else {
+            self.container()
+        }
+    }
 }
 
 impl<C: RgbColor> Stylist<BarStyle<C>> for Theme<C> {
@@ -66,11 +80,7 @@ impl<C: RgbColor> Stylist<ButtonStyle<C>> for Theme<C> {
         base: &ButtonStyle<C>,
         selector: &StyleSelector,
     ) -> ButtonStyle<C> {
-        if selector.pseudoclass.hovered {
-            base.container(self.container().background_color(self.bg_muted))
-        } else {
-            base.container(self.container())
-        }
+        base.container(self.interactive_container(selector))
     }
 }
 
@@ -80,11 +90,7 @@ impl<C: RgbColor> Stylist<CheckboxStyle<C>> for Theme<C> {
         base: &CheckboxStyle<C>,
         selector: &StyleSelector,
     ) -> CheckboxStyle<C> {
-        if selector.pseudoclass.hovered {
-            base.container(self.container().background_color(self.bg_muted))
-        } else {
-            base.container(self.container())
-        }
+        base.container(self.interactive_container(selector))
     }
 }
 

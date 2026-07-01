@@ -36,6 +36,70 @@ impl<'a, W: WidgetCtx> EventPass<'a, W> {
         this.run_(root, layout)
     }
 
+    /// Dispatch the event to a single `target` widget only (used for pointer
+    /// capture). Walks the tree from `root` to locate `target` and its
+    /// [`LayoutModelNode`], then runs `on_event` for that widget alone — no
+    /// other widget sees the event, so hit-testing and hover are bypassed.
+    pub fn run_to(
+        target: ElId,
+        root: ElId,
+        arena: &'a mut ElArena<W>,
+        event: &'a Event<W::CustomEvent>,
+        page_state: &'a mut PageState<W>,
+        layout: &'a LayoutModelNode<'a>,
+    ) -> EventResponse {
+        let mut this = Self {
+            arena: &mut arena.els,
+            children: &arena.children,
+            event,
+            page_state,
+        };
+        this.run_to_(root, layout, target)
+            .unwrap_or(EventResponse::Continue(()))
+    }
+
+    /// Returns `Some(response)` once `target` is found and dispatched to,
+    /// `None` while searching. Mirrors [`run_`]'s transparent-layout / children
+    /// descent so the target's layout node is resolved correctly.
+    fn run_to_(
+        &mut self,
+        id: ElId,
+        layout: &LayoutModelNode,
+        target: ElId,
+    ) -> Option<EventResponse> {
+        if id == target {
+            return Some(self.run_el(id, layout));
+        }
+
+        // Extract the flag before recursing so the arena borrow ends.
+        let transparent = match self.arena.expect(id) {
+            Some(data) => data.state.flags.transparent_layout,
+            None => return None,
+        };
+
+        if transparent {
+            if let Some(children_ids) = self.children.get(id)
+                && children_ids.len() == 1
+            {
+                return self.run_to_(children_ids[0], layout, target);
+            }
+            None
+        } else if let Some(children_ids) = self.children.get(id) {
+            for (child, child_layout) in
+                children_ids.iter().zip_eq(layout.children())
+            {
+                if let Some(response) =
+                    self.run_to_(*child, &child_layout, target)
+                {
+                    return Some(response);
+                }
+            }
+            None
+        } else {
+            None
+        }
+    }
+
     fn run_(&mut self, id: ElId, layout: &LayoutModelNode) -> EventResponse {
         // TODO: Is it possible to avoid double-get from arena? The problem is
         // with mutable arena borrowing because event is processed for children
@@ -140,12 +204,38 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
         self.page_state.pointer.hovered == Some(self.id)
     }
 
+    /// Whether this widget is the globally pressed widget, from either input
+    /// source: the mouse (`pointer.pressed`) or the focus/encoder button
+    /// (`focus_pressed` on the focused widget). Event logic reads this global
+    /// state; rendering reads the [`ElState`] cache via the `pressed`
+    /// pseudo-class.
+    pub fn is_pressed(&self) -> bool {
+        self.page_state.pointer.pressed == Some(self.id)
+            || (self.is_focused() && self.page_state.focus_pressed)
+    }
+
+    /// Whether this widget currently holds the pointer capture. While it does,
+    /// it receives every mouse event exclusively (see [`capture_pointer`]),
+    /// even when the cursor leaves its bounds — the basis for dragging.
+    pub fn is_captured(&self) -> bool {
+        self.page_state.pointer.captured_by == Some(self.id)
+    }
+
     /// Returns the cursor position for this event, falling back to the last
     /// known position.
     pub fn cursor_pos(&self) -> Option<Point> {
         self.event
             .cursor_point()
             .or_else(|| self.page_state.pointer.pos)
+    }
+
+    // TODO: Customizable bounds. This may be required for widgets like scrollable that need to handle mouse events at scrollbar only.
+    /// Whether the event cursor position (or last known position) lies within
+    /// this widget's outer layout rect.
+    pub fn cursor_in_bounds(&self) -> bool {
+        self.cursor_pos()
+            .map(|pt| self.layout.outer.contains(pt))
+            .unwrap_or(false)
     }
 
     /// Called by `HOVERABLE` widgets during a `MouseMove` pass to claim hover
@@ -167,128 +257,73 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
         self.page_state.pointer.captured_by = None;
     }
 
+    // TODO: Maybe better rename to `handle_behavior` or `handle_behavioral`?
+    /// Automatic, source-of-truth behavioral bookkeeping for a widget: hover
+    /// tracking plus **press claiming**. Call this first in `on_event`. It does
+    /// NOT run the widget's action — pair it with [`handle_click`] for that.
+    ///
+    /// On mouse `ButtonDown` in bounds a `CLICKABLE` widget claims the global
+    /// press ([`PointerState::pressed`]), captures the pointer, and breaks
+    /// propagation so the deepest clickable widget under the cursor wins. On a
+    /// focus/encoder `Press` a `FOCUSABLE` focused widget sets
+    /// [`PageState::focus_pressed`]. The page turns these state changes into
+    /// the `pressed` pseudo-class and clears them on the matching release.
     #[must_use]
     pub fn handle(&mut self) -> EventResponse {
         if self.state.flags.hoverable {
             self.handle_hover_move()?;
         }
 
-        if self.state.flags.clickable {}
+        if self.state.flags.clickable
+            && let Event::Mouse(MouseEvent::ButtonDown(MouseButton::Left, _)) =
+                self.event
+            && self.cursor_in_bounds()
+        {
+            self.page_state.pointer.pressed = Some(self.id);
+            self.capture_pointer();
+            return self.capture();
+        }
+
+        if self.state.flags.focusable
+            && self.is_focused()
+            && let Event::Press(PressEvent::Press) = self.event
+        {
+            self.page_state.focus_pressed = true;
+            return self.capture();
+        }
 
         self.ignore()
     }
 
-    // TODO: Automatic handle based on behavior?
+    /// Run `on_click` exactly when a **completed click** targets this widget: a
+    /// mouse `ButtonUp` on the same widget that received the press (with the
+    /// cursor still in bounds), or a focus/encoder `Release` while this focused
+    /// widget was press-claimed. Behavior (callbacks, value toggles) lives in
+    /// the widget; the press *state* is managed globally by [`handle`] and the
+    /// page. `on_click` should return [`capture`] to stop propagation.
     #[must_use]
-    pub fn handle_focusable(
+    pub fn handle_click(
         &mut self,
-        press: impl FnOnce(&mut Self, bool) -> EventResponse,
+        on_click: impl FnOnce(&mut Self) -> EventResponse,
     ) -> EventResponse {
-        if let &Event::Focus(FocusEvent::Focus(new_focus)) = self.event {
-            if new_focus == self.id {
-                return self.capture();
-            }
+        // Mouse: release on the same widget that received the press.
+        if let Event::Mouse(MouseEvent::ButtonUp(MouseButton::Left, _)) =
+            self.event
+            && self.page_state.pointer.pressed == Some(self.id)
+            && self.cursor_in_bounds()
+        {
+            return on_click(self);
         }
 
-        if self.is_focused() {
-            match self.event {
-                Event::Press(press_event) => {
-                    let pressed = match press_event {
-                        crate::event::PressEvent::Press => true,
-                        crate::event::PressEvent::Release => false,
-                    };
-
-                    press(self, pressed)
-                },
-                _ => self.ignore(),
-            }
-        } else {
-            self.ignore()
-        }
-    }
-
-    /// Handle a mouse `ButtonDown`/`ButtonUp` where the cursor is within this
-    /// widget's bounds. `press` receives `(ctx, button, is_pressed)`.
-    #[must_use]
-    pub fn handle_clickable(
-        &mut self,
-        press: impl FnOnce(&mut Self, MouseButton, bool) -> EventResponse,
-    ) -> EventResponse {
-        let pos = self.cursor_pos();
-        match self.event {
-            Event::Mouse(MouseEvent::ButtonDown(btn, _)) => {
-                if pos
-                    .map(|pt| self.layout.outer.contains(pt))
-                    .unwrap_or(false)
-                {
-                    press(self, *btn, true)
-                } else {
-                    self.ignore()
-                }
-            },
-            Event::Mouse(MouseEvent::ButtonUp(btn, _)) => {
-                if pos
-                    .map(|pt| self.layout.outer.contains(pt))
-                    .unwrap_or(false)
-                {
-                    press(self, *btn, false)
-                } else {
-                    self.ignore()
-                }
-            },
-            _ => self.ignore(),
-        }
-    }
-
-    /// Combines keyboard/encoder focus handling with left-button mouse click.
-    /// Prefer this over `handle_focusable` for interactive widgets that support
-    /// both input modes.
-    #[must_use]
-    pub fn handle_focusable_or_clickable(
-        &mut self,
-        press: impl FnOnce(&mut Self, bool) -> EventResponse,
-    ) -> EventResponse {
-        // Focus event: capture to establish focus
-        if let &Event::Focus(FocusEvent::Focus(new_focus)) = self.event {
-            if new_focus == self.id {
-                return self.capture();
-            }
+        // Encoder/keyboard: release while focused after a focus-press.
+        if self.is_focused()
+            && self.page_state.focus_pressed
+            && matches!(self.event, Event::Press(PressEvent::Release))
+        {
+            return on_click(self);
         }
 
-        // Keyboard/encoder press when focused
-        if self.is_focused() {
-            if let Event::Press(press_event) = self.event {
-                let pressed =
-                    matches!(press_event, crate::event::PressEvent::Press);
-                return press(self, pressed);
-            }
-        }
-
-        // Mouse left-button click (in bounds)
-        let pos = self.cursor_pos();
-        match self.event {
-            Event::Mouse(MouseEvent::ButtonDown(MouseButton::Left, _)) => {
-                if pos
-                    .map(|pt| self.layout.outer.contains(pt))
-                    .unwrap_or(false)
-                {
-                    press(self, true)
-                } else {
-                    self.ignore()
-                }
-            },
-            Event::Mouse(MouseEvent::ButtonUp(MouseButton::Left, _)) => {
-                if pos
-                    .map(|pt| self.layout.outer.contains(pt))
-                    .unwrap_or(false)
-                {
-                    press(self, false)
-                } else {
-                    self.ignore()
-                }
-            },
-            _ => self.ignore(),
-        }
+        self.ignore()
     }
 
     // Mouse events //

@@ -6,19 +6,8 @@ use rsact_reactive::prelude::*;
 const CHECKBOX_ICON_POINTS: &[Point] =
     &[Point::new(3, 8), Point::new(7, 12), Point::new(13, 4)];
 
-#[derive(Clone, Copy)]
-pub struct CheckboxState {
-    pub pressed: bool,
-}
-
-impl CheckboxState {
-    pub fn none() -> Self {
-        Self { pressed: false }
-    }
-}
-
 declare_widget_style! {
-    CheckboxStyle (CheckboxState) {
+    CheckboxStyle () {
         container: container,
         icon_color: color = ColorStyle::DefaultForeground,
     }
@@ -29,7 +18,6 @@ declare_widget_style! {
 // TODO: Custom icon
 #[derive(View)]
 pub struct Checkbox<W: WidgetCtx> {
-    state: CheckboxState,
     layout: Layout,
     value: Signal<bool>,
     style: WidgetStyleFn<CheckboxStyle<W::Color>>,
@@ -38,7 +26,6 @@ pub struct Checkbox<W: WidgetCtx> {
 impl<W: WidgetCtx> Checkbox<W> {
     pub fn new(value: impl IntoSignal<bool>) -> Self {
         Self {
-            state: CheckboxState::none(),
             // TODO: Maybe ContentLayout::Icon should be used as a single
             // char-sized square layout?
             layout: Layout::edge(Size::new_equal(16).into()),
@@ -113,22 +100,10 @@ impl<W: WidgetCtx> Widget<W> for Checkbox<W> {
     }
 
     fn on_event(&mut self, mut ctx: EventCtx<'_, W>) -> EventResponse {
-        ctx.handle()?;
-
-        ctx.handle_focusable_or_clickable(|ctx, pressed| {
-            let current_state = self.state;
-
-            if current_state.pressed != pressed {
-                if current_state.pressed && !pressed {
-                    self.value.update(|value| *value = !*value);
-                }
-
-                self.state.pressed = pressed;
-
-                ctx.capture()
-            } else {
-                ctx.ignore()
-            }
+        ctx.handle()?; // hover + press claim + pointer capture (automatic)
+        ctx.handle_click(|ctx| {
+            self.value.update(|value| *value = !*value);
+            ctx.capture()
         })
     }
 }

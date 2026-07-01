@@ -104,13 +104,19 @@ impl BinaryTheme {
             .width(1)
     }
 
-    /// Bordered container that gains an outline while hovered or focused.
+    /// Bordered container that gains an outline while hovered or focused, and a
+    /// bolder (width-2) outline while pressed. `pressed` is checked first: a
+    /// held pointer stays "hovered" (hover freezes on the pressed widget), so
+    /// the states co-occur. A bolder outline is the strongest feedback possible
+    /// without inverting the background (which would white-out `On` content).
     fn interactive_container(
         &self,
         selector: &StyleSelector,
     ) -> BlockStyle<BinaryColor> {
         let container = self.mono_container();
-        if selector.pseudoclass.hovered || selector.pseudoclass.focused {
+        if selector.pseudoclass.pressed {
+            container.outline(self.mono_outline().width(2))
+        } else if selector.pseudoclass.hovered || selector.pseudoclass.focused {
             container.outline(self.mono_outline())
         } else {
             container
@@ -255,6 +261,15 @@ mod tests {
         }
     }
 
+    fn pressed_selector() -> StyleSelector {
+        // A real press keeps the widget hovered too (hover freezes on it).
+        StyleSelector {
+            pseudoclass: StylePseudoClass::default()
+                .hovered(true)
+                .pressed(true),
+        }
+    }
+
     #[test]
     fn background_is_off_foreground_is_on() {
         let theme = BinaryTheme::default();
@@ -294,6 +309,24 @@ mod tests {
                 Some(BinaryColor::On)
             );
         }
+    }
+
+    #[test]
+    fn button_pressed_gets_bolder_outline() {
+        let style = Stylist::<ButtonStyle<_>>::style(
+            &BinaryTheme::default(),
+            &ButtonStyle::base(),
+            &pressed_selector(),
+        );
+
+        // Pressed is stronger than hover/focus: a width-2 `On` outline.
+        assert_eq!(style.container.outline.width, 2);
+        assert_eq!(style.container.outline.color.get(), Some(BinaryColor::On));
+        // Background stays `Off` — never inverted (would hide `On` content).
+        assert_eq!(
+            style.container.background_color.get(),
+            Some(BinaryColor::Off)
+        );
     }
 
     #[test]

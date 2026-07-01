@@ -11,14 +11,15 @@ use rsact_reactive::prelude::*;
 
 #[derive(Clone, Copy)]
 pub struct SelectState {
-    pub pressed: bool,
+    // Press state is global now (see `PageState`/`PointerState`); only the
+    // widget-specific `active`/`selected` state is stored locally.
     pub active: bool,
     pub selected: Option<usize>,
 }
 
 impl SelectState {
     pub fn initial(selected: Option<usize>) -> Self {
-        Self { pressed: false, active: false, selected }
+        Self { active: false, selected }
     }
 
     fn options_offset(
@@ -269,6 +270,10 @@ impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction + 'static> Widget<W>
         "Select"
     }
 
+    fn flags(&self) -> WidgetFlags {
+        WidgetFlags::default().focusable()
+    }
+
     fn build(&mut self, ctx: BuildCtx<W>) {
         let _ = ctx;
     }
@@ -394,22 +399,10 @@ impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction + 'static> Widget<W>
             }
         }
 
-        ctx.handle_focusable(|ctx, pressed| {
-            // TODO: Generalize
-            if state.pressed != pressed {
-                let toggle_active = !state.pressed && pressed;
-
-                self.state.update(|state| {
-                    state.pressed = pressed;
-                    if toggle_active {
-                        state.active = !state.active;
-                    }
-                });
-
-                ctx.capture()
-            } else {
-                ctx.ignore()
-            }
+        ctx.handle()?; // focus press claim (encoder), automatic
+        ctx.handle_click(|ctx| {
+            self.state.update(|state| state.active = !state.active);
+            ctx.capture()
         })
     }
 }
