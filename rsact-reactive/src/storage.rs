@@ -2,7 +2,7 @@ use crate::{
     callback::AnyCallback,
     runtime::{Runtime, with_current_runtime},
 };
-use alloc::{boxed::Box, format, rc::Rc};
+use alloc::{boxed::Box, rc::Rc};
 use core::{
     any::{Any, type_name},
     cell::RefCell,
@@ -54,8 +54,10 @@ impl ValueId {
         rt.storage.set_debug_info(*self, |info| {
             info.borrowed = Some(caller);
         });
-        let value = rt.storage.get(*self).unwrap();
-        let value = match RefCell::try_borrow(&value.value) {
+        // Clone only the value cell `Rc` (one refcount bump), not the whole
+        // `Value` — this runs on every read.
+        let cell = rt.storage.value_rc(*self).unwrap();
+        let value = match RefCell::try_borrow(&cell) {
             Ok(value) => value,
             Err(err) => {
                 #[cfg(feature = "debug-info")]
@@ -67,9 +69,10 @@ impl ValueId {
                 panic!("Failed to borrow reactive value: {err}");
             },
         };
-        let value = value
-            .downcast_ref::<T>()
-            .expect(&format!("Failed to cast value to {}", type_name::<T>()));
+        // Build the panic message lazily so the success path allocates nothing.
+        let value = value.downcast_ref::<T>().unwrap_or_else(|| {
+            panic!("Failed to cast value to {}", type_name::<T>())
+        });
 
         let result = f(value);
 
@@ -114,14 +117,15 @@ impl ValueId {
             debug_info.borrowed_mut = Some(_caller);
         });
 
-        let value = rt.storage.get(*self).unwrap();
+        // Clone only the value cell `Rc`, not the whole `Value`.
+        let cell = rt.storage.value_rc(*self).unwrap();
 
-        let mut value = RefCell::borrow_mut(&value.value);
+        let mut value = RefCell::borrow_mut(&cell);
 
-        let value = value.downcast_mut::<T>().expect(&format!(
-            "Failed to mut cast value to {}",
-            type_name::<T>()
-        ));
+        // Build the panic message lazily so the success path allocates nothing.
+        let value = value.downcast_mut::<T>().unwrap_or_else(|| {
+            panic!("Failed to mut cast value to {}", type_name::<T>())
+        });
 
         let result = f(value);
 
@@ -279,6 +283,35 @@ pub enum ValueKind {
     Observer,
 }
 
+/// A cheap `Copy` discriminant of [`ValueKind`], used on hot paths that only
+/// need to know *which* kind a value is (state machine, effect detection)
+/// without cloning the `Rc`-holding [`ValueKind`] out of storage.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ValueKindTag {
+    Stored,
+    Signal,
+    Effect,
+    Memo,
+    Computed,
+    MemoChain,
+    Observer,
+}
+
+impl ValueKind {
+    #[inline]
+    pub(crate) fn tag(&self) -> ValueKindTag {
+        match self {
+            ValueKind::Stored => ValueKindTag::Stored,
+            ValueKind::Signal => ValueKindTag::Signal,
+            ValueKind::Effect { .. } => ValueKindTag::Effect,
+            ValueKind::Memo { .. } => ValueKindTag::Memo,
+            ValueKind::Computed { .. } => ValueKindTag::Computed,
+            ValueKind::MemoChain { .. } => ValueKindTag::MemoChain,
+            ValueKind::Observer => ValueKindTag::Observer,
+        }
+    }
+}
+
 impl Display for ValueKind {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
@@ -350,6 +383,29 @@ impl Storage {
 
     pub(crate) fn get(&self, id: ValueId) -> Option<Value> {
         self.values.borrow().get(id).cloned()
+    }
+
+    /// Cheap read of the `Copy` [`ValueState`] field without cloning the whole
+    /// [`Value`] (which would clone the value `Rc` and 1-3 callback `Rc`s in
+    /// `ValueKind`). Hot path: called for every `state()`/`is()` check.
+    pub(crate) fn state_of(&self, id: ValueId) -> Option<ValueState> {
+        self.values.borrow().get(id).map(|v| v.state)
+    }
+
+    /// Cheap read of the [`ValueKindTag`] discriminant without cloning the
+    /// `Rc`-holding [`ValueKind`].
+    pub(crate) fn kind_of(&self, id: ValueId) -> Option<ValueKindTag> {
+        self.values.borrow().get(id).map(|v| v.kind.tag())
+    }
+
+    /// Clone only the inner value cell `Rc` (a single refcount bump) instead of
+    /// the entire [`Value`]. Used by read/write access paths that need the cell
+    /// but not the kind.
+    pub(crate) fn value_rc(
+        &self,
+        id: ValueId,
+    ) -> Option<Rc<RefCell<dyn Any>>> {
+        self.values.borrow().get(id).map(|v| v.value.clone())
     }
 
     pub(crate) fn get_height(&self, id: ValueId) -> u32 {

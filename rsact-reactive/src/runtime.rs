@@ -7,7 +7,7 @@ use crate::{
     scope::{ScopeData, ScopeHandle, ScopeId},
     storage::{
         Storage, Value, ValueDebugInfo, ValueDebugInfoState, ValueId,
-        ValueKind, ValueState,
+        ValueKind, ValueKindTag, ValueState,
     },
 };
 use ahash::RandomState;
@@ -716,8 +716,6 @@ impl Runtime {
     }
 
     pub(crate) fn subscribe(&self, id: ValueId) {
-        use alloc::borrow::BorrowMut as _;
-
         if let Some(observer) = self.observer.get() {
             if observer == id {
                 panic!(
@@ -725,17 +723,30 @@ impl Runtime {
                 );
             }
 
+            // Fast path: re-reading the same source within one observer run is
+            // common (e.g. a widget reading a signal several times per render).
+            // If the edge already exists, skip both inserts *and* the height
+            // recompute (which rescans all sources) — nothing changed.
+            if self
+                .sources
+                .borrow()
+                .get(observer)
+                .is_some_and(|srcs| srcs.contains(&id))
+            {
+                return;
+            }
+
             {
                 let mut sources = self.sources.borrow_mut();
                 if let Some(sources) = sources.entry(observer) {
-                    sources.or_default().borrow_mut().insert(id);
+                    sources.or_default().insert(id);
                 }
             }
 
             {
                 let mut subs = self.subscribers.borrow_mut();
                 if let Some(subs) = subs.entry(id) {
-                    subs.or_default().borrow_mut().insert(observer);
+                    subs.or_default().insert(observer);
                 }
             }
 
@@ -772,11 +783,15 @@ impl Runtime {
         caller: &'static Location<'static>,
     ) -> bool {
         if self.is(id, ValueState::Check) {
-            let sources = {
-                // TODO: Optimize out cloned sources set. Maybe alloc a Vec
-                // instead of using BTreeSet.
+            // Snapshot source ids into a stack-inline buffer instead of cloning
+            // the whole `BTreeSet` — fan-in is almost always tiny, so this
+            // avoids a heap allocation on every Check-state pull. A local
+            // (not shared runtime scratch) so it stays recursion-safe.
+            let sources: tinyvec::TinyVec<[ValueId; 8]> = {
                 let subs = self.sources.borrow();
-                subs.get(id).cloned().into_iter().flatten()
+                subs.get(id)
+                    .map(|s| s.iter().copied().collect())
+                    .unwrap_or_default()
             };
             for source in sources {
                 // TODO: Should all sources by updates or we stop at the first
@@ -804,79 +819,114 @@ impl Runtime {
         requester: Option<ValueId>,
         caller: &'static Location<'static>,
     ) {
-        let value = self.storage.get(id);
+        // Read the cheap `Copy` tag first; only the callback kinds below need
+        // to clone the `Rc`-holding kind out of storage, and Signal/Stored/
+        // Observer avoid touching the value cell entirely.
+        let Some(tag) = self.storage.kind_of(id) else { return };
 
-        if let Some(value) = value {
-            if self.defer_effects.get() > 0
-                && matches!(value.kind, ValueKind::Effect { .. })
-            {
-                self.pending_effects.borrow_mut().insert(id);
-                return;
-            }
+        if self.defer_effects.get() > 0 && tag == ValueKindTag::Effect {
+            self.pending_effects.borrow_mut().insert(id);
+            return;
+        }
 
-            // An `Observer`'s work (its closure) runs in `use_observe`, not
-            // here. If we cleaned it here (during a *parent* observer's
-            // `maybe_update` dependency-walk), its dirtiness would be consumed
-            // before the nested `observe` call re-checks it, so the nested
-            // closure would be skipped. Observers are cleaned in `use_observe`
-            // after their closure actually runs.
-            let is_observer = matches!(value.kind, ValueKind::Observer);
+        // An `Observer`'s work (its closure) runs in `use_observe`, not
+        // here. If we cleaned it here (during a *parent* observer's
+        // `maybe_update` dependency-walk), its dirtiness would be consumed
+        // before the nested `observe` call re-checks it, so the nested
+        // closure would be skipped. Observers are cleaned in `use_observe`
+        // after their closure actually runs.
+        let is_observer = tag == ValueKindTag::Observer;
 
-            let changed = match &value.kind {
-                ValueKind::Stored => false,
-                ValueKind::MemoChain { memo, first, last } => {
-                    let value = value.value;
-
-                    self.with_observer(id, move |rt| {
-                        rt.cleanup(id);
-
-                        let memo_changed = memo.borrow_mut().run(value.clone());
-
-                        let first_changed = first
-                            .borrow_mut()
-                            .as_mut()
-                            .map(|first| first.run(value.clone()))
-                            .unwrap_or(false);
-                        let last_changed = last
-                            .borrow_mut()
-                            .as_mut()
-                            .map(|last| last.run(value.clone()))
-                            .unwrap_or(false);
-
-                        memo_changed || first_changed || last_changed
-                    })
-                },
-                ValueKind::Computed { f }
-                | ValueKind::Memo { f }
-                | ValueKind::Effect { f } => {
-                    let value = value.value;
-                    self.with_observer(id, move |rt| {
-                        rt.cleanup(id);
-
-                        f.borrow_mut().run(value)
-                    })
-                },
-                ValueKind::Signal { .. } => true,
-                ValueKind::Observer => true,
-            };
-
-            if changed {
-                if let Some(subs) = self.subscribers.borrow().get(id) {
-                    for sub in subs {
-                        // TODO: Shouldn't deep deps mark_dirty be used?
-                        self.storage.mark(
-                            *sub,
-                            ValueState::Dirty,
-                            requester,
-                            caller,
-                        );
+        let changed = match tag {
+            ValueKindTag::Stored => false,
+            ValueKindTag::Signal | ValueKindTag::Observer => true,
+            ValueKindTag::MemoChain => {
+                // Clone only the three callback `Rc`s + the value cell, not the
+                // whole `Value`. Borrow is dropped before running the closure.
+                let borrowed = {
+                    let values = self.storage.values.borrow();
+                    match values.get(id) {
+                        Some(Value {
+                            kind: ValueKind::MemoChain { memo, first, last },
+                            value,
+                            ..
+                        }) => Some((
+                            memo.clone(),
+                            first.clone(),
+                            last.clone(),
+                            value.clone(),
+                        )),
+                        _ => None,
                     }
+                };
+                let Some((memo, first, last, value)) = borrowed else {
+                    return;
+                };
+
+                self.with_observer(id, move |rt| {
+                    rt.cleanup(id);
+
+                    let memo_changed = memo.borrow_mut().run(value.clone());
+
+                    let first_changed = first
+                        .borrow_mut()
+                        .as_mut()
+                        .map(|first| first.run(value.clone()))
+                        .unwrap_or(false);
+                    let last_changed = last
+                        .borrow_mut()
+                        .as_mut()
+                        .map(|last| last.run(value.clone()))
+                        .unwrap_or(false);
+
+                    memo_changed || first_changed || last_changed
+                })
+            },
+            ValueKindTag::Memo
+            | ValueKindTag::Computed
+            | ValueKindTag::Effect => {
+                // Clone only the callback `Rc` + the value cell. Borrow is
+                // dropped before running the callback (which re-enters storage).
+                let borrowed = {
+                    let values = self.storage.values.borrow();
+                    match values.get(id) {
+                        Some(Value {
+                            kind:
+                                ValueKind::Memo { f }
+                                | ValueKind::Computed { f }
+                                | ValueKind::Effect { f },
+                            value,
+                            ..
+                        }) => Some((f.clone(), value.clone())),
+                        _ => None,
+                    }
+                };
+                let Some((f, value)) = borrowed else { return };
+
+                self.with_observer(id, move |rt| {
+                    rt.cleanup(id);
+
+                    f.borrow_mut().run(value)
+                })
+            },
+        };
+
+        if changed {
+            if let Some(subs) = self.subscribers.borrow().get(id) {
+                for sub in subs {
+                    // TODO: Shouldn't deep deps mark_dirty be used?
+                    self.storage.mark(
+                        *sub,
+                        ValueState::Dirty,
+                        requester,
+                        caller,
+                    );
                 }
             }
+        }
 
-            if !is_observer {
-                self.mark_clean(id, requester, caller);
-            }
+        if !is_observer {
+            self.mark_clean(id, requester, caller);
         }
     }
 
@@ -932,14 +982,12 @@ impl Runtime {
             self.storage.mark(id, state, requester, caller);
         }
 
-        if let Some(node) = self.storage.get(id) {
-            if let (ValueKind::Effect { .. }, true) =
-                (node.kind, self.observer.get() != Some(id))
-            {
-                let mut pending_effects =
-                    RefCell::borrow_mut(&self.pending_effects);
-                pending_effects.insert(id);
-            }
+        // Only need to know whether this node is an Effect; read the cheap
+        // `Copy` tag instead of cloning the whole `Value`.
+        if self.storage.kind_of(id) == Some(ValueKindTag::Effect)
+            && self.observer.get() != Some(id)
+        {
+            RefCell::borrow_mut(&self.pending_effects).insert(id);
         }
     }
 
@@ -950,10 +998,9 @@ impl Runtime {
 
     // TODO: Explicitly return Option<ValueState> for disposed values.
     pub(crate) fn state(&self, id: ValueId) -> ValueState {
-        self.storage
-            .get(id)
-            .map(|value| value.state)
-            .unwrap_or(ValueState::Clean)
+        // Cheap Copy-field read; must not clone the whole `Value` (this is on
+        // the hot path of every `is()`/`maybe_update` check).
+        self.storage.state_of(id).unwrap_or(ValueState::Clean)
     }
 
     pub(crate) fn is(&self, id: ValueId, state: ValueState) -> bool {

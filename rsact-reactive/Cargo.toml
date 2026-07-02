@@ -31,6 +31,10 @@ async = []
 harness = false
 name = "reactivity"
 
+[[bench]]
+harness = false
+name = "allocations"
+
 [lints]
 workspace = true
 
