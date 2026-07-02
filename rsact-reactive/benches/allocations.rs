@@ -168,6 +168,19 @@ fn main() {
         },
     );
     measure(
+        "set_if_changed_noop_1_effect",
+        || {
+            let s = create_signal(0i32);
+            create_effect(move |_: Option<()>| {
+                black_box(s.get());
+            });
+            s
+        },
+        |s| {
+            black_box(s.set_if_changed(black_box(0i32)));
+        },
+    );
+    measure(
         "memo_read_cached",
         || {
             let s = create_signal(1i32);

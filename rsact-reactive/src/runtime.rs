@@ -26,9 +26,26 @@ use core::{
 };
 use log::debug;
 use slotmap::{SecondaryMap, SlotMap};
+use tinyvec::TinyVec;
 
 slotmap::new_key_type! {
     pub struct RuntimeId;
+}
+
+/// Inline-small vector of value ids used for the dependency-graph edge sets
+/// (`sources`/`subscribers`/`owned`). Fan-in and fan-out are almost always
+/// tiny, so the common case stays on the stack with no per-node heap
+/// allocation; large fan-outs spill to the heap exactly once. Order is not
+/// significant — topological order for effect flushing comes from `height`.
+type IdVec = TinyVec<[ValueId; 4]>;
+
+/// Remove the first occurrence of `id` from an [`IdVec`] by swap-remove
+/// (order-independent).
+#[inline]
+fn id_vec_remove(v: &mut IdVec, id: ValueId) {
+    if let Some(pos) = v.iter().position(|x| *x == id) {
+        v.swap_remove(pos);
+    }
 }
 
 // TODO: Maybe better use Slab instead of SlotMap for efficiency
@@ -269,14 +286,14 @@ pub struct Runtime {
     scopes: RefCell<SlotMap<ScopeId, ScopeData>>,
     current_scope: Cell<Option<ScopeId>>,
     /// Values owned by observers.
-    owned: RefCell<SecondaryMap<ValueId, BTreeSet<ValueId>>>,
+    owned: RefCell<SecondaryMap<ValueId, IdVec>>,
     /// Current observer
     pub(crate) observer: Cell<Option<ValueId>>,
     /// Signals subscribers.
-    pub(crate) subscribers: RefCell<SecondaryMap<ValueId, BTreeSet<ValueId>>>,
+    pub(crate) subscribers: RefCell<SecondaryMap<ValueId, IdVec>>,
     /// Sources of signal changes. Signals that affect this observer (memo,
     /// effect, etc.).
-    pub(crate) sources: RefCell<SecondaryMap<ValueId, BTreeSet<ValueId>>>,
+    pub(crate) sources: RefCell<SecondaryMap<ValueId, IdVec>>,
     // TODO: Maybe use Vec or BTreeMap<Vec<>> so values are pre-sorted in
     // topological order, so we don't need to sort them on every update?
     /// Effects to run after value changed or after [`DeferEffectsGuard`]
@@ -288,6 +305,11 @@ pub struct Runtime {
     /// Mapping from [`observe`] call location to its value id. Calling the
     /// same [`observe`] twice gives the same [`ValueId`]
     static_observers: RefCell<BTreeMap<u64, ValueId>>,
+    /// Reverse index: observer id -> its `static_observers` hash key. Lets
+    /// [`dispose`](Runtime::dispose) prune the `static_observers` entry when an
+    /// observer is disposed, so the map does not grow unbounded across page
+    /// navigations (each rendered element mints an observe key).
+    observer_hashes: RefCell<SecondaryMap<ValueId, u64>>,
     hasher: RandomState,
 }
 
@@ -304,6 +326,7 @@ impl Runtime {
             pending_effects: Default::default(),
             defer_effects: Cell::new(0),
             static_observers: Default::default(),
+            observer_hashes: Default::default(),
             hasher: RandomState::new(),
         }
     }
@@ -394,7 +417,7 @@ impl Runtime {
             // enabling proper owned-value tracking for effects/memos.
             // SecondaryMap::entry() returns Option<Entry<...>>.
             if let Some(entry) = self.owned.borrow_mut().entry(observer) {
-                entry.or_insert_with(BTreeSet::new).insert(id);
+                entry.or_default().push(id);
             }
         }
 
@@ -608,6 +631,11 @@ impl Runtime {
             }
         };
 
+        // Record the reverse hash mapping so `dispose` can prune this
+        // observer's `static_observers` entry when it is disposed (idempotent
+        // for an already-registered id).
+        self.observer_hashes.borrow_mut().insert(id, hash);
+
         self.subscribe(id);
         // TODO: `maybe_update` call can be eliminated when `force=true` and
         // just replaced with marking subscribers as dirty as we don't need to
@@ -648,7 +676,7 @@ impl Runtime {
             let sources = self.sources.borrow();
             for source in sources.get(id).into_iter().flatten().copied() {
                 if let Some(set) = subs.get_mut(source) {
-                    set.remove(&id);
+                    id_vec_remove(set, id);
                 }
             }
         }
@@ -660,13 +688,19 @@ impl Runtime {
             let subs = self.subscribers.borrow();
             for sub in subs.get(id).into_iter().flatten().copied() {
                 if let Some(set) = srcs.get_mut(sub) {
-                    set.remove(&id);
+                    id_vec_remove(set, id);
                 }
             }
         }
 
         self.sources.borrow_mut().remove(id);
         self.subscribers.borrow_mut().remove(id);
+        // Prune the `static_observers` entry for a disposed observer so the map
+        // does not grow unbounded across page navigations (fixes the observer
+        // leak). Non-observer values have no `observer_hashes` entry — no-op.
+        if let Some(hash) = self.observer_hashes.borrow_mut().remove(id) {
+            self.static_observers.borrow_mut().remove(&hash);
+        }
         // TODO: Is it okay to remove from pending_effects?
         self.pending_effects.borrow_mut().remove(&id);
         self.storage
@@ -739,14 +773,14 @@ impl Runtime {
             {
                 let mut sources = self.sources.borrow_mut();
                 if let Some(sources) = sources.entry(observer) {
-                    sources.or_default().insert(id);
+                    sources.or_default().push(id);
                 }
             }
 
             {
                 let mut subs = self.subscribers.borrow_mut();
                 if let Some(subs) = subs.entry(id) {
-                    subs.or_default().insert(observer);
+                    subs.or_default().push(observer);
                 }
             }
 
@@ -913,7 +947,7 @@ impl Runtime {
 
         if changed {
             if let Some(subs) = self.subscribers.borrow().get(id) {
-                for sub in subs {
+                for sub in subs.iter() {
                     // TODO: Shouldn't deep deps mark_dirty be used?
                     self.storage.mark(
                         *sub,
@@ -957,14 +991,14 @@ impl Runtime {
     }
 
     fn get_deep_deps(
-        subscribers: &SecondaryMap<ValueId, BTreeSet<ValueId>>,
+        subscribers: &SecondaryMap<ValueId, IdVec>,
         deps: &mut BTreeSet<ValueId>,
         id: ValueId,
     ) {
         if let Some(subs) = subscribers.get(id) {
-            for sub in subs {
-                if !deps.contains(sub) {
-                    deps.insert(*sub);
+            for sub in subs.iter() {
+                // `insert` returns false if already present — dedups the walk.
+                if deps.insert(*sub) {
                     Self::get_deep_deps(subscribers, deps, *sub);
                 }
             }
@@ -1206,9 +1240,9 @@ impl Runtime {
                 // Remove `id` from the subscriber set of every source it
                 // previously tracked.
                 let mut subs = self.subscribers.borrow_mut();
-                for source in srcs {
+                for source in srcs.iter() {
                     if let Some(set) = subs.get_mut(*source) {
-                        set.remove(&id);
+                        id_vec_remove(set, id);
                     }
                 }
             }
@@ -1831,5 +1865,33 @@ mod tests {
         // Stable again after re-run.
         assert_eq!(run(&mut trigger, inner_runs.clone()), None);
         assert_eq!(inner_runs.get(), 2);
+    }
+
+    /// Disposing an observer must prune its `static_observers` entry, otherwise
+    /// the map grows unbounded across page navigations (the observer leak).
+    #[test]
+    fn dispose_prunes_static_observers() {
+        with_new_runtime(|rt| {
+            {
+                let _scope = new_scope();
+                observe("leak_test_key", || {});
+                assert_eq!(
+                    rt.static_observers.borrow().len(),
+                    1,
+                    "observe should register one static observer"
+                );
+            } // scope drop disposes the observer
+
+            assert_eq!(
+                rt.static_observers.borrow().len(),
+                0,
+                "static_observers entry not pruned when the observer was disposed"
+            );
+            assert_eq!(
+                rt.observer_hashes.borrow().len(),
+                0,
+                "observer_hashes reverse index not pruned on dispose"
+            );
+        });
     }
 }

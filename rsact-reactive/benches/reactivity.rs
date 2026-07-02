@@ -211,6 +211,49 @@ fn primitives(c: &mut Criterion) {
         })
     });
 
+    // Change-detecting write of an EQUAL value with an effect subscribed: with
+    // source-side change detection the effect must NOT re-run (contrast to
+    // `signal_write_noop_equal_1_effect`, which always notifies).
+    g.bench_function("signal_set_if_changed_noop_1_effect", |b| {
+        b.iter_custom(|iters| {
+            steady(
+                iters,
+                || {
+                    let s = create_signal(0i32);
+                    create_effect(move |_: Option<()>| {
+                        black_box(s.get());
+                    });
+                    s
+                },
+                |s| {
+                    black_box(s.set_if_changed(black_box(0i32)));
+                },
+            )
+        })
+    });
+
+    // Change-detecting write of a CHANGED value each time: pays the equality
+    // check and then propagates (should track `effect_rerun_1_signal`).
+    g.bench_function("signal_set_if_changed_real_1_effect", |b| {
+        b.iter_custom(|iters| {
+            let mut i = 0i32;
+            steady(
+                iters,
+                || {
+                    let s = create_signal(0i32);
+                    create_effect(move |_: Option<()>| {
+                        black_box(s.get());
+                    });
+                    s
+                },
+                |s| {
+                    i = i.wrapping_add(1);
+                    black_box(s.set_if_changed(black_box(i)));
+                },
+            )
+        })
+    });
+
     g.bench_function("memo_read_cached", |b| {
         b.iter_custom(|iters| {
             steady(
@@ -307,31 +350,27 @@ fn graph_shapes(c: &mut Criterion) {
         let mut g = c.benchmark_group("graph/effect_rerun_n_subscribers");
         for n in [1usize, 10, 100, 1000] {
             g.throughput(Throughput::Elements(n as u64));
-            g.bench_with_input(
-                BenchmarkId::from_parameter(n),
-                &n,
-                |b, &n| {
-                    b.iter_custom(|iters| {
-                        let mut i = 0i32;
-                        steady(
-                            iters,
-                            || {
-                                let s = create_signal(0i32);
-                                for _ in 0..n {
-                                    create_effect(move |_: Option<()>| {
-                                        black_box(s.get());
-                                    });
-                                }
-                                s
-                            },
-                            |s| {
-                                i = i.wrapping_add(1);
-                                s.set(black_box(i));
-                            },
-                        )
-                    })
-                },
-            );
+            g.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
+                b.iter_custom(|iters| {
+                    let mut i = 0i32;
+                    steady(
+                        iters,
+                        || {
+                            let s = create_signal(0i32);
+                            for _ in 0..n {
+                                create_effect(move |_: Option<()>| {
+                                    black_box(s.get());
+                                });
+                            }
+                            s
+                        },
+                        |s| {
+                            i = i.wrapping_add(1);
+                            s.set(black_box(i));
+                        },
+                    )
+                })
+            });
         }
         g.finish();
     }
@@ -396,33 +435,28 @@ fn graph_shapes(c: &mut Criterion) {
         let mut g = c.benchmark_group("graph/memo_fan_in");
         for n in [1usize, 10, 100] {
             g.throughput(Throughput::Elements(n as u64));
-            g.bench_with_input(
-                BenchmarkId::from_parameter(n),
-                &n,
-                |b, &n| {
-                    b.iter_custom(|iters| {
-                        let mut i = 0i32;
-                        with_new_runtime(|_| {
-                            let sigs: Vec<_> = (0..n)
-                                .map(|_| create_signal(0i32))
-                                .collect();
-                            let read = sigs.clone();
-                            let m = create_memo(move || {
-                                read.iter().map(|s| s.get()).sum::<i32>()
-                            });
+            g.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
+                b.iter_custom(|iters| {
+                    let mut i = 0i32;
+                    with_new_runtime(|_| {
+                        let sigs: Vec<_> =
+                            (0..n).map(|_| create_signal(0i32)).collect();
+                        let read = sigs.clone();
+                        let m = create_memo(move || {
+                            read.iter().map(|s| s.get()).sum::<i32>()
+                        });
+                        black_box(m.get());
+                        let mut driver = sigs[0];
+                        let start = Instant::now();
+                        for _ in 0..iters {
+                            i = i.wrapping_add(1);
+                            driver.set(black_box(i));
                             black_box(m.get());
-                            let mut driver = sigs[0];
-                            let start = Instant::now();
-                            for _ in 0..iters {
-                                i = i.wrapping_add(1);
-                                driver.set(black_box(i));
-                                black_box(m.get());
-                            }
-                            start.elapsed()
-                        })
+                        }
+                        start.elapsed()
                     })
-                },
-            );
+                })
+            });
         }
         g.finish();
     }
@@ -433,36 +467,32 @@ fn graph_shapes(c: &mut Criterion) {
         let mut g = c.benchmark_group("graph/memo_fan_out");
         for n in [1usize, 10, 100] {
             g.throughput(Throughput::Elements(n as u64));
-            g.bench_with_input(
-                BenchmarkId::from_parameter(n),
-                &n,
-                |b, &n| {
-                    b.iter_custom(|iters| {
-                        let mut i = 0i32;
-                        with_new_runtime(|_| {
-                            let mut s = create_signal(0i32);
-                            let memos: Vec<_> = (0..n)
-                                .map(|k| {
-                                    let k = k as i32;
-                                    create_memo(move || s.get() + k)
-                                })
-                                .collect();
+            g.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
+                b.iter_custom(|iters| {
+                    let mut i = 0i32;
+                    with_new_runtime(|_| {
+                        let mut s = create_signal(0i32);
+                        let memos: Vec<_> = (0..n)
+                            .map(|k| {
+                                let k = k as i32;
+                                create_memo(move || s.get() + k)
+                            })
+                            .collect();
+                        for m in &memos {
+                            black_box(m.get());
+                        }
+                        let start = Instant::now();
+                        for _ in 0..iters {
+                            i = i.wrapping_add(1);
+                            s.set(black_box(i));
                             for m in &memos {
                                 black_box(m.get());
                             }
-                            let start = Instant::now();
-                            for _ in 0..iters {
-                                i = i.wrapping_add(1);
-                                s.set(black_box(i));
-                                for m in &memos {
-                                    black_box(m.get());
-                                }
-                            }
-                            start.elapsed()
-                        })
+                        }
+                        start.elapsed()
                     })
-                },
-            );
+                })
+            });
         }
         g.finish();
     }
@@ -709,42 +739,35 @@ fn ui_patterns(c: &mut Criterion) {
         let mut g = c.benchmark_group("ui/observe_redraw_1_of_n");
         for n in [4usize, 16, 64] {
             g.throughput(Throughput::Elements(n as u64));
-            g.bench_with_input(
-                BenchmarkId::from_parameter(n),
-                &n,
-                |b, &n| {
-                    b.iter_custom(|iters| {
-                        with_new_runtime(|_| {
-                            let sigs: Vec<_> = (0..n)
-                                .map(|_| create_signal(0i32))
-                                .collect();
-                            let render_sigs = sigs.clone();
-                            let render = move || {
-                                observe("outer", || {
-                                    for (i, s) in
-                                        render_sigs.iter().enumerate()
-                                    {
-                                        let s = *s;
-                                        observe(("child", i), move || {
-                                            black_box(s.get());
-                                        });
-                                    }
-                                });
-                            };
-                            render(); // initial build
-                            let mut driver = sigs[0];
-                            let mut k = 0i32;
-                            let start = Instant::now();
-                            for _ in 0..iters {
-                                k = k.wrapping_add(1);
-                                driver.set(black_box(k)); // dirty child 0 only
-                                render();
-                            }
-                            start.elapsed()
-                        })
+            g.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
+                b.iter_custom(|iters| {
+                    with_new_runtime(|_| {
+                        let sigs: Vec<_> =
+                            (0..n).map(|_| create_signal(0i32)).collect();
+                        let render_sigs = sigs.clone();
+                        let render = move || {
+                            observe("outer", || {
+                                for (i, s) in render_sigs.iter().enumerate() {
+                                    let s = *s;
+                                    observe(("child", i), move || {
+                                        black_box(s.get());
+                                    });
+                                }
+                            });
+                        };
+                        render(); // initial build
+                        let mut driver = sigs[0];
+                        let mut k = 0i32;
+                        let start = Instant::now();
+                        for _ in 0..iters {
+                            k = k.wrapping_add(1);
+                            driver.set(black_box(k)); // dirty child 0 only
+                            render();
+                        }
+                        start.elapsed()
                     })
-                },
-            );
+                })
+            });
         }
         g.finish();
     }

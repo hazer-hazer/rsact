@@ -36,7 +36,54 @@ pub fn create_signal<T: 'static>(value: T) -> Signal<T> {
 /// Blanket trait for types that implement both [`ReadSignal<T>`] and
 /// [`WriteSignal<T>`]. Useful as a bound when a function needs
 /// full read-write access without caring about the concrete type.
-pub trait RwSignal<T: 'static>: ReadSignal<T> + WriteSignal<T> {}
+///
+/// It also provides the **change-detecting** writes ([`set_if_changed`],
+/// [`change`]): unlike [`WriteSignal::set`]/[`update`], which always notify,
+/// these compare against the previous value and only notify when it actually
+/// changed. Prefer them when a signal is re-assigned from an external source
+/// every frame (e.g. mirroring device state via a setter) so that subscribing
+/// effects/observers do not re-run on no-op writes.
+///
+/// [`set_if_changed`]: RwSignal::set_if_changed
+/// [`change`]: RwSignal::change
+/// [`update`]: WriteSignal::update
+pub trait RwSignal<T: 'static>: ReadSignal<T> + WriteSignal<T> {
+    /// Assign `new`, notifying subscribers **only if** it differs from the
+    /// current value. Returns `true` if a change was propagated.
+    ///
+    /// Reads the current value untracked, so calling this inside a reactive
+    /// context does not subscribe the observer to `self`.
+    #[track_caller]
+    fn set_if_changed(&mut self, new: T) -> bool
+    where
+        T: PartialEq,
+    {
+        let changed = self.with_untracked(|current| current != &new);
+        if changed {
+            self.set(new);
+        }
+        changed
+    }
+
+    /// Mutate in place via `f`, notifying subscribers **only if** the value
+    /// actually changed. Returns `true` if a change was propagated.
+    ///
+    /// Requires `T: Clone` to snapshot the previous value for comparison; for a
+    /// whole-value assignment prefer [`set_if_changed`](RwSignal::set_if_changed)
+    /// which needs no clone.
+    #[track_caller]
+    fn change<U>(&mut self, f: impl FnOnce(&mut T) -> U) -> U
+    where
+        T: PartialEq + Clone,
+    {
+        let before = self.with_untracked(|current| current.clone());
+        let result = self.update_untracked(f);
+        if self.with_untracked(|current| current != &before) {
+            self.notify();
+        }
+        result
+    }
+}
 
 impl<S, T: 'static> RwSignal<T> for S where S: ReadSignal<T> + WriteSignal<T> {}
 
