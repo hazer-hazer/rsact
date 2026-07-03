@@ -1,6 +1,4 @@
-use crate::{
-    layout::length::LengthSize, style::WidgetStyleFn, widget::prelude::*,
-};
+use crate::widget::prelude::*;
 
 declare_widget_style! {
     EdgeStyle () {

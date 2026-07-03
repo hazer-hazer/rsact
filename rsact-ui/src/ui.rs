@@ -7,7 +7,7 @@ use crate::{
     font::{FontCtx, FontImport},
     page::{Page, dev::DevTools, id::PageId},
     render::prelude::*,
-    style::{stylist::InternalStylist, theme::Theme},
+    style::stylist::InternalStylist,
 };
 use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use core::{fmt::Debug, marker::PhantomData};

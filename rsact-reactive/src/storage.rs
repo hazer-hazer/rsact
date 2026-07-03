@@ -1,7 +1,4 @@
-use crate::{
-    callback::AnyCallback,
-    runtime::{Runtime, with_current_runtime},
-};
+use crate::{callback::AnyCallback, runtime::Runtime};
 use alloc::{boxed::Box, rc::Rc};
 use core::{
     any::{Any, type_name},
@@ -156,6 +153,8 @@ impl ValueId {
 
     #[cfg(feature = "debug-info")]
     pub fn set_name(&self, name: &'static str) {
+        use crate::runtime::with_current_runtime;
+
         with_current_runtime(|rt| {
             rt.storage.set_debug_info(*self, |debug_info| {
                 debug_info.name = Some(name)
@@ -401,10 +400,7 @@ impl Storage {
     /// Clone only the inner value cell `Rc` (a single refcount bump) instead of
     /// the entire [`Value`]. Used by read/write access paths that need the cell
     /// but not the kind.
-    pub(crate) fn value_rc(
-        &self,
-        id: ValueId,
-    ) -> Option<Rc<RefCell<dyn Any>>> {
+    pub(crate) fn value_rc(&self, id: ValueId) -> Option<Rc<RefCell<dyn Any>>> {
         self.values.borrow().get(id).map(|v| v.value.clone())
     }
 
@@ -428,8 +424,8 @@ impl Storage {
         &self,
         id: ValueId,
         state: ValueState,
-        requester: Option<ValueId>,
-        caller: &'static Location<'static>,
+        _requester: Option<ValueId>,
+        _caller: &'static Location<'static>,
     ) {
         let mut values = self.values.borrow_mut();
         // Silently skip marking a value that has already been disposed.
@@ -439,7 +435,7 @@ impl Storage {
 
         #[cfg(feature = "debug-info")]
         {
-            let requester = requester.and_then(|requester| {
+            let requester = _requester.and_then(|requester| {
                 values
                     .get(requester)
                     .map(|value| (requester, value.debug.created_at))
@@ -450,10 +446,10 @@ impl Storage {
             value.debug.state = match state {
                 ValueState::Clean => ValueDebugInfoState::Clean(requester),
                 ValueState::Check => {
-                    ValueDebugInfoState::CheckRequested(caller, requester)
+                    ValueDebugInfoState::CheckRequested(_caller, requester)
                 },
                 ValueState::Dirty => {
-                    ValueDebugInfoState::Dirten(caller, requester)
+                    ValueDebugInfoState::Dirten(_caller, requester)
                 },
             };
         }

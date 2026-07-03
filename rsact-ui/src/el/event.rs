@@ -1,6 +1,6 @@
 use crate::{
     el::{
-        arena::{ArenaChildren, ArenaEls, ElArena, ElNode},
+        arena::{ArenaChildren, ArenaEls, ElArena},
         state::ElState,
     },
     event::*,

@@ -2,7 +2,7 @@ use crate::{
     el::ctx::WidgetCtx,
     font::FontCtx,
     layout::DevHoveredLayout,
-    prelude::{BlockStyle, BorderStyle},
+    prelude::BlockStyle,
     render::{color::Color, prelude::*},
 };
 use rsact_reactive::prelude::*;

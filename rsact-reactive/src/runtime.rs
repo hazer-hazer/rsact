@@ -5,10 +5,7 @@ use crate::{
     memo::MemoCallback,
     memo_chain::{MemoChainCallback, MemoChainErr},
     scope::{ScopeData, ScopeHandle, ScopeId},
-    storage::{
-        Storage, Value, ValueDebugInfo, ValueDebugInfoState, ValueId,
-        ValueKind, ValueKindTag, ValueState,
-    },
+    storage::{Storage, Value, ValueId, ValueKind, ValueKindTag, ValueState},
 };
 use ahash::RandomState;
 use alloc::{
@@ -383,16 +380,22 @@ impl Runtime {
             state: initial_state,
             height: 0,
             #[cfg(feature = "debug-info")]
-            debug: ValueDebugInfo {
+            debug: crate::storage::ValueDebugInfo {
                 name: None,
                 created_at: _caller,
                 state: match initial_state {
-                    ValueState::Clean => ValueDebugInfoState::Clean(None),
+                    ValueState::Clean => {
+                        crate::storage::ValueDebugInfoState::Clean(None)
+                    },
                     ValueState::Check => {
-                        ValueDebugInfoState::CheckRequested(_caller, None)
+                        crate::storage::ValueDebugInfoState::CheckRequested(
+                            _caller, None,
+                        )
                     },
                     ValueState::Dirty => {
-                        ValueDebugInfoState::Dirten(_caller, None)
+                        crate::storage::ValueDebugInfoState::Dirten(
+                            _caller, None,
+                        )
                     },
                 },
                 borrowed_mut: None,
@@ -595,17 +598,18 @@ impl Runtime {
         f: impl FnOnce() -> R,
     ) -> Option<R> {
         let id = {
-            let existing =
-                *self.static_observers.borrow_mut().entry(hash).or_insert_with(
-                    || {
-                        self.add_value::<_, ()>(
-                            (),
-                            ValueKind::Observer,
-                            ValueState::Dirty,
-                            location,
-                        )
-                    },
-                );
+            let existing = *self
+                .static_observers
+                .borrow_mut()
+                .entry(hash)
+                .or_insert_with(|| {
+                    self.add_value::<_, ()>(
+                        (),
+                        ValueKind::Observer,
+                        ValueState::Dirty,
+                        location,
+                    )
+                });
 
             // The observer may have been disposed by a parent observer's
             // cleanup (e.g. render_children re-running disposes owned child
@@ -643,7 +647,7 @@ impl Runtime {
         let updated = self.maybe_update(id, Some(id), location);
 
         if updated || force {
-            let result = self.with_observer(id, |rt| {
+            let result = self.with_observer(id, |_rt| {
                 // TODO: Cleanup is wrong, we need to delete only values from
                 // the previous call, as we might delete nested observer
                 // rt.cleanup(id);
@@ -665,8 +669,13 @@ impl Runtime {
     pub unsafe fn dispose(&self, id: ValueId) {
         // Collect owned children first so the borrow on `owned` is fully
         // released before any recursive dispose() call re-borrows it.
-        let owned_children: Vec<ValueId> =
-            self.owned.borrow_mut().remove(id).into_iter().flatten().collect();
+        let owned_children: Vec<ValueId> = self
+            .owned
+            .borrow_mut()
+            .remove(id)
+            .into_iter()
+            .flatten()
+            .collect();
 
         // Remove id from the subscriber set of every source it tracked.
         // Without this, disposed effects leave ghost entries that cause
@@ -1062,7 +1071,9 @@ impl Runtime {
     }
 
     #[cfg(feature = "debug-info")]
-    pub fn observer_debug_info(&self) -> Option<ValueDebugInfo> {
+    pub fn observer_debug_info(
+        &self,
+    ) -> Option<crate::storage::ValueDebugInfo> {
         self.observer
             .get()
             .and_then(|observer| self.storage.debug_info(observer))
@@ -1171,13 +1182,18 @@ impl Runtime {
         }
 
         let state_change =
-            if let ValueDebugInfoState::CheckRequested(
+            if let crate::storage::ValueDebugInfoState::CheckRequested(
                 _,
                 Some((requester_id, _)),
             )
-            | ValueDebugInfoState::Dirten(_, Some((requester_id, _)))
-            | ValueDebugInfoState::Clean(Some((requester_id, _))) =
-                debug_info.state
+            | crate::storage::ValueDebugInfoState::Dirten(
+                _,
+                Some((requester_id, _)),
+            )
+            | crate::storage::ValueDebugInfoState::Clean(Some((
+                requester_id,
+                _,
+            ))) = debug_info.state
             {
                 let (req_name, req_graph) = self.mermaid_subgraph(
                     requester_id,
@@ -1420,10 +1436,18 @@ pub fn current_runtime_profile() -> Profile {
                 },
             );
 
-        let subscribers_bindings =
-            rt.subscribers.borrow().values().map(|subs| subs.len()).sum();
-        let sources_bindings =
-            rt.sources.borrow().values().map(|sources| sources.len()).sum();
+        let subscribers_bindings = rt
+            .subscribers
+            .borrow()
+            .values()
+            .map(|subs| subs.len())
+            .sum();
+        let sources_bindings = rt
+            .sources
+            .borrow()
+            .values()
+            .map(|sources| sources.len())
+            .sum();
 
         #[cfg(feature = "debug-info")]
         let top_by_subs = rt
@@ -1798,8 +1822,12 @@ mod tests {
             // `a` should have no subscribers now (cleanup removed the stale
             // sub).
             let a_id = a.id().unwrap();
-            let a_subs =
-                rt.subscribers.borrow().get(a_id).map(|s| s.len()).unwrap_or(0);
+            let a_subs = rt
+                .subscribers
+                .borrow()
+                .get(a_id)
+                .map(|s| s.len())
+                .unwrap_or(0);
             assert_eq!(
                 a_subs, 0,
                 "stale subscription to `a` not removed after cleanup"

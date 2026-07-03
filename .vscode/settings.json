@@ -20,6 +20,7 @@
     "signum",
     "Skia",
     "slotmap",
+    "tinyvec",
     "unfocusable",
     "Uninit",
     "vals",

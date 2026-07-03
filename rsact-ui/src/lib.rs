@@ -45,7 +45,7 @@ pub mod prelude {
             space::*,
         },
     };
-    pub use rsact_reactive::prelude::*;
+    
     pub use rsact_render::prelude::*;
     #[cfg(feature = "tiny-icons")]
     pub use rsact_tiny_icons::{IconRaw, IconSet};

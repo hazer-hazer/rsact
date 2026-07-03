@@ -99,13 +99,13 @@ pub trait ReactiveValue {
     fn is_alive(&self) -> bool;
     unsafe fn dispose(self);
 
-    fn name(self, name: &'static str) -> Self
+    fn name(self, _name: &'static str) -> Self
     where
         Self: Sized,
     {
         #[cfg(feature = "debug-info")]
         if let Some(id) = self.id() {
-            id.set_name(name);
+            id.set_name(_name);
         }
         self
     }

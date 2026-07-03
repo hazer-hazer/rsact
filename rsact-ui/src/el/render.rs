@@ -1,6 +1,6 @@
 use crate::{
     el::{
-        ClipPath, ElId, RedrawReason, WidgetFlags, WithElId,
+        ClipPath, ElId, RedrawReason, WithElId,
         arena::{ArenaChildren, ArenaEls, ElArena},
         ctx::{PageState, WidgetCtx},
     },
@@ -15,10 +15,7 @@ use crate::{
 use core::{fmt::Display, hash::Hash, marker::PhantomData};
 use itertools::Itertools as _;
 use log::{debug, error};
-use rsact_reactive::{
-    debug::observer_debug_info, prelude::*, signal::marker::ReadOnly,
-};
-use rsact_render::color::ACCENT_COUNT;
+use rsact_reactive::{prelude::*, signal::marker::ReadOnly};
 
 pub struct CtxReady;
 pub struct CtxUnready;

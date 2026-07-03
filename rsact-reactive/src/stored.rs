@@ -5,7 +5,6 @@ use crate::{
     storage::ValueId,
     write::WriteSignal,
 };
-use alloc::boxed::Box;
 use core::marker::PhantomData;
 
 pub struct StoredValue<T: 'static> {

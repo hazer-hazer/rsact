@@ -5,7 +5,7 @@ use crate::{
     widget::prelude::*,
 };
 use alloc::string::ToString;
-use core::{cell::RefCell, fmt::Display, marker::PhantomData};
+use core::{fmt::Display, marker::PhantomData};
 use itertools::Itertools as _;
 use rsact_reactive::prelude::*;
 
@@ -317,17 +317,17 @@ impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction + 'static> Widget<W>
 
         ctx.render_part("options", |mut ctx| {
             let state = self.state.get();
-            let style = ctx.get_style(self.style.as_deref());
-            let (options_offset, _) =
+            let _style = ctx.get_style(self.style.as_deref());
+            let (_options_offset, _) =
                 state.options_offset(ctx.layout.inner, &children_layouts);
 
             self.options.with(move |options| {
-                ctx.clip_inner(|mut ctx| {
+                ctx.clip_inner(|_ctx| {
                     options
                         .iter()
                         .zip_eq(children_layouts.iter())
                         .enumerate()
-                        .try_for_each(|(index, (option, option_layout))| {
+                        .try_for_each(|(_index, (_option, _option_layout))| {
                             // TODO: Need to thing how to properly handle select
                             // widget. Should options be real widgets or hidden
                             // inside Select just to render? Maybe we even don't
