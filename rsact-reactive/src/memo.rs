@@ -115,13 +115,6 @@ impl<T: PartialEq + 'static> Memo<T> {
             ty: PhantomData,
         }
     }
-
-    // TODO: As a simplification and replacement of MemoChain
-    // pub fn after_map(&mut self, f: impl FnMut(&T) -> T + 'static) -> Self {
-    //     // Replace old callback with new one. Now, passed callback is called
-    // first. [`replace_callback`] removes all subs and sources     // let
-    // old_callback = runtime.replace_callback(self.id, f);     //
-    // create_memo(move || ) }
 }
 
 impl<T: PartialEq + 'static> Clone for Memo<T> {
@@ -222,7 +215,6 @@ impl<T: PartialEq + 'static, U: PartialEq + 'static> SignalMap<T, U>
 /// - `Fn() -> T` — wraps the closure in [`create_memo`].
 /// - `Inert<T: Clone>` — wraps in a constant memo (allocates one node).
 /// - `MaybeReactive<T: Clone>` — converts each variant appropriately.
-/// - `MemoChain<T: Clone>` — maps via identity clone.
 pub trait IntoMemo<T: PartialEq> {
     fn memo(self) -> Memo<T>;
 }

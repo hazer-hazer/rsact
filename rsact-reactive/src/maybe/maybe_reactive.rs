@@ -2,28 +2,23 @@ use crate::{
     ReactiveValue,
     inert::Inert,
     memo::{IntoMemo, Memo},
-    memo_chain::MemoChain,
     read::{ReadSignal, SignalMap, impl_read_signal_traits},
     signal::Signal,
 };
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 
-// TODO: Get rid of MemoChain, it is anti-pattern from the start. It was created
-// for styles but now we don't need it. TODO: Can we hack reactive values so
-// PartialEq won't be required? One way is to make ValueId generic over reactive
-// value type, for example `as_memo_with_untracked` and
-// `as_signal_with_untracked` implementations that will be dispatched based on
-// the MaybeReactive variant.
+// TODO: Can we hack reactive values so PartialEq won't be required? One way is
+// to make ValueId generic over reactive value type, for example
+// `as_memo_with_untracked` and `as_signal_with_untracked` implementations that
+// will be dispatched based on the MaybeReactive variant.
 /// An optionally reactive, **read-only** value.
 ///
-/// Unifies three read sources under one type:
+/// Unifies two read sources under one type:
 /// - [`MaybeReactive::Inert`] — a static value; reads are never tracked and do
 ///   not register the caller as a subscriber.
 /// - [`MaybeReactive::Memo`] — a derived reactive value; reads inside a
 ///   reactive context register a dependency.
-/// - [`MaybeReactive::MemoChain`] — a chainable memo; same tracking semantics
-///   as [`Memo`].
 ///
 /// # Common pattern
 ///
@@ -45,15 +40,13 @@ use core::marker::PhantomData;
 /// # Mapping
 ///
 /// [`SignalMap::map`] preserves reactivity: an [`Inert`] source produces
-/// another [`Inert`] output (no allocation); a [`Memo`] or [`MemoChain`]
-/// source produces a new [`Memo`] whose closure re-evaluates whenever the
-/// source changes.
+/// another [`Inert`] output (no allocation); a [`Memo`] source produces a new
+/// [`Memo`] whose closure re-evaluates whenever the source changes.
 ///
 /// For a **read-write** optionally reactive value see [`MaybeSignal`].
 pub enum MaybeReactive<T: ?Sized + PartialEq + 'static> {
     Inert(Inert<T>),
     Memo(Memo<T>),
-    MemoChain(MemoChain<T>),
     // Derived(Rc<RefCell<dyn FnMut() -> T>>),
 }
 
@@ -64,7 +57,6 @@ impl<T: PartialEq + 'static> Clone for MaybeReactive<T> {
         match self {
             Self::Inert(arg0) => Self::Inert(arg0.clone()),
             Self::Memo(arg0) => Self::Memo(arg0.clone()),
-            Self::MemoChain(arg0) => Self::MemoChain(arg0.clone()),
             // Self::Derived(arg0) => Self::Derived(arg0.clone()),
         }
     }
@@ -88,7 +80,6 @@ impl<T: PartialEq + 'static> ReactiveValue for MaybeReactive<T> {
         match self {
             MaybeReactive::Inert(inert) => inert.id(),
             MaybeReactive::Memo(memo) => memo.id(),
-            MaybeReactive::MemoChain(memo_chain) => memo_chain.id(),
         }
     }
 
@@ -97,7 +88,6 @@ impl<T: PartialEq + 'static> ReactiveValue for MaybeReactive<T> {
         match self {
             MaybeReactive::Inert(inert) => inert.is_alive(),
             MaybeReactive::Memo(memo) => memo.is_alive(),
-            MaybeReactive::MemoChain(memo_chain) => memo_chain.is_alive(),
             // MaybeReactive::Derived(_) => true,
         }
     }
@@ -107,9 +97,6 @@ impl<T: PartialEq + 'static> ReactiveValue for MaybeReactive<T> {
         match self {
             MaybeReactive::Inert(inert) => unsafe { inert.dispose() },
             MaybeReactive::Memo(memo) => unsafe { memo.dispose() },
-            MaybeReactive::MemoChain(memo_chain) => unsafe {
-                memo_chain.dispose()
-            },
             // MaybeReactive::Derived(derived) => core::mem::drop(derived),
         }
     }
@@ -121,7 +108,6 @@ impl<T: PartialEq + 'static> ReadSignal<T> for MaybeReactive<T> {
         match self {
             MaybeReactive::Inert(_) => {},
             MaybeReactive::Memo(memo) => memo.track(),
-            MaybeReactive::MemoChain(memo_chain) => memo_chain.track(),
             // MaybeReactive::Derived(_) => {},
         }
     }
@@ -131,9 +117,6 @@ impl<T: PartialEq + 'static> ReadSignal<T> for MaybeReactive<T> {
         match self {
             MaybeReactive::Inert(inert) => inert.with_untracked(f),
             MaybeReactive::Memo(memo) => memo.with_untracked(f),
-            MaybeReactive::MemoChain(memo_chain) => {
-                memo_chain.with_untracked(f)
-            },
             // MaybeReactive::Derived(derived) => f(&derived.borrow_mut()()),
         }
     }
@@ -156,9 +139,6 @@ impl<T: PartialEq + 'static, U: PartialEq + 'static> SignalMap<T, U>
                 inert.map(map).maybe_reactive()
             },
             MaybeReactive::Memo(memo) => MaybeReactive::Memo(memo.map(map)),
-            MaybeReactive::MemoChain(memo_chain) => {
-                MaybeReactive::Memo(memo_chain.map(map))
-            },
             // MaybeReactive::Derived(derived) => {
             //     let derived = Rc::clone(derived);
             //     MaybeReactive::new_derived(move ||
@@ -173,7 +153,6 @@ impl<T: PartialEq + 'static, U: PartialEq + 'static> SignalMap<T, U>
 /// - [`MaybeReactive<T>`] — identity.
 /// - [`Signal<T>`] — wraps in a thin [`Memo`] (zero-overhead delegation).
 /// - [`Memo<T>`] — identity.
-/// - [`MemoChain<T>`] — identity.
 /// - [`Inert<T>`] — wraps as [`MaybeReactive::Inert`].
 /// - Primitive types (`u8`–`u128`, `i8`–`i128`, `f32`, `f64`, `bool`, `char`,
 ///   `()`, `String`, tuples up to 12 elements, `Option<T>`, `Result<T,E>`,
@@ -206,12 +185,6 @@ impl<T: PartialEq + 'static> IntoMaybeReactive<T> for Signal<T> {
 impl<T: PartialEq + 'static> IntoMaybeReactive<T> for Memo<T> {
     fn maybe_reactive(self) -> MaybeReactive<T> {
         MaybeReactive::Memo(self)
-    }
-}
-
-impl<T: PartialEq + 'static> IntoMaybeReactive<T> for MemoChain<T> {
-    fn maybe_reactive(self) -> MaybeReactive<T> {
-        MaybeReactive::MemoChain(self)
     }
 }
 
@@ -316,7 +289,6 @@ impl<T: PartialEq + Clone> IntoMemo<T> for MaybeReactive<T> {
         match self {
             MaybeReactive::Inert(inert) => inert.memo(),
             MaybeReactive::Memo(memo) => memo,
-            MaybeReactive::MemoChain(memo_chain) => memo_chain.memo(),
             // MaybeReactive::Derived(derived) => {
             //     let derived = Rc::clone(&derived);
             //     create_memo(move || derived.borrow_mut()())

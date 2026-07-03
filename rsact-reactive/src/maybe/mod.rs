@@ -124,8 +124,6 @@ mod tests {
         accept_maybe_reactive(create_memo(move || {}));
         // Signal<()>
         accept_maybe_reactive(create_signal(()));
-        // MemoChain<()>
-        accept_maybe_reactive(create_memo_chain(move || {}));
     }
 
     #[test]

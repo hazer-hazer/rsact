@@ -38,7 +38,7 @@ impl Layout {
         match self {
             Self::Static(inert) => {
                 // TODO: rsact-reactive unsafe-denoted method to convert between
-                // ValueId reactive types, for Inert -> Signal.
+                // ValueId reactive types, for Inert -> Signal. So we don't have to clone but do move.
                 let signal = with_current_runtime(|rt| -> LayoutData {
                     inert.with_untracked(rt, Clone::clone, caller)
                 })
@@ -109,9 +109,6 @@ impl<U: PartialEq + 'static> SignalSetter<LayoutData, MaybeReactive<U>>
             }),
             MaybeReactive::Memo(memo) => {
                 self.now_reactive().setter(memo, set_map)
-            },
-            MaybeReactive::MemoChain(memo_chain) => {
-                self.now_reactive().setter(memo_chain, set_map)
             },
         }
     }

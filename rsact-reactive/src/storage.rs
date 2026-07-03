@@ -1,5 +1,5 @@
 use crate::{callback::AnyCallback, runtime::Runtime};
-use alloc::{boxed::Box, rc::Rc};
+use alloc::rc::Rc;
 use core::{
     any::{Any, type_name},
     cell::RefCell,
@@ -274,11 +274,6 @@ pub enum ValueKind {
     Computed {
         f: Rc<RefCell<dyn AnyCallback>>,
     },
-    MemoChain {
-        memo: Rc<RefCell<dyn AnyCallback>>,
-        first: Rc<RefCell<Option<Box<dyn AnyCallback>>>>,
-        last: Rc<RefCell<Option<Box<dyn AnyCallback>>>>,
-    },
     Observer,
 }
 
@@ -292,7 +287,6 @@ pub enum ValueKindTag {
     Effect,
     Memo,
     Computed,
-    MemoChain,
     Observer,
 }
 
@@ -305,7 +299,6 @@ impl ValueKind {
             ValueKind::Effect { .. } => ValueKindTag::Effect,
             ValueKind::Memo { .. } => ValueKindTag::Memo,
             ValueKind::Computed { .. } => ValueKindTag::Computed,
-            ValueKind::MemoChain { .. } => ValueKindTag::MemoChain,
             ValueKind::Observer => ValueKindTag::Observer,
         }
     }
@@ -321,7 +314,6 @@ impl Display for ValueKind {
                 ValueKind::Effect { .. } => "effect",
                 ValueKind::Signal => "signal",
                 ValueKind::Memo { .. } => "memo",
-                ValueKind::MemoChain { .. } => "memoChain",
                 ValueKind::Computed { .. } => "computed",
                 ValueKind::Observer => "observer",
             }

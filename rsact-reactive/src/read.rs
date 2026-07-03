@@ -16,7 +16,7 @@ use alloc::string::String;
 /// value.  Calling the `_untracked` variants skips registration.
 ///
 /// Implemented by: [`crate::signal::Signal`], [`crate::memo::Memo`],
-/// [`crate::memo_chain::MemoChain`], [`crate::computed::Computed`],
+/// [`crate::computed::Computed`],
 /// [`crate::trigger::Trigger`], [`crate::maybe::Inert`],
 /// [`crate::maybe::MaybeReactive`], [`crate::maybe::MaybeSignal`].
 pub trait ReadSignal<T>: ReactiveValue {
@@ -60,7 +60,6 @@ pub trait ReadSignal<T>: ReactiveValue {
 /// - `Signal<T>::map` → `Memo<U>` (tracked, re-evaluates when the signal
 ///   changes).
 /// - `Memo<T>::map` → `Memo<U>` (chained memo).
-/// - `MemoChain<T>::map` → `Memo<U>`.
 /// - `MaybeSignal<T>::map` → `MaybeReactive<U>` (preserves inert/reactive
 ///   distinction).
 /// - `Inert<T>::map` → `Inert<U>` (pure, non-allocating).

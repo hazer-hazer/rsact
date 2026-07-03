@@ -298,24 +298,6 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, Memo<U>>
     }
 }
 
-impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MemoChain<U>>
-    for Signal<T>
-{
-    #[track_caller]
-    fn setter(
-        &mut self,
-        source: MemoChain<U>,
-        mut set_map: impl FnMut(&mut T, &<Memo<U> as ReactiveValue>::Value)
-        + 'static,
-    ) {
-        let this = *self;
-        create_effect(move |_| {
-            let mut this = this;
-            source.with(|source| this.update(|this| set_map(this, source)))
-        });
-    }
-}
-
 impl<T: 'static, U: 'static> SignalSetter<T, Inert<U>> for Signal<T> {
     #[track_caller]
     fn setter(
@@ -341,9 +323,6 @@ impl<T: 'static, U: PartialEq + 'static> SignalSetter<T, MaybeReactive<U>>
         match source {
             MaybeReactive::Inert(raw) => self.setter(raw, set_map),
             MaybeReactive::Memo(memo) => self.setter(memo, set_map),
-            MaybeReactive::MemoChain(memo_chain) => {
-                self.setter(memo_chain, set_map)
-            },
             // MaybeReactive::Derived(derived) => {
             //     // TODO: use_effect or not to use effect? How do we know if
             // derived function is using reactive values or not

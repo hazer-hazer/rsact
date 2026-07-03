@@ -19,7 +19,6 @@ pub mod effect;
 pub mod inert;
 pub mod maybe;
 pub mod memo;
-pub mod memo_chain;
 pub mod read;
 #[cfg(feature = "async")]
 pub mod resource;
@@ -54,7 +53,6 @@ pub mod prelude {
             maybe_signal::IntoMaybeSignal, maybe_signal::MaybeSignal,
         },
         memo::{IntoMemo, Memo, MemoTree, create_memo},
-        memo_chain::{IntoMemoChain, MemoChain, create_memo_chain},
         read::{
             ReadSignal, SignalMap, SignalMapRef, SignalMapRefMaybeReactive,
             SignalMapSlice, SignalWithRef, SignalWithSlice, map, with,
@@ -82,7 +80,7 @@ pub mod prelude {
 /// stored inside the reactive node (e.g. `T` for `Signal<T>`).
 ///
 /// All high-level types — [`signal::Signal`], [`memo::Memo`],
-/// [`memo_chain::MemoChain`], [`effect::Effect`], [`trigger::Trigger`],
+/// [`effect::Effect`], [`trigger::Trigger`],
 /// [`maybe::Inert`], [`maybe::MaybeReactive`], [`maybe::MaybeSignal`] —
 /// implement this trait.
 ///

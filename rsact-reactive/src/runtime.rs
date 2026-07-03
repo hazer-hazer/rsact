@@ -3,13 +3,11 @@ use crate::{
     computed::ComputedCallback,
     effect::EffectCallback,
     memo::MemoCallback,
-    memo_chain::{MemoChainCallback, MemoChainErr},
     scope::{ScopeData, ScopeHandle, ScopeId},
     storage::{Storage, Value, ValueId, ValueKind, ValueKindTag, ValueState},
 };
 use ahash::RandomState;
 use alloc::{
-    boxed::Box,
     collections::{btree_map::BTreeMap, btree_set::BTreeSet},
     rc::Rc,
     vec::Vec,
@@ -252,7 +250,8 @@ pub fn untrack<T>(f: impl FnOnce() -> T) -> T {
         }
     }
 
-    let _restore = RestoreObserver(with_current_runtime(|rt| rt.observer.take()));
+    let _restore =
+        RestoreObserver(with_current_runtime(|rt| rt.observer.take()));
     f()
 }
 
@@ -593,32 +592,6 @@ impl Runtime {
         )
     }
 
-    pub fn create_memo_chain<T, F, P>(
-        &self,
-        f: F,
-        _caller: &'static Location<'static>,
-    ) -> ValueId
-    where
-        T: PartialEq + 'static,
-        F: CallbackFn<T, P>,
-        P: 'static,
-    {
-        self.add_value::<_, T>(
-            None::<T>,
-            ValueKind::MemoChain {
-                memo: Rc::new(RefCell::new(MemoCallback {
-                    f,
-                    ty: PhantomData,
-                    p: PhantomData,
-                })),
-                first: Rc::new(RefCell::new(None)),
-                last: Rc::new(RefCell::new(None)),
-            },
-            ValueState::Dirty,
-            _caller,
-        )
-    }
-
     fn use_observe<R>(
         &self,
         hash: u64,
@@ -921,48 +894,6 @@ impl Runtime {
         let changed = match tag {
             ValueKindTag::Stored => false,
             ValueKindTag::Signal | ValueKindTag::Observer => true,
-            ValueKindTag::MemoChain => {
-                // Clone only the three callback `Rc`s + the value cell, not the
-                // whole `Value`. Borrow is dropped before running the closure.
-                let borrowed = {
-                    let values = self.storage.values.borrow();
-                    match values.get(id) {
-                        Some(Value {
-                            kind: ValueKind::MemoChain { memo, first, last },
-                            value,
-                            ..
-                        }) => Some((
-                            memo.clone(),
-                            first.clone(),
-                            last.clone(),
-                            value.clone(),
-                        )),
-                        _ => None,
-                    }
-                };
-                let Some((memo, first, last, value)) = borrowed else {
-                    return;
-                };
-
-                self.with_observer(id, move |rt| {
-                    rt.cleanup(id);
-
-                    let memo_changed = memo.borrow_mut().run(value.clone());
-
-                    let first_changed = first
-                        .borrow_mut()
-                        .as_mut()
-                        .map(|first| first.run(value.clone()))
-                        .unwrap_or(false);
-                    let last_changed = last
-                        .borrow_mut()
-                        .as_mut()
-                        .map(|last| last.run(value.clone()))
-                        .unwrap_or(false);
-
-                    memo_changed || first_changed || last_changed
-                })
-            },
             ValueKindTag::Memo
             | ValueKindTag::Computed
             | ValueKindTag::Effect => {
@@ -1052,8 +983,10 @@ impl Runtime {
         // re-entrantly (its walk only calls `mark_node`, which never writes a
         // signal), but if that ever changes, fall back to fresh locals so the
         // walk stays correct instead of panicking on the scratch borrow.
-        match (self.mark_stack.try_borrow_mut(), self.mark_seen.try_borrow_mut())
-        {
+        match (
+            self.mark_stack.try_borrow_mut(),
+            self.mark_seen.try_borrow_mut(),
+        ) {
             (Ok(mut stack), Ok(mut seen)) => {
                 stack.clear();
                 self.mark_check_closure(
@@ -1061,6 +994,9 @@ impl Runtime {
                 );
             },
             _ => {
+                log::warn!(
+                    "mark_dirty re-entered; falling back to fresh stack/seen"
+                );
                 let mut stack = Vec::new();
                 let mut seen = SecondaryMap::new();
                 self.mark_check_closure(
@@ -1119,19 +1055,12 @@ impl Runtime {
             self.storage.mark(id, state, requester, caller);
         }
 
-        // Only need to know whether this node is an Effect; read the cheap
-        // `Copy` tag instead of cloning the whole `Value`.
         if self.storage.kind_of(id) == Some(ValueKindTag::Effect)
             && self.observer.get() != Some(id)
         {
             RefCell::borrow_mut(&self.pending_effects).insert(id);
         }
     }
-
-    // #[track_caller]
-    // pub(crate) fn is_dirty(&self, id: ValueId) -> bool {
-    //     self.storage.get(id).state == ValueState::Dirty
-    // }
 
     // TODO: Explicitly return Option<ValueState> for disposed values.
     pub(crate) fn state(&self, id: ValueId) -> ValueState {
@@ -1236,7 +1165,6 @@ impl Runtime {
                     ValueKind::Effect { .. } => ("[[", "]]", true),
                     ValueKind::Memo { .. } => ("([", "])", true),
                     ValueKind::Computed { .. } => ("((", "))", true),
-                    ValueKind::MemoChain { .. } => ("(((", ")))", true),
                     ValueKind::Observer => ("{", "}", false),
                 };
 
@@ -1478,76 +1406,14 @@ impl Runtime {
         }
     }
 
-    pub(crate) fn set_memo_chain<T: PartialEq + 'static>(
-        &self,
-        id: ValueId,
-        is_first: bool,
-        f: impl FnMut(&T) -> T + 'static,
-    ) -> Result<(), MemoChainErr> {
-        let kind = self.storage.get(id).unwrap().kind;
-        match kind {
-            ValueKind::MemoChain { memo: _, first, last } => {
-                let mut func = if is_first {
-                    first.borrow_mut()
-                } else {
-                    last.borrow_mut()
-                };
-
-                let redefined = func.replace(Box::new(MemoChainCallback {
-                    f,
-                    ty: PhantomData,
-                }));
-
-                // TODO: Location?
-                if let Some(_) = redefined {
-                    Err(if is_first {
-                        MemoChainErr::FirstRedefined
-                    } else {
-                        MemoChainErr::LastRedefined
-                    })
-                } else {
-                    Ok(())
-                }
-            },
-            _ => panic!(
-                "Cannot set memo {} chain for non-memo-chain value {kind}",
-                if is_first { "first" } else { "last" }
-            ),
-        }
-    }
-
-    // pub(crate) fn add_memo_chain<T: PartialEq + 'static>(
-    //     &self,
-    //     id: ValueId,
-    //     order: EffectOrder,
-    //     map: impl Fn(&T) -> T + 'static,
-    // ) {
-    //     let kind = self.storage.get(id).unwrap().kind;
-    //     match kind {
-    //         ValueKind::MemoChain { memo: _, fs } => {
-    //             fs.borrow_mut()
-    //                 .entry(order)
-    //                 .or_default()
-    //
-    // .push(Rc::new(RefCell::new(MemoChainCallback::new(map))));         },
-    //         _ => panic!("Cannot add memo chain to {}", kind),
-    //     }
-    // }
 }
 
 pub fn current_runtime_profile() -> Profile {
     with_current_runtime(|rt| {
-        let (stored, signals, effects, memos, computed, memo_chains) =
+        let (stored, signals, effects, memos, computed) =
             rt.storage.values.borrow().values().fold(
-                (0, 0, 0, 0, 0, 0),
-                |(
-                    mut stored,
-                    mut signals,
-                    mut effects,
-                    mut memos,
-                    mut computed,
-                    mut memo_chains,
-                ),
+                (0, 0, 0, 0, 0),
+                |(mut stored, mut signals, mut effects, mut memos, mut computed),
                  value| {
                     match &value.kind {
                         ValueKind::Stored => stored += 1,
@@ -1555,11 +1421,10 @@ pub fn current_runtime_profile() -> Profile {
                         ValueKind::Effect { .. } => effects += 1,
                         ValueKind::Memo { .. } => memos += 1,
                         ValueKind::Computed { .. } => computed += 1,
-                        ValueKind::MemoChain { .. } => memo_chains += 1,
                         ValueKind::Observer { .. } => {},
                     }
 
-                    (stored, signals, effects, memos, computed, memo_chains)
+                    (stored, signals, effects, memos, computed)
                 },
             );
 
@@ -1621,7 +1486,6 @@ pub fn current_runtime_profile() -> Profile {
             effects,
             memos,
             computed,
-            memo_chains,
             subscribers: rt.subscribers.borrow().len(),
             subscribers_bindings,
             sources: rt.sources.borrow().len(),
@@ -1642,7 +1506,6 @@ pub struct Profile {
     effects: usize,
     memos: usize,
     computed: usize,
-    memo_chains: usize,
     subscribers: usize,
     subscribers_bindings: usize,
     sources: usize,
@@ -1663,14 +1526,13 @@ impl Display for Profile {
                 + self.signals
                 + self.effects
                 + self.memos
-                + self.memo_chains
+                + self.computed
         )?;
         writeln!(f, "  {} stored", self.stored)?;
         writeln!(f, "  {} signals", self.signals)?;
         writeln!(f, "  {} effects", self.effects)?;
         writeln!(f, "  {} memos", self.memos)?;
         writeln!(f, "  {} computed", self.computed)?;
-        writeln!(f, "  {} memo chains", self.memo_chains)?;
         writeln!(
             f,
             "{} subscribers ({} bindings), {} sources ({} bindings), {} pending effects",
@@ -1700,7 +1562,6 @@ impl Display for Profile {
 #[cfg(test)]
 mod tests {
     use super::CURRENT_RUNTIME;
-    use alloc::vec::Vec;
     use crate::{
         ReactiveValue as _,
         effect::create_effect,
@@ -1716,6 +1577,7 @@ mod tests {
         write::WriteSignal,
     };
     use alloc::rc::Rc;
+    use alloc::vec::Vec;
     use core::cell::Cell;
 
     #[test]
