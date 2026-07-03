@@ -64,10 +64,13 @@ pub trait RgbColor: Color {
 
     #[inline]
     fn hex(hex: u32) -> Self {
+        // `>>` binds tighter than `&`, so the mask must be parenthesized:
+        // `hex & 0xff0000 >> 16` would parse as `hex & (0xff0000 >> 16)` and
+        // read the wrong bits for r/g.
         Self::rgb(
-            (hex & 0xff0000 >> 16) as u8,
-            (hex & 0x00ff00 >> 8) as u8,
-            (hex & 0x0000ff) as u8,
+            ((hex >> 16) & 0xff) as u8,
+            ((hex >> 8) & 0xff) as u8,
+            (hex & 0xff) as u8,
         )
     }
 
@@ -118,3 +121,33 @@ impl ByteOrder for BigEndian {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LittleEndian {}
 impl ByteOrder for LittleEndian {}
+
+#[cfg(all(test, feature = "embedded-graphics"))]
+mod tests {
+    use crate::color::RgbColor;
+    use embedded_graphics::pixelcolor::Rgb888;
+
+    // Regression: `hex` must parse each channel from the right byte. The old
+    // `hex & 0xff0000 >> 16` parsed as `hex & (0xff0000 >> 16)` (operator
+    // precedence), corrupting r and g.
+    #[test]
+    fn hex_parses_each_channel() {
+        let c: Rgb888 = RgbColor::hex(0x123456);
+        assert_eq!(
+            (RgbColor::r(&c), RgbColor::g(&c), RgbColor::b(&c)),
+            (0x12u8, 0x34u8, 0x56u8)
+        );
+
+        let w: Rgb888 = RgbColor::hex(0xffffff);
+        assert_eq!(
+            (RgbColor::r(&w), RgbColor::g(&w), RgbColor::b(&w)),
+            (0xffu8, 0xffu8, 0xffu8)
+        );
+
+        let k: Rgb888 = RgbColor::hex(0x000000);
+        assert_eq!(
+            (RgbColor::r(&k), RgbColor::g(&k), RgbColor::b(&k)),
+            (0u8, 0u8, 0u8)
+        );
+    }
+}

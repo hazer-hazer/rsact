@@ -128,7 +128,13 @@ impl<W: WidgetCtx> Widget<W> for Label<W> {
                     content,
                     props,
                     ctx.layout.inner,
-                    style.text_color.expect(),
+                    // An unset text color must not panic (ColorStyle::expect is
+                    // "Dangerous" per its own note): fall back to the theme's
+                    // default foreground so text stays visible.
+                    style
+                        .text_color
+                        .get()
+                        .unwrap_or_else(W::default_foreground),
                 )
             })
         })

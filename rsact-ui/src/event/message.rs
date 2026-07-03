@@ -17,6 +17,7 @@ pub enum UiMessage<W: WidgetCtx> {
 /// MessageQueue is indented to publish messages UI processes on `tick`
 /// synchronously
 pub struct UiQueue<W: WidgetCtx> {
+    // TODO: Use ring-buffer/VecDeque for cheap pop-front.
     messages: Signal<Vec<UiMessage<W>>>,
     now_millis: Signal<u32>,
     /// Pre-stored Memo of `now_millis` to avoid creating Memo for each
@@ -71,6 +72,11 @@ impl<W: WidgetCtx> UiQueue<W> {
     }
 
     pub(crate) fn pop(mut self) -> Option<UiMessage<W>> {
-        self.messages.update_untracked(|messages| messages.pop())
+        // Pop from the FRONT: `publish` appends, so removing from the end would
+        // process messages LIFO (e.g. two goto()s in one tick would land on the
+        // wrong page). Message counts per tick are tiny, so remove(0) is fine.
+        self.messages.update_untracked(|messages| {
+            if messages.is_empty() { None } else { Some(messages.remove(0)) }
+        })
     }
 }

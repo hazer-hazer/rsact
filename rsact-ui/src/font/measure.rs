@@ -14,7 +14,10 @@ use super::{TextIntrinsics, TextOverflow};
 
 /// Pixel width of a single monospace line containing `char_count` characters.
 pub fn line_px(char_count: u32, char_w: u32, spacing: u32) -> u32 {
-    char_count * char_w + char_count.saturating_sub(1) * spacing
+    // Saturate: pathological text (huge char_count) could overflow u32.
+    char_count
+        .saturating_mul(char_w)
+        .saturating_add(char_count.saturating_sub(1).saturating_mul(spacing))
 }
 
 /// Maximum number of monospace characters that fit in `width` pixels.

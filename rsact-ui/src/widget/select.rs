@@ -27,13 +27,14 @@ impl SelectState {
         inner: Rect,
         children_layouts: &[LayoutModelNode<'_>],
     ) -> (Point, Option<usize>) {
-        if let Some(selected) = self.selected {
-            let selected_child_layout = children_layouts.get(selected).unwrap();
-
-            let options_offset =
-                inner.center_offset_of(selected_child_layout.inner);
-
-            (options_offset, Some(selected))
+        // Prefer the selected option, but fall back to the first if the stored
+        // index is stale: reactive `options` can shrink below `selected`
+        // between an `on_event` clamp and the next render, so a bare
+        // `.get(selected).unwrap()` would panic on the render path.
+        if let Some((selected, layout)) = self.selected.and_then(|selected| {
+            children_layouts.get(selected).map(|layout| (selected, layout))
+        }) {
+            (inner.center_offset_of(layout.inner), Some(selected))
         } else if let Some(first_option) = children_layouts.first() {
             (inner.center_offset_of(first_option.inner), None)
         } else {

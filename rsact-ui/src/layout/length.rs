@@ -69,7 +69,12 @@ impl Add for DivFactors {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Self::new(self.width + rhs.width, self.height + rhs.height)
+        // Saturate: div-factors accumulate across flex children and could in
+        // principle overflow u16 (debug panic) on pathological input.
+        Self::new(
+            self.width.saturating_add(rhs.width),
+            self.height.saturating_add(rhs.height),
+        )
     }
 }
 
@@ -489,8 +494,8 @@ impl Mul<DivFactors> for Size<u32> {
 
     fn mul(self, rhs: DivFactors) -> Self::Output {
         Self::new(
-            self.width * rhs.width as u32,
-            self.height * rhs.height as u32,
+            self.width.saturating_mul(rhs.width as u32),
+            self.height.saturating_mul(rhs.height as u32),
         )
     }
 }

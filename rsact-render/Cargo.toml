@@ -18,6 +18,13 @@ embedded-graphics-simulator = { workspace = true, optional = true }
 slotmap = { workspace = true }
 
 [features]
+# `std` forwards a reactive backend so the crate (and its tests) build on their
+# own for host testing — rsact-reactive requires a backend feature, otherwise
+# only feature-unification from a downstream crate provides one. (A no_std
+# `single-thread` passthrough is intentionally omitted: the eg primitives still
+# use std-only f32 math (ceil/powi), a separate no_std-math task; on device the
+# backend arrives via unification from rsact-ui.)
+std = ["rsact-reactive/std", "log/std"]
 tiny-skia = ["dep:tiny-skia"]
 embedded-graphics = ["dep:embedded-graphics", "dep:embedded-text"]
 defmt = ["dep:defmt"]

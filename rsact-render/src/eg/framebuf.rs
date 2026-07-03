@@ -108,10 +108,14 @@ impl PackedColor for BinaryColor {
 
         // *packed |= value << (3 - offset) * 2;
 
-        *packed |= match color {
-            BinaryColor::Off => 0b0,
-            BinaryColor::On => 0b1,
-        } << (7 - offset);
+        // Clear the target bit before setting it: a plain `|=` can only turn a
+        // pixel On, never back Off, so redrawing On->Off would leave a stale
+        // set bit (ghosting on partial redraw / reused framebuffers).
+        let mask = 1u8 << (7 - offset);
+        match color {
+            BinaryColor::Off => *packed &= !mask,
+            BinaryColor::On => *packed |= mask,
+        }
     }
 }
 

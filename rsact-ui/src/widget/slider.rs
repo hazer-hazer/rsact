@@ -166,13 +166,22 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Slider<W, Dir> {
 
             ctx.renderer.line(start, end, &style.track_draw_style())?;
 
-            let range_len =
-                self.range.with(|range| range.end() - range.start());
+            let (range_start, range_len) = self
+                .range
+                .with(|range| (*range.start(), range.end() - range.start()));
+
+            // Normalize the value into 0..=1 *relative to the range start* —
+            // not value/len, which mispositions any non-zero-based range (and
+            // guard a degenerate zero-width range against NaN/inf).
+            let frac = if range_len != 0.0 {
+                ((self.value.get() - range_start) / range_len).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
 
             let thumb_pos = start
                 + Dir::AXIS.canon::<Point>(
-                    ((self.value.get() / range_len) * track_len as f32) as i32
-                        - half_thumb_size,
+                    (frac * track_len as f32) as i32 - half_thumb_size,
                     -half_thumb_size,
                 );
 

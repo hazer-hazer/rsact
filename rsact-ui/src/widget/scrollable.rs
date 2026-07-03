@@ -272,13 +272,17 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Scrollable<W, Dir> {
                     &style.track_draw_style(),
                 )?;
 
-                let thumb_len = ((scrollable_length as f32)
-                    * ((scrollable_length as f32) / (content_length as f32)))
-                    as u32;
+                // Guard against a degenerate zero-length content (would make
+                // the ratio NaN/inf and the thumb geometry garbage).
+                let visible_ratio = if content_length > 0 {
+                    (scrollable_length as f32) / (content_length as f32)
+                } else {
+                    0.0
+                };
+                let thumb_len =
+                    ((scrollable_length as f32) * visible_ratio) as u32;
                 let thumb_len = thumb_len.max(1);
-                let thumb_offset =
-                    (((scrollable_length as f32) / (content_length as f32))
-                        * (offset as f32)) as u32;
+                let thumb_offset = (visible_ratio * (offset as f32)) as u32;
 
                 let thumb_start = track_start
                     + Dir::AXIS.canon::<Point>(thumb_offset as i32, 0);
