@@ -662,9 +662,12 @@ impl<W: WidgetCtx> Page<W> {
                         Ok(())
                     })
                 })
-                .ok()
-                // TODO: What do we do with errors, huh?
-                .unwrap();
+                // A render error must not abort the device: log and continue.
+                // A dropped frame is recoverable; a panic in the render loop
+                // (which runs every frame) is not.
+                .unwrap_or_else(|_| {
+                    log::error!("page render failed; skipping this frame");
+                });
             });
 
         //
