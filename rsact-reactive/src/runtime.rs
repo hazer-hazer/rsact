@@ -242,10 +242,18 @@ pub fn observe_with_force<H: Hash, R>(
 /// # });
 /// ```
 pub fn untrack<T>(f: impl FnOnce() -> T) -> T {
-    let prev = with_current_runtime(|rt| rt.observer.take());
-    let result = f();
-    with_current_runtime(|rt| rt.observer.set(prev));
-    result
+    // Restore the previous observer on the way out — even if `f` panics —
+    // via an RAII guard, so a panic inside `f` cannot leave the runtime's
+    // observer cell stuck at `None` and corrupt all subsequent tracking.
+    struct RestoreObserver(Option<ValueId>);
+    impl Drop for RestoreObserver {
+        fn drop(&mut self) {
+            with_current_runtime(|rt| rt.observer.set(self.0));
+        }
+    }
+
+    let _restore = RestoreObserver(with_current_runtime(|rt| rt.observer.take()));
+    f()
 }
 
 /// Group all signal writes inside `f` into a single batch: effects are deferred
@@ -316,6 +324,14 @@ pub struct Runtime {
     /// `u64` so the generation never wraps in any realistic device lifetime.
     mark_seen: RefCell<SecondaryMap<ValueId, u64>>,
     mark_gen: Cell<u64>,
+    /// True while [`run_effects`](Runtime::run_effects) is draining the pending
+    /// queue. A signal written *by an effect* during a flush re-enters
+    /// `run_effects`; that nested call returns early and lets the outermost
+    /// flush loop drain the newly-queued effects. This keeps effect execution
+    /// iterative (no per-write recursion → no stack growth on effect cascades)
+    /// and turns a dependency cycle into a bounded, logged loop instead of a
+    /// stack overflow.
+    flushing: Cell<bool>,
     hasher: RandomState,
 }
 
@@ -336,6 +352,7 @@ impl Runtime {
             mark_stack: Default::default(),
             mark_seen: Default::default(),
             mark_gen: Cell::new(0),
+            flushing: Cell::new(false),
             hasher: RandomState::new(),
         }
     }
@@ -759,15 +776,24 @@ impl Runtime {
         observer: ValueId,
         f: impl FnOnce(&Self) -> T,
     ) -> T {
-        let prev_observer = self.observer.get();
+        // Restore the previous observer on the way out — even if `f` panics
+        // (e.g. a memo/effect closure panics and is caught upstream) — so the
+        // observer cell can't be left pointing at a disposed node.
+        struct ObserverGuard<'a> {
+            cell: &'a Cell<Option<ValueId>>,
+            prev: Option<ValueId>,
+        }
+        impl Drop for ObserverGuard<'_> {
+            fn drop(&mut self) {
+                self.cell.set(self.prev);
+            }
+        }
 
+        let _guard =
+            ObserverGuard { cell: &self.observer, prev: self.observer.get() };
         self.observer.set(Some(observer));
 
-        let result = f(self);
-
-        self.observer.set(prev_observer);
-
-        result
+        f(self)
     }
 
     pub(crate) fn subscribe(&self, id: ValueId) {
@@ -959,9 +985,20 @@ impl Runtime {
                 let Some((f, value)) = borrowed else { return };
 
                 self.with_observer(id, move |rt| {
-                    rt.cleanup(id);
+                    // Guard against re-entrant recompute: if this node's callback
+                    // is already running higher on the stack, a dependency cycle
+                    // has re-entered it. Skip (logged) instead of panicking on
+                    // the double borrow_mut, so a cycle degrades to a no-op.
+                    let Ok(mut callback) = f.try_borrow_mut() else {
+                        log::error!(
+                            "skipping re-entrant reactive update (dependency \
+                             cycle) at {caller}"
+                        );
+                        return false;
+                    };
 
-                    f.borrow_mut().run(value)
+                    rt.cleanup(id);
+                    callback.run(value)
                 })
             },
         };
@@ -1363,11 +1400,44 @@ impl Runtime {
             return;
         }
 
+        // Non-re-entrant: a signal written by an effect during this flush
+        // re-enters here; that nested call returns and the outermost loop below
+        // drains the newly-queued effects. Keeps effect execution iterative and
+        // makes the round cap below an effective cycle guard.
+        if self.flushing.get() {
+            return;
+        }
+        self.flushing.set(true);
+        struct FlushGuard<'a>(&'a Cell<bool>);
+        impl Drop for FlushGuard<'_> {
+            fn drop(&mut self) {
+                self.0.set(false);
+            }
+        }
+        let _flush_guard = FlushGuard(&self.flushing);
+
         // Loop until stable: running effects may write signals that queue more
-        // effects.
+        // effects. A legitimate cascade settles in at most (graph height) rounds
+        // — realistically a handful. If it does not settle after this many
+        // rounds it is almost certainly a dependency cycle (e.g. two effects
+        // mutually writing each other's sources); log and break rather than
+        // hang or overflow the stack (`CLAUDE.md`: log errors, do not panic).
+        const MAX_FLUSH_ROUNDS: u32 = 10_000;
+        let mut rounds = 0u32;
         loop {
             let pending = self.pending_effects.take();
             if pending.is_empty() {
+                break;
+            }
+
+            rounds += 1;
+            if rounds > MAX_FLUSH_ROUNDS {
+                log::error!(
+                    "reactive effect flush did not settle after {MAX_FLUSH_ROUNDS} rounds \
+                     (likely a dependency cycle); aborting flush at {caller} with {} effect(s) \
+                     still pending",
+                    pending.len()
+                );
                 break;
             }
 
@@ -1637,8 +1707,8 @@ mod tests {
         memo::{Memo, create_memo},
         read::ReadSignal,
         runtime::{
-            RUNTIMES, observe, observe_by_location, with_current_runtime,
-            with_new_runtime,
+            RUNTIMES, observe, observe_by_location, untrack,
+            with_current_runtime, with_new_runtime,
         },
         scope::new_scope,
         signal::create_signal,
@@ -2105,6 +2175,81 @@ mod tests {
             // This write drives the iterative mark_dirty walk across the chain.
             s.set(1000);
             assert_eq!(leaf.get(), 1000 + DEPTH as i32);
+        });
+    }
+
+    // ---- Phase 3A: robustness ----
+
+    /// Two effects that mutually write each other's source form a dependency
+    /// cycle. Before the flush guard this recursed / looped forever; now
+    /// `run_effects` is non-re-entrant and the round cap breaks the cycle, so
+    /// the write must simply return instead of hanging or overflowing.
+    #[test]
+    fn effect_cycle_degrades_without_hanging() {
+        with_new_runtime(|_| {
+            let mut a = create_signal(0i32);
+            let b = create_signal(0i32);
+
+            // A: reads a, writes b := a + 1 (always changes b).
+            {
+                let ra = a;
+                let mut wb = b;
+                create_effect(move |_: Option<()>| {
+                    let v = ra.get();
+                    wb.set(v + 1);
+                });
+            }
+            // B: reads b, writes a := b + 1 (always changes a) -> mutual cycle.
+            {
+                let rb = b;
+                let mut wa = a;
+                create_effect(move |_: Option<()>| {
+                    let v = rb.get();
+                    wa.set(v + 1);
+                });
+            }
+
+            // Kick the cycle. Reaching the next line at all is the assertion:
+            // the flush terminated (cap hit + logged) rather than hanging.
+            a.set(1);
+            assert!(a.get() > 0);
+        });
+    }
+
+    /// A panic inside `untrack`'s closure must still restore the previous
+    /// observer (RAII guard), so an effect that catches such a panic keeps
+    /// tracking its dependencies afterwards.
+    #[cfg(feature = "std")]
+    #[test]
+    fn untrack_panic_does_not_corrupt_observer() {
+        with_new_runtime(|_| {
+            let mut trigger = create_signal(0i32);
+            let runs = Rc::new(Cell::new(0u32));
+            let r = runs.clone();
+
+            create_effect(move |_: Option<()>| {
+                r.set(r.get() + 1);
+                // On the first run, panic inside untrack (caught). The observer
+                // must be restored to THIS effect so the following `get()` still
+                // subscribes it.
+                if r.get() == 1 {
+                    let _ = std::panic::catch_unwind(
+                        std::panic::AssertUnwindSafe(|| {
+                            untrack(|| panic!("boom"));
+                        }),
+                    );
+                }
+                trigger.get();
+            });
+
+            assert_eq!(runs.get(), 1);
+            trigger.set(1);
+            assert_eq!(
+                runs.get(),
+                2,
+                "effect stopped tracking after a panic inside untrack \
+                 (observer not restored)"
+            );
         });
     }
 }
