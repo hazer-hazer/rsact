@@ -411,7 +411,11 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Scrollable<W, Dir> {
                 // Widget::on_event_captured_by_child or something. This is
                 // better to hide by a behavior flag like
                 // "listen_children_events".
-                todo!();
+                //
+                // TODO(unimplemented): child-focus tracking for Tracker mode.
+                // Degrade to ignoring the event instead of `todo!()` so a
+                // Tracker scrollable does not abort on interaction.
+                ctx.ignore()
 
                 // let content_response = ctx.pass_to_child(&mut self.content);
 

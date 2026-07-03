@@ -153,7 +153,10 @@ impl<W: WidgetCtx, I: IconSet + 'static, R: ReactivityMarker> Widget<W>
             {
                 let _eg_top_left: embedded_graphics::geometry::Point =
                     ctx.layout.inner.top_left.into();
-                todo!()
+                // TODO(unimplemented): draw the icon via rsact-icons. Until the
+                // draw path is wired up, degrade to not drawing rather than
+                // `todo!()` — which would abort the device on every frame an
+                // icon is on screen.
                 // let icon = rsact_icons::Icon::new(
                 //     icon_raw,
                 //     eg_top_left,

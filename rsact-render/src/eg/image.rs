@@ -16,7 +16,13 @@ impl<'a, C: Color + PixelColor> ImageDrawable for ImageRef<'a, C> {
     where
         D: embedded_graphics::prelude::DrawTarget<Color = Self::Color>,
     {
-        todo!()
+        // TODO(unimplemented): blit the image into the target. Degrade to a
+        // logged no-op instead of `todo!()` so drawing an Image does not abort.
+        log::warn!(
+            "ImageDrawable::draw is not implemented for the embedded-graphics \
+             backend; skipping"
+        );
+        Ok(())
     }
 
     fn draw_sub_image<D>(
@@ -27,6 +33,11 @@ impl<'a, C: Color + PixelColor> ImageDrawable for ImageRef<'a, C> {
     where
         D: embedded_graphics::prelude::DrawTarget<Color = Self::Color>,
     {
-        todo!()
+        // TODO(unimplemented): see `draw`. Logged no-op rather than `todo!()`.
+        log::warn!(
+            "ImageDrawable::draw_sub_image is not implemented for the \
+             embedded-graphics backend; skipping"
+        );
+        Ok(())
     }
 }

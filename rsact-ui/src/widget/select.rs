@@ -335,7 +335,11 @@ impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction + 'static> Widget<W>
                             // only text and rendering it through renderer, but
                             // then we'll probably lose some text properties
                             // handling.
-                            todo!()
+                            //
+                            // TODO(unimplemented): render option text. Degrade
+                            // to a no-op instead of `todo!()` so a Select with
+                            // options does not abort the device on render.
+                            Ok(())
                             // ctx.with_tree_style(
                             //     |tree_style| {
                             //         tree_style.text_color(

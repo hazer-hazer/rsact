@@ -389,7 +389,15 @@ impl<C: Color + PackedColor + PixelColor> Renderer
         // TODO: I don't want to allocate a vector for conversion between my
         // Point and EG Point, so better use custom primitive Polygon and
         // implement AA and non-AA rendering for it.
-        todo!()
+        //
+        // TODO(unimplemented): polygon rendering for the embedded-graphics
+        // backend. Skip (logged) instead of `todo!()` so drawing a polygon
+        // degrades to nothing rather than aborting the device.
+        log::warn!(
+            "polygon() is not implemented for the embedded-graphics renderer; \
+             skipping"
+        );
+        Ok(())
     }
 
     fn path(
@@ -538,7 +546,15 @@ impl<C: Color + PackedColor + PixelColor> Renderer
         // TODO: I don't want to allocate a vector for conversion between my
         // Point and EG Point, so better use custom primitive Polygon and
         // implement AA and non-AA rendering for it.
-        todo!()
+        //
+        // TODO(unimplemented): polygon rendering for the embedded-graphics
+        // backend. Skip (logged) instead of `todo!()` so drawing a polygon
+        // degrades to nothing rather than aborting the device.
+        log::warn!(
+            "polygon() is not implemented for the embedded-graphics renderer; \
+             skipping"
+        );
+        Ok(())
     }
 
     fn path(

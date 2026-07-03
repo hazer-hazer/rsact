@@ -10,6 +10,7 @@ version.workspace = true
 embedded-graphics = { workspace = true, optional = true }
 tiny-skia = { workspace = true, optional = true, features = ["no-std-float"] }
 num = { workspace = true }
+log = { workspace = true }
 rsact-reactive = { workspace = true }
 defmt = { workspace = true, optional = true }
 embedded-text = { workspace = true, optional = true }

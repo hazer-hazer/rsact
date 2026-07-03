@@ -55,11 +55,19 @@ impl<W: WidgetCtx> Widget<W> for Show<W> {
         // visibility-dependent events like mouse events, but not others?),
         // should their layout occupy space (surely no)? if self.show.
         // get() { self.el.render(ctx) } else { Ok(()) }
-        todo!()
+        //
+        // Until then: `Show` owns no visual of its own — the child `el` is a
+        // real arena node rendered by the tree walker, and visibility is driven
+        // by `el.layout().show(show)` (see `Show::new`), which resolves a hidden
+        // element to a zero layout. So a no-op render here is correct-enough and
+        // must not `todo!()` (that would abort the device on every frame).
+        Ok(())
     }
 
-    fn on_event(&mut self, _ctx: EventCtx<'_, W>) -> EventResponse {
-        todo!()
+    fn on_event(&mut self, ctx: EventCtx<'_, W>) -> EventResponse {
+        // See the render note: events reach the child through the arena. Ignore
+        // at this wrapper rather than panicking on the event path.
         // if self.show.get() { self.el.on_event(ctx) } else { ctx.ignore() }
+        ctx.ignore()
     }
 }
