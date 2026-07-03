@@ -712,6 +712,41 @@ mod tests {
         )
     }
 
+    /// Rebuilding a subtree must not leak the old subtree in the arena. A
+    /// `Dynamic` (factory closure) rebuilds its child on each signal change; the
+    /// arena's live-node count must stay constant across many rebuilds (before
+    /// the fix, each rebuild orphaned the old child subtree in `els`).
+    #[test]
+    fn arena_rebuild_does_not_leak_subtree() {
+        use crate::widget::{container::Container, label::Label};
+        use rsact_reactive::runtime::with_new_runtime;
+
+        with_new_runtime(|_| {
+            let mut rebuild = create_signal(0i32);
+            // Rebuilds are driven by the Dynamic's build effect on each `set`,
+            // so no render is needed (rendering the null theme would hit an
+            // unrelated pre-existing ColorStyle panic).
+            let page = create_null_page(move || {
+                rebuild.get(); // track: re-run the factory on each change
+                Container::new(Label::new("x".inert()).el())
+            });
+
+            let baseline = page.arena.with(|arena| arena.el_count());
+            assert!(baseline > 0, "arena should have nodes after first build");
+
+            for i in 1..=20 {
+                rebuild.set(i);
+            }
+
+            let after = page.arena.with(|arena| arena.el_count());
+            assert_eq!(
+                after, baseline,
+                "arena leaked {} node(s) across 20 rebuilds",
+                after as i64 - baseline as i64
+            );
+        });
+    }
+
     #[test]
     fn draw_on_demand() {
         let mut redraw_signal_data = String::new().signal();

@@ -283,6 +283,13 @@ impl<W: WidgetCtx> UI<W, WithPages> {
 
     // TODO: Should be public? We have MessageQueue
     pub fn goto(&mut self, page_id: W::PageId) {
+        // Bound the back-stack so repeated forward navigation on a long-running
+        // device can't grow it without limit. Drop the oldest entry past the
+        // cap (deep-enough back history for any realistic UI).
+        const MAX_PAGE_HISTORY: usize = 32;
+        if self.page_history.len() >= MAX_PAGE_HISTORY {
+            self.page_history.remove(0);
+        }
         self.page_history.push(page_id);
         self.on_page_change();
     }

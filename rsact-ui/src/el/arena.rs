@@ -52,6 +52,11 @@ impl<W: WidgetCtx> ArenaEls<W> {
             None
         })
     }
+
+    /// Number of live element nodes. Used to assert rebuilds don't leak.
+    pub(crate) fn len(&self) -> usize {
+        self.els.len()
+    }
 }
 
 type ArenaChildrenVec = tinyvec::TinyVec<[ElId; 1]>;
@@ -84,6 +89,10 @@ impl ArenaChildren {
 
     pub fn get(&self, parent: ElId) -> Option<&[ElId]> {
         self.children.get(parent).map(|v| v.as_slice())
+    }
+
+    pub fn remove(&mut self, parent: ElId) -> Option<ArenaChildrenVec> {
+        self.children.remove(parent)
     }
 }
 
@@ -153,13 +162,29 @@ impl<W: WidgetCtx> ElArena<W> {
         }
     }
 
+    /// Recursively remove `root` and its entire subtree from `els`, `children`
+    /// and `parents`. Iterative (heap worklist) so a deep tree can't overflow
+    /// the stack. Without this, replacing a subtree (every reactive rebuild —
+    /// `dynamic(...)`, tab switch, list update) would leak all descendants in
+    /// `els` and leave stale `children`/`parents` edges (unbounded growth).
+    fn remove_subtree(&mut self, root: ElId) {
+        let mut stack = alloc::vec![root];
+        while let Some(id) = stack.pop() {
+            if let Some(children) = self.children.remove(id) {
+                stack.extend(children.iter().copied());
+            }
+            self.parents.remove(id);
+            self.els.els.remove(id);
+        }
+    }
+
     pub fn set_children(&mut self, id: ElId, children: Vec<ElId>) {
         if self.els.els.contains_key(id) {
             let old_children = self.children.set(id, children);
 
             if let Some(old_children) = old_children {
                 old_children.iter().for_each(|child_id| {
-                    self.els.els.remove(*child_id);
+                    self.remove_subtree(*child_id);
                 });
             }
         } else {
@@ -178,7 +203,7 @@ impl<W: WidgetCtx> ElArena<W> {
             // children, but it is expensive to check this.
             if let Some(old_children) = old_children {
                 old_children.iter().for_each(|child_id| {
-                    self.els.els.remove(*child_id);
+                    self.remove_subtree(*child_id);
                 });
             }
         } else {
@@ -225,6 +250,11 @@ impl<W: WidgetCtx> ElArena<W> {
 
     pub fn children(&self, id: ElId) -> Option<&[ElId]> {
         self.children.get(id)
+    }
+
+    /// Number of live element nodes in the arena (test/diagnostics helper).
+    pub(crate) fn el_count(&self) -> usize {
+        self.els.len()
     }
 
     // pub fn set_children(&mut self, id: ElId, children: Vec<ElId>) {
