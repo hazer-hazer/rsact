@@ -307,6 +307,15 @@ pub struct Runtime {
     /// observer is disposed, so the map does not grow unbounded across page
     /// navigations (each rendered element mints an observe key).
     observer_hashes: RefCell<SecondaryMap<ValueId, u64>>,
+    /// Reused worklist for the iterative `mark_dirty` transitive walk. Cleared
+    /// (not reallocated) each write, so after warm-up it does not allocate.
+    mark_stack: RefCell<Vec<ValueId>>,
+    /// Per-node "last seen" generation for the `mark_dirty` walk's dedup.
+    /// Bumping [`mark_gen`](Runtime::mark_gen) invalidates every entry in O(1)
+    /// — no `clear()` (which would be O(capacity)) and no per-write allocation.
+    /// `u64` so the generation never wraps in any realistic device lifetime.
+    mark_seen: RefCell<SecondaryMap<ValueId, u64>>,
+    mark_gen: Cell<u64>,
     hasher: RandomState,
 }
 
@@ -324,6 +333,9 @@ impl Runtime {
             defer_effects: Cell::new(0),
             static_observers: Default::default(),
             observer_hashes: Default::default(),
+            mark_stack: Default::default(),
+            mark_seen: Default::default(),
+            mark_gen: Cell::new(0),
             hasher: RandomState::new(),
         }
     }
@@ -990,25 +1002,70 @@ impl Runtime {
     ) {
         self.mark_node(id, ValueState::Dirty, requester, caller);
 
-        // TODO: Find other way to deal with recursive dependencies than
-        // BTreeSet?
-        let mut deps = BTreeSet::new();
-        Self::get_deep_deps(&self.subscribers.borrow(), &mut deps, id);
-        for dep in deps {
-            self.mark_node(dep, ValueState::Check, requester, caller);
+        // Walk the transitive subscriber closure iteratively (heap worklist,
+        // not the call stack — so a deep chain can't overflow the stack, which
+        // matters on embedded's tiny stacks) and mark each node `Check` exactly
+        // once. Dedup uses a per-node generation stamp: bumping `mark_gen`
+        // invalidates all prior stamps in O(1), so there is no per-write
+        // allocation and no O(capacity) `clear`.
+        let generation = self.mark_gen.get().wrapping_add(1);
+        self.mark_gen.set(generation);
+
+        // Reuse the per-runtime scratch buffers. `mark_dirty` is never entered
+        // re-entrantly (its walk only calls `mark_node`, which never writes a
+        // signal), but if that ever changes, fall back to fresh locals so the
+        // walk stays correct instead of panicking on the scratch borrow.
+        match (self.mark_stack.try_borrow_mut(), self.mark_seen.try_borrow_mut())
+        {
+            (Ok(mut stack), Ok(mut seen)) => {
+                stack.clear();
+                self.mark_check_closure(
+                    id, generation, requester, caller, &mut stack, &mut seen,
+                );
+            },
+            _ => {
+                let mut stack = Vec::new();
+                let mut seen = SecondaryMap::new();
+                self.mark_check_closure(
+                    id, generation, requester, caller, &mut stack, &mut seen,
+                );
+            },
         }
     }
 
-    fn get_deep_deps(
-        subscribers: &SecondaryMap<ValueId, IdVec>,
-        deps: &mut BTreeSet<ValueId>,
-        id: ValueId,
+    /// Iterative transitive-subscriber walk used by [`mark_dirty`]: marks every
+    /// node reachable from `root`'s subscribers `Check`, each exactly once
+    /// (deduped by `generation` stamp in `seen`). `stack` is the worklist.
+    fn mark_check_closure(
+        &self,
+        root: ValueId,
+        generation: u64,
+        requester: Option<ValueId>,
+        caller: &'static Location<'static>,
+        stack: &mut Vec<ValueId>,
+        seen: &mut SecondaryMap<ValueId, u64>,
     ) {
-        if let Some(subs) = subscribers.get(id) {
-            for sub in subs.iter() {
-                // `insert` returns false if already present — dedups the walk.
-                if deps.insert(*sub) {
-                    Self::get_deep_deps(subscribers, deps, *sub);
+        // Hold the subscribers borrow for the whole walk — `mark_node` touches
+        // storage and pending_effects, never the subscribers map.
+        let subscribers = self.subscribers.borrow();
+
+        if let Some(direct) = subscribers.get(root) {
+            for &sub in direct.iter() {
+                if seen.get(sub).copied() != Some(generation) {
+                    seen.insert(sub, generation);
+                    stack.push(sub);
+                }
+            }
+        }
+
+        while let Some(node) = stack.pop() {
+            self.mark_node(node, ValueState::Check, requester, caller);
+            if let Some(children) = subscribers.get(node) {
+                for &child in children.iter() {
+                    if seen.get(child).copied() != Some(generation) {
+                        seen.insert(child, generation);
+                        stack.push(child);
+                    }
                 }
             }
         }
@@ -1573,10 +1630,11 @@ impl Display for Profile {
 #[cfg(test)]
 mod tests {
     use super::CURRENT_RUNTIME;
+    use alloc::vec::Vec;
     use crate::{
         ReactiveValue as _,
         effect::create_effect,
-        memo::create_memo,
+        memo::{Memo, create_memo},
         read::ReadSignal,
         runtime::{
             RUNTIMES, observe, observe_by_location, with_current_runtime,
@@ -1920,6 +1978,133 @@ mod tests {
                 0,
                 "observer_hashes reverse index not pruned on dispose"
             );
+        });
+    }
+
+    // ---- Propagation-core corner cases (guard the mark_dirty rewrite) ----
+
+    /// A diamond (s -> a, s -> b, {a,b} -> d) must recompute the apex `d`
+    /// exactly once per source change. This guards against the mark_dirty
+    /// dedup dropping or double-visiting a shared descendant.
+    #[test]
+    fn diamond_marks_each_node_once() {
+        with_new_runtime(|_| {
+            let mut s = create_signal(0i32);
+            let a = create_memo(move || s.get() + 1);
+            let b = create_memo(move || s.get() + 2);
+            let d_runs = Rc::new(Cell::new(0u32));
+            let dr = d_runs.clone();
+            let d = create_memo(move || {
+                dr.set(dr.get() + 1);
+                a.get() + b.get()
+            });
+
+            assert_eq!(d.get(), 3);
+            assert_eq!(d_runs.get(), 1);
+
+            s.set(10);
+            assert_eq!(d.get(), 23);
+            assert_eq!(
+                d_runs.get(),
+                2,
+                "diamond apex must recompute exactly once per source change"
+            );
+        });
+    }
+
+    /// One signal fanning out to N memos: each recomputes exactly once after a
+    /// single source change (no missed and no duplicate marking).
+    #[test]
+    fn wide_fanout_recomputes_each_once() {
+        with_new_runtime(|_| {
+            let mut s = create_signal(0i32);
+            let runs = Rc::new(Cell::new(0u32));
+            let memos: Vec<_> = (0..64)
+                .map(|k| {
+                    let r = runs.clone();
+                    create_memo(move || {
+                        r.set(r.get() + 1);
+                        s.get() + k
+                    })
+                })
+                .collect();
+
+            for m in &memos {
+                m.get();
+            }
+            assert_eq!(runs.get(), 64);
+
+            s.set(1);
+            for m in &memos {
+                m.get();
+            }
+            assert_eq!(
+                runs.get(),
+                128,
+                "each memo must recompute exactly once after one source change"
+            );
+        });
+    }
+
+    /// An effect that writes another signal triggers a nested notify ->
+    /// mark_dirty *during* the outer effect flush. The downstream effect must
+    /// still see the new value (exercises re-entrant mark_dirty; the reused
+    /// scratch buffers must not be corrupted by nesting).
+    #[test]
+    fn reentrant_write_during_effect_propagates() {
+        with_new_runtime(|_| {
+            let mut a = create_signal(0i32);
+            let b = create_signal(0i32);
+
+            // Effect reading `a` writes `b = a * 2`.
+            let mut eb = b;
+            create_effect(move |_: Option<()>| {
+                let v = a.get();
+                eb.set(v * 2);
+            });
+
+            // Effect reading `b` records the last value seen.
+            let seen = Rc::new(Cell::new(-1i32));
+            let sc = seen.clone();
+            create_effect(move |_: Option<()>| {
+                sc.set(b.get());
+            });
+
+            assert_eq!(seen.get(), 0);
+
+            a.set(5);
+            assert_eq!(
+                seen.get(),
+                10,
+                "nested write during an effect flush must propagate downstream"
+            );
+        });
+    }
+
+    /// A deep linear dependency chain propagates correctly. The `mark_dirty`
+    /// *push* walk is now iterative (heap worklist), so marking is O(1)-stack at
+    /// any depth. NOTE: the *pull* phase (`maybe_update` → `update` → callback →
+    /// `.get()` → `maybe_update`) is still recursive and stack-heavy (~2KB per
+    /// chain level), so a deep chain still overflows on `.get()` — iterativizing
+    /// the pull phase is a tracked follow-up. Depth here is kept small so the
+    /// recursive pull stays within the (2MB) test-thread stack while still
+    /// exercising deep marking + multi-level settling.
+    #[test]
+    fn deep_chain_propagates() {
+        with_new_runtime(|_| {
+            const DEPTH: usize = 100;
+            let mut s = create_signal(0i32);
+            let mut prev: Memo<i32> = create_memo(move || s.get());
+            for _ in 0..DEPTH {
+                let p = prev;
+                prev = create_memo(move || p.get() + 1);
+            }
+            let leaf = prev;
+
+            assert_eq!(leaf.get(), DEPTH as i32);
+            // This write drives the iterative mark_dirty walk across the chain.
+            s.set(1000);
+            assert_eq!(leaf.get(), 1000 + DEPTH as i32);
         });
     }
 }
