@@ -55,6 +55,10 @@ embedded-graphics = [
 tiny-icons = ["dep:rsact-tiny-icons"]
 u8g2-fonts = ["dep:u8g2-fonts", "embedded-graphics"]
 single-thread = ["rsact-reactive/single-thread"]
+# no_std, single-execution-context only (no critical-section). See
+# rsact-reactive's `unsafe-single-thread`. NOTE: a full no_std rsact-ui build is
+# still blocked by the eg primitives' std-only f32 math — a separate task.
+unsafe-single-thread = ["rsact-reactive/unsafe-single-thread"]
 std = ["log/std", "rsact-reactive/std", "tiny-skia/png-format"]
 # TODO: Print pretty blocks in terminal showing layout problems: overflows, insufficient sizes, etc.
 layout-diagnostics = []

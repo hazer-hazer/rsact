@@ -1,6 +1,5 @@
 [dependencies]
 log = { workspace = true }
-once_cell = { workspace = true }
 replace_with = { workspace = true }
 rsact-macros = { workspace = true }
 slotmap = { workspace = true }
@@ -8,6 +7,10 @@ tinyvec.workspace = true
 ahash = { version = "0.8.12", default-features = false, features = [
     "compile-time-rng",
 ] }
+# Only pulled by the (default no_std) `single-thread` backend, which guards all
+# runtime access with `critical_section::with`. The `unsafe-single-thread`
+# backend does NOT enable it, so no critical-section impl is required there.
+critical-section = { version = "1.2", optional = true }
 
 [dev-dependencies]
 criterion = "0.8.2"
@@ -22,8 +25,18 @@ version.workspace = true
 [features]
 default = ["default-runtime"]
 default-runtime = []
-single-thread = []
 std = []
+# no_std reactive storage. Exactly one of std / single-thread /
+# unsafe-single-thread must be enabled.
+#   single-thread        — sound: every runtime access is wrapped in
+#                          `critical_section::with` (interrupts off on single
+#                          core, spinlock on multicore). Needs a critical-section
+#                          impl from the target (cortex-m, critical-section/std…).
+#   unsafe-single-thread — fast: bare `unsafe impl Sync` global, no
+#                          critical-section. SOUND ONLY if the runtime is touched
+#                          from exactly one execution context (no ISRs, one core).
+single-thread = ["dep:critical-section"]
+unsafe-single-thread = []
 debug-info = []
 async = []
 

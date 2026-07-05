@@ -1,48 +1,91 @@
-#[cfg(any(
-    all(feature = "single-thread", feature = "std",),
-    not(any(feature = "single-thread", feature = "std"))
+//! Reactive-storage backend for the global runtime.
+//!
+//! The reactive [`Runtime`](crate::runtime::Runtime) is `!Send`/`!Sync` (it
+//! holds `Rc`/`RefCell` — that is what makes the engine cheap), so it can't
+//! normally live in a `static`. Exactly one backend must be selected:
+//!
+//! - **`std`** — real [`std::thread_local!`]; one runtime per OS thread. No
+//!   `unsafe`. Used for host builds/tests.
+//! - **`single-thread`** — no_std, **sound**: every access is wrapped in
+//!   `critical_section::with`, which serialises access (interrupts off on a
+//!   single core, a hardware spinlock on multicore, an RTOS primitive under an
+//!   RTOS). Requires a `critical-section` impl from the target.
+//! - **`unsafe-single-thread`** — no_std, **fast + unsafe**: a bare global with
+//!   no critical section. Sound *only* if the runtime is touched from exactly
+//!   one execution context (no interrupt handlers, one core). Pulls no
+//!   `critical-section` dependency; the promise is entirely on the caller (same
+//!   trade-off as Slint's `unsafe-single-threaded`).
+
+#[cfg(not(any(
+    feature = "std",
+    feature = "single-thread",
+    feature = "unsafe-single-thread"
+)))]
+compile_error!(
+    "rsact-reactive needs one reactive-storage backend: enable `std`, \
+     `single-thread` (no_std, critical-section-guarded), or \
+     `unsafe-single-thread` (no_std, single-execution-context only)."
+);
+#[cfg(all(
+    feature = "std",
+    any(feature = "single-thread", feature = "unsafe-single-thread")
 ))]
-compile_error!("Either `std` or `single-thread` feature is required!");
+compile_error!(
+    "`std` is mutually exclusive with the no_std backends `single-thread` / \
+     `unsafe-single-thread`."
+);
+#[cfg(all(feature = "single-thread", feature = "unsafe-single-thread"))]
+compile_error!(
+    "Enable only one of `single-thread` or `unsafe-single-thread`."
+);
 
-#[cfg(feature = "single-thread")]
+#[cfg(any(feature = "single-thread", feature = "unsafe-single-thread"))]
 pub mod fake_thread_local {
-    use once_cell::sync::Lazy;
+    use core::cell::OnceCell;
 
-    /// A `thread_local!` stand-in for `no_std` single-threaded targets: one
-    /// process-global cell, initialised lazily.
-    ///
-    /// It replaces the runtime's thread-local storage when the `single-thread`
-    /// feature is on. The whole reactive runtime is reached through it, so it
-    /// must be `Sync` to live in a `static` — hence the manual impl below.
-    pub struct FakeThreadLocal<T: 'static>(Lazy<T>);
+    /// A `thread_local!` stand-in for `no_std`: one lazily-initialised
+    /// process-global cell. See the [module docs](crate::thread_local) for the
+    /// backend semantics.
+    pub struct FakeThreadLocal<T: 'static> {
+        cell: OnceCell<T>,
+        init: fn() -> T,
+    }
 
-    // SAFETY: This `Sync` is a *promise the caller must uphold*, not a real one.
-    // `T` (the reactive `Runtime`) is `!Sync` (it holds `Rc`/`RefCell`), so this
-    // is only sound when the value is accessed from a single execution context.
-    //
-    // The `single-thread` feature is explicitly for bare-metal, single-core,
-    // no-preemption targets where that holds. It is UNSOUND to enable on:
-    //   - a multi-core MCU (e.g. RP2040, ESP32) where both cores could touch it,
-    //   - any target where an interrupt/RTOS task reads or writes reactive state
-    //     concurrently with the main context.
-    // For those, access must be serialised by a real `critical_section` (a
-    // `critical-section` impl is already required to link `single-thread`); that
-    // is a known gap tracked in the audit (`thread-local-runtime-vs-embedded-
-    // reality`), not something this impl provides.
+    // SAFETY:
+    // - `single-thread`: `with` is the only accessor and always runs inside
+    //   `critical_section::with`, which grants exclusive, memory-barriered
+    //   access across cores/interrupts. The `!Send` value is therefore never
+    //   accessed concurrently — exactly what `Sync` requires. (`critical-section`
+    //   itself only requires `T: Send` for its `Mutex`; we relax that because we
+    //   never hand out a reference outside the critical section, so the value is
+    //   effectively pinned to one context.)
+    // - `unsafe-single-thread`: an unchecked promise (documented on the feature)
+    //   that the caller only ever touches the runtime from a single execution
+    //   context. Using it from an ISR or a second core is undefined behaviour.
     unsafe impl<T: 'static> Sync for FakeThreadLocal<T> {}
 
     impl<T: 'static> FakeThreadLocal<T> {
-        pub const fn new(f: fn() -> T) -> Self {
-            Self(Lazy::new(f))
+        pub const fn new(init: fn() -> T) -> Self {
+            Self { cell: OnceCell::new(), init }
         }
-    }
 
-    impl<T: 'static> FakeThreadLocal<T> {
-        pub fn with<F, R>(&'static self, f: F) -> R
-        where
-            F: FnOnce(&T) -> R,
-        {
-            f(&self.0)
+        #[inline]
+        pub fn with<R>(&'static self, f: impl FnOnce(&T) -> R) -> R {
+            #[cfg(feature = "single-thread")]
+            {
+                // `critical_section::with` is reentrant: nested `with` calls (a
+                // signal read inside an effect inside a flush, or the lazy-init
+                // block below touching another cell) are fine — only the
+                // outermost actually toggles interrupts / takes the lock.
+                critical_section::with(|_| f(self.cell.get_or_init(self.init)))
+            }
+            #[cfg(all(
+                feature = "unsafe-single-thread",
+                not(feature = "single-thread")
+            ))]
+            {
+                f(self.cell.get_or_init(self.init))
+            }
         }
     }
 
@@ -51,7 +94,8 @@ pub mod fake_thread_local {
 
         ($(#[$attr:meta])* $vis:vis static $name:ident: $t:ty = $init:expr; $($rest:tt)*) => (
             $(#[$attr])*
-            $vis static $name: $crate::thread_local::fake_thread_local::FakeThreadLocal<$t> = $crate::thread_local::fake_thread_local::FakeThreadLocal::new(|| $init);
+            $vis static $name: $crate::thread_local::fake_thread_local::FakeThreadLocal<$t> =
+                $crate::thread_local::fake_thread_local::FakeThreadLocal::new(|| $init);
 
             $crate::thread_local::fake_thread_local::thread_local_impl!($($rest)*);
         );
@@ -60,7 +104,7 @@ pub mod fake_thread_local {
     pub(crate) use thread_local_impl;
 }
 
-#[cfg(all(feature = "single-thread", not(feature = "std")))]
+#[cfg(any(feature = "single-thread", feature = "unsafe-single-thread"))]
 pub(crate) use fake_thread_local::thread_local_impl;
 #[cfg(feature = "std")]
 pub(crate) use std::thread_local as thread_local_impl;
