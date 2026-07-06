@@ -1,10 +1,12 @@
 use crate::{el::ctx::WidgetCtx, render::prelude::*};
 use alloc::collections::btree_map::BTreeMap;
-use core::{
-    fmt::{Debug, Display},
-    sync::atomic::AtomicUsize,
-};
+use core::fmt::{Debug, Display};
 use fixed::{FixedFont, FixedFontCollection};
+// portable-atomic gives `AtomicUsize::fetch_add` on no-CAS targets (thumbv6m),
+// where `core::sync::atomic::AtomicUsize` has no CAS ops. Native instructions
+// on thumbv7m+. See the thumbv6m note in the README for the fallback the end
+// product must select.
+use portable_atomic::{AtomicUsize, Ordering};
 use rsact_reactive::prelude::*;
 
 pub mod fixed;
@@ -285,9 +287,7 @@ impl Display for FontId {
 
 impl FontId {
     pub fn unique() -> Self {
-        Self::Unique(
-            FONT_UNIQUE_ID.fetch_add(1, core::sync::atomic::Ordering::Relaxed),
-        )
+        Self::Unique(FONT_UNIQUE_ID.fetch_add(1, Ordering::Relaxed))
     }
 }
 

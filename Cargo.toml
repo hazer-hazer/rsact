@@ -49,6 +49,12 @@ embedded-time = { version = "0.12.1" }
 log = { version = "0.4.30", default-features = false, features = [] }
 micromath = { version = "2.1.0", features = ["num-traits"] }
 num = { version = "0.4.3", default-features = false, features = ["libm"] }
+# Portable atomics: native instructions on thumbv7m+, and on no-CAS targets
+# (thumbv6m) the *end product* selects the fallback — either the
+# `critical-section` feature on its own portable-atomic dep or
+# `--cfg portable_atomic_unsafe_assume_single_core` in RUSTFLAGS. No rsact
+# feature wiring; see the thumbv6m note in the README.
+portable-atomic = { version = "1", default-features = false }
 # Float-method trait for the no_std `libm` math backend of rsact-render. The
 # `libm` feature is forwarded per-crate (not enabled here), so std builds keep
 # using std math; `default-features = false` keeps num-traits off std.

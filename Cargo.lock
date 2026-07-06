@@ -1500,6 +1500,7 @@ dependencies = [
  "log",
  "num 0.4.3",
  "paw",
+ "portable-atomic",
  "rand",
  "rsact-macros",
  "rsact-reactive",

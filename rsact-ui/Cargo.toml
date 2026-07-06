@@ -18,6 +18,7 @@ embedded-time = { workspace = true }
 itertools = { version = "0.14.0", default-features = false }
 log = { workspace = true }
 num = { workspace = true }
+portable-atomic = { workspace = true }
 rsact-tiny-icons = { workspace = true, features = [
     "common",
     "all-sizes",
