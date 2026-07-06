@@ -1,3 +1,5 @@
+#[allow(unused)]
+use crate::FloatExt as _;
 use crate::{
     color::Color,
     eg::{framebuf::PackedColor, primitives::EgPrimitive},
@@ -55,10 +57,13 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Sector {
             // let rx = (r_outer.powi(2) - y.pow(2) as f32).sqrt().ceil() as
             // i32;
             for x in -draw_radius..=draw_radius {
-                // Normalize angle
-                let angle = (y as f32)
-                    .atan2(x as f32)
-                    .rem_euclid(2.0 * f32::consts::PI);
+                // Normalize angle into [0, 2*PI). `atan2` returns (-PI, PI], so
+                // a single branch is equivalent to `rem_euclid(2*PI)` here — and
+                // `rem_euclid` is not on `num_traits::Float` (the `libm` FloatExt
+                // backend), only on `micromath::F32Ext`.
+                let raw = (y as f32).atan2(x as f32);
+                let angle =
+                    if raw < 0.0 { raw + 2.0 * f32::consts::PI } else { raw };
                 let angle_in_range = if sweep_radians > 0.0 {
                     angle >= start_radians && angle <= end_radians
                 } else {

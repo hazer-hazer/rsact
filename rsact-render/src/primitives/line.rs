@@ -1,6 +1,6 @@
-use crate::{geometry::*, primitives::Primitive};
 #[allow(unused)]
-use num::Float as _;
+use crate::FloatExt as _;
+use crate::{geometry::*, primitives::Primitive};
 
 // TODO: Canonize Line when constructing? Swap start and end in to always keep
 // start.x < end.x?

@@ -9,7 +9,11 @@ version.workspace = true
 [dependencies]
 embedded-graphics = { workspace = true, optional = true }
 tiny-skia = { workspace = true, optional = true, features = ["no-std-float"] }
-num = { workspace = true }
+# no_std f32 math backends — exactly one, selected by the `libm`/`micromath`
+# features below. On std the inherent `f32` methods shadow the trait, so the
+# `FloatExt` re-export in lib.rs is a no-op for the host/simulator build.
+num-traits = { workspace = true, optional = true }
+micromath = { workspace = true, optional = true }
 log = { workspace = true }
 rsact-reactive = { workspace = true }
 defmt = { workspace = true, optional = true }
@@ -18,13 +22,20 @@ embedded-graphics-simulator = { workspace = true, optional = true }
 slotmap = { workspace = true }
 
 [features]
+default = ["libm"]
 # `std` forwards a reactive backend so the crate (and its tests) build on their
 # own for host testing — rsact-reactive requires a backend feature, otherwise
-# only feature-unification from a downstream crate provides one. (A no_std
-# `single-thread` passthrough is intentionally omitted: the eg primitives still
-# use std-only f32 math (ceil/powi), a separate no_std-math task; on device the
-# backend arrives via unification from rsact-ui.)
+# only feature-unification from a downstream crate provides one. On std the
+# inherent `f32` methods shadow `FloatExt`, so std builds use std math with zero
+# cfg regardless of which math backend is enabled.
 std = ["rsact-reactive/std", "log/std"]
+# no_std f32 math backend — exactly one of these must be enabled (enforced by a
+# `compile_error!` in lib.rs, same pattern as rsact-reactive's storage
+# backends). `libm` (default) uses `num_traits::Float` (accurate, forwards
+# `num-traits/libm`); `micromath` (opt-in) uses `micromath::F32Ext` (faster
+# approximations at some accuracy cost — the user decides).
+libm = ["dep:num-traits", "num-traits/libm"]
+micromath = ["dep:micromath"]
 tiny-skia = ["dep:tiny-skia"]
 embedded-graphics = ["dep:embedded-graphics", "dep:embedded-text"]
 defmt = ["dep:defmt"]

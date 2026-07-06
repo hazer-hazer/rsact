@@ -1,3 +1,5 @@
+#[allow(unused)]
+use crate::FloatExt as _;
 use crate::{
     layer::{Layering, Surface},
     output::{FinishRender, MapColor, pixel::Pixel},
@@ -5,8 +7,6 @@ use crate::{
     tiny_skia::path::PathBuilderExt,
 };
 use core::marker::PhantomData;
-#[allow(unused)]
-use num::Float as _;
 use tiny_skia::{
     IntSize, Paint, Pixmap, PixmapPaint, PixmapRef, PremultipliedColorU8,
     Transform,

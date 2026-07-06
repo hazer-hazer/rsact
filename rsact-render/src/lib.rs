@@ -1,5 +1,25 @@
 #![no_std]
 
+// no_std f32 math backend. Exactly one of `libm` (default) / `micromath` must
+// be enabled — same mutually-exclusive contract as rsact-reactive's storage
+// backends. `FloatExt` is the float-method trait the geometry and primitive
+// code brings into scope with `use crate::FloatExt as _;`. On `std` builds the
+// inherent `f32` methods shadow the trait, so the simulator uses std math with
+// zero cfg; the trait only supplies the methods on no_std targets.
+#[cfg(all(feature = "libm", feature = "micromath"))]
+compile_error!(
+    "rsact-render: features `libm` and `micromath` are mutually exclusive — enable exactly one math backend"
+);
+#[cfg(not(any(feature = "libm", feature = "micromath")))]
+compile_error!(
+    "rsact-render: a float-math backend is required — enable `libm` (default) or `micromath`"
+);
+
+#[cfg(all(feature = "micromath", not(feature = "libm")))]
+pub use micromath::F32Ext as FloatExt;
+#[cfg(all(feature = "libm", not(feature = "micromath")))]
+pub use num_traits::Float as FloatExt;
+
 pub mod color;
 pub mod geometry;
 pub mod image;

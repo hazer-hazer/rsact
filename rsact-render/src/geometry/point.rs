@@ -1,11 +1,11 @@
+#[allow(unused)]
+use crate::FloatExt as _;
 use crate::geometry::{Axial, size::Size};
 use core::{
     fmt::Display,
     num::TryFromIntError,
     ops::{Add, AddAssign, Div, Mul, Neg, Sub, SubAssign},
 };
-#[allow(unused)]
-use num::Float as _;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Point {

@@ -35,6 +35,7 @@
     "single-thread",
     "debug-info",
     "async",
+    "libm",
     "tiny-skia",
     "simulator",
     "embedded-graphics",
@@ -48,6 +49,7 @@
     "single-thread",
     "debug-info",
     "simulator",
+    "libm",
     "tiny-skia"
     // "async"
   ],

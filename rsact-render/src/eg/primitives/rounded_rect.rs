@@ -1,3 +1,5 @@
+#[allow(unused)]
+use crate::FloatExt as _;
 use crate::{
     color::Color,
     eg::{framebuf::PackedColor, primitives::EgPrimitive},

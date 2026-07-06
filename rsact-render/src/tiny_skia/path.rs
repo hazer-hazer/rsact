@@ -1,3 +1,5 @@
+#[allow(unused)]
+use crate::FloatExt as _;
 use crate::{
     geometry::{Angle, Point, Rect, Size},
     prelude::CornerRadii,

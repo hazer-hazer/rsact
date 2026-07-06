@@ -47,9 +47,12 @@ embedded-graphics-simulator = { version = "0.8.0" }
 embedded-text = "0.7.2"
 embedded-time = { version = "0.12.1" }
 log = { version = "0.4.30", default-features = false, features = [] }
-# TODO: feature-gated
 micromath = { version = "2.1.0", features = ["num-traits"] }
 num = { version = "0.4.3", default-features = false, features = ["libm"] }
+# Float-method trait for the no_std `libm` math backend of rsact-render. The
+# `libm` feature is forwarded per-crate (not enabled here), so std builds keep
+# using std math; `default-features = false` keeps num-traits off std.
+num-traits = { version = "0.2.19", default-features = false }
 libm = { version = "0.2.16" }
 replace_with = { version = "0.1.7", default-features = false }
 slotmap = { version = "1.0.7", default-features = false }

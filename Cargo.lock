@@ -900,6 +900,9 @@ name = "micromath"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3c8dda44ff03a2f238717214da50f65d5a53b45cd213a7370424ffdb6fae815"
+dependencies = [
+ "num-traits",
+]
 
 [[package]]
 name = "miniz_oxide"
@@ -1455,7 +1458,8 @@ dependencies = [
  "embedded-graphics-simulator",
  "embedded-text",
  "log",
- "num 0.4.3",
+ "micromath",
+ "num-traits",
  "rsact-reactive",
  "slotmap",
  "tiny-skia 0.12.0",
