@@ -38,7 +38,6 @@ cap = { workspace = true }
 criterion = "0.8"
 fake = "4.0.0"
 rand = "0.9"
-paw = { path = "../../paw" }
 env_logger = { workspace = true }
 embedded-graphics-simulator = { workspace = true }
 
