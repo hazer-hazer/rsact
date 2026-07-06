@@ -1410,15 +1410,16 @@ impl Runtime {
 
 pub fn current_runtime_profile() -> Profile {
     with_current_runtime(|rt| {
-        let (stored, signals, effects, memos, computed) =
+        let (stored, signals, effects, memos, computed, observers) =
             rt.storage.values.borrow().values().fold(
-                (0, 0, 0, 0, 0),
+                (0, 0, 0, 0, 0, 0),
                 |(
                     mut stored,
                     mut signals,
                     mut effects,
                     mut memos,
                     mut computed,
+                    mut observers,
                 ),
                  value| {
                     match &value.kind {
@@ -1427,10 +1428,10 @@ pub fn current_runtime_profile() -> Profile {
                         ValueKind::Effect { .. } => effects += 1,
                         ValueKind::Memo { .. } => memos += 1,
                         ValueKind::Computed { .. } => computed += 1,
-                        ValueKind::Observer { .. } => {},
+                        ValueKind::Observer { .. } => observers += 1,
                     }
 
-                    (stored, signals, effects, memos, computed)
+                    (stored, signals, effects, memos, computed, observers)
                 },
             );
 
@@ -1492,6 +1493,7 @@ pub fn current_runtime_profile() -> Profile {
             effects,
             memos,
             computed,
+            observers,
             subscribers: rt.subscribers.borrow().len(),
             subscribers_bindings,
             sources: rt.sources.borrow().len(),
@@ -1505,18 +1507,25 @@ pub fn current_runtime_profile() -> Profile {
     })
 }
 
+/// A snapshot of the reactive runtime's node population and edge counts.
+///
+/// Fields are public so external tooling (the `metrics-probe` snapshot tool)
+/// can serialize them; the values are a read-only sample and hold no runtime
+/// borrow. `observers` counts polled [`crate::runtime::observe`]-style nodes
+/// (`ValueKind::Observer`), which the pre-metrics profile ignored.
 #[derive(Clone, Copy)]
 pub struct Profile {
-    stored: usize,
-    signals: usize,
-    effects: usize,
-    memos: usize,
-    computed: usize,
-    subscribers: usize,
-    subscribers_bindings: usize,
-    sources: usize,
-    sources_bindings: usize,
-    pending_effects: usize,
+    pub stored: usize,
+    pub signals: usize,
+    pub effects: usize,
+    pub memos: usize,
+    pub computed: usize,
+    pub observers: usize,
+    pub subscribers: usize,
+    pub subscribers_bindings: usize,
+    pub sources: usize,
+    pub sources_bindings: usize,
+    pub pending_effects: usize,
     #[cfg(feature = "debug-info")]
     top_by_subs: Option<(&'static Location<'static>, usize)>,
     #[cfg(feature = "debug-info")]
@@ -1533,12 +1542,14 @@ impl Display for Profile {
                 + self.effects
                 + self.memos
                 + self.computed
+                + self.observers
         )?;
         writeln!(f, "  {} stored", self.stored)?;
         writeln!(f, "  {} signals", self.signals)?;
         writeln!(f, "  {} effects", self.effects)?;
         writeln!(f, "  {} memos", self.memos)?;
         writeln!(f, "  {} computed", self.computed)?;
+        writeln!(f, "  {} observers", self.observers)?;
         writeln!(
             f,
             "{} subscribers ({} bindings), {} sources ({} bindings), {} pending effects",
