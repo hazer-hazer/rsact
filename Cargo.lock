@@ -896,6 +896,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "metrics-probe"
+version = "0.1.0"
+dependencies = [
+ "rsact-reactive",
+ "rsact-ui",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "micromath"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

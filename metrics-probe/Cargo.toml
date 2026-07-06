@@ -1,0 +1,25 @@
+[package]
+name = "metrics-probe"
+description = "Local-first Layer-1 framework-metrics snapshot/diff tool for rsact (WS0.3)"
+edition.workspace = true
+license.workspace = true
+publish = false
+version.workspace = true
+
+# Host-only tooling: measures framework metrics (reactive node counts, heap,
+# allocs/frame, layout counters) on the host with an instrumented allocator,
+# stores per-commit JSON snapshots keyed by `git rev-parse HEAD`, diffs two
+# snapshots, and regenerates a self-contained static HTML viewer.
+#
+# `std` + `embedded-graphics` on rsact-ui provide the reactive-storage backend
+# and a font provider (needed to build/measure real widget pages headlessly via
+# NullRenderer). `layout-counters` feeds the layout metrics (WS0.5) into the
+# snapshot when built with it.
+[dependencies]
+rsact-reactive = { workspace = true, features = ["std"] }
+rsact-ui = { workspace = true, features = ["std", "embedded-graphics"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lints]
+workspace = true

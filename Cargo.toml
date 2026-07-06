@@ -17,6 +17,7 @@ members = [
   "rsact-tiny-icons",    # "rsact-widgets",
   "rsact-macros",
   "rsact-render",
+  "metrics-probe",
 ]
 resolver = "3"
 

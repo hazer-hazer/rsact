@@ -1,2 +1,7 @@
 **/target/
 **/Cargo.lock
+
+# metrics-probe (WS0.3): local-first snapshot store + generated viewer.
+# Snapshots are per-dev/per-commit local artifacts; CI archives its own.
+/metrics/snapshots/
+/metrics/index.html
