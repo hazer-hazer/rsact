@@ -38,7 +38,7 @@ libm = ["dep:num-traits", "num-traits/libm"]
 micromath = ["dep:micromath"]
 tiny-skia = ["dep:tiny-skia"]
 embedded-graphics = ["dep:embedded-graphics", "dep:embedded-text"]
-defmt = ["dep:defmt"]
+defmt = ["dep:defmt", "embedded-graphics?/defmt"]
 
 [lints]
 workspace = true

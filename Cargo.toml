@@ -42,8 +42,11 @@ defmt = { version = "0.3.8" }
 derivative = { version = "2.2.0", default-features = false, features = [
   "use_core",
 ] }
-embedded-graphics = { version = "0.8.1", features = ["defmt"] }
-embedded-graphics-core = { version = "0.4.0", features = ["defmt"] }
+# defmt is NOT forced here — it pulled a second defmt (1.x) into every
+# embedded-graphics build. It is opt-in and forwarded through each crate's
+# `defmt` feature (`embedded-graphics?/defmt`).
+embedded-graphics = { version = "0.8.1" }
+embedded-graphics-core = { version = "0.4.0" }
 embedded-graphics-simulator = { version = "0.8.0" }
 embedded-text = "0.7.2"
 embedded-time = { version = "0.12.1" }
@@ -63,7 +66,6 @@ num-traits = { version = "0.2.19", default-features = false }
 libm = { version = "0.2.16" }
 replace_with = { version = "0.1.7", default-features = false }
 slotmap = { version = "1.0.7", default-features = false }
-smallvec = { version = "1.13.2" }
 tinyvec = { version = "1.9.0", features = ["alloc"] }
 u8g2-fonts = "0.8.0"
 env_logger = "0.11.10"

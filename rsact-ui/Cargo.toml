@@ -54,7 +54,11 @@ required-features = ["std", "embedded-graphics"]
 default = []
 
 debug-info = ["rsact-reactive/debug-info"]
-defmt = ["dep:defmt"]
+defmt = [
+    "dep:defmt",
+    "embedded-graphics?/defmt",
+    "embedded-graphics-core?/defmt",
+]
 simulator = ["dep:embedded-graphics-simulator", "embedded-graphics"]
 embedded-graphics = [
     "dep:embedded-graphics",
@@ -69,7 +73,10 @@ single-thread = ["rsact-reactive/single-thread"]
 # rsact-reactive's `unsafe-single-thread`. NOTE: a full no_std rsact-ui build is
 # still blocked by the eg primitives' std-only f32 math — a separate task.
 unsafe-single-thread = ["rsact-reactive/unsafe-single-thread"]
-std = ["log/std", "rsact-reactive/std", "tiny-skia/png-format"]
+# `tiny-skia?/png-format` (note the `?`): png encoding only when tiny-skia is
+# already enabled — without the `?` this force-pulled the optional tiny-skia
+# into every std build (the WS0.6 leak).
+std = ["log/std", "rsact-reactive/std", "tiny-skia?/png-format"]
 # Layout-pass work counters (WS0.5): visit/measure counts feeding the metrics
 # snapshot + a baseline-locking test. Host/dev-only, no runtime cost when off.
 layout-counters = []

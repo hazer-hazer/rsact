@@ -22,9 +22,13 @@ cargo test -p rsact-reactive --features std <test_name> -- --test-threads=1
 # Reactivity benchmark (criterion)
 cargo bench -p rsact-reactive --features std
 
-# Check the whole feature matrix compiles (mutually-exclusive std/single-thread)
-cargo hack check --feature-powerset --no-dev-deps --all \
-  --mutually-exclusive-features std,single-thread --at-least-one-of std,single-thread
+# Check the feature matrix compiles. A single `--all` powerset can't be green
+# (rsact-reactive requires a backend chosen downstream; rsact-ui requires a font
+# provider), so powerset the three axis-owning crates individually — full
+# commands + rationale in docs/features.md. rsact-reactive example:
+cargo hack check --feature-powerset --no-dev-deps -p rsact-reactive \
+  --mutually-exclusive-features std,single-thread,unsafe-single-thread \
+  --at-least-one-of std,single-thread,unsafe-single-thread
 
 # Formatting (config in rustfmt.toml: 80 cols, edition 2024, crate-granularity imports)
 cargo fmt
