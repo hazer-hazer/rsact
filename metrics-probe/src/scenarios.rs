@@ -206,3 +206,54 @@ fn guarded_frame(
 pub fn run_all() -> Vec<Scenario> {
     vec![reactive_only(16), ui_labels(5), ui_labels(10)]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // WS0.4 node-count regression. Locks the reactive node population and the
+    // zero-idle-frame-allocs invariant for the canonical scenarios. Node counts
+    // are deterministic (same construction each run) and idle frames must stay
+    // allocation-free. If a change moves these, it is either a real regression
+    // or an intended shift that should be re-locked here in the same commit.
+    //
+    // Uses the crate's tracking global allocator and a thread-local reactive
+    // runtime per scenario, so it MUST run serially: `--test-threads=1`.
+    //
+    // These lock the values measured on 2026-07-07 (see WS0.3b commit); the
+    // 10-label total is 52 = ~42 reactive nodes + 10 render-gate observers +
+    // page observer — higher than the roadmap's pre-metrics "42" estimate only
+    // because the profile now counts observers (WS0.3a).
+    #[test]
+    fn node_count_regression() {
+        let reactive = reactive_only(16);
+        assert_eq!(
+            reactive.counts.total, 33,
+            "reactive_only_16 node total moved"
+        );
+        assert_eq!(reactive.counts.signals, 16);
+        assert_eq!(reactive.counts.observers, 17);
+        assert_eq!(
+            reactive.idle_frame_allocs,
+            Some(0),
+            "reactive idle frame must be allocation-free"
+        );
+
+        let ui5 = ui_labels(5);
+        assert_eq!(ui5.counts.total, 32, "ui_labels_5 node total moved");
+        assert_eq!(
+            ui5.idle_frame_allocs,
+            Some(0),
+            "ui_labels_5 idle frame must be allocation-free (render gate must short-circuit)"
+        );
+
+        let ui10 = ui_labels(10);
+        assert_eq!(ui10.counts.total, 52, "ui_labels_10 node total moved");
+        assert_eq!(ui10.counts.observers, 11, "one render observer per label + page");
+        assert_eq!(
+            ui10.idle_frame_allocs,
+            Some(0),
+            "ui_labels_10 idle frame must be allocation-free"
+        );
+    }
+}
