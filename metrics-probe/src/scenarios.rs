@@ -35,6 +35,25 @@ fn frame_allocs(f: impl FnOnce()) -> usize {
     alloc::read().allocs - before.allocs
 }
 
+/// Reset the layout counters before a pass we want to attribute (no-op unless
+/// built with `layout-counters`).
+fn reset_layout() {
+    #[cfg(feature = "layout-counters")]
+    rsact_ui::layout::counters::reset();
+}
+
+/// Read layout counters after a pass (`None` unless built with
+/// `layout-counters`).
+fn read_layout() -> Option<crate::snapshot::LayoutCounters> {
+    #[cfg(feature = "layout-counters")]
+    {
+        let (visits, measures) = rsact_ui::layout::counters::snapshot();
+        return Some(crate::snapshot::LayoutCounters { visits, measures });
+    }
+    #[cfg(not(feature = "layout-counters"))]
+    None
+}
+
 fn profile_counts() -> crate::snapshot::NodeCounts {
     let p = current_runtime_profile();
     crate::snapshot::NodeCounts {
@@ -164,9 +183,12 @@ fn ui_labels(n: usize) -> Scenario {
             })
             .flatten();
 
-        // Change frame: dirty one label, re-run the gate.
+        // Change frame: dirty one label, re-run the gate. Attribute the layout
+        // work of this single-leaf change to the layout counters (whole-tree
+        // today; WS5 makes it incremental).
         let mut driver = labels[0];
         driver.set("changed".into());
+        reset_layout();
         let change = painted
             .then(|| {
                 guarded_frame(&mut ui, |ui| {
@@ -174,6 +196,7 @@ fn ui_labels(n: usize) -> Scenario {
                 })
             })
             .flatten();
+        let layout = read_layout();
 
         Scenario {
             name: format!("ui_labels_{n}"),
@@ -184,7 +207,7 @@ fn ui_labels(n: usize) -> Scenario {
             build_bytes,
             idle_frame_allocs: idle,
             change_frame_allocs: change,
-            layout: None,
+            layout,
         }
     })
 }
@@ -249,11 +272,40 @@ mod tests {
 
         let ui10 = ui_labels(10);
         assert_eq!(ui10.counts.total, 52, "ui_labels_10 node total moved");
-        assert_eq!(ui10.counts.observers, 11, "one render observer per label + page");
+        assert_eq!(
+            ui10.counts.observers, 11,
+            "one render observer per label + page"
+        );
         assert_eq!(
             ui10.idle_frame_allocs,
             Some(0),
             "ui_labels_10 idle frame must be allocation-free"
+        );
+    }
+
+    // WS0.5 layout-counter baseline. Locks the whole-tree relayout cost of a
+    // single leaf change: for the 10-label page every one of the 11 layout
+    // nodes is re-visited and text is re-measured 40× — the pre-WS5 pathology
+    // (incremental layout should cut both to O(changed path)). Runs only with
+    // `--features layout-counters`.
+    //
+    // (The roadmap cites ~180 visits / 60-120 measures for a *30-node* page;
+    // the canonical scenarios here are 5/10 labels, so their absolute numbers
+    // are smaller — the locked signal is the same: visits ≈ node count, i.e.
+    // the whole tree, per single change.)
+    #[cfg(feature = "layout-counters")]
+    #[test]
+    fn layout_counter_baseline() {
+        let ui10 = ui_labels(10);
+        let layout =
+            ui10.layout.expect("layout counters present under feature");
+        assert_eq!(
+            layout.visits, 11,
+            "one leaf change relayouts the whole 11-node tree today"
+        );
+        assert_eq!(
+            layout.measures, 40,
+            "one leaf change re-measures text 40× today"
         );
     }
 }

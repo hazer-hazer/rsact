@@ -14,6 +14,8 @@ pub use limits::Limits;
 use num::traits::SaturatingAdd;
 use rsact_reactive::prelude::*;
 
+#[cfg(feature = "layout-counters")]
+pub mod counters;
 pub mod flex;
 pub mod grid;
 pub mod length;
@@ -119,6 +121,8 @@ impl ContentLayout {
             &ContentLayout::Text { font_props, content, overflow } => {
                 let resolved = font_props.inherited(&ctx.font_props);
                 with!(move |content| {
+                    #[cfg(feature = "layout-counters")]
+                    crate::layout::counters::count_measure();
                     let props = resolved.resolve(ctx.viewport);
                     let font = resolved.font();
                     let intrinsics =
@@ -153,6 +157,8 @@ impl ContentLayout {
             &ContentLayout::Text { font_props, content, overflow } => {
                 let resolved = font_props.inherited(&ctx.font_props);
                 with!(move |content| {
+                    #[cfg(feature = "layout-counters")]
+                    crate::layout::counters::count_measure();
                     let props = resolved.resolve(ctx.viewport);
                     let font = resolved.font();
                     ctx.fonts.text_height_for_width(

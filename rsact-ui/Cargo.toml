@@ -35,11 +35,20 @@ slotmap = { workspace = true }
 embedded-graphics = { workspace = true }
 embedded-graphics-core = { workspace = true }
 cap = { workspace = true }
+criterion = "0.8"
 fake = "4.0.0"
 rand = "0.9"
 paw = { path = "../../paw" }
 env_logger = { workspace = true }
 embedded-graphics-simulator = { workspace = true }
+
+# WS0.5 layout timing benches. `required-features` keeps `cargo test`/`cargo
+# build` from trying to compile it without a render backend; run with:
+#   cargo bench -p rsact-ui --features "std,embedded-graphics" --bench layout
+[[bench]]
+name = "layout"
+harness = false
+required-features = ["std", "embedded-graphics"]
 
 [features]
 default = []
@@ -61,6 +70,9 @@ single-thread = ["rsact-reactive/single-thread"]
 # still blocked by the eg primitives' std-only f32 math — a separate task.
 unsafe-single-thread = ["rsact-reactive/unsafe-single-thread"]
 std = ["log/std", "rsact-reactive/std", "tiny-skia/png-format"]
+# Layout-pass work counters (WS0.5): visit/measure counts feeding the metrics
+# snapshot + a baseline-locking test. Host/dev-only, no runtime cost when off.
+layout-counters = []
 # TODO: Print pretty blocks in terminal showing layout problems: overflows, insufficient sizes, etc.
 layout-diagnostics = []
 tiny-skia = ["dep:tiny-skia", "rsact-render/tiny-skia"]

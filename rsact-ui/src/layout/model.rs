@@ -246,6 +246,8 @@ pub fn model_layout(
     parent_limits: Limits,
     parent_size: LengthSize, // viewport: Memo<Size>,
 ) -> LayoutModel {
+    #[cfg(feature = "layout-counters")]
+    crate::layout::counters::count_visit();
     layout.with(|layout| {
         if !layout.is_shown() {
             // A hidden element resolves to a zero layout here; `model_flex`
