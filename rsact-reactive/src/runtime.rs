@@ -63,6 +63,7 @@ impl RuntimeId {
     }
 }
 
+// TODO: Will we support multi-runtime? If so, ValueId needs to be compound value ID + runtime ID. If no, we need to hide with_new_runtime and new runtime creation from exposed API as it is dangerous.
 /// Run `f` with the **current** runtime and return its result.
 ///
 /// Panics if no runtime is active on the current thread. This is the standard
@@ -1405,7 +1406,6 @@ impl Runtime {
             self.storage.set_height(id, new_height);
         }
     }
-
 }
 
 pub fn current_runtime_profile() -> Profile {
@@ -1413,7 +1413,13 @@ pub fn current_runtime_profile() -> Profile {
         let (stored, signals, effects, memos, computed) =
             rt.storage.values.borrow().values().fold(
                 (0, 0, 0, 0, 0),
-                |(mut stored, mut signals, mut effects, mut memos, mut computed),
+                |(
+                    mut stored,
+                    mut signals,
+                    mut effects,
+                    mut memos,
+                    mut computed,
+                ),
                  value| {
                     match &value.kind {
                         ValueKind::Stored => stored += 1,

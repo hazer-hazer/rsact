@@ -182,7 +182,6 @@ impl<W: WidgetCtx + 'static, Dir: Direction + 'static> Widget<W>
 
     fn build(&mut self, mut ctx: build::BuildCtx<W>) {
         self.children.maybe_effect(move |children, _| {
-            // TODO: Reconcile children, this does not delete old children now.
             ctx.set_children(children);
         });
     }

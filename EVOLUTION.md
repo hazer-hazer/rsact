@@ -56,6 +56,9 @@ This are the actions to be done by me or LLM. When LLM completes one, it should 
 .height(Length::fill())
 ```
 
+- [ ] When we have sufficient UI-kit collection of widgets, make devtools open in new window and render using rsact. What feature I'd love to see is the ability the app on any device while debugging via dev tools on computer, but this won't work with a single binary because feature-sets for computer and target are different, so we need to develop some kind of debug protocol to communicate with a host and send it over debug protocol.
+- [ ] Make full project revision for possible `const`able functions that may benefit from it.
+
 ## Ideas/RFCs
 
 ### Views as widget builders

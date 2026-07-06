@@ -36,6 +36,7 @@ std = []
 #                          critical-section. SOUND ONLY if the runtime is touched
 #                          from exactly one execution context (no ISRs, one core).
 single-thread = ["dep:critical-section"]
+# TODO: Rename to "unsafe-assume-single-thread"?
 unsafe-single-thread = []
 debug-info = []
 async = []

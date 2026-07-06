@@ -2,6 +2,7 @@
   // "rust-analyzer.check.allTargets": false,
   "rust-analyzer.cargo.allTargets": true,
   "cSpell.words": [
+    "blit",
     "colorspace",
     "combinators",
     "Deque",
@@ -25,12 +26,12 @@
     "Uninit",
     "vals",
     "viewports",
+    "worklist",
     "Xilem"
   ],
   "rust-analyzer.runnables.extraTestBinaryArgs": ["--test-threads=1"],
   "rust-analyzer.cargo.noDefaultFeatures": true,
   "rust-analyzer.cargo.features": [
-    "std",
     "single-thread",
     "debug-info",
     "async",

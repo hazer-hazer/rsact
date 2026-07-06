@@ -240,7 +240,7 @@ where
 /// memoized.
 ///
 /// Used by `rsact-ui` to represent widget layout trees: the `data` memo
-/// holds the node's value and `children` holds the reactive child list.  
+/// holds the node's value and `children` holds the reactive child list.
 /// Reads on any part of the tree are tracked normally; the tree only
 /// re-evaluates subtrees whose sources changed.
 ///
