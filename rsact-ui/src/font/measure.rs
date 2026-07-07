@@ -104,7 +104,10 @@ pub fn mono_height_for_width(
         TextOverflow::Clip | TextOverflow::Ellipsis => hard_line_count(content),
         TextOverflow::Wrap => {
             let cols = mono_cols(width, char_w, spacing);
-            content.split('\n').map(|line| wrap_line_cols(line, cols)).sum()
+            content
+                .split('\n')
+                .map(|line| wrap_line_cols(line, cols))
+                .sum()
         },
     };
     visual_lines.max(1) * line_height

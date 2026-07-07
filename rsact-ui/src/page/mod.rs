@@ -743,7 +743,8 @@ mod tests {
 
             let after = page.arena.with(|arena| arena.el_count());
             assert_eq!(
-                after, baseline,
+                after,
+                baseline,
                 "arena leaked {} node(s) across 20 rebuilds",
                 after as i64 - baseline as i64
             );

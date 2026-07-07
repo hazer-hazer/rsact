@@ -32,7 +32,9 @@ impl SelectState {
         // between an `on_event` clamp and the next render, so a bare
         // `.get(selected).unwrap()` would panic on the render path.
         if let Some((selected, layout)) = self.selected.and_then(|selected| {
-            children_layouts.get(selected).map(|layout| (selected, layout))
+            children_layouts
+                .get(selected)
+                .map(|layout| (selected, layout))
         }) {
             (inner.center_offset_of(layout.inner), Some(selected))
         } else if let Some(first_option) = children_layouts.first() {

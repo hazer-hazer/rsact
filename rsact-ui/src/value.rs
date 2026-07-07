@@ -183,7 +183,9 @@ impl<const MIN: u8, const MAX: u8, const STEP: u8> RangeValue
     }
 
     fn offset(&self, offset: i32) -> Self {
-        (self.0 as i64 + offset as i64).clamp(MIN as i64, MAX as i64).into()
+        (self.0 as i64 + offset as i64)
+            .clamp(MIN as i64, MAX as i64)
+            .into()
     }
 }
 

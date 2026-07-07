@@ -43,6 +43,7 @@ where
     type Color = C;
 
     fn draw(&mut self, pixels: impl Iterator<Item = Pixel<Self::Color>>) {
-        self.target.draw(pixels.map(|p| Pixel(p.0, p.1.map_color())));
+        self.target
+            .draw(pixels.map(|p| Pixel(p.0, p.1.map_color())));
     }
 }

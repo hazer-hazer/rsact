@@ -616,6 +616,60 @@ impl Runtime {
         )
     }
 
+    /// Create a fresh [`ValueKind::Probe`] node, born `Dirty` so its first
+    /// poll runs. Identity *is* the returned id — no registry, no hashing
+    /// (WS2). The core stays UI-vocabulary-free; the owner (e.g. `rsact-ui`'s
+    /// `ElState`) stores the handle.
+    pub(crate) fn create_probe(
+        &self,
+        caller: &'static Location<'static>,
+    ) -> ValueId {
+        self.add_value::<_, ()>((), ValueKind::Probe, ValueState::Dirty, caller)
+    }
+
+    /// The identity-free core of a polled reaction (formerly the body of
+    /// [`use_observe`]). Runs `f` (tracked) iff a dependency changed since the
+    /// last poll, or `force`. Step order is deliberate and unchanged from the
+    /// keyed path:
+    ///
+    /// 1. `is_alive` — a disposed probe returns an honest `None` (no revive:
+    ///    the handle *is* the identity).
+    /// 2. `subscribe` — record the parent-observer edge so a child re-render
+    ///    dirties its page (invariant: child dirty ⇒ page dirty).
+    /// 3. `maybe_update` — freshen dependencies; `Dirty` ⇒ this probe changed.
+    /// 4. if changed‖force: `with_observer(f)` then `mark_clean` — the clean is
+    ///    placed *after* the closure runs so a parent's dependency-walk cannot
+    ///    consume this probe's dirtiness first (the checkbox-redraw fix).
+    pub(crate) fn run_probe<R>(
+        &self,
+        id: ValueId,
+        force: bool,
+        location: &'static Location<'static>,
+        f: impl FnOnce() -> R,
+    ) -> Option<R> {
+        if !self.is_alive(id) {
+            return None;
+        }
+
+        self.subscribe(id);
+        let updated = self.maybe_update(id, Some(id), location);
+
+        if updated || force {
+            // Detach the previous poll's dependency edges *before* re-running,
+            // so `f` re-tracks a fresh source set (a conditionally-dropped
+            // dependency is unsubscribed). This is the edge-only half of the
+            // old `cleanup` — it deliberately does NOT dispose owned children,
+            // which is what nuked nested probes on a parent re-run (WS2). Memos
+            // and effects already pay this per recompute; probes now do too.
+            self.clear_sources(id);
+            let result = self.with_observer(id, |_rt| f());
+            self.mark_clean(id, Some(id), location);
+            Some(result)
+        } else {
+            None
+        }
+    }
+
     fn use_observe<R>(
         &self,
         hash: u64,
@@ -631,7 +685,7 @@ impl Runtime {
                 .or_insert_with(|| {
                     self.add_value::<_, ()>(
                         (),
-                        ValueKind::Observer,
+                        ValueKind::Probe,
                         ValueState::Dirty,
                         location,
                     )
@@ -650,7 +704,7 @@ impl Runtime {
                 debug!("Reviving observe");
                 let new_id = self.add_value::<_, ()>(
                     (),
-                    ValueKind::Observer,
+                    ValueKind::Probe,
                     ValueState::Dirty,
                     location,
                 );
@@ -666,30 +720,11 @@ impl Runtime {
         // for an already-registered id).
         self.observer_hashes.borrow_mut().insert(id, hash);
 
-        self.subscribe(id);
-        // TODO: `maybe_update` call can be eliminated when `force=true` and
-        // just replaced with marking subscribers as dirty as we don't need to
-        // check deps.
-        let updated = self.maybe_update(id, Some(id), location);
-
-        if updated || force {
-            let result = self.with_observer(id, |_rt| {
-                // TODO: Cleanup is wrong, we need to delete only values from
-                // the previous call, as we might delete nested observer
-                // rt.cleanup(id);
-                f()
-            });
-
-            // Mark the observer clean only now that its closure has actually
-            // run. `update` deliberately does NOT clean observers (see there),
-            // so a parent observer's `maybe_update` dependency-walk cannot
-            // consume this observer's dirtiness before we re-run it here.
-            self.mark_clean(id, Some(id), location);
-
-            Some(result)
-        } else {
-            None
-        }
+        // The keyed registry above only resolves the call-site hash to a
+        // `ValueId`; the reaction itself is the identity-free `run_probe` core.
+        // WS2 session 2 deletes this registry wrapper and has owners store the
+        // `Probe` handle directly (rsact-ui's `ElState`).
+        self.run_probe(id, force, location, f)
     }
 
     pub unsafe fn dispose(&self, id: ValueId) {
@@ -931,17 +966,16 @@ impl Runtime {
             return;
         }
 
-        // An `Observer`'s work (its closure) runs in `use_observe`, not
-        // here. If we cleaned it here (during a *parent* observer's
-        // `maybe_update` dependency-walk), its dirtiness would be consumed
-        // before the nested `observe` call re-checks it, so the nested
-        // closure would be skipped. Observers are cleaned in `use_observe`
-        // after their closure actually runs.
-        let is_observer = tag == ValueKindTag::Observer;
+        // A `Probe`'s work (its closure) runs in `run_probe`, not here. If we
+        // marked it clean here (during a *parent* observer's `maybe_update`
+        // dependency-walk), its dirtiness would be consumed before the nested
+        // `poll` re-checks it, so the nested closure would be skipped. Probes
+        // are marked clean in `run_probe` after their closure actually runs.
+        let is_probe = tag == ValueKindTag::Probe;
 
         let changed = match tag {
             ValueKindTag::Stored => false,
-            ValueKindTag::Signal | ValueKindTag::Observer => true,
+            ValueKindTag::Signal | ValueKindTag::Probe => true,
             ValueKindTag::Memo
             | ValueKindTag::Computed
             | ValueKindTag::Effect => {
@@ -1019,7 +1053,7 @@ impl Runtime {
             }
         }
 
-        if !is_observer {
+        if !is_probe {
             self.mark_clean(id, requester, caller);
         }
     }
@@ -1236,7 +1270,7 @@ impl Runtime {
                     ValueKind::Effect { .. } => ("[[", "]]", true),
                     ValueKind::Memo { .. } => ("([", "])", true),
                     ValueKind::Computed { .. } => ("((", "))", true),
-                    ValueKind::Observer => ("{", "}", false),
+                    ValueKind::Probe => ("{", "}", false),
                 };
 
                 if visited.contains(&id) {
@@ -1342,7 +1376,18 @@ impl Runtime {
         (name, format!("{decl}\n{subs}\n{sources}\n{state_change}\n"))
     }
 
-    fn cleanup(&self, id: ValueId) {
+    /// Detach `id` from its current dependency edges: remove `id` from the
+    /// subscriber set of every source it tracked, then clear its own source
+    /// list (so heights are recomputed on the next re-subscription).
+    ///
+    /// This is the *first* of [`cleanup`](Self::cleanup)'s two jobs, split out
+    /// (WS2) so the per-execution path can re-track dependencies **without**
+    /// the second job (owned-value disposal). Memos/effects already pay this
+    /// cost on every recompute; probes ([`run_probe`](Self::run_probe)) call it
+    /// per executed poll so a conditionally-dropped dependency is unsubscribed
+    /// — but must NOT dispose owned children, which is what nuked nested render
+    /// probes when the full `cleanup` ran on a parent re-run.
+    pub(crate) fn clear_sources(&self, id: ValueId) {
         {
             let sources = self.sources.borrow();
             if let Some(srcs) = sources.get(id) {
@@ -1362,7 +1407,13 @@ impl Runtime {
         if let Some(srcs) = self.sources.borrow_mut().get_mut(id) {
             srcs.clear();
         }
+    }
 
+    fn cleanup(&self, id: ValueId) {
+        // Job 1: detach dependency edges.
+        self.clear_sources(id);
+
+        // Job 2: dispose owned children.
         // FIXME: I am deleting the values created in this observer, but they
         // could be leaked outside. Collect and clear owned list before
         // calling dispose to avoid a double borrow of `owned`
@@ -1498,7 +1549,11 @@ pub fn current_runtime_profile() -> Profile {
                         ValueKind::Effect { .. } => effects += 1,
                         ValueKind::Memo { .. } => memos += 1,
                         ValueKind::Computed { .. } => computed += 1,
-                        ValueKind::Observer { .. } => observers += 1,
+                        // Metrics field is still named `observers` for
+                        // snapshot-schema stability; it now counts `Probe`
+                        // nodes (WS2 rename). TODO: rename field to `probes`
+                        // in a dedicated metrics pass.
+                        ValueKind::Probe => observers += 1,
                     }
 
                     (stored, signals, effects, memos, computed, observers)
@@ -1581,8 +1636,8 @@ pub fn current_runtime_profile() -> Profile {
 ///
 /// Fields are public so external tooling (the `metrics-probe` snapshot tool)
 /// can serialize them; the values are a read-only sample and hold no runtime
-/// borrow. `observers` counts polled [`crate::runtime::observe`]-style nodes
-/// (`ValueKind::Observer`), which the pre-metrics profile ignored.
+/// borrow. `observers` counts polled [`crate::probe::Probe`] nodes
+/// (`ValueKind::Probe`), which the pre-metrics profile ignored.
 #[derive(Clone, Copy)]
 pub struct Profile {
     pub stored: usize,
@@ -1666,7 +1721,7 @@ mod tests {
         scope::new_scope,
         signal::create_signal,
         storage::ValueState,
-        trigger::{Trigger, create_trigger},
+        trigger::create_trigger,
         write::WriteSignal,
     };
     use alloc::rc::Rc;
@@ -2264,54 +2319,66 @@ mod tests {
         });
     }
 
-    /// When a parent observer re-runs its closure, `cleanup` disposes all
-    /// reactive values that were *owned* by it (created while it was the active
-    /// observer). Child `observe` calls are identified by a stable hash stored
-    /// in `static_observers`. After cleanup the stored `ValueId` is dead, but
-    /// the hash entry remains. Without an aliveness check `use_observe` would
-    /// silently reuse the dead id, skip re-running the child closure.
+    /// G2 (WS2): a child observer re-runs **iff its own dependency changed, or
+    /// the caller forces it** — a parent re-running does NOT dispose the child
+    /// and does NOT force it.
+    ///
+    /// This replaces the old `observe_recreates_disposed_child_observer`, which
+    /// encoded the cleanup-dispose-revive contract: a parent's `cleanup` used
+    /// to dispose the *owned* child observer, and `use_observe` revived it on
+    /// the next call so its closure re-ran. Per G2 that behaviour is wrong —
+    /// the identity-free `run_probe` keeps the child alive across parent
+    /// re-runs (`clear_sources` detaches dependency edges without touching
+    /// ownership), so the child re-renders only when its own inputs change.
+    /// (The child *does* dirty its parent when it re-renders — invariant I3.)
     #[test]
-    fn observe_recreates_disposed_child_observer() {
-        let mut trigger = create_trigger();
-        // Tracks how many times the *inner* observe ran.
-        let inner_runs = Rc::new(Cell::new(0u32));
+    fn child_observer_reruns_only_on_own_dep_change() {
+        let parent_trigger = create_trigger();
+        let child_trigger = create_trigger();
+        let child_runs = Rc::new(Cell::new(0u32));
 
-        let run = |trigger: &mut Trigger, inner_runs: Rc<Cell<u32>>| {
-            // Outer observe – acts like `render_children`.
+        let run = || {
+            let (ct, cr) = (child_trigger, child_runs.clone());
+            // Outer observe — acts like `render_children`.
             observe_by_location(move || {
-                trigger.track();
-                // Inner observe – acts like a child `render_part`. The id is
-                // derived from the call-site location, which is stable across
-                // repeated invocations of the outer closure.
-                let r = inner_runs.clone();
+                parent_trigger.track();
+                let cr2 = cr.clone();
+                // Inner observe — acts like a child `render_part`, identified
+                // by a stable call-site hash.
                 observe_by_location(move || {
-                    r.set(r.get() + 1);
+                    ct.track();
+                    cr2.set(cr2.get() + 1);
                 });
             })
         };
 
-        // First call: both outer and inner run.
-        assert_eq!(run(&mut trigger, inner_runs.clone()), Some(()));
-        assert_eq!(inner_runs.get(), 1);
+        // First call: parent and child both run.
+        assert_eq!(run(), Some(()));
+        assert_eq!(child_runs.get(), 1);
 
-        // No change – neither outer nor inner should re-run.
-        assert_eq!(run(&mut trigger, inner_runs.clone()), None);
-        assert_eq!(inner_runs.get(), 1);
+        // No change: neither runs.
+        assert_eq!(run(), None);
+        assert_eq!(child_runs.get(), 1);
 
-        // Notify trigger: outer is dirtied, its cleanup disposes the inner
-        // observer. `use_observe` must recreate the inner observer so the
-        // closure runs again.
-        trigger.notify();
-        assert_eq!(run(&mut trigger, inner_runs.clone()), Some(()));
+        // The *parent's* dependency changed: the parent re-runs, but the
+        // child's own dependency is unchanged, so the child does NOT re-run
+        // (and is neither disposed nor forced).
+        parent_trigger.notify();
+        assert_eq!(run(), Some(()));
         assert_eq!(
-            inner_runs.get(),
-            2,
-            "inner observe did not re-run after parent cleanup disposed it"
+            child_runs.get(),
+            1,
+            "child re-ran on a parent-only change (G2 violated)"
         );
 
-        // Stable again after re-run.
-        assert_eq!(run(&mut trigger, inner_runs.clone()), None);
-        assert_eq!(inner_runs.get(), 2);
+        // The child's *own* dependency changed: the child re-runs.
+        child_trigger.notify();
+        assert_eq!(run(), Some(()));
+        assert_eq!(child_runs.get(), 2);
+
+        // Stable again.
+        assert_eq!(run(), None);
+        assert_eq!(child_runs.get(), 2);
     }
 
     /// Disposing an observer must prune its `static_observers` entry, otherwise

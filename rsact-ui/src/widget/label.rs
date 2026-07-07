@@ -47,7 +47,8 @@ impl<W: WidgetCtx> Label<W> {
     /// Set how the text behaves when its width is constrained: [`TextOverflow::Wrap`]
     /// (default), [`TextOverflow::Clip`], or [`TextOverflow::Ellipsis`].
     pub fn overflow(mut self, overflow: TextOverflow) -> Self {
-        self.layout.update_untracked(|data| data.set_text_overflow(overflow));
+        self.layout
+            .update_untracked(|data| data.set_text_overflow(overflow));
         self
     }
 

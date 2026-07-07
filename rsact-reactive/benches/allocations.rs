@@ -17,6 +17,7 @@
 //! so first-time allocations (initial subscribe, lazily-grown buffers) don't
 //! skew the average. Compare tables before/after a change by eye.
 
+use rsact_reactive::alloc_probe::{self, Tracking};
 use rsact_reactive::{
     effect::create_effect,
     memo::create_memo,
@@ -27,7 +28,6 @@ use rsact_reactive::{
     trigger::create_trigger,
     write::{SignalSetter, WriteSignal},
 };
-use rsact_reactive::alloc_probe::{self, Tracking};
 use std::hint::black_box;
 
 // ---------------------------------------------------------------------------

@@ -233,8 +233,10 @@ fn gen_icon<S: IconSet>(size: u32, icon: &Icon<S>) -> (TokenStream, usize) {
 }
 
 fn gen_mod<S: IconSet>(size: u32, icons: &[Icon<S>]) -> (TokenStream, usize) {
-    let generated_icons =
-        icons.iter().map(|icon| gen_icon(size, icon)).collect::<Vec<_>>();
+    let generated_icons = icons
+        .iter()
+        .map(|icon| gen_icon(size, icon))
+        .collect::<Vec<_>>();
 
     let mod_memory = generated_icons.iter().map(|(_, memory)| memory).sum();
     let icon_tokens = generated_icons.into_iter().map(|i| i.0);

@@ -104,7 +104,11 @@ impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction + 'static> Widget<W>
 
             ctx.renderer.rounded_rect(
                 bar_area,
-                style.container.border.radius.into_corner_radii(bar_area.size),
+                style
+                    .container
+                    .border
+                    .radius
+                    .into_corner_radii(bar_area.size),
                 &style.bar_draw_style(),
             )?;
 
