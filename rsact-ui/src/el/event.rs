@@ -7,7 +7,6 @@ use crate::{
     layout::model::LayoutModelNode,
     widget::prelude::*,
 };
-use itertools::Itertools as _;
 use log::{debug, error};
 
 // TODO: Do we need request_redraw flag as in update pass? Or all updates in event pass are reactive-only?
@@ -73,7 +72,7 @@ impl<'a, W: WidgetCtx> EventPass<'a, W> {
 
         // Extract the flag before recursing so the arena borrow ends.
         let transparent = match self.arena.expect(id) {
-            Some(data) => data.state.flags.transparent_layout,
+            Some(data) => data.state.flags.is_transparent_layout(),
             None => return None,
         };
 
@@ -86,7 +85,7 @@ impl<'a, W: WidgetCtx> EventPass<'a, W> {
             None
         } else if let Some(children_ids) = self.children.get(id) {
             for (child, child_layout) in
-                children_ids.iter().zip_eq(layout.children())
+                children_ids.iter().zip(layout.children())
             {
                 if let Some(response) =
                     self.run_to_(*child, &child_layout, target)
@@ -110,7 +109,7 @@ impl<'a, W: WidgetCtx> EventPass<'a, W> {
         };
 
         // TODO: Generalize/Take out this logic for EventCtx and RenderCtx
-        if data.state.flags.transparent_layout {
+        if data.state.flags.is_transparent_layout() {
             if let Some(children_ids) = self.children.get(id)
                 && children_ids.len() == 1
             {
@@ -123,7 +122,7 @@ impl<'a, W: WidgetCtx> EventPass<'a, W> {
             }
         } else if let Some(children_ids) = self.children.get(id) {
             for (child, child_layout) in
-                children_ids.iter().zip_eq(layout.children())
+                children_ids.iter().zip(layout.children())
             {
                 self.run_(*child, &child_layout)?;
             }
@@ -270,11 +269,11 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
     /// the `pressed` pseudo-class and clears them on the matching release.
     #[must_use]
     pub fn handle(&mut self) -> EventResponse {
-        if self.state.flags.hoverable {
+        if self.state.flags.is_hoverable() {
             self.handle_hover_move()?;
         }
 
-        if self.state.flags.clickable
+        if self.state.flags.is_clickable()
             && let Event::Mouse(MouseEvent::ButtonDown(MouseButton::Left, _)) =
                 self.event
             && self.cursor_in_bounds()
@@ -284,7 +283,7 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
             return self.capture();
         }
 
-        if self.state.flags.focusable
+        if self.state.flags.is_focusable()
             && self.is_focused()
             && let Event::Press(PressEvent::Press) = self.event
         {

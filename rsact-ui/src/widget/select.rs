@@ -6,7 +6,6 @@ use crate::{
 };
 use alloc::string::ToString;
 use core::{fmt::Display, marker::PhantomData};
-use itertools::Itertools as _;
 use rsact_reactive::prelude::*;
 
 #[derive(Clone, Copy)]
@@ -328,7 +327,7 @@ impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction + 'static> Widget<W>
                 ctx.clip_inner(|_ctx| {
                     options
                         .iter()
-                        .zip_eq(children_layouts.iter())
+                        .zip(children_layouts.iter())
                         .enumerate()
                         .try_for_each(|(_index, (_option, _option_layout))| {
                             // TODO: Need to thing how to properly handle select

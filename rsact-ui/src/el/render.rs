@@ -13,7 +13,6 @@ use crate::{
     },
 };
 use core::marker::PhantomData;
-use itertools::Itertools as _;
 use log::{debug, error};
 use rsact_reactive::{prelude::*, signal::marker::ReadOnly};
 use tinyvec::TinyVec;
@@ -531,7 +530,7 @@ fn render_subtree_body<W: WidgetCtx>(
         ..frame
     };
 
-    if data.state.flags.transparent_layout {
+    if data.state.flags.is_transparent_layout() {
         // Transparent widget: child inherits the parent's layout rect.
         // Must have exactly one child.
         let children_ids = children.get(id).map(|c| c.to_vec());
@@ -564,7 +563,7 @@ fn render_subtree_body<W: WidgetCtx>(
                 indent = frame.nesting_level
             );
             for (child_id, child_layout) in
-                children_ids.iter().zip_eq(layout.children())
+                children_ids.iter().zip(layout.children())
             {
                 let child_font_props =
                     child_layout.font_props().unwrap_or(visual.font_props);

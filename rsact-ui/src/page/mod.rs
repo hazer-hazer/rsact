@@ -1150,7 +1150,7 @@ mod tests {
             id: ElId,
         ) -> Option<ElId> {
             if arena.expect(id).map_or(false, |d| {
-                d.state.flags.focusable && d.state.flags.clickable
+                d.state.flags.is_focusable() && d.state.flags.is_clickable()
             }) {
                 return Some(id);
             }
@@ -1415,7 +1415,7 @@ mod tests {
 
         fn find_checkbox(arena: &ElArena<RecWtf>, id: ElId) -> Option<ElId> {
             if arena.expect(id).map_or(false, |d| {
-                d.state.flags.focusable && d.state.flags.clickable
+                d.state.flags.is_focusable() && d.state.flags.is_clickable()
             }) {
                 return Some(id);
             }

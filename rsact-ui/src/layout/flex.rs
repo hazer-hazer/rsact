@@ -8,7 +8,6 @@ use crate::{
     render::prelude::*,
 };
 use alloc::vec::Vec;
-use itertools::Itertools as _;
 use rsact_reactive::prelude::*;
 
 // TODO: Wrap and gap are not taken into account
@@ -336,7 +335,7 @@ pub fn model_flex(
 
     // TODO: Should flex item be at least of min content size?
 
-    for (&(orig_index, child), item) in visible.iter().zip_eq(items.iter()) {
+    for (&(orig_index, child), item) in visible.iter().zip(items.iter()) {
         let (child_min_size, child_size) =
             child.with(|child| (child.min_size(ctx), child.size));
         let model_line = &mut model_lines[item.line];
@@ -406,7 +405,7 @@ pub fn model_flex(
     ) {
         // TODO: Optimize, each line free main axis space recomputed for each
         // item in line
-        for (&(orig_index, _), item) in visible.iter().zip_eq(items.iter()) {
+        for (&(orig_index, _), item) in visible.iter().zip(items.iter()) {
             let line = model_lines[item.line];
             let child_layout = &mut children_layouts[orig_index];
 
