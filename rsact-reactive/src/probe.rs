@@ -17,6 +17,51 @@
 //! the reaction lives and disposes it with its owner. This crate stays
 //! UI-vocabulary-free: it knows nothing about elements, parts, or pages — the
 //! ownership map lives with the owner.
+//!
+//! # Driving probes from an external render engine
+//!
+//! A probe has no scheduler — *you* own it and poll it, so it is the primitive
+//! for gating an out-of-tree render loop. The ownership contract is: **store
+//! one probe per reactive region you draw, poll it each frame, and dispose it
+//! when the region goes away.** It runs the closure only when a dependency it
+//! read last time changed (or you pass `force = true`, e.g. after a resize that
+//! needs an unconditional repaint).
+//!
+//! This is exactly how `rsact-ui` gates redraws without any registry in the
+//! core: each element's state owns a small `(part_name, Probe)` map (one entry
+//! per widget part it draws) and each page owns a single render probe;
+//! removing an element or dropping a page disposes its probes. An out-of-tree
+//! renderer follows the same pattern with whatever key its scene graph uses.
+//!
+//! ```rust
+//! # use rsact_reactive::prelude::*;
+//! # use rsact_reactive::runtime::with_new_runtime;
+//! # with_new_runtime(|_| {
+//! let mut label = create_signal(3u32);
+//!
+//! // The owner stores the probe (here one; a real widget keys several by part).
+//! let draw_probe = create_probe();
+//!
+//! let mut frame = move || {
+//!     // Returns `Some(_)` only on frames where the probe actually ran.
+//!     draw_probe.poll(false, || {
+//!         label.with(|value| {
+//!             // ...issue draw commands for `value` to your display here...
+//!             *value
+//!         })
+//!     })
+//! };
+//!
+//! assert_eq!(frame(), Some(3)); // first frame: born dirty, draws
+//! assert_eq!(frame(), None);    // nothing changed: no redraw
+//! label.set(7);
+//! assert_eq!(frame(), Some(7)); // dependency changed: redraws
+//!
+//! // When the region is gone, dispose the handle so its node dies with it.
+//! // SAFETY: nothing renders `draw_probe` after this point.
+//! unsafe { draw_probe.dispose() };
+//! # });
+//! ```
 
 use crate::{runtime::with_current_runtime, storage::ValueId};
 use core::panic::Location;
