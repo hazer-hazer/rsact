@@ -1,0 +1,47 @@
+# WS0.9a — baseline CI: the four test suites, per-crate feature powersets, and
+# the embedded floor build. Non-metrics; the metrics workflow is metrics.yml.
+# Every non-trivial step is a script under scripts/ that a developer runs
+# identically (`./scripts/ci-test.sh`, `./scripts/ci-powerset.sh`).
+name: CI
+
+on:
+  push:
+    # The orphan `metrics-data` branch holds only JSON/HTML (no crate); never CI it.
+    branches-ignore: [metrics-data]
+  pull_request:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable) + thumb targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7m-none-eabi, thumbv6m-none-eabi
+
+      - name: Cache cargo + target
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-hack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hack
+
+      - name: Test suites
+        run: ./scripts/ci-test.sh
+
+      - name: Feature powersets
+        run: ./scripts/ci-powerset.sh
+
+      - name: Embedded floor build (Blue Pill, thumbv7m)
+        run: |
+          cargo build -p rsact-ui --no-default-features \
+            --features "unsafe-single-thread,embedded-graphics,libm" \
+            --target thumbv7m-none-eabi
