@@ -12,7 +12,7 @@ use crate::{
         Style, StylePseudoClass, StyleSelector, TreeStyle, stylist::Stylist,
     },
 };
-use core::{fmt::Display, hash::Hash, marker::PhantomData};
+use core::marker::PhantomData;
 use itertools::Itertools as _;
 use log::{debug, error};
 use rsact_reactive::{prelude::*, signal::marker::ReadOnly};
@@ -218,9 +218,14 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
 
 // CtxUnready //
 impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
-    pub fn render_part<H: Display + Hash + Copy>(
+    // The part key is a `&'static str` (e.g. "self", "thumb", "options"): stable
+    // per widget-source, combined with `self.id` for per-element identity, and
+    // — crucially — allocation-free on the render hot path. It used to be a
+    // `Display + Hash + Copy` generic, which let `render_self` build the key with
+    // `format!` on every frame (WS1.7). The identity/ownership redesign is WS2.
+    pub fn render_part(
         &mut self,
-        hash_source: H,
+        hash_source: &'static str,
         f: impl FnOnce(RenderCtx<'_, W, CtxReady>) -> RenderResult,
     ) -> RenderResult {
         // Imperative force-dirty flags that triggers redraw even if no reactive
@@ -291,10 +296,10 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
         &mut self,
         f: impl FnOnce(RenderCtx<'_, W, CtxReady>) -> RenderResult,
     ) -> RenderResult {
-        // TODO: Maybe we can store preformatted string render_id for each
-        // widget?
-        let render_id = format!("{}[render_self]", self.debug_name);
-        self.render_part(&render_id, f)
+        // "self" is the whole-widget part key. It is combined with this
+        // element's `id` inside `render_part`, so a plain `&'static str` is
+        // already unique per element — no per-frame `format!` (WS1.7).
+        self.render_part("self", f)
     }
 }
 
