@@ -1368,6 +1368,7 @@ dependencies = [
  "log",
  "replace_with",
  "rsact-macros",
+ "rsact-reactive",
  "slotmap",
  "tinyvec",
 ]

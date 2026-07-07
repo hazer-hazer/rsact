@@ -45,6 +45,7 @@ fn id_vec_remove(v: &mut IdVec, id: ValueId) {
 
 // TODO: Maybe better use Slab instead of SlotMap for efficiency
 
+#[cfg(any(test, feature = "test-utils"))]
 impl RuntimeId {
     pub fn leave(&self) {
         let rt = RUNTIMES.with(|rts| {
@@ -94,20 +95,35 @@ pub fn with_current_runtime<T>(f: impl FnOnce(&Runtime) -> T) -> T {
 ///     assert_eq!(s.get(), 42);
 /// });
 /// ```
+#[cfg(any(test, feature = "test-utils"))]
 #[inline(always)]
 pub fn with_new_runtime<T>(f: impl FnOnce(&Runtime) -> T) -> T {
-    let rt = create_runtime();
+    // Restore the previously-current runtime on the way out — even if `f`
+    // panics — so a nested `with_new_runtime` (or any temporary runtime) can't
+    // brick the current-runtime cell (WS1.2). The old code discarded `prev`,
+    // and `leave()` merely clears the current cell, so after the temporary
+    // runtime left the current cell was `None` and every subsequent reactive
+    // access panicked on `current.unwrap()`.
+    struct RuntimeGuard {
+        rt: RuntimeId,
+        prev: Option<RuntimeId>,
+    }
+    impl Drop for RuntimeGuard {
+        fn drop(&mut self) {
+            self.rt.leave();
+            CURRENT_RUNTIME.with(|current| current.set(self.prev));
+        }
+    }
 
-    CURRENT_RUNTIME.with(|current| {
+    let rt = create_runtime();
+    let prev = CURRENT_RUNTIME.with(|current| {
         let prev = current.get();
         current.set(Some(rt));
         prev
     });
+    let _guard = RuntimeGuard { rt, prev };
 
-    let result = with_current_runtime(f);
-    rt.leave();
-
-    result
+    with_current_runtime(f)
 }
 
 /// Create a new runtime and register it as the current runtime on this thread.
@@ -115,6 +131,7 @@ pub fn with_new_runtime<T>(f: impl FnOnce(&Runtime) -> T) -> T {
 /// Returns a [`RuntimeId`] handle. Call [`RuntimeId::leave`] to destroy the
 /// runtime and restore the previous one.  Prefer [`with_new_runtime`] for a
 /// scoped version that restores the previous runtime automatically.
+#[cfg(any(test, feature = "test-utils"))]
 #[must_use]
 #[inline(always)]
 pub fn create_runtime() -> RuntimeId {
@@ -1625,6 +1642,26 @@ mod tests {
             )),
             "First insertion into RUNTIMES does not have key of RuntimeId::default()"
         );
+    }
+
+    /// `with_new_runtime` must restore the previously-current runtime when the
+    /// temporary one leaves. The buggy version discarded `prev` and `leave()`
+    /// merely cleared the current cell, so any reactive access after the call
+    /// panicked on a `None` current runtime. Regression test for WS1.2.
+    #[test]
+    fn with_new_runtime_restores_previous() {
+        // `outer` lives in the previously-current (default) runtime.
+        let mut outer = create_signal(1i32);
+
+        with_new_runtime(|_| {
+            let inner = create_signal(2i32);
+            assert_eq!(inner.get(), 2);
+        });
+
+        // The previous runtime must be current again — `outer` still works.
+        assert_eq!(outer.get(), 1);
+        outer.set(5);
+        assert_eq!(outer.get(), 5);
     }
 
     #[test]
