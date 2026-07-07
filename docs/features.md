@@ -41,7 +41,11 @@ Enabling two options on either axis is a `compile_error!` (same pattern in
 - `defmt` (→ `dep:defmt`, `embedded-graphics?/defmt`)
 
 ### rsact-ui
-- `default = []`
+- `default = ["libm"]`
+- Math (passthrough to rsact-render, mutually exclusive): `libm` (default),
+  `micromath`. rsact-ui pulls rsact-render with `default-features = false` so
+  the backend is chosen here, not forced — `--no-default-features` drops `libm`,
+  so re-add `libm` or `micromath` explicitly.
 - Backends forwarded: `std`, `single-thread`, `unsafe-single-thread`
 - Render/font: `embedded-graphics`, `u8g2-fonts` (→ `embedded-graphics`),
   `tiny-skia`, `simulator` (→ `embedded-graphics`)
@@ -52,8 +56,11 @@ Enabling two options on either axis is a `compile_error!` (same pattern in
   build hits a `compile_error!` in `font/mod.rs`.
 
 ### rsact (root facade)
-- `default = []`; forwards `std`, `single-thread`, `unsafe-single-thread`,
-  `simulator`, `defmt` to `rsact-ui`.
+- `default = ["libm"]`; forwards `std`, `single-thread`, `unsafe-single-thread`,
+  `simulator`, `defmt`, `libm`, `micromath` to `rsact-ui` (pulls rsact-ui with
+  `default-features = false`). NOTE: it forwards no render-backend/font-provider
+  features yet, so a standalone `-p rsact` build can't produce a working app —
+  deferred (WS12.5).
 
 ### metrics-probe (host tool)
 - `layout-counters` (→ `rsact-ui/layout-counters`) — include WS0.5 layout
@@ -67,9 +74,10 @@ cargo test -p rsact-reactive --features std -- --test-threads=1
 cargo test -p rsact-ui --lib --features "std,embedded-graphics" -- --test-threads=1
 cargo test -p rsact-render --features "std,embedded-graphics,tiny-skia" -- --test-threads=1
 
-# Embedded floor (Blue Pill, thumbv7m):
+# Embedded floor (Blue Pill, thumbv7m). `--no-default-features` drops the `libm`
+# default, so name a math backend (libm | micromath) explicitly:
 cargo build -p rsact-ui --no-default-features \
-  --features "unsafe-single-thread,embedded-graphics" --target thumbv7m-none-eabi
+  --features "unsafe-single-thread,embedded-graphics,libm" --target thumbv7m-none-eabi
 ```
 
 ## Feature-powerset check
@@ -99,11 +107,13 @@ cargo hack check --feature-powerset --no-dev-deps -p rsact-render \
   --mutually-exclusive-features libm,micromath \
   --at-least-one-of libm,micromath
 
-# ui — backend + a required font provider; skip the WIP tiny-icons widget
+# ui — backend + math backend + a required font provider; skip WIP tiny-icons
 cargo hack check --feature-powerset --no-dev-deps -p rsact-ui \
   --exclude-features tiny-icons \
   --mutually-exclusive-features std,single-thread,unsafe-single-thread \
   --at-least-one-of std,single-thread,unsafe-single-thread \
+  --mutually-exclusive-features libm,micromath \
+  --at-least-one-of libm,micromath \
   --at-least-one-of embedded-graphics,u8g2-fonts
 ```
 

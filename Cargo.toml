@@ -7,7 +7,12 @@ version.workspace = true
 [dependencies]
 # rsact-reactive = {path = "./rsact-reactive", features = ["single-thread"]}
 # rsact-encoder = {path = "./rsact-encoder"}
-rsact-ui = { path = "./rsact-ui" }
+# default-features = false so the root `micromath` passthrough isn't forced to
+# coexist with rsact-ui's `libm` default (which would trip the mutual-exclusion).
+# The facade re-picks `libm` as its own default below. NOTE: the facade still
+# forwards no render-backend/font-provider features, so a standalone `-p rsact`
+# build can't produce a working app yet — that's the deferred WS12.5 item.
+rsact-ui = { path = "./rsact-ui", default-features = false }
 
 [workspace]
 # size-probe: no_std/no_main cortex-m binaries for WS0.3 Layer-2 section sizes.
@@ -37,7 +42,9 @@ rsact-tiny-icons = { path = "./rsact-tiny-icons" }
 rsact-macros = { path = "./rsact-macros" }
 rsact-reactive = { path = "./rsact-reactive" }
 rsact-ui = { path = "./rsact-ui" }
-rsact-render = { path = "./rsact-render" }
+# default-features = false: consumers (rsact-ui) pick the math backend via their
+# own libm/micromath passthrough, so the mutually-exclusive default doesn't leak.
+rsact-render = { path = "./rsact-render", default-features = false }
 # rsact-widgets = {path = "./rsact-widgets", }
 
 bitflags = { version = "2.11.1" }
@@ -90,12 +97,15 @@ inherits = "dev"
 opt-level = 3
 
 [features]
-default = []
+default = ["libm"]
 defmt = ["rsact-ui/defmt"]
 simulator = ["rsact-ui/simulator"]
 single-thread = ["rsact-ui/single-thread"]
 unsafe-single-thread = ["rsact-ui/unsafe-single-thread"]
 std = ["rsact-ui/std"]
+# no_std f32 math backend passthrough (libm is rsact-ui's default).
+libm = ["rsact-ui/libm"]
+micromath = ["rsact-ui/micromath"]
 
 # [profile.sandbox]
 # inherits = "dev"

@@ -25,6 +25,10 @@ rsact-tiny-icons = { workspace = true, features = [
 ], optional = true }
 rsact-macros = { workspace = true }
 rsact-reactive = { workspace = true }
+# The workspace dep sets default-features = false (rsact-ui must not force
+# rsact-render's `libm` default, or enabling `micromath` in a graph with rsact-ui
+# trips the libm/micromath `compile_error!`). The math backend is chosen through
+# rsact-ui's own `libm` (default) / `micromath` passthrough features below.
 rsact-render = { workspace = true }
 tinyvec = { workspace = true }
 u8g2-fonts = { workspace = true, optional = true }
@@ -50,7 +54,12 @@ harness = false
 required-features = ["std", "embedded-graphics"]
 
 [features]
-default = []
+default = ["libm"]
+
+# no_std f32 math backend, forwarded to rsact-render (mutually exclusive there).
+# `libm` is the default; opt into `micromath` with `--no-default-features`.
+libm = ["rsact-render/libm"]
+micromath = ["rsact-render/micromath"]
 
 debug-info = ["rsact-reactive/debug-info"]
 defmt = [

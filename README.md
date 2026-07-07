@@ -34,8 +34,10 @@ At the moment I have tested rsact only on `STM32F412RET6` running at 100MHz with
 
 ```sh
 cargo build -p rsact-ui --no-default-features \
-  --features unsafe-single-thread,embedded-graphics --target thumbv7m-none-eabi
+  --features unsafe-single-thread,embedded-graphics,libm --target thumbv7m-none-eabi
 ```
+
+(`libm` is rsact-ui's default math backend; `--no-default-features` drops it, so re-add `libm` — or `micromath` — explicitly. See [docs/features.md](docs/features.md).)
 
 __thumbv6m (Cortex-M0/M0+) note.__ These cores have no atomic compare-and-swap, which the font-id counter needs. rsact-ui uses [`portable-atomic`](https://docs.rs/portable-atomic), so _your final binary_ must select one of its fallbacks (rsact itself does no feature wiring for this):
 
