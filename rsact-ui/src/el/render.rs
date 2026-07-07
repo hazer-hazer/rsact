@@ -1,6 +1,6 @@
 use crate::{
     el::{
-        ClipPath, ElId, RedrawReason, WithElId,
+        ClipPath, ElId, RedrawReason,
         arena::{ArenaChildren, ArenaEls, ElArena},
         ctx::{PageState, WidgetCtx},
     },
@@ -16,6 +16,7 @@ use core::marker::PhantomData;
 use itertools::Itertools as _;
 use log::{debug, error};
 use rsact_reactive::{prelude::*, signal::marker::ReadOnly};
+use tinyvec::TinyVec;
 
 pub struct CtxReady;
 pub struct CtxUnready;
@@ -73,6 +74,11 @@ pub struct RenderCtx<'a, W: WidgetCtx, S = CtxUnready> {
     needs_redraw: Option<RedrawReason>,
     hovered: bool,
     pressed: bool,
+    /// This element's render probes, pre-extracted from its `ElState` for the
+    /// duration of the render (the widget is only `&self`-borrowed, so the
+    /// probes are `mem::take`-n out and written back in `render_subtree_body`).
+    /// `render_part` looks up / lazily creates the probe for a part key here.
+    part_probes: &'a mut TinyVec<[(&'static str, Probe); 2]>,
 
     pub renderer: &'a mut W::Renderer,
     pub layout: &'a LayoutModelNode<'a>,
@@ -149,6 +155,7 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
             needs_redraw: self.needs_redraw,
             hovered: self.hovered,
             pressed: self.pressed,
+            part_probes: self.part_probes,
             renderer: self.renderer,
             layout: self.layout,
             visual: RenderVisual {
@@ -214,6 +221,7 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
                 needs_redraw: self.needs_redraw,
                 hovered: self.hovered,
                 pressed: self.pressed,
+                part_probes: self.part_probes,
                 renderer,
                 layout: self.layout,
                 visual: self.visual,
@@ -237,13 +245,33 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
         hash_source: &'static str,
         f: impl FnOnce(RenderCtx<'_, W, CtxReady>) -> RenderResult,
     ) -> RenderResult {
-        // Imperative force-dirty flags that triggers redraw even if no reactive
-        // dependencies changed in the `observe`
+        // Imperative force-dirty flag that triggers redraw even if no reactive
+        // dependency changed in the probe.
         let redraw = self.frame.parent_dirty || self.needs_redraw.is_some();
 
-        let render_id = WithElId::new(self.id, hash_source);
+        // Look up (or lazily create) this element's probe for `hash_source`.
+        // Linear scan with CONTENT comparison: `&'static str` pointer identity
+        // is not guaranteed equal across codegen units, so keys must be
+        // compared by value, never by pointer. The set is tiny (a widget's
+        // part names are finite in its source), so this beats a hash. `Probe`
+        // is `Copy`, so the borrow of `part_probes` ends right here — before
+        // the `poll` closure below reborrows `self`.
+        // TODO: `debug_assert` that one key is not polled twice per frame (a
+        // widget-author bug); needs a per-frame "seen" marker to detect.
+        let probe = match self
+            .part_probes
+            .iter()
+            .find(|(key, _)| *key == hash_source)
+        {
+            Some(&(_, probe)) => probe,
+            None => {
+                let probe = create_probe();
+                self.part_probes.push((hash_source, probe));
+                probe
+            },
+        };
 
-        let result = observe_with_force(render_id, redraw, || {
+        let result = probe.poll(redraw, || {
             debug!(
                 "{:indent$}Render {} [#{:?}] (parent_dirty={}, needs_redraw={:?})",
                 "",
@@ -254,14 +282,14 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
                 indent = self.frame.nesting_level
             );
 
-            // Track force_redraw so this observer automatically re-runs
+            // Track force_redraw so this probe automatically re-runs
             // when the page-level force-redraw flag is set
             // (e.g. after layout change).
             self.shared.force_redraw.track();
 
             // Clear the element rect unless the parent already did so.
             //
-            // Moved inside `observe` (vs old code where it was outside) so
+            // Moved inside the probe (vs old code where it was outside) so
             // the clear is always paired with an actual
             // redraw — never a clear-without-redraw or a
             // redraw-without-clear.
@@ -276,6 +304,7 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
                 needs_redraw: self.needs_redraw,
                 hovered: self.hovered,
                 pressed: self.pressed,
+                part_probes: self.part_probes,
                 renderer: self.renderer,
                 layout: self.layout,
                 visual: self.visual,
@@ -447,9 +476,22 @@ fn render_subtree_body<W: WidgetCtx>(
     visual: RenderVisual<W>,
     frame: RenderFrame,
 ) -> RenderResult {
-    let needs_redraw = els
+    // Pre-extract the mutable per-element render state so the widget can be
+    // rendered through a *shared* borrow of its `ElData` (`Widget::render`
+    // takes `&self`): `needs_redraw` is taken as before, and the element's
+    // `part_probes` are `mem::take`-n into a local for `render_part` to look up
+    // / grow. Both are written back after the render + children recursion
+    // release their borrows on `els` (see the end of this fn). The probes are a
+    // tiny inline `TinyVec`, so this move is cheap.
+    let (needs_redraw, mut part_probes) = els
         .expect_mut(id)
-        .and_then(|data| data.state.take_needs_redraw());
+        .map(|data| {
+            (
+                data.state.take_needs_redraw(),
+                core::mem::take(&mut data.state.part_probes),
+            )
+        })
+        .unwrap_or_default();
 
     let Some(data) = els.expect(id) else { return Ok(()) };
 
@@ -469,6 +511,7 @@ fn render_subtree_body<W: WidgetCtx>(
         needs_redraw,
         hovered: data.state.hovered(),
         pressed: data.state.pressed(),
+        part_probes: &mut part_probes,
         renderer,
         layout,
         visual,
@@ -551,6 +594,14 @@ fn render_subtree_body<W: WidgetCtx>(
     //         &DrawStyle::default().fill(W::Color::accents()[1]),
     //     )?;
     // }
+
+    // Write the (possibly grown) probe set back into the element. `els` is
+    // free again now that `data`'s shared borrow and the children recursion's
+    // `&mut` borrows have ended. If the element was removed mid-render the
+    // probes are simply dropped (their disposal is handled by `remove_subtree`).
+    if let Some(data) = els.expect_mut(id) {
+        data.state.part_probes = part_probes;
+    }
 
     debug!("{:indent$}<-", "", indent = frame.nesting_level);
 

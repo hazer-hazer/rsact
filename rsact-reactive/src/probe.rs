@@ -24,7 +24,13 @@ use core::panic::Location;
 /// A `Copy` handle to an externally-polled reaction (see the [module
 /// docs](self)). Identity is the handle itself; create one with
 /// [`create_probe`] and drive it with [`Probe::poll`].
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+///
+/// `Default` yields a probe over the null [`ValueId`] — a *dead* handle whose
+/// [`poll`](Probe::poll) always returns `None`. It exists only so `Probe` can
+/// back inline-array collections (e.g. an owner's
+/// `TinyVec<[(&'static str, Probe); 2]>`), which pad unused slots with
+/// `Default`; a real probe only ever comes from [`create_probe`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Probe(pub(crate) ValueId);
 
 /// Create a new [`Probe`], born dirty so its first [`poll`](Probe::poll) runs.
