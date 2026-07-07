@@ -9,16 +9,11 @@ use rsact_reactive::{
     runtime::{current_runtime_profile, observe, with_new_runtime},
 };
 use rsact_ui::{
-    el::ctx::Wtf,
     prelude::*,
+    test_support::{NullWtf, labels_page},
     ui::{UI, WithPages},
 };
 use std::hint::black_box;
-
-/// The headless widget context: no-op renderer, unit page-id / stylist / event.
-/// Matches the `Wtf<NullRenderer, (), (), ()>` used by rsact-ui's own page
-/// tests, so pages build and the redraw gate runs without a display.
-type NullWtf = Wtf<NullRenderer, (), (), ()>;
 
 /// Run `f` and return `(allocs, bytes)` charged while it ran.
 fn charge<R>(f: impl FnOnce() -> R) -> (usize, usize, R) {
@@ -67,12 +62,7 @@ fn profile_counts() -> crate::snapshot::NodeCounts {
         subscribers_bindings: p.subscribers_bindings,
         sources: p.sources,
         sources_bindings: p.sources_bindings,
-        total: p.stored
-            + p.signals
-            + p.effects
-            + p.memos
-            + p.computed
-            + p.observers,
+        total: p.total(),
     }
 }
 
@@ -137,27 +127,10 @@ fn ui_labels(n: usize) -> Scenario {
         alloc::reset_peak();
         let base_live = alloc::live();
 
-        // Signals the labels read, kept so we can dirty one for the change frame.
-        let labels: Vec<Signal<String>> = (0..n)
-            .map(|i| create_signal(format!("label {i}")))
-            .collect();
-        let init_labels = labels.clone();
-
-        let (build_allocs, build_bytes, mut ui) = charge(|| {
-            let mut ui: UI<NullWtf, _> =
-                UI::new((), NullRenderer).with_page((), move || {
-                    Flex::col(
-                        init_labels
-                            .iter()
-                            .map(|s| Label::new(*s).el())
-                            .collect::<Vec<_>>(),
-                    )
-                    .el()
-                });
-            // Force the active page to build its arena + layout tree.
-            let _ = ui.current_page();
-            ui
-        });
+        // Build the canonical N-label page (shared with the layout bench). The
+        // returned `labels` are kept so we can dirty one for the change frame.
+        let (build_allocs, build_bytes, (mut ui, labels)) =
+            charge(|| labels_page(n));
 
         // Warm-up: the first paint is always full work (page starts dirty and
         // the render gate's observe-nodes are created here), so it is not a

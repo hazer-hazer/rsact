@@ -1532,18 +1532,23 @@ pub struct Profile {
     top_by_sources: Option<(&'static Location<'static>, usize)>,
 }
 
+impl Profile {
+    /// Total live node count, summed across every [`crate::storage::ValueKind`]
+    /// (the single source of the node-sum formula — used by `Display` here and
+    /// by external tooling like metrics-probe).
+    pub fn total(&self) -> usize {
+        self.stored
+            + self.signals
+            + self.effects
+            + self.memos
+            + self.computed
+            + self.observers
+    }
+}
+
 impl Display for Profile {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        writeln!(
-            f,
-            "{} values:",
-            self.stored
-                + self.signals
-                + self.effects
-                + self.memos
-                + self.computed
-                + self.observers
-        )?;
+        writeln!(f, "{} values:", self.total())?;
         writeln!(f, "  {} stored", self.stored)?;
         writeln!(f, "  {} signals", self.signals)?;
         writeln!(f, "  {} effects", self.effects)?;

@@ -11,34 +11,14 @@
 //! metrics-probe snapshot (WS0.3/0.5); this is the wall-clock companion.
 
 use criterion::{Criterion, criterion_group, criterion_main};
+// `prelude::*` brings `WriteSignal` into scope for `signal.set(..)`.
 use rsact_reactive::{prelude::*, runtime::with_new_runtime};
-use rsact_ui::{
-    el::ctx::Wtf,
-    prelude::*,
-    ui::{UI, WithPages},
-};
+// Shared with metrics-probe (WS0.7j) so the bench and the snapshot tool build
+// the same canonical page and their numbers stay comparable.
+use rsact_ui::test_support::labels_page as build_ui;
 use std::{hint::black_box, time::Instant};
 
-type NullWtf = Wtf<NullRenderer, (), (), ()>;
-
 const LABELS: usize = 10;
-
-/// Build a headless page of `n` labels and return the UI plus the label signals.
-fn build_ui(n: usize) -> (UI<NullWtf, WithPages>, Vec<Signal<String>>) {
-    let labels: Vec<Signal<String>> = (0..n)
-        .map(|i| create_signal(format!("label {i}")))
-        .collect();
-    let init = labels.clone();
-    let mut ui: UI<NullWtf, _> =
-        UI::new((), NullRenderer).with_page((), move || {
-            Flex::col(
-                init.iter().map(|s| Label::new(*s).el()).collect::<Vec<_>>(),
-            )
-            .el()
-        });
-    let _ = ui.current_page();
-    (ui, labels)
-}
 
 // Cold-start cost: build the widget tree + first full layout + first paint.
 // Named honestly — the three can't be cheaply separated (a "full layout" only

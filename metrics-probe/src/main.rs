@@ -10,7 +10,11 @@
 //! The same binary is what CI runs; CI merely archives the JSON it emits and
 //! posts the `diff` output as a PR comment — it never replaces this local tool.
 
-mod alloc;
+// The churn/live tracking allocator is shared with rsact-reactive's allocation
+// bench (WS0.7j) so both count identically. Re-exported as `alloc` so the rest
+// of the crate keeps referring to `crate::alloc`.
+pub(crate) use rsact_reactive::alloc_probe as alloc;
+
 mod html;
 mod scenarios;
 mod sizes;
@@ -105,7 +109,9 @@ fn resolve_baseline(arg: &str) -> std::io::Result<Snapshot> {
         }
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
-            format!("'{arg}' resolved to {full} but {SNAPSHOT_DIR}/{full}.json does not exist"),
+            format!(
+                "'{arg}' resolved to {full} but {SNAPSHOT_DIR}/{full}.json does not exist"
+            ),
         ));
     }
     Err(std::io::Error::new(

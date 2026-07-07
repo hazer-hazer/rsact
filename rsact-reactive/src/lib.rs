@@ -13,6 +13,11 @@ mod callback;
 pub mod computed;
 // pub mod cow;
 // pub mod eco;
+// Shared allocation-tracking global allocator for the metrics bench/tool
+// (WS0.7j). std-only, doc-hidden — a measurement utility, not public API.
+#[cfg(feature = "std")]
+#[doc(hidden)]
+pub mod alloc_probe;
 #[cfg(feature = "async")]
 pub mod async_rt;
 pub mod effect;

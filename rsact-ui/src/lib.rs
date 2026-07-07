@@ -16,6 +16,9 @@ pub mod font;
 pub mod layout;
 pub mod page;
 pub mod style;
+// Shared headless test/bench scaffolding (WS0.7j); doc-hidden, not public API.
+#[doc(hidden)]
+pub mod test_support;
 pub mod ui;
 pub mod utils;
 pub mod value;

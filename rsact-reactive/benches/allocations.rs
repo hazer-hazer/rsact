@@ -27,44 +27,16 @@ use rsact_reactive::{
     trigger::create_trigger,
     write::{SignalSetter, WriteSignal},
 };
-use std::{
-    alloc::{GlobalAlloc, Layout, System},
-    hint::black_box,
-    sync::atomic::{AtomicUsize, Ordering::Relaxed},
-};
+use rsact_reactive::alloc_probe::{self, Tracking};
+use std::hint::black_box;
 
 // ---------------------------------------------------------------------------
-// Counting global allocator
+// Counting global allocator — shared with metrics-probe (WS0.7j) so the bench
+// and the snapshot tool count identically.
 // ---------------------------------------------------------------------------
-
-struct Counting;
-static ALLOCS: AtomicUsize = AtomicUsize::new(0);
-static BYTES: AtomicUsize = AtomicUsize::new(0);
-
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-        ALLOCS.fetch_add(1, Relaxed);
-        BYTES.fetch_add(l.size(), Relaxed);
-        unsafe { System.alloc(l) }
-    }
-    unsafe fn alloc_zeroed(&self, l: Layout) -> *mut u8 {
-        ALLOCS.fetch_add(1, Relaxed);
-        BYTES.fetch_add(l.size(), Relaxed);
-        unsafe { System.alloc_zeroed(l) }
-    }
-    unsafe fn realloc(&self, p: *mut u8, l: Layout, new: usize) -> *mut u8 {
-        // Count a realloc as one allocation event; charge only the growth.
-        ALLOCS.fetch_add(1, Relaxed);
-        BYTES.fetch_add(new.saturating_sub(l.size()), Relaxed);
-        unsafe { System.realloc(p, l, new) }
-    }
-    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
-        unsafe { System.dealloc(p, l) }
-    }
-}
 
 #[global_allocator]
-static GLOBAL: Counting = Counting;
+static GLOBAL: Tracking = Tracking;
 
 // ---------------------------------------------------------------------------
 // Measurement harness
@@ -89,13 +61,13 @@ fn measure<S>(
         for _ in 0..WARMUP {
             op(&mut s);
         }
-        let a0 = ALLOCS.load(Relaxed);
-        let b0 = BYTES.load(Relaxed);
+        let a0 = alloc_probe::read().allocs;
+        let b0 = alloc_probe::read().bytes;
         for _ in 0..ITERS {
             op(&mut s);
         }
-        let da = ALLOCS.load(Relaxed) - a0;
-        let db = BYTES.load(Relaxed) - b0;
+        let da = alloc_probe::read().allocs - a0;
+        let db = alloc_probe::read().bytes - b0;
         row(name, da as f64 / ITERS as f64, db as f64 / ITERS as f64);
     });
 }
@@ -106,13 +78,13 @@ fn measure_create(name: &str, mut op: impl FnMut()) {
         for _ in 0..WARMUP {
             op();
         }
-        let a0 = ALLOCS.load(Relaxed);
-        let b0 = BYTES.load(Relaxed);
+        let a0 = alloc_probe::read().allocs;
+        let b0 = alloc_probe::read().bytes;
         for _ in 0..ITERS {
             op();
         }
-        let da = ALLOCS.load(Relaxed) - a0;
-        let db = BYTES.load(Relaxed) - b0;
+        let da = alloc_probe::read().allocs - a0;
+        let db = alloc_probe::read().bytes - b0;
         row(name, da as f64 / ITERS as f64, db as f64 / ITERS as f64);
     });
 }
@@ -345,16 +317,16 @@ fn main() {
                 driver.set(w + 1);
                 render();
             }
-            let a0 = ALLOCS.load(Relaxed);
-            let b0 = BYTES.load(Relaxed);
+            let a0 = alloc_probe::read().allocs;
+            let b0 = alloc_probe::read().bytes;
             let mut k = 0i32;
             for _ in 0..ITERS {
                 k = k.wrapping_add(1);
                 driver.set(black_box(k));
                 render();
             }
-            let da = ALLOCS.load(Relaxed) - a0;
-            let db = BYTES.load(Relaxed) - b0;
+            let da = alloc_probe::read().allocs - a0;
+            let db = alloc_probe::read().bytes - b0;
             row(
                 "observe_redraw_1_of_16",
                 da as f64 / ITERS as f64,
@@ -379,13 +351,13 @@ fn main() {
             for _ in 0..WARMUP {
                 render();
             }
-            let a0 = ALLOCS.load(Relaxed);
-            let b0 = BYTES.load(Relaxed);
+            let a0 = alloc_probe::read().allocs;
+            let b0 = alloc_probe::read().bytes;
             for _ in 0..ITERS {
                 render();
             }
-            let da = ALLOCS.load(Relaxed) - a0;
-            let db = BYTES.load(Relaxed) - b0;
+            let da = alloc_probe::read().allocs - a0;
+            let db = alloc_probe::read().bytes - b0;
             row(
                 "observe_noop_frame_16",
                 da as f64 / ITERS as f64,

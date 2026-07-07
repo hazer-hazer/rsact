@@ -1,9 +1,13 @@
-//! A single global allocator that tracks both *allocation churn* (count + bytes
-//! requested, so freed-immediately allocations still show up — what matters for
-//! heap fragmentation on an MCU) and *live bytes* (currently-outstanding
-//! allocation, plus its peak). One binary may only have one `#[global_allocator]`,
-//! so this merges the jobs the `benches/allocations.rs` counting allocator and
-//! the `examples/mem-overhead.rs` `cap` allocator did separately.
+//! A global allocator that tracks allocation *churn* (count + bytes requested,
+//! so freed-immediately allocations still show up — what matters for heap
+//! fragmentation on an MCU) and *live* bytes (currently-outstanding, plus its
+//! peak). Shared measurement primitive so `rsact-reactive`'s allocation bench
+//! and the `metrics-probe` tool count identically (they used to have separate
+//! copies that could drift and make their numbers incomparable — WS0.7j).
+//!
+//! Install it in a binary/bench with `#[global_allocator] static A: Tracking =
+//! Tracking;`. std-only and `#[doc(hidden)]`: a measurement utility, not part of
+//! the public reactive API.
 
 use std::{
     alloc::{GlobalAlloc, Layout, System},
@@ -21,8 +25,8 @@ fn record_alloc(size: usize) {
     ALLOCS.fetch_add(1, Relaxed);
     BYTES.fetch_add(size, Relaxed);
     let live = LIVE.fetch_add(size, Relaxed) + size;
-    // Monotonically raise the peak. Racy across threads, but the probe runs the
-    // scenarios single-threaded so this is exact in practice.
+    // Monotonically raise the peak. Racy across threads, but the probe/bench run
+    // the measured code single-threaded so this is exact in practice.
     PEAK.fetch_max(live, Relaxed);
 }
 
