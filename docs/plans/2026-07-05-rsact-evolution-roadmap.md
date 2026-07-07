@@ -25,9 +25,9 @@
 | #   | Problem                                                                                                                                                                                                                                                                                                                                                         | Evidence owner |
 | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
 | P1  | ✓ **RESOLVED by WS0 (2026-07-07).** ~~The framework can't build for its own target.~~ std-only f32 math → `FloatExt` backends (0.1); ARMv6-M `fetch_add` → portable-atomic (0.2); size numbers now measured in-repo per commit (0.3 size-probe + CI).                                                                                                             | D4, D6         |
-| P2  | **Nothing is ever disposed.** No scopes anywhere in rsact-ui; page navigation leaks every page-owned node and leaves live effects aimed at a disposed arena (delayed panic); observers never run cleanup (stale deps re-trigger redraws forever, owned values leak per re-run); nested scope drop corrupts `current_scope` in the core.                         | D1, D2, D5     |
+| P2  | **Nothing is ever disposed — HALF RESOLVED.** ✓ core scope chain fixed (WS1.1); ✓ probes dispose with their element/page and `clear_sources` per poll kills stale deps + owned accumulation (WS2). **Still open (WS3):** no page/subtree scopes in rsact-ui — navigation leaks widget-created nodes and leaves live effects aimed at a disposed arena (delayed panic). | D1, D2, D5     |
 | P3  | **Statics pay reactive freight.** Every `Inert` prop, every static `Layout`, every builder literal = a full runtime node (~150–250 B each on 32-bit); 31 of 46 nodes in a measured 10-widget page are constants. ~1.7 KB heap per static label.                                                                                                                 | D7, D6         |
-| P4  | **Change-frames burn bookkeeping, and identity is fragile.** Per executed frame each widget part pays `format!` + string-hash + BTreeMap + an O(N²) subscribe scan (~4–8 ms per change frame @100 parts on M0); observer identity is a bare u64 hash — and cross-page aliasing is _deterministic_ (fresh arenas mint identical ElId sequences).                 | D5             |
+| P4  | ✓ **RESOLVED by WS1.7 + WS2 (2026-07-07).** ~~Change-frames burn bookkeeping; identity is fragile.~~ `format!` killed (1.7); the hash registry is **deleted** — render identity is the owned `Probe` handle in `ElState`/`Page`, disposed with its element, aliasing impossible by construction; `ahash` gone from no_std.                                        | D5             |
 | P5  | **One change relayouts and repaints everything.** Whole-page `Memo<LayoutModel>`; `min_size` recursion makes it O(N·D); no text-measure caching; `force_redraw.set(true)` _inside_ the memo forces every widget to repaint even when the tree is identical; and the flush then streams the **entire viewport per-pixel** to the display.                        | D3, D4         |
 | P6  | **Flash diet needed, in known places.** BTree machinery + quicksort ≈ 5–7 KiB; widget-local type params (`Dir`, `V`, …) ≈ 2.4 KiB per instantiation; per-`T` reactive shims; icons feature retains 46 KiB for one icon; forced `defmt`. The viral `W: WidgetCtx` is an API/coupling problem, **not** a measured flash problem (exactly one `Wtf` per firmware). | D6, D2         |
 
@@ -35,12 +35,12 @@
 
 ```
             ┌─────────────────────────────────────────────────────────────┐
- LAYER 0    │ WS0 ✓ DONE (0.1–0.9)       WS1 core correctness quick wins  │  ← + WS1b UI quick fixes:
-            │                            WS1b UI-side quick wins (sweep)  │     start all three, parallel
+ LAYER 0    │ WS0 ✓ DONE (0.1–0.9)       WS1 ✓ DONE    WS1b ✓ DONE        │  ← layer 0 complete
+            │                                                             │
             └───────────────┬──────────────────────┬──────────────────────┘
                             │                      │
  LAYER 1    ┌───────────────▼──────────┐  ┌────────▼─────────────────────┐
- (engine)   │ WS2 probe/render         │  │ WS9a engine diet: collections │
+ (engine)   │ WS2 ✓ DONE — probe/render│  │ WS9a engine diet: collections │
             │     identity redesign    │  │      (independent, low risk)  │
             └───────┬───────────┬──────┘  └───────────────────────────────┘
                     │           │
@@ -71,7 +71,7 @@
             └───────────────────────────────────────────────────────────────┘
 ```
 
-**Suggested execution order:** WS0 ✓ ∥ WS1 ∥ WS1b → WS2 → (WS3 ∥ WS4 ∥ WS9a) → WS5 → WS6 → WSi → WS7 → (WS8 ∥ WS10 ∥ WS9b) → WS11 → WS12 → (WS13 ∥ WS14 ∥ WS15 ∥ WS16 ∥ WS18). WS17 may start any time after WS6 — ideally before WS11.7 needs its README numbers. **Now actionable: WS1 and WS1b** (parallel — but use separate worktrees or run sequentially; two live sessions in one tree collide).
+**Suggested execution order:** WS0 ✓ ∥ WS1 ✓ ∥ WS1b ✓ → WS2 ✓ → (WS3 ∥ WS4 ∥ WS9a) → WS5 → WS6 → WSi → WS7 → (WS8 ∥ WS10 ∥ WS9b) → WS11 → WS12 → (WS13 ∥ WS14 ∥ WS15 ∥ WS16 ∥ WS18). WS17 may start any time after WS6 — ideally before WS11.7 needs its README numbers. **Now actionable (2026-07-07): WS3 ∥ WS4 ∥ WS9a** — all deps met (WS4 starts with the maintainer-authored 4.0 analysis); parallel sessions need separate worktrees.
 WS7's _decisions_ are locked at Gate time (now); only its _execution_ is late. 7.2's cheap `Dir`/`V` de-genericization may ride along with WS2/WS4 if convenient — it's zero-user-impact. (7.1 no longer qualifies: G5 keeps `Event::Custom`, and its remaining scope carries a breaking rename plus a G4-dependent default.)
 
 ---
@@ -462,6 +462,7 @@ Stages:
 - [ ] **5.1 Layout off-graph:** `Layout` → shared `LayoutData` handle outside the graph + binding-effects + page dirty set; node identity = `ElId` recorded at build (also makes the arena↔layout `zip_eq` invariant explicit); `transparent_layout` maps to parent. Consumes WS4.0's Layout analysis (`Widget::layout` returning `&Layout`, `Clone`/`Copy` removal from `Layout` for mutation safety).
 - [ ] **5.2 Retained tree + boundary stop rule:** per-node `(last_inputs, outer_size, min_size, flags)` ≤ 64 B/node (feature-gated `incremental-layout`); skip-and-splice clean subtrees; recompute dirty via the unchanged `model_layout` kernel; stop upward when `(outer_size, min_size)` unchanged (tight limits / Fixed×Fixed / `InfiniteWindow` scrollables are natural boundaries). **Differential fuzz test**: random trees + random single mutations, incremental result `==` full recompute.
 - [ ] **5.3 Changed-set output:** relayout returns the list of nodes whose absolute rect changed (old∪new rects) — the damage channel WS6 consumes.
+- [ ] **5.x Inherited from WS1.3b (deferred hand-off):** the "self-sufficient pull" hardening (commit path enqueues effects via `mark_node`) was implemented and **reverted** in WS1 — it doubled effect-rerun allocations because the write-time push already queues everything (see WS1's execution notes). WS5 owns the lazier marking that breaks that invariant, so WS5 must (re)introduce pull-side effect enqueueing **together with** its dirty-set marking, without the redundant re-enqueue cost — and re-run `benches/allocations.rs` as the gate.
 - [ ] **5.4 Persistent text-measure cache (A7, after 5.0's per-pass reuse):** small feature-gated cache _across_ passes, strict RAM budget (e.g. 16 entries, fixed-size, no text storage). Key design decided in-session with a bench: 64-bit hash of (font id, text, width constraint) — collision ⇒ silently wrong size, astronomically unlikely but deterministic-per-build, so either document it or exact-compare texts ≤ N bytes inline. Invalidated by 4.3's explicit "fonts changed" call. Guard: hash cost must stay well below measure cost (add to the 0.3 snapshot).
 
 **Design sketch:**
@@ -1020,10 +1021,12 @@ Menu generated 2026-07-07 from audit-report material not yet scheduled + the pos
 ## Baselines & verification commands (ACTUALIZED 2026-07-07 — WS0 complete through 0.9; CI runs these same checks via `.github/workflows/ci.yml` + the runnable scripts it wraps)
 
 ```sh
-cargo test -p rsact-reactive --features std -- --test-threads=1   # 54 pass / 2 known-fail:
-#   maybe::tests::static_wrapper                      → WS4's acceptance test (must flip to pass)
-#   runtime::tests::observe_recreates_disposed_child_observer → rewritten in WS2 per G2
-cargo test -p rsact-ui --lib --features "std,embedded-graphics" -- --test-threads=1   # 44 / 0
+cargo test -p rsact-reactive --features std -- --test-threads=1   # 68 pass / 1 known-fail:
+#   maybe::tests::static_wrapper → WS4's acceptance test (must flip to pass). The old second
+#   known-fail (observe_recreates_disposed_child_observer) no longer exists — rewritten per G2
+#   in WS2 as child_observer_reruns_only_on_own_dep_change (passing). Doctests: 4 pre-existing
+#   maybe-module failures, unrelated — do not chase.
+cargo test -p rsact-ui --lib --features "std,embedded-graphics" -- --test-threads=1   # 53 / 0
 #   (--lib is required: examples lack required-features; a font provider feature is required)
 cargo test -p rsact-render --features "std,embedded-graphics,tiny-skia" -- --test-threads=1  # 6 / 0
 cargo test -p metrics-probe --features layout-counters              # 3 / 0 (parallel-safe)
@@ -1033,7 +1036,11 @@ cargo run -p metrics-probe -- record            # Layer-1 snapshot (+ --sizes fo
 # a single --all powerset cannot be green by design — exact commands: docs/features.md
 # NOTE since 0.7a: --no-default-features drops libm — thumb/minimal commands must name a math
 # backend explicitly (e.g. ...,libm). Automation: post-commit hook records snapshots locally;
-# ci.yml (tests/powersets/thumbv7m) + metrics.yml (metrics-data branch, Pages, PR deltas) on GitHub.
+# ci.yml (tests/powersets/thumbv7m) + metrics.yml (metrics-data branch — LIVE on origin, Pages,
+# PR deltas) on GitHub.
+# OPS GOTCHAS (from WS2 execution): never run other cargo commands concurrently with a
+# cargo-hack powerset (it rewrites Cargo.toml transiently — breaks the test-utils self-dev-dep);
+# do NOT run workspace-wide `cargo fmt` — use per-file rustfmt.
 ```
 
 Measured reference numbers (2026-07-05 audit + WS0's in-repo size-probe; the 0.3 snapshot tool is now the living source — these rows are the frozen baseline):
