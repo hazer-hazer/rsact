@@ -180,7 +180,24 @@ impl<W: WidgetCtx> ElArena<W> {
                 stack.extend(children.iter().copied());
             }
             self.parents.remove(id);
-            self.els.els.remove(id);
+            // Dispose the element's render probes as it leaves the tree, so
+            // they do not outlive it (WS2.3) — otherwise every reactive rebuild
+            // (`dynamic(...)`, tab switch, list update) leaks probe nodes.
+            if let Some(mut node) = self.els.els.remove(id) {
+                if let Some(mut data) = node.data.take() {
+                    data.state.dispose_probes();
+                }
+            }
+        }
+    }
+
+    /// Dispose every element's render probes (WS2.3). Used on page drop, before
+    /// the arena signal itself is disposed, so no probe node outlives the page.
+    pub(crate) fn dispose_all_probes(&mut self) {
+        for node in self.els.els.values_mut() {
+            if let Some(data) = node.data.as_mut() {
+                data.state.dispose_probes();
+            }
         }
     }
 

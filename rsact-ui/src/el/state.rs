@@ -156,6 +156,19 @@ impl<W: WidgetCtx> ElState<W> {
     pub fn take_needs_redraw(&mut self) -> Option<RedrawReason> {
         self.needs_redraw.take()
     }
+
+    /// Dispose every render probe this element owns and empty the set (WS2.3).
+    /// Called when the element leaves the tree (`remove_subtree`) or its page
+    /// is dropped, so a probe never outlives its element.
+    pub(crate) fn dispose_probes(&mut self) {
+        for (_key, probe) in core::mem::take(&mut self.part_probes) {
+            // SAFETY: the element is leaving the tree, so nothing will render
+            // it again and no live edge points at the probe. Probes are created
+            // untracked (owned by no observer/scope), so this is the only path
+            // that disposes them — no cascade can double-dispose.
+            unsafe { probe.dispose() };
+        }
+    }
 }
 
 impl<W: WidgetCtx> Debug for ElState<W> {

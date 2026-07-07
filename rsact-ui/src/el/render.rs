@@ -265,7 +265,11 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
         {
             Some(&(_, probe)) => probe,
             None => {
-                let probe = create_probe();
+                // Create untracked so the probe is owned by no observer/scope:
+                // its sole owner is this `ElState`, and it is disposed only via
+                // `dispose_probes` (`remove_subtree` / page drop) — no cascade
+                // can double-dispose it (WS2.3).
+                let probe = untrack(create_probe);
                 self.part_probes.push((hash_source, probe));
                 probe
             },
