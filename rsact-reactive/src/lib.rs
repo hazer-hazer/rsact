@@ -66,10 +66,7 @@ pub mod prelude {
         },
         // TODO: Is this right to reexport from other crate?
         rsact_macros::IntoMaybeReactive,
-        runtime::{
-            batch, defer_effects, observe, observe_by_location,
-            observe_with_force, untrack, with_current_runtime,
-        },
+        runtime::{batch, defer_effects, untrack, with_current_runtime},
         signal::{
             IntoSignal, RwSignal, Signal, create_signal, marker::ReadOnly,
             marker::Rw, marker::WriteOnly,

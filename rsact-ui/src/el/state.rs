@@ -6,6 +6,8 @@ use core::{
     fmt::{Debug, Display},
     marker::PhantomData,
 };
+use rsact_reactive::probe::Probe;
+use tinyvec::TinyVec;
 
 #[derive(Debug, Clone, Copy)]
 pub enum ClipPath {
@@ -48,6 +50,20 @@ pub struct ElState<W: WidgetCtx> {
     // Rendering //
     needs_redraw: Option<RedrawReason>,
     pub clip_path: Option<ClipPath>,
+
+    /// Render probes owned by this element, one per widget "part" it draws
+    /// (`"self"`, `"thumb"`, `"options"`, …). WS2 moved render identity out of
+    /// the reactive core's global registry to its owner: the handle *is* the
+    /// identity, so cross-page aliasing is impossible by construction and the
+    /// probes die with the element (disposed in `remove_subtree`).
+    ///
+    /// Looked up by a **linear scan with content comparison** — a widget's
+    /// part-name set is tiny (≤4) so this beats any hash, and `&'static str`
+    /// pointer identity is NOT guaranteed equal across codegen units, so keys
+    /// must be compared by content, never by pointer.
+    // TODO: `PartId(u16)` compaction — ~12 B/entry vs 16, integer compare, no
+    // string bytes in flash.
+    pub(crate) part_probes: TinyVec<[(&'static str, Probe); 2]>,
 }
 
 impl<W: WidgetCtx> ElState<W> {
@@ -66,6 +82,7 @@ impl<W: WidgetCtx> ElState<W> {
 
             needs_redraw: None,
             clip_path: None,
+            part_probes: TinyVec::new(),
             // pseudoclass: StylePseudoClass::default(),
         }
     }
@@ -138,6 +155,19 @@ impl<W: WidgetCtx> ElState<W> {
 
     pub fn take_needs_redraw(&mut self) -> Option<RedrawReason> {
         self.needs_redraw.take()
+    }
+
+    /// Dispose every render probe this element owns and empty the set (WS2.3).
+    /// Called when the element leaves the tree (`remove_subtree`) or its page
+    /// is dropped, so a probe never outlives its element.
+    pub(crate) fn dispose_probes(&mut self) {
+        for (_key, probe) in core::mem::take(&mut self.part_probes) {
+            // SAFETY: the element is leaving the tree, so nothing will render
+            // it again and no live edge points at the probe. Probes are created
+            // untracked (owned by no observer/scope), so this is the only path
+            // that disposes them — no cascade can double-dispose.
+            unsafe { probe.dispose() };
+        }
     }
 }
 

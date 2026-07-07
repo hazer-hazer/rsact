@@ -4,9 +4,6 @@ replace_with = { workspace = true }
 rsact-macros = { workspace = true }
 slotmap = { workspace = true }
 tinyvec.workspace = true
-ahash = { version = "0.8.12", default-features = false, features = [
-    "compile-time-rng",
-] }
 # Only pulled by the (default no_std) `single-thread` backend, which guards all
 # runtime access with `critical_section::with`. The `unsafe-single-thread`
 # backend does NOT enable it, so no critical-section impl is required there.

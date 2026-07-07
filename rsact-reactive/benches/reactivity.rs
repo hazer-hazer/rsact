@@ -30,7 +30,7 @@ use rsact_reactive::{
     effect::create_effect,
     memo::{Memo, create_memo},
     prelude::*,
-    runtime::{batch, observe, untrack, with_new_runtime},
+    runtime::{batch, untrack, with_new_runtime},
     scope::new_scope,
     signal::create_signal,
     trigger::create_trigger,
@@ -745,11 +745,14 @@ fn ui_patterns(c: &mut Criterion) {
                         let sigs: Vec<_> =
                             (0..n).map(|_| create_signal(0i32)).collect();
                         let render_sigs = sigs.clone();
+                        let outer = create_probe();
+                        let children: Vec<Probe> =
+                            (0..n).map(|_| create_probe()).collect();
                         let render = move || {
-                            observe("outer", || {
+                            outer.poll(false, || {
                                 for (i, s) in render_sigs.iter().enumerate() {
                                     let s = *s;
-                                    observe(("child", i), move || {
+                                    children[i].poll(false, move || {
                                         black_box(s.get());
                                     });
                                 }
@@ -778,10 +781,13 @@ fn ui_patterns(c: &mut Criterion) {
         b.iter_custom(|iters| {
             with_new_runtime(|_| {
                 let s = create_signal(0i32);
+                let outer = create_probe();
+                let children: Vec<Probe> =
+                    (0..16).map(|_| create_probe()).collect();
                 let render = move || {
-                    observe("outer", || {
+                    outer.poll(false, || {
                         for i in 0..16 {
-                            observe(("child", i), || {
+                            children[i].poll(false, || {
                                 black_box(s.get());
                             });
                         }

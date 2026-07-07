@@ -22,7 +22,7 @@ use rsact_reactive::{
     effect::create_effect,
     memo::create_memo,
     prelude::*,
-    runtime::{batch, observe, with_new_runtime},
+    runtime::{batch, with_new_runtime},
     scope::new_scope,
     signal::create_signal,
     trigger::create_trigger,
@@ -301,11 +301,14 @@ fn main() {
         with_new_runtime(|_| {
             let sigs: Vec<_> = (0..16).map(|_| create_signal(0i32)).collect();
             let render_sigs = sigs.clone();
+            let outer = create_probe();
+            let children: Vec<Probe> =
+                (0..16).map(|_| create_probe()).collect();
             let render = move || {
-                observe("outer", || {
+                outer.poll(false, || {
                     for (i, s) in render_sigs.iter().enumerate() {
                         let s = *s;
-                        observe(("child", i), move || {
+                        children[i].poll(false, move || {
                             black_box(s.get());
                         });
                     }
@@ -338,10 +341,13 @@ fn main() {
         // Idle frame: re-invoke an unchanged observe tree (nothing dirty).
         with_new_runtime(|_| {
             let s = create_signal(0i32);
+            let outer2 = create_probe();
+            let children2: Vec<Probe> =
+                (0..16).map(|_| create_probe()).collect();
             let render = move || {
-                observe("outer2", || {
+                outer2.poll(false, || {
                     for i in 0..16 {
-                        observe(("child2", i), || {
+                        children2[i].poll(false, || {
                             black_box(s.get());
                         });
                     }

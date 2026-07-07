@@ -17,6 +17,51 @@
 //! the reaction lives and disposes it with its owner. This crate stays
 //! UI-vocabulary-free: it knows nothing about elements, parts, or pages — the
 //! ownership map lives with the owner.
+//!
+//! # Driving probes from an external render engine
+//!
+//! A probe has no scheduler — *you* own it and poll it, so it is the primitive
+//! for gating an out-of-tree render loop. The ownership contract is: **store
+//! one probe per reactive region you draw, poll it each frame, and dispose it
+//! when the region goes away.** It runs the closure only when a dependency it
+//! read last time changed (or you pass `force = true`, e.g. after a resize that
+//! needs an unconditional repaint).
+//!
+//! This is exactly how `rsact-ui` gates redraws without any registry in the
+//! core: each element's state owns a small `(part_name, Probe)` map (one entry
+//! per widget part it draws) and each page owns a single render probe;
+//! removing an element or dropping a page disposes its probes. An out-of-tree
+//! renderer follows the same pattern with whatever key its scene graph uses.
+//!
+//! ```rust
+//! # use rsact_reactive::prelude::*;
+//! # use rsact_reactive::runtime::with_new_runtime;
+//! # with_new_runtime(|_| {
+//! let mut label = create_signal(3u32);
+//!
+//! // The owner stores the probe (here one; a real widget keys several by part).
+//! let draw_probe = create_probe();
+//!
+//! let mut frame = move || {
+//!     // Returns `Some(_)` only on frames where the probe actually ran.
+//!     draw_probe.poll(false, || {
+//!         label.with(|value| {
+//!             // ...issue draw commands for `value` to your display here...
+//!             *value
+//!         })
+//!     })
+//! };
+//!
+//! assert_eq!(frame(), Some(3)); // first frame: born dirty, draws
+//! assert_eq!(frame(), None);    // nothing changed: no redraw
+//! label.set(7);
+//! assert_eq!(frame(), Some(7)); // dependency changed: redraws
+//!
+//! // When the region is gone, dispose the handle so its node dies with it.
+//! // SAFETY: nothing renders `draw_probe` after this point.
+//! unsafe { draw_probe.dispose() };
+//! # });
+//! ```
 
 use crate::{runtime::with_current_runtime, storage::ValueId};
 use core::panic::Location;
@@ -24,7 +69,13 @@ use core::panic::Location;
 /// A `Copy` handle to an externally-polled reaction (see the [module
 /// docs](self)). Identity is the handle itself; create one with
 /// [`create_probe`] and drive it with [`Probe::poll`].
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+///
+/// `Default` yields a probe over the null [`ValueId`] — a *dead* handle whose
+/// [`poll`](Probe::poll) always returns `None`. It exists only so `Probe` can
+/// back inline-array collections (e.g. an owner's
+/// `TinyVec<[(&'static str, Probe); 2]>`), which pad unused slots with
+/// `Default`; a real probe only ever comes from [`create_probe`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Probe(pub(crate) ValueId);
 
 /// Create a new [`Probe`], born dirty so its first [`poll`](Probe::poll) runs.
@@ -298,6 +349,69 @@ mod tests {
                 !first.is_alive(),
                 "owned value not disposed with the probe"
             );
+        });
+    }
+
+    /// A probe over a memo re-runs only when the memo's *value* actually
+    /// changed — the memo cuts propagation when its output is unchanged, so an
+    /// input change that leaves the memo equal does not re-run the probe.
+    #[test]
+    fn probe_over_memo_cuts_when_value_unchanged() {
+        with_new_runtime(|_| {
+            let mut a = create_signal(0i32);
+            let a_is_even = create_memo(move || a.get() % 2 == 0);
+            let runs = Rc::new(Cell::new(0u32));
+            let probe = create_probe();
+
+            let poll = || {
+                let r = runs.clone();
+                probe.poll(false, move || {
+                    r.set(r.get() + 1);
+                    a_is_even.get()
+                })
+            };
+
+            assert_eq!(poll(), Some(true));
+            assert_eq!(runs.get(), 1);
+            assert_eq!(poll(), None);
+
+            // even -> odd: the memo value changes, so the probe re-runs.
+            a.set(3);
+            assert_eq!(poll(), Some(false));
+            assert_eq!(runs.get(), 2);
+
+            // odd -> odd: the memo value is unchanged (cut), so the probe must
+            // NOT re-run even though its input `a` changed.
+            a.set(5);
+            assert_eq!(
+                poll(),
+                None,
+                "probe re-ran though the memo was unchanged"
+            );
+            assert_eq!(runs.get(), 2);
+        });
+    }
+
+    /// A probe whose closure writes a signal it also reads must not deadlock or
+    /// loop: the self-write re-dirties the probe, but the post-run `mark_clean`
+    /// settles it, so a subsequent no-op poll returns `None`.
+    #[test]
+    fn probe_poll_reentrant_self_write() {
+        with_new_runtime(|_| {
+            let mut signal = create_signal(123i32);
+            let probe = create_probe();
+
+            let mut poll = move || {
+                probe.poll(false, || {
+                    signal.get();
+                    signal.set(69);
+                })
+            };
+
+            assert_eq!(poll(), Some(()));
+            signal.set(0);
+            assert_eq!(poll(), Some(()));
+            assert_eq!(poll(), None);
         });
     }
 }

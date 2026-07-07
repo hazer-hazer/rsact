@@ -62,11 +62,23 @@ pub struct Page<W: WidgetCtx> {
     force_redraw: Signal<bool>,
     render_calls: usize,
     fonts: Signal<FontCtx>,
+    /// The page's render gate (WS2). One probe, polled once per frame in
+    /// [`use_renderer`](Self::use_renderer); it re-runs the page render only
+    /// when a tracked dependency changed or a redraw is forced. Owned by the
+    /// page — disposed in `Drop` alongside the arena.
+    render_probe: Probe,
 }
 
 impl<W: WidgetCtx> Drop for Page<W> {
     fn drop(&mut self) {
+        // Dispose every render probe the page owns before the arena signal
+        // itself (WS2.3): each element's `part_probes` (walked via the arena)
+        // and the page `render_probe`. Goto navigation drops the old page, so
+        // without this every navigation would leak probe nodes.
+        self.arena
+            .update_untracked(|arena| arena.dispose_all_probes());
         unsafe {
+            self.render_probe.dispose();
             self.arena.dispose();
         }
     }
@@ -141,6 +153,10 @@ impl<W: WidgetCtx> Page<W> {
 
         let style = PageStyle::base().signal().name("Page style");
 
+        // Untracked so the probe is owned by no observer/scope — the page owns
+        // it and disposes it explicitly in `Drop` (WS2.3).
+        let render_probe = untrack(create_probe);
+
         Self {
             id,
             root,
@@ -157,6 +173,7 @@ impl<W: WidgetCtx> Page<W> {
             force_redraw,
             render_calls: 0,
             fonts,
+            render_probe,
         }
     }
 
@@ -555,14 +572,10 @@ impl<W: WidgetCtx> Page<W> {
     pub fn use_renderer(&mut self, f: impl FnOnce(&mut W::Renderer)) -> bool {
         let mut renderer = self.renderer;
 
-        #[cfg(feature = "debug-info")]
-        {
-            observe(("page_force_redraw", self.id), || {
-                self.force_redraw.track();
-
-                debug!("Force redraw page {:?}", self.id);
-            });
-        }
+        // (Removed the debug-only `("page_force_redraw", id)` observer here: it
+        // only logged force-redraw changes and its `force_redraw` dependency is
+        // already tracked by `render_probe` below — WS2 dropped it with the
+        // observer registry rather than mint a debug-only probe for a log line.)
 
         let redraw_reason = self.arena.update_untracked(|arena| {
             arena
@@ -573,26 +586,28 @@ impl<W: WidgetCtx> Page<W> {
         });
         let needs_redraw = redraw_reason.is_some() || self.needs_redraw;
 
-        let drawn =
-            observe_with_force(("render_page", self.id), needs_redraw, || {
-                info!(
-                    "Render page {:?} (call: {})",
-                    self.id,
-                    self.render_calls + 1
-                );
+        // Copy the probe handle out (it is `Copy`) so the poll closure can
+        // borrow `self` mutably without aliasing `self.render_probe`.
+        let render_probe = self.render_probe;
+        let drawn = render_probe.poll(needs_redraw, || {
+            info!(
+                "Render page {:?} (call: {})",
+                self.id,
+                self.render_calls + 1
+            );
 
-                #[cfg(feature = "debug-info")]
-                {
-                    rsact_reactive::debug::observer_debug_info().map(|di| {
-                        info!("Rerender debug info: {di}");
-                    });
-                }
+            #[cfg(feature = "debug-info")]
+            {
+                rsact_reactive::debug::observer_debug_info().map(|di| {
+                    info!("Rerender debug info: {di}");
+                });
+            }
 
-                self.force_redraw.track();
+            self.force_redraw.track();
 
-                self.render_calls += 1;
+            self.render_calls += 1;
 
-                renderer
+            renderer
                 .update_untracked(|renderer| {
                     // self.style
                     //     .with(|style| {
@@ -668,7 +683,7 @@ impl<W: WidgetCtx> Page<W> {
                 .unwrap_or_else(|_| {
                     log::error!("page render failed; skipping this frame");
                 });
-            });
+        });
 
         //
         self.force_redraw.set_untracked(false);
@@ -747,6 +762,78 @@ mod tests {
                 baseline,
                 "arena leaked {} node(s) across 20 rebuilds",
                 after as i64 - baseline as i64
+            );
+        });
+    }
+
+    /// WS2.3: dropping a page must dispose every render probe it owns — the
+    /// page's `render_probe` and every element's `part_probes`. Otherwise each
+    /// page navigation (goto frees the old page) leaks probe nodes unbounded.
+    /// Measured via the probe (`observers`) count returning to baseline across
+    /// 100 create → render → drop cycles (a goto round-trip).
+    #[test]
+    fn page_drop_disposes_all_probes() {
+        use rsact_reactive::runtime::{
+            current_runtime_profile, with_new_runtime,
+        };
+
+        with_new_runtime(|_| {
+            let baseline = current_runtime_profile().observers;
+
+            for _ in 0..100 {
+                let mut page = create_null_page(Label::new("x".inert()).el());
+                // Render so the element's `part_probes` and the page's
+                // `render_probe` are actually created.
+                page.use_renderer(|_| {});
+                drop(page);
+            }
+
+            let after = current_runtime_profile().observers;
+            assert_eq!(
+                after,
+                baseline,
+                "leaked {} probe(s) across 100 page create/render/drop cycles",
+                after as i64 - baseline as i64
+            );
+        });
+    }
+
+    /// WS2.3: when a subtree leaves the tree (`set_children`/`set_single_child`
+    /// → `remove_subtree`), the removed element's `part_probes` must be
+    /// disposed, not orphaned — otherwise every list reconciliation / tab
+    /// switch leaks probe nodes. Rendered once so the child owns a probe, then
+    /// its subtree is removed via the arena's public `set_children`; the removed
+    /// child's probe must be gone.
+    #[test]
+    fn subtree_removal_disposes_part_probes() {
+        use rsact_reactive::runtime::{
+            current_runtime_profile, with_new_runtime,
+        };
+
+        with_new_runtime(|_| {
+            // A `Dynamic` (closure) root renders its `Label` child cleanly in
+            // the null theme (a bare `Container` would hit the pre-existing
+            // ColorStyle render panic). The child is registered under the root
+            // via `set_single_child` at build.
+            let mut page = create_null_page(|| Label::new("x".inert()).el());
+
+            // Render so the child Label owns its "self" probe.
+            page.use_renderer(|_| {});
+            let with_child = current_runtime_profile().observers;
+
+            // Remove the container's children directly through the arena (what a
+            // widget does on a list/child change). This runs `remove_subtree`
+            // over the Label, which must dispose its probe.
+            let root = page.root;
+            page.arena.update_untracked(|arena| {
+                arena.set_children(root, alloc::vec::Vec::new());
+            });
+
+            let after = current_runtime_profile().observers;
+            assert!(
+                after < with_child,
+                "remove_subtree did not dispose the removed subtree's probe(s) \
+                 (before={with_child}, after={after})"
             );
         });
     }
