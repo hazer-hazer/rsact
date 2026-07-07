@@ -196,7 +196,11 @@ fn ui_labels(n: usize) -> Scenario {
                 })
             })
             .flatten();
-        let layout = read_layout();
+        // Only trust the layout counters if the change frame actually completed;
+        // a panicked frame leaves them at 0 (reset, never incremented), which
+        // would record a phantom `Some {visits: 0, measures: 0}` and show as a
+        // fake −100% "improvement" in a later diff.
+        let layout = change.and_then(|_| read_layout());
 
         Scenario {
             name: format!("ui_labels_{n}"),
