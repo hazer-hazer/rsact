@@ -149,9 +149,11 @@ macro_rules! declare_widget_style {
     };
 
     (@opt_method_list text_color: color) => {
-        $crate::stable::declare_widget_style!(@opt_method_list $field: color {
-            transparent_text: transparent,
-        })
+        $crate::style::declare_widget_style! {
+            @opt_method_list text_color: color {
+                transparent_text: transparent,
+            }
+        }
     };
 
     // (@opt_method_list background_color: color) => {
@@ -353,3 +355,29 @@ macro_rules! declare_widget_style {
 }
 
 pub use declare_widget_style;
+
+#[cfg(test)]
+mod tests {
+    // b.4: a widget style declaring `text_color: color` WITHOUT an explicit
+    // opts block must compile and generate the `transparent_text` opt method.
+    // Before the fix the no-opts arm expanded to `$crate::stable::…` (a path
+    // typo) with an unbound `$field`, so this invocation failed to compile with
+    // an incomprehensible error. All in-tree widgets happen to pass an explicit
+    // opts block, which is why the broken arm stayed latent.
+    crate::declare_widget_style! {
+        BareTextColorStyle () {
+            text_color: color,
+        }
+    }
+
+    #[test]
+    fn bare_text_color_generates_transparent_text() {
+        use crate::render::prelude::NullColor;
+        use crate::style::Style;
+
+        let style = BareTextColorStyle::<NullColor>::base()
+            .text_color(NullColor)
+            .transparent_text();
+        let _ = style;
+    }
+}

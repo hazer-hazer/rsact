@@ -44,6 +44,10 @@ fake = "4.0.0"
 rand = "0.9"
 env_logger = { workspace = true }
 embedded-graphics-simulator = { workspace = true }
+# Tests/benches use `with_new_runtime`, gated behind rsact-reactive's dev-only
+# `test-utils` feature. Enabled here for dev targets only (resolver 3 keeps it
+# out of the normal rsact-ui build graph) — WS1.2.
+rsact-reactive = { workspace = true, features = ["test-utils"] }
 
 # WS0.5 layout timing benches. `required-features` keeps `cargo test`/`cargo
 # build` from trying to compile it without a render backend; run with:

@@ -53,7 +53,7 @@ pub mod prelude {
         effect::{Effect, create_effect},
         inert::{Inert, IntoInert},
         maybe::{
-            IsInert, IsReactive, ReactivityMarker, SignalMapReactive,
+            IsInert, IsReactive, ReactivityMarker,
             maybe_reactive::IntoMaybeReactive, maybe_reactive::MaybeReactive,
             maybe_signal::IntoMaybeSignal, maybe_signal::MaybeSignal,
         },
@@ -65,9 +65,8 @@ pub mod prelude {
         // TODO: Is this right to reexport from other crate?
         rsact_macros::IntoMaybeReactive,
         runtime::{
-            batch, create_runtime, defer_effects, observe, observe_by_location,
+            batch, defer_effects, observe, observe_by_location,
             observe_with_force, untrack, with_current_runtime,
-            with_new_runtime,
         },
         signal::{
             IntoSignal, RwSignal, Signal, create_signal, marker::ReadOnly,
@@ -76,6 +75,13 @@ pub mod prelude {
         trigger::{Trigger, create_trigger},
         write::{SignalSetter, UpdateNotification, WriteSignal},
     };
+
+    // Dev-only multi-runtime helpers, gated behind `test-utils` so they never
+    // exist in a production build graph (WS1.2). `create_runtime` alone is not
+    // re-exported here — `with_new_runtime` is the scoped, restore-safe entry
+    // point.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub use super::runtime::{create_runtime, with_new_runtime};
 }
 
 /// Core trait implemented by every reactive (and inert) value in the runtime.

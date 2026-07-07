@@ -91,6 +91,49 @@ pub trait WriteSignal<T> {
     fn set_untracked(&mut self, new: T) {
         self.update_untracked(|value| *value = new)
     }
+
+    /// Fallible [`update_untracked`](Self::update_untracked): returns `None`
+    /// (logged) for a disposed handle instead of panicking (WS1.8).
+    #[track_caller]
+    fn try_update_untracked<U>(
+        &mut self,
+        f: impl FnOnce(&mut T) -> U,
+    ) -> Option<U>
+    where
+        Self: ReactiveValue,
+    {
+        self.is_alive().then(|| self.update_untracked(f))
+    }
+
+    /// Fallible [`update`](Self::update): updates and notifies, or returns
+    /// `None` (logged) for a disposed handle. Prefer this on event handlers so
+    /// a write to a stale signal degrades rather than aborting the UI.
+    #[track_caller]
+    fn try_update<U>(&mut self, f: impl FnOnce(&mut T) -> U) -> Option<U>
+    where
+        Self: ReactiveValue,
+    {
+        if self.is_alive() {
+            let result = self.update_untracked(f);
+            self.notify();
+            Some(result)
+        } else {
+            log::error!(
+                "Update of disposed reactive value at {}",
+                core::panic::Location::caller()
+            );
+            None
+        }
+    }
+
+    /// Fallible [`set`](Self::set): `None` for a disposed handle.
+    #[track_caller]
+    fn try_set(&mut self, new: T) -> Option<()>
+    where
+        Self: ReactiveValue,
+    {
+        self.try_update(|value| *value = new)
+    }
 }
 
 /// Bind a signal to a reactive source so the signal stays in sync.

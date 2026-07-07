@@ -89,7 +89,7 @@ impl Easing {
             Easing::Linear => x,
             // Cos/Sin
             Easing::EaseInSine => 1.0 - (x * PI / 2.0).cos(),
-            Easing::EaseOutSine => 1.0 - (x * PI / 2.0).sin(),
+            Easing::EaseOutSine => (x * PI / 2.0).sin(),
             Easing::EaseInOutSine => -((PI * x).cos() - 1.0) / 2.0,
             // Quad
             Easing::EaseInQuad => x.powi(2),

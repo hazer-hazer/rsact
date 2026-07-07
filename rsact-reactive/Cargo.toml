@@ -16,6 +16,12 @@ critical-section = { version = "1.2", optional = true }
 criterion = "0.8.2"
 cap = { workspace = true }
 env_logger = { workspace = true }
+# Turn on `test-utils` for this crate's *own* dev targets (unit tests,
+# doctests, benches, examples). A package may depend on itself as a
+# dev-dependency purely to enable a feature for those targets; production
+# builds and downstream normal dependents never see it (resolver 3 keeps
+# dev-dependency features out of normal builds). See the `test-utils` feature.
+rsact-reactive = { path = ".", features = ["test-utils"] }
 
 [package]
 edition.workspace = true
@@ -40,6 +46,12 @@ single-thread = ["dep:critical-section"]
 unsafe-single-thread = []
 debug-info = []
 async = []
+# Dev-only multi-runtime helpers (`create_runtime`/`with_new_runtime`). These
+# create/destroy extra thread-local runtimes and are unsound in production (the
+# single global runtime is the only public reality). Gated so they never exist
+# in a production build graph; dependents enable them via dev-dependencies only
+# (WS1.2 decision).
+test-utils = []
 
 [[bench]]
 harness = false

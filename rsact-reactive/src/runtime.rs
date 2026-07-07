@@ -45,6 +45,7 @@ fn id_vec_remove(v: &mut IdVec, id: ValueId) {
 
 // TODO: Maybe better use Slab instead of SlotMap for efficiency
 
+#[cfg(any(test, feature = "test-utils"))]
 impl RuntimeId {
     pub fn leave(&self) {
         let rt = RUNTIMES.with(|rts| {
@@ -94,20 +95,35 @@ pub fn with_current_runtime<T>(f: impl FnOnce(&Runtime) -> T) -> T {
 ///     assert_eq!(s.get(), 42);
 /// });
 /// ```
+#[cfg(any(test, feature = "test-utils"))]
 #[inline(always)]
 pub fn with_new_runtime<T>(f: impl FnOnce(&Runtime) -> T) -> T {
-    let rt = create_runtime();
+    // Restore the previously-current runtime on the way out — even if `f`
+    // panics — so a nested `with_new_runtime` (or any temporary runtime) can't
+    // brick the current-runtime cell (WS1.2). The old code discarded `prev`,
+    // and `leave()` merely clears the current cell, so after the temporary
+    // runtime left the current cell was `None` and every subsequent reactive
+    // access panicked on `current.unwrap()`.
+    struct RuntimeGuard {
+        rt: RuntimeId,
+        prev: Option<RuntimeId>,
+    }
+    impl Drop for RuntimeGuard {
+        fn drop(&mut self) {
+            self.rt.leave();
+            CURRENT_RUNTIME.with(|current| current.set(self.prev));
+        }
+    }
 
-    CURRENT_RUNTIME.with(|current| {
+    let rt = create_runtime();
+    let prev = CURRENT_RUNTIME.with(|current| {
         let prev = current.get();
         current.set(Some(rt));
         prev
     });
+    let _guard = RuntimeGuard { rt, prev };
 
-    let result = with_current_runtime(f);
-    rt.leave();
-
-    result
+    with_current_runtime(f)
 }
 
 /// Create a new runtime and register it as the current runtime on this thread.
@@ -115,6 +131,7 @@ pub fn with_new_runtime<T>(f: impl FnOnce(&Runtime) -> T) -> T {
 /// Returns a [`RuntimeId`] handle. Call [`RuntimeId::leave`] to destroy the
 /// runtime and restore the previous one.  Prefer [`with_new_runtime`] for a
 /// scoped version that restores the previous runtime automatically.
+#[cfg(any(test, feature = "test-utils"))]
 #[must_use]
 #[inline(always)]
 pub fn create_runtime() -> RuntimeId {
@@ -366,7 +383,11 @@ impl Runtime {
         &self,
         #[cfg(feature = "debug-info")] created_at: &'static Location<'static>,
     ) -> ScopeHandle {
+        // Record the current scope as this scope's parent so `drop_scope` can
+        // restore it (WS1.1) — the parent pointer *is* the scope stack.
+        let parent = self.current_scope.get();
         let id = self.scopes.borrow_mut().insert(ScopeData::new(
+            parent,
             #[cfg(feature = "debug-info")]
             created_at,
         ));
@@ -379,7 +400,9 @@ impl Runtime {
         &self,
         #[cfg(feature = "debug-info")] created_at: &'static Location<'static>,
     ) -> ScopeHandle {
+        let parent = self.current_scope.get();
         let id = self.scopes.borrow_mut().insert(ScopeData::new_deny_new(
+            parent,
             #[cfg(feature = "debug-info")]
             created_at,
         ));
@@ -734,6 +757,15 @@ impl Runtime {
         // conflicts.
         let scope_data = self.scopes.borrow_mut().remove(scope_id).unwrap();
 
+        // Restore `current_scope` to this scope's parent — but *only* if this
+        // scope is still the current one. Page scopes are held across frames
+        // and dropped non-lexically (out of LIFO order); in that case the
+        // current scope belongs to unrelated live work and must be left
+        // untouched (WS1.1).
+        if self.current_scope.get() == Some(scope_id) {
+            self.current_scope.set(scope_data.parent);
+        }
+
         // TODO: Children scopes drop
 
         for id in scope_data.values {
@@ -858,6 +890,21 @@ impl Runtime {
                     break;
                 }
             }
+
+            // The source walk completed without any source turning us Dirty:
+            // every source was freshened (maybe_update'd) and none reported a
+            // change, so this node is genuinely unchanged (a memo cut).
+            // Downgrade Check -> Clean so the *next* read is an O(1) state check
+            // instead of re-walking the whole source subtree every time
+            // (WS1.5b — the "check residue"). Only ever Check -> Clean here,
+            // never Dirty -> Clean: a changed source would have marked us Dirty
+            // (breaking the loop above), so reaching here still Check means
+            // clean. This is also correct for Observers — a real dependency
+            // change leaves them Dirty (re-run in use_observe), and an unchanged
+            // one would not re-render anyway.
+            if self.is(id, ValueState::Check) {
+                self.mark_clean(id, requester, caller);
+            }
         }
 
         if self.is(id, ValueState::Dirty) {
@@ -916,29 +963,52 @@ impl Runtime {
                 };
                 let Some((f, value)) = borrowed else { return };
 
-                self.with_observer(id, move |rt| {
+                let ran = self.with_observer(id, move |rt| {
                     // Guard against re-entrant recompute: if this node's callback
                     // is already running higher on the stack, a dependency cycle
                     // has re-entered it. Skip (logged) instead of panicking on
                     // the double borrow_mut, so a cycle degrades to a no-op.
+                    // `None` signals "skipped, never recomputed" so the state is
+                    // left untouched below.
                     let Ok(mut callback) = f.try_borrow_mut() else {
                         log::error!(
                             "skipping re-entrant reactive update (dependency \
                              cycle) at {caller}"
                         );
-                        return false;
+                        return None;
                     };
 
                     rt.cleanup(id);
-                    callback.run(value)
-                })
+                    Some(callback.run(value))
+                });
+
+                match ran {
+                    Some(changed) => changed,
+                    // Re-entrant skip: the node was never recomputed, so its
+                    // stale value must NOT be marked Clean (that would present
+                    // it as fresh). Leave its state untouched — it stays Dirty
+                    // and is retried on the next independent pull; a true cycle
+                    // is bounded by run_effects' round cap (WS1.3b).
+                    None => return,
+                }
             },
         };
 
         if changed {
             if let Some(subs) = self.subscribers.borrow().get(id) {
                 for sub in subs.iter() {
-                    // TODO: Shouldn't deep deps mark_dirty be used?
+                    // The commit path uses a bare `storage.mark` (state byte
+                    // only), NOT `mark_node`. `mark_node` would also enqueue
+                    // effect subscribers into `pending_effects`, but the
+                    // write-time push (`mark_dirty`) already queued every
+                    // transitively-reachable effect — the push-queues-effects
+                    // invariant pinned by the WS1.3a tests. Re-enqueuing here
+                    // doubled effect-rerun allocations (measured 2/112 -> 4/224 B
+                    // in benches/allocations.rs): a redundant BTreeSet insert
+                    // into the just-drained queue plus an extra flush round, for
+                    // zero benefit today. Making the pull self-sufficient is only
+                    // needed once WS5 makes marking lazier, and must be done there
+                    // WITHOUT this re-enqueue cost (WS1.3b).
                     self.storage.mark(
                         *sub,
                         ValueState::Dirty,
@@ -1595,12 +1665,18 @@ mod tests {
         },
         scope::new_scope,
         signal::create_signal,
+        storage::ValueState,
         trigger::{Trigger, create_trigger},
         write::WriteSignal,
     };
     use alloc::rc::Rc;
     use alloc::vec::Vec;
     use core::cell::Cell;
+
+    /// Test helper: the current runtime's [`ValueState`] for a handle.
+    fn state_of(id: crate::storage::ValueId) -> ValueState {
+        with_current_runtime(|rt| rt.state(id))
+    }
 
     #[test]
     fn primary_runtime() {
@@ -1610,6 +1686,337 @@ mod tests {
             )),
             "First insertion into RUNTIMES does not have key of RuntimeId::default()"
         );
+    }
+
+    /// `with_new_runtime` must restore the previously-current runtime when the
+    /// temporary one leaves. The buggy version discarded `prev` and `leave()`
+    /// merely cleared the current cell, so any reactive access after the call
+    /// panicked on a `None` current runtime. Regression test for WS1.2.
+    #[test]
+    fn with_new_runtime_restores_previous() {
+        // `outer` lives in the previously-current (default) runtime.
+        let mut outer = create_signal(1i32);
+
+        with_new_runtime(|_| {
+            let inner = create_signal(2i32);
+            assert_eq!(inner.get(), 2);
+        });
+
+        // The previous runtime must be current again — `outer` still works.
+        assert_eq!(outer.get(), 1);
+        outer.set(5);
+        assert_eq!(outer.get(), 5);
+    }
+
+    // --- WS1.8: try_* APIs + contextful panics ------------------------------
+
+    /// The `try_*` read/write APIs return `Some` for a live handle and `None`
+    /// (logged, no panic) for a disposed one.
+    #[test]
+    fn try_apis_return_none_for_disposed_handle() {
+        with_new_runtime(|_| {
+            let mut sig = create_signal(5i32);
+
+            // Live handle: try_* behave like their panicking siblings.
+            assert_eq!(sig.try_get(), Some(5));
+            assert_eq!(sig.try_with(|v| *v * 2), Some(10));
+            assert_eq!(sig.try_get_cloned(), Some(5));
+            assert_eq!(sig.try_update(|v| *v += 1), Some(()));
+            assert_eq!(sig.get(), 6);
+            assert_eq!(sig.try_set(7), Some(()));
+            assert_eq!(sig.get(), 7);
+
+            // Disposing a Copy handle kills the shared node.
+            unsafe { sig.dispose() };
+            assert!(!sig.is_alive());
+
+            // Every try_* now yields None instead of panicking.
+            assert_eq!(sig.try_get(), None);
+            assert_eq!(sig.try_with(|v| *v), None);
+            assert_eq!(sig.try_get_cloned(), None);
+            assert_eq!(sig.try_update(|v| *v += 1), None);
+            assert_eq!(sig.try_set(9), None);
+        });
+    }
+
+    /// The panicking APIs still panic on a disposed handle, but with a
+    /// contextful message (not a bare unwrap).
+    #[test]
+    #[should_panic(expected = "reactive value")]
+    fn disposed_handle_get_panics_with_context() {
+        with_new_runtime(|_| {
+            let sig = create_signal(5i32);
+            unsafe { sig.dispose() };
+            let _ = sig.get();
+        });
+    }
+
+    // --- WS1.3a: push-queues-effects invariant ------------------------------
+    //
+    // update()'s commit path marks a recomputed node's subscribers Dirty with a
+    // bare storage.mark, which flips the state byte but does NOT enqueue an
+    // effect-subscriber into pending_effects (only mark_node does). An effect
+    // downstream of a memo therefore fires only because the write-time
+    // mark_dirty push already queued every transitively-reachable effect. These
+    // tests pin that behaviour so WS1.3b can make the pull self-sufficient
+    // (commit path -> mark_node) without changing observable results.
+
+    /// signal -> memo -> effect: the memo recomputes lazily *while the effect is
+    /// pulling it* inside run_effects; the effect must still re-run with the new
+    /// memo value.
+    #[test]
+    fn effect_downstream_of_memo_fires_on_source_change() {
+        let mut src = create_signal(1i32);
+        let doubled = create_memo(move || src.get() * 2);
+
+        let seen = Rc::new(Cell::new(0i32));
+        let runs = Rc::new(Cell::new(0u32));
+        let seen_c = seen.clone();
+        let runs_c = runs.clone();
+        create_effect(move |_: Option<()>| {
+            seen_c.set(doubled.get());
+            runs_c.set(runs_c.get() + 1);
+        });
+
+        assert_eq!(runs.get(), 1, "effect should run once on creation");
+        assert_eq!(seen.get(), 2);
+
+        src.set(5);
+        assert_eq!(
+            runs.get(),
+            2,
+            "effect downstream of a memo did not re-run on source change"
+        );
+        assert_eq!(seen.get(), 10);
+    }
+
+    /// signal -> memo -> effect where a write leaves the memo *value* unchanged
+    /// (memo cut): even though the push re-queues the effect, run_effects'
+    /// maybe_update re-checks and finds it not actually Dirty, so the body must
+    /// NOT run again.
+    #[test]
+    fn effect_downstream_of_memo_not_rerun_on_memo_cut() {
+        let mut src = create_signal(4i32);
+        // Memo output depends only on the sign, so many src values map to 1.
+        let is_positive = create_memo(move || src.get() > 0);
+
+        let runs = Rc::new(Cell::new(0u32));
+        let runs_c = runs.clone();
+        create_effect(move |_: Option<()>| {
+            is_positive.get();
+            runs_c.set(runs_c.get() + 1);
+        });
+
+        assert_eq!(runs.get(), 1);
+
+        // Different source value, identical memo output -> effect must not fire.
+        src.set(9);
+        assert_eq!(
+            runs.get(),
+            1,
+            "effect re-ran despite the memo value being unchanged (memo cut broken)"
+        );
+
+        // A genuine memo change still propagates.
+        src.set(-3);
+        assert_eq!(
+            runs.get(),
+            2,
+            "effect did not re-run when the memo value actually changed"
+        );
+    }
+
+    /// signal -> memo -> memo -> effect: two lazy layers recompute during the
+    /// effect's pull. The effect must fire exactly once per real change,
+    /// proving the push queued it across both memo layers.
+    #[test]
+    fn effect_fires_through_two_memo_layers() {
+        let mut src = create_signal(1i32);
+        let plus_one = create_memo(move || src.get() + 1);
+        let times_ten = create_memo(move || plus_one.get() * 10);
+
+        let seen = Rc::new(Cell::new(0i32));
+        let runs = Rc::new(Cell::new(0u32));
+        let seen_c = seen.clone();
+        let runs_c = runs.clone();
+        create_effect(move |_: Option<()>| {
+            seen_c.set(times_ten.get());
+            runs_c.set(runs_c.get() + 1);
+        });
+
+        assert_eq!(runs.get(), 1);
+        assert_eq!(seen.get(), 20); // (1+1)*10
+
+        src.set(3);
+        assert_eq!(runs.get(), 2);
+        assert_eq!(seen.get(), 40); // (3+1)*10
+    }
+
+    // --- WS1.5a: check-residue correctness suite ----------------------------
+    //
+    // When a Check node's *completed* source walk finds nothing Dirty (a memo
+    // cut — a source recomputed to an equal value), the node is genuinely
+    // unchanged and should be downgraded Check -> Clean so the next read is an
+    // O(1) state check rather than re-walking every source. Pre-1.5b it stayed
+    // Check forever (residue). These tests prove the state contract (they RED
+    // before 1.5b) and that correctness is preserved.
+
+    /// After a memo cut, the downstream node is Clean (not Check residue).
+    #[test]
+    fn check_residue_downgraded_to_clean_after_memo_cut() {
+        with_new_runtime(|_| {
+            let mut src = create_signal(4i32);
+            let is_pos = create_memo(move || src.get() > 0);
+            let downstream = create_memo(move || is_pos.get() as i32);
+
+            // Prime: everything computes Clean.
+            assert_eq!(downstream.get(), 1);
+
+            // Different source value, identical memo output -> cut.
+            src.set(9);
+            assert_eq!(downstream.get(), 1);
+
+            assert_eq!(
+                state_of(downstream.id().unwrap()),
+                ValueState::Clean,
+                "downstream memo left in Check after a memo cut (residue)"
+            );
+            assert_eq!(
+                state_of(is_pos.id().unwrap()),
+                ValueState::Clean,
+                "cut memo itself left non-Clean"
+            );
+        });
+    }
+
+    /// Diamond: src feeds two memos that both feed a sink. A cut at src leaves
+    /// the whole diamond Clean.
+    #[test]
+    fn diamond_no_check_residue_after_cut() {
+        with_new_runtime(|_| {
+            let mut src = create_signal(2i32);
+            let left = create_memo(move || src.get() > 0);
+            let right = create_memo(move || src.get() >= 0);
+            let sink = create_memo(move || (left.get(), right.get()));
+
+            assert_eq!(sink.get(), (true, true));
+
+            // src 2 -> 5: both branches unchanged -> sink cut.
+            src.set(5);
+            assert_eq!(sink.get(), (true, true));
+
+            assert_eq!(
+                state_of(sink.id().unwrap()),
+                ValueState::Clean,
+                "diamond sink left in Check after a cut"
+            );
+        });
+    }
+
+    /// A genuine change after a cut still re-dirties and recomputes downstream.
+    #[test]
+    fn real_change_after_cut_still_recomputes() {
+        with_new_runtime(|_| {
+            let mut src = create_signal(4i32);
+            let is_pos = create_memo(move || src.get() > 0);
+            let downstream = create_memo(move || is_pos.get() as i32);
+
+            assert_eq!(downstream.get(), 1);
+            src.set(9); // cut
+            assert_eq!(downstream.get(), 1);
+            assert_eq!(state_of(downstream.id().unwrap()), ValueState::Clean);
+
+            // Now a real change flips the memo.
+            src.set(-2);
+            assert_eq!(
+                downstream.get(),
+                0,
+                "genuine change after a cut did not propagate"
+            );
+        });
+    }
+
+    /// Dynamic dependencies: the memo's source set changes across runs. After a
+    /// cut through an old (now-untracked) source, a change through the *new*
+    /// source still propagates.
+    #[test]
+    fn dynamic_deps_cut_then_change_through_new_source() {
+        with_new_runtime(|_| {
+            let mut cond = create_signal(true);
+            let mut a = create_signal(1i32);
+            let mut b = create_signal(100i32);
+            let m = create_memo(move || if cond.get() { a.get() } else { b.get() });
+
+            assert_eq!(m.get(), 1); // tracks cond + a
+
+            // b is not a dependency now -> cut, m stays Clean.
+            b.set(200);
+            assert_eq!(m.get(), 1);
+            assert_eq!(state_of(m.id().unwrap()), ValueState::Clean);
+
+            // Switch branch: m re-tracks cond + b.
+            cond.set(false);
+            assert_eq!(m.get(), 200);
+
+            // a is no longer a dependency -> cut.
+            a.set(5);
+            assert_eq!(m.get(), 200);
+            assert_eq!(state_of(m.id().unwrap()), ValueState::Clean);
+
+            // Change through the new source propagates.
+            b.set(300);
+            assert_eq!(m.get(), 300, "change through the new source was dropped");
+        });
+    }
+
+    /// Property/fuzz: a fixed-shape memo DAG over signals must always match a
+    /// recompute-everything oracle under a stream of pseudo-random writes
+    /// (correctness is preserved regardless of Check/Clean bookkeeping).
+    #[test]
+    fn random_graph_matches_recompute_oracle() {
+        with_new_runtime(|_| {
+            let mut s = [
+                create_signal(0i64),
+                create_signal(0i64),
+                create_signal(0i64),
+                create_signal(0i64),
+            ];
+            let (s0, s1, s2, s3) = (s[0], s[1], s[2], s[3]);
+
+            // DAG: a diamond over s1 plus a tail on s3.
+            let m_a = create_memo(move || s0.get() + s1.get());
+            let m_b = create_memo(move || s1.get() * 2 - s2.get());
+            let m_c = create_memo(move || m_a.get() + m_b.get());
+            let m_d = create_memo(move || m_c.get() + s3.get());
+
+            let oracle = |v: &[i64; 4]| {
+                let a = v[0] + v[1];
+                let b = v[1] * 2 - v[2];
+                let c = a + b;
+                c + v[3]
+            };
+
+            // Deterministic LCG (Date/rand are unavailable / not a dep).
+            let mut rng: u64 = 0x9E3779B97F4A7C15;
+            let mut next = || {
+                rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
+                rng
+            };
+
+            let mut vals = [0i64; 4];
+            for _ in 0..200 {
+                let idx = (next() >> 33) as usize % 4;
+                let val = ((next() >> 24) % 41) as i64 - 20; // -20..=20
+                vals[idx] = val;
+                s[idx].set(val);
+
+                assert_eq!(
+                    m_d.get(),
+                    oracle(&vals),
+                    "memo DAG diverged from the recompute oracle at vals={vals:?}"
+                );
+            }
+        });
     }
 
     #[test]

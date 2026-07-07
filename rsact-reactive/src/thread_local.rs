@@ -35,9 +35,7 @@ compile_error!(
      `unsafe-single-thread`."
 );
 #[cfg(all(feature = "single-thread", feature = "unsafe-single-thread"))]
-compile_error!(
-    "Enable only one of `single-thread` or `unsafe-single-thread`."
-);
+compile_error!("Enable only one of `single-thread` or `unsafe-single-thread`.");
 
 #[cfg(any(feature = "single-thread", feature = "unsafe-single-thread"))]
 pub mod fake_thread_local {

@@ -43,8 +43,9 @@ use crate::{
 /// mapping an inert value evaluates the closure once and returns an inert
 /// [`MaybeReactive`]; future writes to the `MaybeSignal` do not update the
 /// result. Mapping a `Signal` variant produces a tracked [`Memo`].
-/// Use [`SignalMapReactive::map_reactive`] when you always need a live
-/// [`Memo<U>`] regardless of whether the source is inert or reactive.
+/// If you always need a live [`Memo`] regardless of whether the source is inert
+/// or reactive, call [`IntoMemo::memo`](crate::memo::IntoMemo::memo) on the
+/// mapped result, or match the source explicitly.
 ///
 /// For a **read-only** optionally reactive value see [`MaybeReactive`].
 pub enum MaybeSignal<T: 'static, M: marker::Any = marker::Rw> {

@@ -75,14 +75,9 @@ pub struct FontProps {
 
 impl FontProps {
     pub fn has_any(&self) -> bool {
-        matches!(
-            self,
-            FontProps {
-                font: Some(_),
-                font_size: Some(_),
-                font_style: Some(_)
-            }
-        )
+        self.font.is_some()
+            || self.font_size.is_some()
+            || self.font_style.is_some()
     }
 
     pub fn inherited(&self, parent: &FontProps) -> Self {
@@ -522,5 +517,37 @@ impl FontCtx {
                 .draw::<W>(content, props, bounds, color, renderer)
                 .expect("[BUG] Fallback font must be defined")
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FontProps, FontSize, FontStyle};
+
+    // b.3: `has_any` must mean "any field is set", not "all fields are set".
+    // The layout model stores resolved text props for draw only when
+    // `has_any()` is true (`layout/model.rs`), while measurement always merges
+    // (`layout/mod.rs`). With the old has-ALL semantics a font-size-only
+    // override (`label.font_size(20)`) was *measured* at 20 but *drawn* at the
+    // inherited size, because `has_any()` returned false and the resolved props
+    // were dropped from the model.
+    #[test]
+    fn has_any_reports_any_set_field_not_all() {
+        assert!(!FontProps::default().has_any(), "nothing set => no override");
+
+        let size_only = FontProps {
+            font_size: Some(FontSize::Fixed(20)),
+            ..Default::default()
+        };
+        assert!(
+            size_only.has_any(),
+            "font_size(20) alone must count as an override"
+        );
+
+        let style_only = FontProps {
+            font_style: Some(FontStyle::Bold),
+            ..Default::default()
+        };
+        assert!(style_only.has_any(), "font_style alone must count");
     }
 }

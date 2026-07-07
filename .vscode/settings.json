@@ -32,7 +32,7 @@
   "rust-analyzer.runnables.extraTestBinaryArgs": ["--test-threads=1"],
   "rust-analyzer.cargo.noDefaultFeatures": true,
   "rust-analyzer.cargo.features": [
-    "single-thread",
+    "std",
     "debug-info",
     "async",
     "libm",
@@ -46,7 +46,7 @@
   ],
   "rust-analyzer.check.noDefaultFeatures": true,
   "rust-analyzer.check.features": [
-    "single-thread",
+    "std",
     "debug-info",
     "simulator",
     "libm",

@@ -12,7 +12,7 @@ use crate::{
         Style, StylePseudoClass, StyleSelector, TreeStyle, stylist::Stylist,
     },
 };
-use core::{fmt::Display, hash::Hash, marker::PhantomData};
+use core::marker::PhantomData;
 use itertools::Itertools as _;
 use log::{debug, error};
 use rsact_reactive::{prelude::*, signal::marker::ReadOnly};
@@ -95,16 +95,25 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
         bounds: Rect,
         color: W::Color,
     ) -> RenderResult {
-        self.shared.fonts.with(|fonts| {
-            fonts.render::<W>(
-                font,
-                content,
-                props,
-                bounds,
-                color,
-                self.renderer,
-            )
-        })
+        // Render path uses try_* + log-and-degrade rather than panicking if the
+        // shared font-provider signal is ever disposed (WS1.8; "UI must never
+        // panic"). It is page-lifetime today, so the None arm is defensive.
+        self.shared
+            .fonts
+            .try_with(|fonts| {
+                fonts.render::<W>(
+                    font,
+                    content,
+                    props,
+                    bounds,
+                    color,
+                    self.renderer,
+                )
+            })
+            .unwrap_or_else(|| {
+                log::error!("text render skipped: font provider was disposed");
+                RenderResult::Ok(())
+            })
     }
 
     // TODO: Call automatically based on behavior
@@ -218,9 +227,14 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
 
 // CtxUnready //
 impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
-    pub fn render_part<H: Display + Hash + Copy>(
+    // The part key is a `&'static str` (e.g. "self", "thumb", "options"): stable
+    // per widget-source, combined with `self.id` for per-element identity, and
+    // — crucially — allocation-free on the render hot path. It used to be a
+    // `Display + Hash + Copy` generic, which let `render_self` build the key with
+    // `format!` on every frame (WS1.7). The identity/ownership redesign is WS2.
+    pub fn render_part(
         &mut self,
-        hash_source: H,
+        hash_source: &'static str,
         f: impl FnOnce(RenderCtx<'_, W, CtxReady>) -> RenderResult,
     ) -> RenderResult {
         // Imperative force-dirty flags that triggers redraw even if no reactive
@@ -291,10 +305,10 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
         &mut self,
         f: impl FnOnce(RenderCtx<'_, W, CtxReady>) -> RenderResult,
     ) -> RenderResult {
-        // TODO: Maybe we can store preformatted string render_id for each
-        // widget?
-        let render_id = format!("{}[render_self]", self.debug_name);
-        self.render_part(&render_id, f)
+        // "self" is the whole-widget part key. It is combined with this
+        // element's `id` inside `render_part`, so a plain `&'static str` is
+        // already unique per element — no per-frame `format!` (WS1.7).
+        self.render_part("self", f)
     }
 }
 
@@ -317,15 +331,21 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
         //     // .stroke_width(1),
         // )
 
-        self.shared.page_style.with(|style| {
-            if let Some(bg) = style.background_color {
-                self.renderer
-                    .fill_solid(self.layout.outer, bg)
-                    .map_err(|_| ())
-            } else {
-                Ok(())
-            }
-        })
+        self.shared
+            .page_style
+            .try_with(|style| {
+                if let Some(bg) = style.background_color {
+                    self.renderer
+                        .fill_solid(self.layout.outer, bg)
+                        .map_err(|_| ())
+                } else {
+                    Ok(())
+                }
+            })
+            .unwrap_or_else(|| {
+                log::error!("clear skipped: page style signal was disposed");
+                RenderResult::Ok(())
+            })
     }
 }
 

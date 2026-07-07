@@ -16,7 +16,12 @@ version.workspace = true
 # NullRenderer). `layout-counters` feeds the layout metrics (WS0.5) into the
 # snapshot when built with it.
 [dependencies]
-rsact-reactive = { workspace = true, features = ["std"] }
+# `test-utils` for `with_new_runtime`: metrics-probe builds a fresh isolated
+# runtime per scenario in its (non-test) record path. This is host-only tooling
+# (`publish = false`, workspace-excluded from thumb builds), so pulling the
+# dev-only helper as a normal feature here is fine — it never reaches a
+# shippable crate (WS1.2).
+rsact-reactive = { workspace = true, features = ["std", "test-utils"] }
 rsact-ui = { workspace = true, features = ["std", "embedded-graphics"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

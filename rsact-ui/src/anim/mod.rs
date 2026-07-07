@@ -159,7 +159,8 @@ impl AnimHandle {
     //  - I think should restart.
     /// Start the animation. Restarts already running animation.
     pub fn start(&mut self) {
-        self.state.update(|state| state.stage = AnimStage::StartRequested)
+        self.state
+            .update(|state| state.stage = AnimStage::StartRequested)
     }
 
     /// Stop the animation, resetting the state. The value will give the latest
@@ -262,6 +263,13 @@ impl Anim {
                 _ => {},
             }
 
+            // A zero-cycle animation never runs: report the start value and
+            // never depend on the clock. Without this guard `is_last` treats
+            // cycle 0 as the last cycle, so `N(0)` played one full cycle.
+            if matches!(cycles, AnimCycles::N(0)) {
+                return dir.start_point(0);
+            }
+
             let now_millis = now_millis.get();
 
             // Note: We don't need to notify about state changes. When state is
@@ -272,6 +280,11 @@ impl Anim {
                 let (mut start_time, cycle) = match state.stage {
                     AnimStage::Done { .. } | AnimStage::Ready => unreachable!(),
                     AnimStage::StartRequested => {
+                        // Reset the relative clock so a restart doesn't inherit
+                        // the previous run's `last_tick` (which, being >=
+                        // duration after completion, would make the completion
+                        // check below fire immediately and no-op the restart).
+                        state.last_tick = 0;
                         state.stage = AnimStage::Running {
                             start_time: now_millis,
                             cycle: 0,
@@ -328,8 +341,12 @@ impl Anim {
                     easing.point(time_point)
                 };
 
-                state.last_tick =
-                    (now_millis as i64 - start_time as i64).abs() as u32;
+                // `wrapping_sub` yields the correct elapsed time across a
+                // single u32 clock wrap. The previous `.abs()` of the signed
+                // difference exploded to a near-`u32::MAX` value whenever
+                // `now_millis` wrapped past `start_time`, instantly completing
+                // any running animation.
+                state.last_tick = now_millis.wrapping_sub(start_time);
 
                 value
             });
@@ -338,5 +355,131 @@ impl Anim {
         });
 
         AnimHandle { state, value }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Anim, AnimHandle, AnimStage, easing::Easing};
+    use rsact_reactive::prelude::*;
+    use rsact_reactive::runtime::with_new_runtime;
+
+    /// Build an animation handle driven by a manually-advanced clock signal.
+    /// Set the clock, then read `handle.value` to advance the animation.
+    fn harness(anim: Anim) -> (Signal<u32>, AnimHandle) {
+        let clock = create_signal(0u32);
+        let now = create_memo(move || clock.get());
+        (clock, anim.handle(now))
+    }
+
+    // b.2(a): a completed animation must restart on `start()`. The bug: the
+    // completion check reads a stale `last_tick` that neither `start()` nor the
+    // StartRequested->Running transition resets, so the restarted animation
+    // instantly re-completes (no-op) every other `start()`.
+    #[test]
+    fn restart_after_completion_runs_again() {
+        with_new_runtime(|_| {
+            let (mut clock, mut h) = harness(Anim::new().duration(100));
+
+            // Run the first cycle to completion.
+            h.start();
+            clock.set(0);
+            h.value.get();
+            clock.set(200);
+            h.value.get();
+            clock.set(400);
+            h.value.get();
+            assert!(
+                matches!(h.state.with(|s| s.stage), AnimStage::Done { .. }),
+                "first run should have completed"
+            );
+
+            // Restart: after a mid-duration tick the animation must be Running,
+            // not have jumped straight back to Done.
+            h.start();
+            clock.set(500);
+            h.value.get();
+            clock.set(550);
+            h.value.get();
+            let stage = h.state.with(|s| s.stage);
+            assert!(
+                matches!(stage, AnimStage::Running { .. }),
+                "restart silently no-opped: stage={stage:?}"
+            );
+        });
+    }
+
+    // b.2(b): a running animation must survive a u32 clock wrap. The bug:
+    // elapsed time is computed as `(now - start_time).abs()`, which explodes to
+    // a near-u32::MAX value when the clock wraps, instantly completing the
+    // animation. `wrapping_sub` yields the correct small delta.
+    #[test]
+    fn running_animation_survives_clock_wrap() {
+        with_new_runtime(|_| {
+            let (mut clock, mut h) = harness(Anim::new().duration(1000));
+            let base = u32::MAX - 50; // start just before the wrap
+
+            h.start();
+            clock.set(base);
+            h.value.get();
+            clock.set(base.wrapping_add(60));
+            h.value.get();
+            clock.set(base.wrapping_add(120)); // ~120ms elapsed, well under 1000
+            let v = h.value.get();
+
+            assert!(
+                matches!(h.state.with(|s| s.stage), AnimStage::Running { .. }),
+                "clock wrap prematurely completed the animation"
+            );
+            assert!(
+                v < 0.5,
+                "clock wrap corrupted elapsed time: value jumped to {v}"
+            );
+        });
+    }
+
+    // b.2(c): `AnimCycles::N(0)` means zero cycles and must not animate. The
+    // bug: `is_last` treats cycle 0 as the last cycle, so N(0) plays one full
+    // cycle (0.0 -> 1.0) instead of nothing.
+    #[test]
+    fn zero_cycles_plays_nothing() {
+        with_new_runtime(|_| {
+            let (mut clock, mut h) =
+                harness(Anim::new().duration(100).cycles(0));
+
+            h.start();
+            clock.set(0);
+            h.value.get();
+            clock.set(50);
+            h.value.get();
+            clock.set(300); // well past one cycle
+            let v = h.value.get();
+
+            assert_eq!(
+                v, 0.0,
+                "N(0) must play zero cycles, but it animated to {v}"
+            );
+        });
+    }
+
+    // b.2(d): `EaseOutSine` must run 0 -> 1 (easings.net: sin(x*pi/2)). The bug
+    // inverted it to `1 - sin(x*pi/2)`, running 1 -> 0.
+    #[test]
+    fn ease_out_sine_runs_from_zero_to_one() {
+        assert!(
+            Easing::EaseOutSine.point(0.0).abs() < 1e-6,
+            "EaseOutSine must start at 0, got {}",
+            Easing::EaseOutSine.point(0.0)
+        );
+        assert!(
+            (Easing::EaseOutSine.point(1.0) - 1.0).abs() < 1e-6,
+            "EaseOutSine must end at 1, got {}",
+            Easing::EaseOutSine.point(1.0)
+        );
+        // Ease-out is concave: the midpoint sits above the linear diagonal.
+        assert!(
+            Easing::EaseOutSine.point(0.5) > 0.5,
+            "EaseOutSine must be an ease-out curve"
+        );
     }
 }
