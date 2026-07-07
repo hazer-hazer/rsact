@@ -2,7 +2,7 @@ use crate::{
     geometry::Size,
     renderer::{Viewport, ViewportKind},
 };
-use alloc::{collections::btree_map::BTreeMap, vec::Vec};
+use alloc::vec::Vec;
 
 pub trait Surface {
     fn new(size: Size) -> Self;
@@ -14,14 +14,18 @@ pub struct Layer<T: Surface> {
 
 pub struct Layering<T: Surface> {
     viewport_stack: Vec<Viewport>,
-    layers: BTreeMap<usize, Layer<T>>,
+    // 9a.2: sorted `Vec` keyed by layer index instead of a `BTreeMap`. Dynamic
+    // insertion is currently disabled (see the commented `on_layer` path) so
+    // N == 1, but the vec stays sorted by index so compositing order (ascending)
+    // is preserved if layering is reinstated.
+    layers: Vec<(usize, Layer<T>)>,
 }
 
 impl<T: Surface> Layering<T> {
     pub fn new(size: Size) -> Self {
         Self {
             viewport_stack: vec![Viewport::root()],
-            layers: BTreeMap::from([(0, Layer { surface: T::new(size) })]),
+            layers: vec![(0, Layer { surface: T::new(size) })],
         }
     }
 
@@ -34,11 +38,15 @@ impl<T: Surface> Layering<T> {
     }
 
     pub fn surface_mut(&mut self) -> &mut T {
-        &mut self.layers.get_mut(&self.layer_index()).unwrap().surface
+        let idx = self.layer_index();
+        let pos =
+            self.layers.binary_search_by_key(&idx, |(k, _)| *k).unwrap();
+        &mut self.layers[pos].1.surface
     }
 
     pub fn layers_mut(&mut self) -> impl Iterator<Item = &mut T> {
-        self.layers.values_mut().map(|layer| &mut layer.surface)
+        // Sorted by index, so iteration is already in compositing order.
+        self.layers.iter_mut().map(|(_, layer)| &mut layer.surface)
     }
 
     fn sub_viewport(&self, kind: ViewportKind) -> Viewport {

@@ -18,7 +18,7 @@ use crate::{
     },
     style::{DrawStyle, StrokeAlignment},
 };
-use alloc::{collections::BTreeMap, vec::Vec};
+use alloc::vec::Vec;
 use core::marker::PhantomData;
 use embedded_graphics::{
     Drawable,
@@ -124,7 +124,9 @@ impl<C: Color + PackedColor> Layer<C> {
 /// anti-aliasing, and layering support.
 pub struct EGRenderer<C: Color + PackedColor, AA: AntiAliasing> {
     viewport_stack: Vec<Viewport>,
-    layers: BTreeMap<usize, Layer<C>>,
+    // 9a.2: sorted `Vec` keyed by layer index instead of a `BTreeMap`
+    // (dynamic layering disabled → N == 1; kept sorted for compositing order).
+    layers: Vec<(usize, Layer<C>)>,
     main_viewport: Size,
     aa: PhantomData<AA>,
 }
@@ -133,7 +135,7 @@ impl<C: Color + PackedColor> EGRenderer<C, AntiAliasingDisabled> {
     pub fn new(viewport: Size) -> Self {
         Self {
             viewport_stack: vec![Viewport::root()],
-            layers: BTreeMap::from([(0, Layer::fullscreen(viewport))]),
+            layers: vec![(0, Layer::fullscreen(viewport))],
             main_viewport: viewport,
             aa: PhantomData,
         }
@@ -155,12 +157,17 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> EGRenderer<C, AA> {
 
     fn current_canvas(&mut self) -> &mut PackedFramebuf<C> {
         let layer_index = self.layer_index();
-        &mut self.layers.get_mut(&layer_index).unwrap().canvas
+        let pos = self
+            .layers
+            .binary_search_by_key(&layer_index, |(k, _)| *k)
+            .unwrap();
+        &mut self.layers[pos].1.canvas
     }
 
     /// Obtain the raw framebuffer data from layer 0 for hardware output.
     pub fn draw_buffer(&self, f: impl FnOnce(&[<C as PackedColor>::Storage])) {
-        self.layers.get(&0).unwrap().canvas.draw_buffer(f);
+        let pos = self.layers.binary_search_by_key(&0, |(k, _)| *k).unwrap();
+        self.layers[pos].1.canvas.draw_buffer(f);
     }
 
     pub fn pixel_alpha(&mut self, pixel: Pixel<C>, blend: f32) -> RenderResult {
@@ -177,7 +184,11 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> EGRenderer<C, AA> {
         pixels: impl IntoIterator<Item = Pixel<C>>,
     ) -> Result<(), ()> {
         let viewport = self.current_viewport();
-        let canvas = &mut self.layers.get_mut(&viewport.layer).unwrap().canvas;
+        let pos = self
+            .layers
+            .binary_search_by_key(&viewport.layer, |(k, _)| *k)
+            .unwrap();
+        let canvas = &mut self.layers[pos].1.canvas;
         let eg_pixels = pixels
             .into_iter()
             .map(|p| embedded_graphics::prelude::Pixel(p.0.into(), p.1));
@@ -200,8 +211,8 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> EGRenderer<C, AA> {
         C: MapColor<TC>,
     {
         self.layers
-            .values()
-            .for_each(|layer| layer.canvas.output(target))
+            .iter()
+            .for_each(|(_, layer)| layer.canvas.output(target))
     }
 
     fn renderer_clipped(
