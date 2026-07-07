@@ -36,42 +36,51 @@ impl ValueId {
         rt.subscribe(*self);
     }
 
+    /// Fallible read. Returns `None` — logging the reason — when the value has
+    /// been disposed, is currently borrowed elsewhere, or is stored as a
+    /// different type, instead of panicking (WS1.8). This is the primitive the
+    /// public `try_*` APIs and the panicking [`with_untracked`](Self::with_untracked)
+    /// are both built on, so render/event paths can degrade rather than abort.
     #[track_caller]
-    #[inline(always)]
-    pub fn with_untracked<T: 'static, U>(
+    #[inline]
+    pub fn try_with_untracked<T: 'static, U>(
         &self,
         rt: &Runtime,
         f: impl FnOnce(&T) -> U,
         caller: &'static Location<'static>,
-    ) -> U {
+    ) -> Option<U> {
         rt.maybe_update(*self, Some(*self), caller);
 
-        // let value = self.get_untracked(rt);
+        // Clone only the value cell `Rc` (one refcount bump), not the whole
+        // `Value` — this runs on every read.
+        let Some(cell) = rt.storage.value_rc(*self) else {
+            log::error!("Read of disposed reactive value {self} at {caller}");
+            return None;
+        };
+
         #[cfg(feature = "debug-info")]
         rt.storage.set_debug_info(*self, |info| {
             info.borrowed = Some(caller);
         });
-        // Clone only the value cell `Rc` (one refcount bump), not the whole
-        // `Value` — this runs on every read.
-        let cell = rt.storage.value_rc(*self).unwrap();
-        let value = match RefCell::try_borrow(&cell) {
-            Ok(value) => value,
+
+        let result = match RefCell::try_borrow(&cell) {
+            Ok(value) => match value.downcast_ref::<T>() {
+                Some(value) => Some(f(value)),
+                None => {
+                    log::error!(
+                        "Reactive value {self} is not of type {} at {caller}",
+                        type_name::<T>()
+                    );
+                    None
+                },
+            },
             Err(err) => {
-                #[cfg(feature = "debug-info")]
-                panic!(
-                    "Failed to borrow reactive value: {err}\n{}",
-                    rt.debug_info(*self)
+                log::error!(
+                    "Reactive value {self} is already borrowed at {caller}: {err}"
                 );
-                #[cfg(not(feature = "debug-info"))]
-                panic!("Failed to borrow reactive value: {err}");
+                None
             },
         };
-        // Build the panic message lazily so the success path allocates nothing.
-        let value = value.downcast_ref::<T>().unwrap_or_else(|| {
-            panic!("Failed to cast value to {}", type_name::<T>())
-        });
-
-        let result = f(value);
 
         #[cfg(feature = "debug-info")]
         rt.storage.set_debug_info(*self, |info| {
@@ -80,6 +89,49 @@ impl ValueId {
         });
 
         result
+    }
+
+    #[track_caller]
+    #[inline(always)]
+    pub fn with_untracked<T: 'static, U>(
+        &self,
+        rt: &Runtime,
+        f: impl FnOnce(&T) -> U,
+        caller: &'static Location<'static>,
+    ) -> U {
+        match self.try_with_untracked::<T, U>(rt, f, caller) {
+            Some(result) => result,
+            // Contextful panic replacing the old bare `.unwrap()` — the specific
+            // cause (disposed / borrowed / type mismatch) is already logged by
+            // `try_with_untracked`; here we add the id, type, and (under
+            // `debug-info`) the value's creation site.
+            None => self.panic_inaccessible::<T>(rt, caller),
+        }
+    }
+
+    /// Diverging helper: build the contextful panic message for an inaccessible
+    /// value without a second `unwrap` (the value may be disposed, so we read
+    /// its debug info through the `Option`-returning accessor — WS1.8).
+    #[track_caller]
+    #[cold]
+    #[inline(never)]
+    fn panic_inaccessible<T: 'static>(
+        &self,
+        _rt: &Runtime,
+        caller: &'static Location<'static>,
+    ) -> ! {
+        #[cfg(feature = "debug-info")]
+        if let Some(info) = _rt.storage.debug_info(*self) {
+            panic!(
+                "Failed to access reactive value of type {} at {caller}. {info}",
+                type_name::<T>()
+            );
+        }
+        panic!(
+            "Failed to access reactive value {self} of type {} at {caller} \
+             (disposed, borrowed, or type mismatch — see the logged error)",
+            type_name::<T>()
+        );
     }
 
     pub fn notify(
@@ -98,33 +150,46 @@ impl ValueId {
         Ok(())
     }
 
+    /// Fallible write. Returns `None` (logging the reason) instead of panicking
+    /// when the value is disposed, already borrowed, or of a different type —
+    /// the mutable sibling of [`try_with_untracked`](Self::try_with_untracked)
+    /// (WS1.8).
     #[track_caller]
-    #[inline(always)]
-    pub fn update_untracked<T: 'static, U>(
+    #[inline]
+    pub fn try_update_untracked<T: 'static, U>(
         &self,
         rt: &Runtime,
         f: impl FnOnce(&mut T) -> U,
-        _caller: &'static Location<'static>,
-    ) -> U {
-        // rt.updating.set(rt.updating.get() + 1);
+        caller: &'static Location<'static>,
+    ) -> Option<U> {
+        let Some(cell) = rt.storage.value_rc(*self) else {
+            log::error!("Write to disposed reactive value {self} at {caller}");
+            return None;
+        };
 
-        // let value = self.get_untracked(rt);
         #[cfg(feature = "debug-info")]
         rt.storage.set_debug_info(*self, |debug_info| {
-            debug_info.borrowed_mut = Some(_caller);
+            debug_info.borrowed_mut = Some(caller);
         });
 
-        // Clone only the value cell `Rc`, not the whole `Value`.
-        let cell = rt.storage.value_rc(*self).unwrap();
-
-        let mut value = RefCell::borrow_mut(&cell);
-
-        // Build the panic message lazily so the success path allocates nothing.
-        let value = value.downcast_mut::<T>().unwrap_or_else(|| {
-            panic!("Failed to mut cast value to {}", type_name::<T>())
-        });
-
-        let result = f(value);
+        let result = match RefCell::try_borrow_mut(&cell) {
+            Ok(mut value) => match value.downcast_mut::<T>() {
+                Some(value) => Some(f(value)),
+                None => {
+                    log::error!(
+                        "Reactive value {self} is not of type {} at {caller}",
+                        type_name::<T>()
+                    );
+                    None
+                },
+            },
+            Err(err) => {
+                log::error!(
+                    "Reactive value {self} is already borrowed at {caller}: {err}"
+                );
+                None
+            },
+        };
 
         #[cfg(feature = "debug-info")]
         rt.storage.set_debug_info(*self, |debug_info| {
@@ -132,9 +197,21 @@ impl ValueId {
             debug_info.borrowed_mut = None;
         });
 
-        // rt.updating.set(rt.updating.get() - 1);
-
         result
+    }
+
+    #[track_caller]
+    #[inline(always)]
+    pub fn update_untracked<T: 'static, U>(
+        &self,
+        rt: &Runtime,
+        f: impl FnOnce(&mut T) -> U,
+        caller: &'static Location<'static>,
+    ) -> U {
+        match self.try_update_untracked::<T, U>(rt, f, caller) {
+            Some(result) => result,
+            None => self.panic_inaccessible::<T>(rt, caller),
+        }
     }
 
     #[cfg(feature = "debug-info")]

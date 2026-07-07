@@ -95,16 +95,25 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
         bounds: Rect,
         color: W::Color,
     ) -> RenderResult {
-        self.shared.fonts.with(|fonts| {
-            fonts.render::<W>(
-                font,
-                content,
-                props,
-                bounds,
-                color,
-                self.renderer,
-            )
-        })
+        // Render path uses try_* + log-and-degrade rather than panicking if the
+        // shared font-provider signal is ever disposed (WS1.8; "UI must never
+        // panic"). It is page-lifetime today, so the None arm is defensive.
+        self.shared
+            .fonts
+            .try_with(|fonts| {
+                fonts.render::<W>(
+                    font,
+                    content,
+                    props,
+                    bounds,
+                    color,
+                    self.renderer,
+                )
+            })
+            .unwrap_or_else(|| {
+                log::error!("text render skipped: font provider was disposed");
+                RenderResult::Ok(())
+            })
     }
 
     // TODO: Call automatically based on behavior
@@ -322,15 +331,21 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
         //     // .stroke_width(1),
         // )
 
-        self.shared.page_style.with(|style| {
-            if let Some(bg) = style.background_color {
-                self.renderer
-                    .fill_solid(self.layout.outer, bg)
-                    .map_err(|_| ())
-            } else {
-                Ok(())
-            }
-        })
+        self.shared
+            .page_style
+            .try_with(|style| {
+                if let Some(bg) = style.background_color {
+                    self.renderer
+                        .fill_solid(self.layout.outer, bg)
+                        .map_err(|_| ())
+                } else {
+                    Ok(())
+                }
+            })
+            .unwrap_or_else(|| {
+                log::error!("clear skipped: page style signal was disposed");
+                RenderResult::Ok(())
+            })
     }
 }
 

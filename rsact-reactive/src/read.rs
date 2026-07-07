@@ -75,6 +75,45 @@ pub trait ReadSignal<T>: ReactiveValue {
     {
         self.with(T::clone)
     }
+
+    /// Fallible [`with_untracked`](Self::with_untracked): returns `None` when
+    /// the handle has been disposed, instead of panicking (WS1.8). Prefer this
+    /// on render/event paths so a stale handle degrades (logged) rather than
+    /// aborting the UI.
+    #[track_caller]
+    fn try_with_untracked<U>(&self, f: impl FnOnce(&T) -> U) -> Option<U> {
+        self.is_alive().then(|| self.with_untracked(f))
+    }
+
+    /// Fallible [`with`](Self::with): tracks and reads, or returns `None`
+    /// (logged) for a disposed handle.
+    #[track_caller]
+    fn try_with<U>(&self, f: impl FnOnce(&T) -> U) -> Option<U> {
+        if self.is_alive() {
+            self.track();
+            Some(self.with_untracked(f))
+        } else {
+            None
+        }
+    }
+
+    /// Fallible [`get`](Self::get): `None` for a disposed handle.
+    #[track_caller]
+    fn try_get(&self) -> Option<T>
+    where
+        T: Copy,
+    {
+        self.try_with(|value| *value)
+    }
+
+    /// Fallible [`get_cloned`](Self::get_cloned): `None` for a disposed handle.
+    #[track_caller]
+    fn try_get_cloned(&self) -> Option<T>
+    where
+        T: Clone,
+    {
+        self.try_with(T::clone)
+    }
 }
 
 /// Transform the value inside a reactive type into a new reactive output.

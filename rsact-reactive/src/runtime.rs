@@ -1702,6 +1702,49 @@ mod tests {
         assert_eq!(outer.get(), 5);
     }
 
+    // --- WS1.8: try_* APIs + contextful panics ------------------------------
+
+    /// The `try_*` read/write APIs return `Some` for a live handle and `None`
+    /// (logged, no panic) for a disposed one.
+    #[test]
+    fn try_apis_return_none_for_disposed_handle() {
+        with_new_runtime(|_| {
+            let mut sig = create_signal(5i32);
+
+            // Live handle: try_* behave like their panicking siblings.
+            assert_eq!(sig.try_get(), Some(5));
+            assert_eq!(sig.try_with(|v| *v * 2), Some(10));
+            assert_eq!(sig.try_get_cloned(), Some(5));
+            assert_eq!(sig.try_update(|v| *v += 1), Some(()));
+            assert_eq!(sig.get(), 6);
+            assert_eq!(sig.try_set(7), Some(()));
+            assert_eq!(sig.get(), 7);
+
+            // Disposing a Copy handle kills the shared node.
+            unsafe { sig.dispose() };
+            assert!(!sig.is_alive());
+
+            // Every try_* now yields None instead of panicking.
+            assert_eq!(sig.try_get(), None);
+            assert_eq!(sig.try_with(|v| *v), None);
+            assert_eq!(sig.try_get_cloned(), None);
+            assert_eq!(sig.try_update(|v| *v += 1), None);
+            assert_eq!(sig.try_set(9), None);
+        });
+    }
+
+    /// The panicking APIs still panic on a disposed handle, but with a
+    /// contextful message (not a bare unwrap).
+    #[test]
+    #[should_panic(expected = "reactive value")]
+    fn disposed_handle_get_panics_with_context() {
+        with_new_runtime(|_| {
+            let sig = create_signal(5i32);
+            unsafe { sig.dispose() };
+            let _ = sig.get();
+        });
+    }
+
     // --- WS1.3a: push-queues-effects invariant ------------------------------
     //
     // update()'s commit path marks a recomputed node's subscribers Dirty with a
