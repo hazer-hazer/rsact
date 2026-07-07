@@ -127,6 +127,24 @@ Work items:
 
 - [x] **0.8 Commit-time metrics automation (maintainer-proposed 2026-07-07; design agreed)** — landed `4b965d2`: `.githooks/post-commit` + `metrics-probe hook-install` (sets `core.hooksPath .githooks`), `metrics/hook.log` git-ignored, documented in README + metrics/README.md. Verified: commit returns instantly (record runs detached); a broken-build commit still commits (hook logs + exits 0); keys `<rev>.json` on a clean tree (`-dirty` when the tree is dirty — as it was here, the roadmap-editing workflow dirties the tree mid-record). Design as specified: a **post-commit** hook — NOT pre-commit: at pre-commit time HEAD is still the parent and the tree is dirty, so the snapshot would be keyed to the wrong hash (`-dirty`); post-commit sees the new hash and a clean tree, matching the tool's own keying. Behavior: runs `metrics-probe record` **Layer-1 only** (no `--sizes` — opt-z thumb builds are too slow for commit cadence; sizes stay on-demand + CI), **in the background** (commit returns instantly; output → `metrics/hook.log`), **never blocks or fails the commit** (metrics observe, they don't gate — the 0.4 regression test is the hard gate; CI PR deltas are the review surface), **skips** during rebase/cherry-pick and when HEAD's snapshot already exists. Distribution: committed `.githooks/post-commit` + one-time `git config core.hooksPath .githooks` documented in README + `metrics/README.md` (optionally a `metrics-probe hook-install` subcommand that sets the config). Caveat on record: snapshots are git-ignored, so the hook completes the *local* timeline only — the durable shared record remains 0.3's CI half; the pair together is the full answer. Acceptance: two consecutive commits → two keyed snapshots, zero perceptible commit latency; a broken-build commit still commits (hook logs and exits 0).
 
+- [x] **0.9 CI — the actual automation (chartered 2026-07-07 after the maintainer asked "where does it run?"; honest answer: nowhere — the repo has NO `.github/workflows` at all).** Two workflows, in order:
+  - [x] **0.9a `ci.yml` — baseline CI (prerequisite):** — landed `e10e522` (scripts verified green; Actions needs a real push to observe) on push + PR — the four test suites (commands per the WS0-gotchas notes: ui-lib needs `--lib --features "std,embedded-graphics"`; reactive's 2 known-fails need explicit handling so the job is green-by-baseline, red-on-new-failure), per-crate cargo-hack powersets (exact commands in `docs/features.md`; includes the new libm/micromath group after 0.7a), thumbv7m rsact-ui build check. Cache cargo; target < ~10 min wall.
+  - [x] **0.9b `metrics.yml` — the CI half of 0.3:** — landed `88e2a30` (YAML + record/diff verified locally; the orphan-branch/Pages/sticky-comment orchestration + one-time Pages setting `metrics-data` branch need a real push) _on master push_: `metrics-probe record --sizes` → commit the snapshot JSON to an orphan **`metrics-data` branch** (the durable, GitHub-browsable per-commit record; master stays clean) → regenerate the HTML viewer over the branch → publish via **GitHub Pages** (the trend dashboard). _On PR_: record for the PR head, fetch the merge-base snapshot from `metrics-data` (record on-the-fly if missing), `metrics-probe diff`, post one **sticky PR comment** with the delta table (edited in place per push, never spammed). Informational, never gating — the 0.4 test is the hard gate; budget thresholds arrive with G12 Layer-2 limits. Document the caveat: node/alloc counts are machine-independent, heap **bytes** differ between the CI runner and local machines — trends comparable within each store only.
+  - Acceptance: a master push produces a new JSON on `metrics-data` + an updated Pages dashboard; a test PR gets exactly one delta comment that updates on force-push; `ci.yml` goes red on a deliberately broken test and green on the current baseline.
+
+**Session prompt (0.9 — CI):**
+
+```
+Read docs/plans/2026-07-05-rsact-evolution-roadmap.md — WS0 item 0.9 (+ docs/features.md
+for the exact test + powerset commands). Verify current state first: 0.7/0.8 are landed;
+confirm the known-fail baseline (reactive 54/2). Build 0.9a first and get it green on the
+current tree, then 0.9b (orphan metrics-data branch bootstrap, Pages publishing, sticky
+PR comment via the github-script pattern). You cannot fully verify Actions locally —
+structure workflows so each step is also a runnable script (act-compatible where
+possible), and note in the roadmap what needs a real push to validate. Do not gate merges
+on metrics — informational only. Mark sub-items done here with commit hashes.
+```
+
 **Session prompt (0.7 + 0.8 — review fixes & hook):**
 
 ```
