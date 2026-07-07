@@ -6,7 +6,7 @@
 use crate::{alloc, snapshot::Scenario};
 use rsact_reactive::{
     prelude::*,
-    runtime::{current_runtime_profile, observe, with_new_runtime},
+    runtime::{current_runtime_profile, with_new_runtime},
 };
 use rsact_ui::{
     prelude::*,
@@ -79,11 +79,13 @@ fn reactive_only(n: usize) -> Scenario {
             let sigs: Vec<Signal<i32>> =
                 (0..n).map(|_| create_signal(0i32)).collect();
             let render_sigs = sigs.clone();
+            let outer = create_probe();
+            let children: Vec<Probe> = (0..n).map(|_| create_probe()).collect();
             let render = move || {
-                observe("outer", || {
+                outer.poll(false, || {
                     for (i, s) in render_sigs.iter().enumerate() {
                         let s = *s;
-                        observe(("child", i), move || {
+                        children[i].poll(false, move || {
                             black_box(s.get());
                         });
                     }

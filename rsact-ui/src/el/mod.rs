@@ -30,19 +30,6 @@ slotmap::new_key_type! {
     pub struct ElId;
 }
 
-/// Value bound with [`ElId`], used for hashing purposes
-#[derive(Debug, Clone, Copy, Hash)]
-pub struct WithElId<T> {
-    id: ElId,
-    value: T,
-}
-
-impl<T> WithElId<T> {
-    pub fn new(id: ElId, value: T) -> Self {
-        Self { id, value }
-    }
-}
-
 pub struct ElData<W: WidgetCtx> {
     // TODO: If rsact-reactive would support ?Sized as a real smart-pointer we
     // could do MaybeReactive<dyn Widget<W>>, so reactive elements creation

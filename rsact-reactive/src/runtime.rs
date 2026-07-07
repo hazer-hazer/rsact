@@ -6,20 +6,13 @@ use crate::{
     scope::{ScopeData, ScopeHandle, ScopeId},
     storage::{Storage, Value, ValueId, ValueKind, ValueKindTag, ValueState},
 };
-use ahash::RandomState;
-use alloc::{
-    collections::{btree_map::BTreeMap, btree_set::BTreeSet},
-    rc::Rc,
-    vec::Vec,
-};
+use alloc::{collections::btree_set::BTreeSet, rc::Rc, vec::Vec};
 use core::{
     cell::{Cell, RefCell},
     fmt::Display,
-    hash::Hash,
     marker::PhantomData,
     panic::Location,
 };
-use log::debug;
 use slotmap::{SecondaryMap, SlotMap};
 use tinyvec::TinyVec;
 
@@ -197,50 +190,11 @@ impl Drop for DeferEffectsGuard {
 // TODO: ObserverGuard to flatten callbacks into `start_observe` and
 // `end_observe` (auto on drop)
 
-/// Like [`observe`] but identifies the call-site by its source location
-/// rather than an explicit key.
-/// Annotate the calling function with `#[track_caller]` to ensure each
-/// distinct call-site is treated as a separate observer.
-#[track_caller]
-pub fn observe_by_location<R>(f: impl FnOnce() -> R) -> Option<R> {
-    let location = Location::caller();
-
-    with_current_runtime(|rt| {
-        rt.use_observe(rt.hasher.hash_one(location), false, location, f)
-    })
-}
-
-// TODO: Should observes be scoped? Like 1 { 2 {} } should not be the same
-// observers as 2 { 1 {} } in the storage.
-/// Run `f` identified by an arbitrary hashable key; re-runs only if reactive
-/// dependencies from the previous call changed.
-///
-/// Returns `Some(result)` when `f` was executed this call, or `None` if
-/// nothing changed since the last call with the same `id`.
-///
-/// Useful for code paths (e.g. render loops) that may be called many times
-/// per frame and should only do work when their reactive inputs changed.
-#[track_caller]
-pub fn observe<H: Hash, R>(id: H, f: impl FnOnce() -> R) -> Option<R> {
-    let location = Location::caller();
-    with_current_runtime(|rt| {
-        rt.use_observe(rt.hasher.hash_one(id), false, location, f)
-    })
-}
-
-/// Observe version with `force` option to force execution even if no reactive
-/// dependencies changed.
-#[track_caller]
-pub fn observe_with_force<H: Hash, R>(
-    id: H,
-    force: bool,
-    f: impl FnOnce() -> R,
-) -> Option<R> {
-    let location = Location::caller();
-    with_current_runtime(|rt| {
-        rt.use_observe(rt.hasher.hash_one(id), force, location, f)
-    })
-}
+// The keyed `observe()` family and its global `static_observers` registry were
+// removed in WS2: render identity is now the owned [`crate::probe::Probe`]
+// handle (its owner — e.g. `rsact-ui`'s `ElState` — stores it), which makes
+// cross-context aliasing impossible by construction and lets the node die with
+// its owner. `ahash` left the build with the registry's call-site hashing.
 
 /// Run `f` without registering any reactive reads inside it as dependencies.
 ///
@@ -324,14 +278,6 @@ pub struct Runtime {
     /// Nesting depth of active `batch()`/`defer_effects()` guards. Effects are
     /// deferred while > 0.
     pub(crate) defer_effects: Cell<u32>,
-    /// Mapping from [`observe`] call location to its value id. Calling the
-    /// same [`observe`] twice gives the same [`ValueId`]
-    static_observers: RefCell<BTreeMap<u64, ValueId>>,
-    /// Reverse index: observer id -> its `static_observers` hash key. Lets
-    /// [`dispose`](Runtime::dispose) prune the `static_observers` entry when an
-    /// observer is disposed, so the map does not grow unbounded across page
-    /// navigations (each rendered element mints an observe key).
-    observer_hashes: RefCell<SecondaryMap<ValueId, u64>>,
     /// Reused worklist for the iterative `mark_dirty` transitive walk. Cleared
     /// (not reallocated) each write, so after warm-up it does not allocate.
     mark_stack: RefCell<Vec<ValueId>>,
@@ -349,7 +295,6 @@ pub struct Runtime {
     /// and turns a dependency cycle into a bounded, logged loop instead of a
     /// stack overflow.
     flushing: Cell<bool>,
-    hasher: RandomState,
 }
 
 impl Runtime {
@@ -364,13 +309,10 @@ impl Runtime {
             observer: Default::default(),
             pending_effects: Default::default(),
             defer_effects: Cell::new(0),
-            static_observers: Default::default(),
-            observer_hashes: Default::default(),
             mark_stack: Default::default(),
             mark_seen: Default::default(),
             mark_gen: Cell::new(0),
             flushing: Cell::new(false),
-            hasher: RandomState::new(),
         }
     }
 
@@ -531,11 +473,6 @@ impl Runtime {
             .unwrap_or(false)
     }
 
-    pub fn get_observer<T: Hash>(&self, id: T) -> Option<ValueId> {
-        let hash = self.hasher.hash_one(id);
-        self.static_observers.borrow().get(&hash).copied()
-    }
-
     /// Upgrade an inert [`ValueKind::Stored`] value into a
     /// [`ValueKind::Signal`] in place, keeping the same [`ValueId`]. This
     /// is the reactive-on-write transition: because reactivity is keyed by
@@ -670,63 +607,6 @@ impl Runtime {
         }
     }
 
-    fn use_observe<R>(
-        &self,
-        hash: u64,
-        force: bool,
-        location: &'static Location<'static>,
-        f: impl FnOnce() -> R,
-    ) -> Option<R> {
-        let id = {
-            let existing = *self
-                .static_observers
-                .borrow_mut()
-                .entry(hash)
-                .or_insert_with(|| {
-                    self.add_value::<_, ()>(
-                        (),
-                        ValueKind::Probe,
-                        ValueState::Dirty,
-                        location,
-                    )
-                });
-
-            // The observer may have been disposed by a parent observer's
-            // cleanup (e.g. render_children re-running disposes owned child
-            // render_part observers). In that case the stale id still exists
-            // in static_observers but is no longer alive, so we must recreate
-            // it; otherwise every subsequent observe call silently returns
-            // None and the subtree is never redrawn.
-            // TODO: This logic is basically wrong. As if parent observer
-            // cleanups its owned observers, then we create new dirty observer
-            // each time, leading to rerun each time. We need tests for this.
-            if !self.is_alive(existing) {
-                debug!("Reviving observe");
-                let new_id = self.add_value::<_, ()>(
-                    (),
-                    ValueKind::Probe,
-                    ValueState::Dirty,
-                    location,
-                );
-                self.static_observers.borrow_mut().insert(hash, new_id);
-                new_id
-            } else {
-                existing
-            }
-        };
-
-        // Record the reverse hash mapping so `dispose` can prune this
-        // observer's `static_observers` entry when it is disposed (idempotent
-        // for an already-registered id).
-        self.observer_hashes.borrow_mut().insert(id, hash);
-
-        // The keyed registry above only resolves the call-site hash to a
-        // `ValueId`; the reaction itself is the identity-free `run_probe` core.
-        // WS2 session 2 deletes this registry wrapper and has owners store the
-        // `Probe` handle directly (rsact-ui's `ElState`).
-        self.run_probe(id, force, location, f)
-    }
-
     pub unsafe fn dispose(&self, id: ValueId) {
         // Collect owned children first so the borrow on `owned` is fully
         // released before any recursive dispose() call re-borrows it.
@@ -765,12 +645,6 @@ impl Runtime {
 
         self.sources.borrow_mut().remove(id);
         self.subscribers.borrow_mut().remove(id);
-        // Prune the `static_observers` entry for a disposed observer so the map
-        // does not grow unbounded across page navigations (fixes the observer
-        // leak). Non-observer values have no `observer_hashes` entry — no-op.
-        if let Some(hash) = self.observer_hashes.borrow_mut().remove(id) {
-            self.static_observers.borrow_mut().remove(&hash);
-        }
         // TODO: Is it okay to remove from pending_effects?
         self.pending_effects.borrow_mut().remove(&id);
         self.storage
@@ -1714,14 +1588,10 @@ mod tests {
         effect::create_effect,
         memo::{Memo, create_memo},
         read::ReadSignal,
-        runtime::{
-            RUNTIMES, observe, observe_by_location, untrack,
-            with_current_runtime, with_new_runtime,
-        },
+        runtime::{RUNTIMES, untrack, with_current_runtime, with_new_runtime},
         scope::new_scope,
         signal::create_signal,
         storage::ValueState,
-        trigger::create_trigger,
         write::WriteSignal,
     };
     use alloc::rc::Rc;
@@ -2000,7 +1870,8 @@ mod tests {
             let mut cond = create_signal(true);
             let mut a = create_signal(1i32);
             let mut b = create_signal(100i32);
-            let m = create_memo(move || if cond.get() { a.get() } else { b.get() });
+            let m =
+                create_memo(move || if cond.get() { a.get() } else { b.get() });
 
             assert_eq!(m.get(), 1); // tracks cond + a
 
@@ -2020,7 +1891,11 @@ mod tests {
 
             // Change through the new source propagates.
             b.set(300);
-            assert_eq!(m.get(), 300, "change through the new source was dropped");
+            assert_eq!(
+                m.get(),
+                300,
+                "change through the new source was dropped"
+            );
         });
     }
 
@@ -2071,145 +1946,6 @@ mod tests {
                     "memo DAG diverged from the recompute oracle at vals={vals:?}"
                 );
             }
-        });
-    }
-
-    #[test]
-    fn check_observe() {
-        let mut signal = create_signal(123);
-        let runs_count = Rc::new(Cell::new(0));
-
-        let runs = runs_count.clone();
-        let run = move || {
-            observe_by_location(|| {
-                signal.get();
-                runs.set(runs.get() + 1);
-            })
-        };
-
-        assert_eq!(run(), Some(()));
-
-        signal.set(2);
-
-        assert_eq!(run(), Some(()));
-        assert_eq!(run(), None);
-        assert_eq!(run(), None);
-        assert_eq!(run(), None);
-        assert_eq!(run(), None);
-
-        assert_eq!(runs_count.get(), 2);
-    }
-
-    #[test]
-    fn observe_works_with_memos() {
-        let mut calls = create_signal(0);
-        let mut a = create_signal(0);
-        let a_is_even = create_memo(move || a.get() % 2 == 0);
-
-        // Run observe only for even `a` values
-        let mut run = move || {
-            observe_by_location(|| {
-                calls.update_untracked(|calls| *calls += 1);
-                a_is_even.get();
-            })
-        };
-
-        assert_eq!(run(), Some(()), "observe didn't runs first time");
-        assert_eq!(a_is_even.get(), true);
-        assert_eq!(calls.get(), 1);
-        assert_eq!(run(), None);
-
-        a.set(3);
-        assert_eq!(run(), Some(()), "observe didn't run on value change");
-        assert_eq!(a_is_even.get(), false);
-        assert_eq!(calls.get(), 2);
-        assert_eq!(run(), None);
-
-        // `a` is still odd, so observe shouldn't rerun
-        a.set(5);
-        assert_eq!(run(), None, "observe rerun on unchanged memo");
-        assert_eq!(a_is_even.get(), false);
-        assert_eq!(calls.get(), 2);
-    }
-
-    #[test]
-    fn recursive_observe() {
-        let mut signal = create_signal(123);
-
-        let mut run = move || {
-            observe_by_location(|| {
-                signal.get();
-                signal.set(69);
-            })
-        };
-
-        assert_eq!(run(), Some(()));
-        signal.set(0);
-        assert_eq!(run(), Some(()));
-        assert_eq!(run(), None);
-    }
-
-    #[test]
-    fn nested_observe() {
-        let mut signal = create_signal(123);
-
-        let run = move || {
-            observe_by_location(move || {
-                observe_by_location(|| {
-                    observe_by_location(|| {
-                        signal.get();
-                        signal.set(69);
-                    });
-                });
-            })
-        };
-
-        assert_eq!(run(), Some(()));
-        signal.set(0);
-        assert_eq!(run(), Some(()));
-        assert_eq!(run(), None);
-    }
-
-    // Isolates the rsact-ui nested-widget redraw bug in pure reactive terms.
-    // An inner `observe` (like a widget's `render_part`) nested inside an outer
-    // `observe` (like the page render) reads a signal. When that signal changes
-    // externally, re-running the outer must also re-run the inner closure.
-    // The outer observer subscribes to the inner one, so the outer's
-    // `maybe_update` dependency-walk must not consume (clean) the inner
-    // observer's dirtiness before the inner `observe` call re-checks it.
-    #[test]
-    fn nested_observe_reruns_inner_on_external_dep_change() {
-        with_new_runtime(|_| {
-            let mut value = create_signal(0);
-            let inner_runs = Rc::new(Cell::new(0u32));
-
-            let ir = inner_runs.clone();
-            let run = move || {
-                observe("outer", || {
-                    observe("inner", || {
-                        ir.set(ir.get() + 1);
-                        value.get();
-                    });
-                });
-            };
-
-            run();
-            assert_eq!(inner_runs.get(), 1, "inner should run once initially");
-            run();
-            assert_eq!(
-                inner_runs.get(),
-                1,
-                "inner should not re-run with no change"
-            );
-
-            value.set(1);
-            run();
-            assert_eq!(
-                inner_runs.get(),
-                2,
-                "inner observe must re-run when a signal it reads changed \
-                 externally"
-            );
         });
     }
 
@@ -2315,96 +2051,6 @@ mod tests {
                 reads.get(),
                 before,
                 "effect re-ran on stale dependency `a`"
-            );
-        });
-    }
-
-    /// G2 (WS2): a child observer re-runs **iff its own dependency changed, or
-    /// the caller forces it** — a parent re-running does NOT dispose the child
-    /// and does NOT force it.
-    ///
-    /// This replaces the old `observe_recreates_disposed_child_observer`, which
-    /// encoded the cleanup-dispose-revive contract: a parent's `cleanup` used
-    /// to dispose the *owned* child observer, and `use_observe` revived it on
-    /// the next call so its closure re-ran. Per G2 that behaviour is wrong —
-    /// the identity-free `run_probe` keeps the child alive across parent
-    /// re-runs (`clear_sources` detaches dependency edges without touching
-    /// ownership), so the child re-renders only when its own inputs change.
-    /// (The child *does* dirty its parent when it re-renders — invariant I3.)
-    #[test]
-    fn child_observer_reruns_only_on_own_dep_change() {
-        let parent_trigger = create_trigger();
-        let child_trigger = create_trigger();
-        let child_runs = Rc::new(Cell::new(0u32));
-
-        let run = || {
-            let (ct, cr) = (child_trigger, child_runs.clone());
-            // Outer observe — acts like `render_children`.
-            observe_by_location(move || {
-                parent_trigger.track();
-                let cr2 = cr.clone();
-                // Inner observe — acts like a child `render_part`, identified
-                // by a stable call-site hash.
-                observe_by_location(move || {
-                    ct.track();
-                    cr2.set(cr2.get() + 1);
-                });
-            })
-        };
-
-        // First call: parent and child both run.
-        assert_eq!(run(), Some(()));
-        assert_eq!(child_runs.get(), 1);
-
-        // No change: neither runs.
-        assert_eq!(run(), None);
-        assert_eq!(child_runs.get(), 1);
-
-        // The *parent's* dependency changed: the parent re-runs, but the
-        // child's own dependency is unchanged, so the child does NOT re-run
-        // (and is neither disposed nor forced).
-        parent_trigger.notify();
-        assert_eq!(run(), Some(()));
-        assert_eq!(
-            child_runs.get(),
-            1,
-            "child re-ran on a parent-only change (G2 violated)"
-        );
-
-        // The child's *own* dependency changed: the child re-runs.
-        child_trigger.notify();
-        assert_eq!(run(), Some(()));
-        assert_eq!(child_runs.get(), 2);
-
-        // Stable again.
-        assert_eq!(run(), None);
-        assert_eq!(child_runs.get(), 2);
-    }
-
-    /// Disposing an observer must prune its `static_observers` entry, otherwise
-    /// the map grows unbounded across page navigations (the observer leak).
-    #[test]
-    fn dispose_prunes_static_observers() {
-        with_new_runtime(|rt| {
-            {
-                let _scope = new_scope();
-                observe("leak_test_key", || {});
-                assert_eq!(
-                    rt.static_observers.borrow().len(),
-                    1,
-                    "observe should register one static observer"
-                );
-            } // scope drop disposes the observer
-
-            assert_eq!(
-                rt.static_observers.borrow().len(),
-                0,
-                "static_observers entry not pruned when the observer was disposed"
-            );
-            assert_eq!(
-                rt.observer_hashes.borrow().len(),
-                0,
-                "observer_hashes reverse index not pruned on dispose"
             );
         });
     }

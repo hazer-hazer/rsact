@@ -306,4 +306,67 @@ mod tests {
             );
         });
     }
+
+    /// A probe over a memo re-runs only when the memo's *value* actually
+    /// changed — the memo cuts propagation when its output is unchanged, so an
+    /// input change that leaves the memo equal does not re-run the probe.
+    #[test]
+    fn probe_over_memo_cuts_when_value_unchanged() {
+        with_new_runtime(|_| {
+            let mut a = create_signal(0i32);
+            let a_is_even = create_memo(move || a.get() % 2 == 0);
+            let runs = Rc::new(Cell::new(0u32));
+            let probe = create_probe();
+
+            let poll = || {
+                let r = runs.clone();
+                probe.poll(false, move || {
+                    r.set(r.get() + 1);
+                    a_is_even.get()
+                })
+            };
+
+            assert_eq!(poll(), Some(true));
+            assert_eq!(runs.get(), 1);
+            assert_eq!(poll(), None);
+
+            // even -> odd: the memo value changes, so the probe re-runs.
+            a.set(3);
+            assert_eq!(poll(), Some(false));
+            assert_eq!(runs.get(), 2);
+
+            // odd -> odd: the memo value is unchanged (cut), so the probe must
+            // NOT re-run even though its input `a` changed.
+            a.set(5);
+            assert_eq!(
+                poll(),
+                None,
+                "probe re-ran though the memo was unchanged"
+            );
+            assert_eq!(runs.get(), 2);
+        });
+    }
+
+    /// A probe whose closure writes a signal it also reads must not deadlock or
+    /// loop: the self-write re-dirties the probe, but the post-run `mark_clean`
+    /// settles it, so a subsequent no-op poll returns `None`.
+    #[test]
+    fn probe_poll_reentrant_self_write() {
+        with_new_runtime(|_| {
+            let mut signal = create_signal(123i32);
+            let probe = create_probe();
+
+            let mut poll = move || {
+                probe.poll(false, || {
+                    signal.get();
+                    signal.set(69);
+                })
+            };
+
+            assert_eq!(poll(), Some(()));
+            signal.set(0);
+            assert_eq!(poll(), Some(()));
+            assert_eq!(poll(), None);
+        });
+    }
 }
