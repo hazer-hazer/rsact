@@ -1,7 +1,6 @@
 use embedded_graphics::{
     pixelcolor::Rgb888,
     prelude::{Angle, Dimensions, Point, RgbColor, WebColors},
-    primitives::{Primitive, PrimitiveStyleBuilder},
 };
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
@@ -10,18 +9,10 @@ use rsact_ui::{
     anim::Anim,
     event::{message::UiQueue, simulator::simulator_single_encoder},
     page::id::SinglePage,
-    prelude::{IntoInert, ReadSignal, SignalMap, Size, create_memo},
-    render::{
-        AntiAliasing, RendererOptions,
-        primitives::{arc::Arc, circle::Circle},
-    },
+    prelude::{DrawStyle, IntoInert, ReadSignal, Renderer, Size},
     style::theme::Theme,
     ui::UI,
-    widget::{
-        SizedWidget, Widget,
-        canvas::{Canvas, DrawCommand, DrawQueue},
-        ctx::*,
-    },
+    widget::{SizedWidget, Widget, canvas::Canvas, ctx::*},
 };
 use std::{
     process,
@@ -42,21 +33,6 @@ fn main() {
 
     let queue = UiQueue::new();
 
-    let canvas_queue = DrawQueue::new();
-    let page = Canvas::new(canvas_queue).fill().el();
-
-    let mut ui = UI::new_eg(
-        display.bounding_box().size.inert(),
-        Theme::default(),
-        Rgb888::WHITE,
-    )
-    .on_exit(|| process::exit(0))
-    .with_page(SinglePage, page)
-    .with_renderer_options(
-        RendererOptions::new().anti_aliasing(AntiAliasing::Enabled),
-    )
-    .with_queue(queue);
-
     let mut circle_anim = queue.anim(
         Anim::new()
             .duration(1_000)
@@ -66,21 +42,6 @@ fn main() {
             .direction(rsact_ui::anim::AnimDir::Alternate),
     );
 
-    canvas_queue.draw(circle_anim.value.map(move |anim_value| {
-        vec![
-            // DrawCommand::Clear(Rgb888::WHITE),
-            Circle::new(Point::new((anim_value * 250.0) as i32, 15), 50)
-                .into_styled(
-                    PrimitiveStyleBuilder::new()
-                        .fill_color(Rgb888::BLACK)
-                        .stroke_color(Rgb888::BLACK)
-                        .stroke_width(1)
-                        .build(),
-                )
-                .into(),
-        ]
-    }));
-
     let mut loader_anim = queue.anim(
         Anim::new()
             .infinite()
@@ -88,23 +49,46 @@ fn main() {
             .direction(rsact_ui::anim::AnimDir::Alternate),
     );
 
-    canvas_queue.draw(loader_anim.value.map(move |anim_value| {
-        vec![
-            Arc::new(
-                Point::new(150, 100),
-                50,
-                Angle::from_degrees(360.0 * anim_value),
-                Angle::from_degrees(360.0 * anim_value),
-            )
-            .into_styled(
-                PrimitiveStyleBuilder::new()
-                    .stroke_color(Rgb888::CSS_PURPLE)
-                    .stroke_width(10)
-                    .build(),
-            )
-            .into(),
-        ]
-    }));
+    // Immediate-mode Canvas: the closure re-issues the whole scene every frame,
+    // reading the anim value memos so the render observer follows them
+    // reactively (WS1b b.1). `renderer` is already clipped to the Canvas rect.
+    let circle_value = circle_anim.value;
+    let loader_value = loader_anim.value;
+    let page = Canvas::new(move |renderer| {
+        let circle_v = circle_value.get();
+        renderer.circle(
+            Point::new((circle_v * 250.0) as i32, 15),
+            50,
+            &DrawStyle::default()
+                .fill(Rgb888::BLACK)
+                .stroke(Rgb888::BLACK)
+                .stroke_width(1),
+        )?;
+
+        let loader_v = loader_value.get();
+        renderer.arc(
+            Point::new(150, 100),
+            50,
+            Angle::from_degrees(360.0 * loader_v),
+            Angle::from_degrees(360.0 * loader_v),
+            &DrawStyle::default()
+                .stroke(Rgb888::CSS_PURPLE)
+                .stroke_width(10),
+        )?;
+
+        Ok(())
+    })
+    .fill()
+    .el();
+
+    let mut ui = UI::new_eg(
+        display.bounding_box().size.inert(),
+        Theme::default(),
+        Rgb888::WHITE,
+    )
+    .on_exit(|| process::exit(0))
+    .with_page(SinglePage, page)
+    .with_queue(queue);
 
     circle_anim.start();
     loader_anim.start();

@@ -248,7 +248,9 @@ impl<W: WidgetCtx> UI<W, WithPages> {
             self.active_page = Some(page);
         }
 
-        self.active_page.as_mut().expect("Active page must be initialized")
+        self.active_page
+            .as_mut()
+            .expect("Active page must be initialized")
     }
 
     // TODO: Unused
@@ -315,13 +317,18 @@ impl<W: WidgetCtx> UI<W, WithPages> {
             .unwrap()
             .as_millis();
 
-        let now = (now - start_time) % u32::MAX as u128;
+        // Wrap into the full u32 range (2^32 values). `% u32::MAX` is one short
+        // of that, so the clock wrapped a tick early and never produced
+        // `u32::MAX` itself — a subtle drift the anim wrap-handling relies on.
+        let now = (now - start_time) % (u32::MAX as u128 + 1);
 
         self.tick_time(now as u32)
     }
 
     pub fn tick_time(&mut self, now_millis: u32) -> &mut Self {
-        self.message_queue.as_mut().map(|queue| queue.tick(now_millis));
+        self.message_queue
+            .as_mut()
+            .map(|queue| queue.tick(now_millis));
 
         self
     }
