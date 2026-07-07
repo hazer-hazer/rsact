@@ -233,6 +233,15 @@ pub fn run_all() -> Vec<Scenario> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // The tests share process-global state — the tracking allocator and the
+    // layout counters — so a parallel libtest run (the default, and what
+    // `cargo test --workspace` does) has them clobber each other's measurement
+    // windows. This lock makes them non-overlapping regardless of
+    // `--test-threads`; poison is ignored (a prior test's failure shouldn't
+    // cascade). `--test-threads=1` is no longer required for correctness.
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     // WS0.4 node-count regression. Locks the reactive node population and the
     // zero-idle-frame-allocs invariant for the canonical scenarios. Node counts
@@ -240,15 +249,13 @@ mod tests {
     // allocation-free. If a change moves these, it is either a real regression
     // or an intended shift that should be re-locked here in the same commit.
     //
-    // Uses the crate's tracking global allocator and a thread-local reactive
-    // runtime per scenario, so it MUST run serially: `--test-threads=1`.
-    //
     // These lock the values measured on 2026-07-07 (see WS0.3b commit); the
     // 10-label total is 52 = ~42 reactive nodes + 10 render-gate observers +
     // page observer — higher than the roadmap's pre-metrics "42" estimate only
     // because the profile now counts observers (WS0.3a).
     #[test]
     fn node_count_regression() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let reactive = reactive_only(16);
         assert_eq!(
             reactive.counts.total, 33,
@@ -296,6 +303,7 @@ mod tests {
     #[cfg(feature = "layout-counters")]
     #[test]
     fn layout_counter_baseline() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let ui10 = ui_labels(10);
         let layout =
             ui10.layout.expect("layout counters present under feature");
