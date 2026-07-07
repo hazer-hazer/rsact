@@ -1664,6 +1664,107 @@ mod tests {
         assert_eq!(outer.get(), 5);
     }
 
+    // --- WS1.3a: push-queues-effects invariant ------------------------------
+    //
+    // update()'s commit path marks a recomputed node's subscribers Dirty with a
+    // bare storage.mark, which flips the state byte but does NOT enqueue an
+    // effect-subscriber into pending_effects (only mark_node does). An effect
+    // downstream of a memo therefore fires only because the write-time
+    // mark_dirty push already queued every transitively-reachable effect. These
+    // tests pin that behaviour so WS1.3b can make the pull self-sufficient
+    // (commit path -> mark_node) without changing observable results.
+
+    /// signal -> memo -> effect: the memo recomputes lazily *while the effect is
+    /// pulling it* inside run_effects; the effect must still re-run with the new
+    /// memo value.
+    #[test]
+    fn effect_downstream_of_memo_fires_on_source_change() {
+        let mut src = create_signal(1i32);
+        let doubled = create_memo(move || src.get() * 2);
+
+        let seen = Rc::new(Cell::new(0i32));
+        let runs = Rc::new(Cell::new(0u32));
+        let seen_c = seen.clone();
+        let runs_c = runs.clone();
+        create_effect(move |_: Option<()>| {
+            seen_c.set(doubled.get());
+            runs_c.set(runs_c.get() + 1);
+        });
+
+        assert_eq!(runs.get(), 1, "effect should run once on creation");
+        assert_eq!(seen.get(), 2);
+
+        src.set(5);
+        assert_eq!(
+            runs.get(),
+            2,
+            "effect downstream of a memo did not re-run on source change"
+        );
+        assert_eq!(seen.get(), 10);
+    }
+
+    /// signal -> memo -> effect where a write leaves the memo *value* unchanged
+    /// (memo cut): even though the push re-queues the effect, run_effects'
+    /// maybe_update re-checks and finds it not actually Dirty, so the body must
+    /// NOT run again.
+    #[test]
+    fn effect_downstream_of_memo_not_rerun_on_memo_cut() {
+        let mut src = create_signal(4i32);
+        // Memo output depends only on the sign, so many src values map to 1.
+        let is_positive = create_memo(move || src.get() > 0);
+
+        let runs = Rc::new(Cell::new(0u32));
+        let runs_c = runs.clone();
+        create_effect(move |_: Option<()>| {
+            is_positive.get();
+            runs_c.set(runs_c.get() + 1);
+        });
+
+        assert_eq!(runs.get(), 1);
+
+        // Different source value, identical memo output -> effect must not fire.
+        src.set(9);
+        assert_eq!(
+            runs.get(),
+            1,
+            "effect re-ran despite the memo value being unchanged (memo cut broken)"
+        );
+
+        // A genuine memo change still propagates.
+        src.set(-3);
+        assert_eq!(
+            runs.get(),
+            2,
+            "effect did not re-run when the memo value actually changed"
+        );
+    }
+
+    /// signal -> memo -> memo -> effect: two lazy layers recompute during the
+    /// effect's pull. The effect must fire exactly once per real change,
+    /// proving the push queued it across both memo layers.
+    #[test]
+    fn effect_fires_through_two_memo_layers() {
+        let mut src = create_signal(1i32);
+        let plus_one = create_memo(move || src.get() + 1);
+        let times_ten = create_memo(move || plus_one.get() * 10);
+
+        let seen = Rc::new(Cell::new(0i32));
+        let runs = Rc::new(Cell::new(0u32));
+        let seen_c = seen.clone();
+        let runs_c = runs.clone();
+        create_effect(move |_: Option<()>| {
+            seen_c.set(times_ten.get());
+            runs_c.set(runs_c.get() + 1);
+        });
+
+        assert_eq!(runs.get(), 1);
+        assert_eq!(seen.get(), 20); // (1+1)*10
+
+        src.set(3);
+        assert_eq!(runs.get(), 2);
+        assert_eq!(seen.get(), 40); // (3+1)*10
+    }
+
     #[test]
     fn check_observe() {
         let mut signal = create_signal(123);
