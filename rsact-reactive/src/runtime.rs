@@ -948,30 +948,47 @@ impl Runtime {
                 };
                 let Some((f, value)) = borrowed else { return };
 
-                self.with_observer(id, move |rt| {
+                let ran = self.with_observer(id, move |rt| {
                     // Guard against re-entrant recompute: if this node's callback
                     // is already running higher on the stack, a dependency cycle
                     // has re-entered it. Skip (logged) instead of panicking on
                     // the double borrow_mut, so a cycle degrades to a no-op.
+                    // `None` signals "skipped, never recomputed" so the state is
+                    // left untouched below.
                     let Ok(mut callback) = f.try_borrow_mut() else {
                         log::error!(
                             "skipping re-entrant reactive update (dependency \
                              cycle) at {caller}"
                         );
-                        return false;
+                        return None;
                     };
 
                     rt.cleanup(id);
-                    callback.run(value)
-                })
+                    Some(callback.run(value))
+                });
+
+                match ran {
+                    Some(changed) => changed,
+                    // Re-entrant skip: the node was never recomputed, so its
+                    // stale value must NOT be marked Clean (that would present
+                    // it as fresh). Leave its state untouched — it stays Dirty
+                    // and is retried on the next independent pull; a true cycle
+                    // is bounded by run_effects' round cap (WS1.3b).
+                    None => return,
+                }
             },
         };
 
         if changed {
             if let Some(subs) = self.subscribers.borrow().get(id) {
                 for sub in subs.iter() {
-                    // TODO: Shouldn't deep deps mark_dirty be used?
-                    self.storage.mark(
+                    // Use mark_node (not a bare storage.mark) so an effect
+                    // subscriber is enqueued into pending_effects here too. This
+                    // makes the pull path self-sufficient rather than relying on
+                    // the write-time push having queued every reachable effect —
+                    // insurance for WS5's lazier marking (WS1.3b). See the 1.3a
+                    // invariant tests.
+                    self.mark_node(
                         *sub,
                         ValueState::Dirty,
                         requester,
