@@ -12,8 +12,14 @@ pub fn regenerate(dir: &Path) -> io::Result<()> {
         for entry in fs::read_dir(dir)? {
             let path = entry?.path();
             if path.extension().and_then(|e| e.to_str()) == Some("json") {
-                if let Ok(s) = Snapshot::load(&path) {
-                    snaps.push(s);
+                match Snapshot::load(&path) {
+                    Ok(s) => snaps.push(s),
+                    // Don't silently drop a snapshot the viewer can't parse —
+                    // with serde(default) this should be rare, but if it happens
+                    // the user needs to know history is incomplete.
+                    Err(e) => {
+                        eprintln!("  skipping {}: {e}", path.display())
+                    },
                 }
             }
         }

@@ -9,8 +9,14 @@ use std::{fs, io, path::Path};
 
 pub const SNAPSHOT_DIR: &str = "metrics/snapshots";
 
+// `#[serde(default)]` on every schema struct is deliberate: it makes snapshots
+// forward/backward compatible, so adding a field later (as WS0.3a's `observers`
+// did) leaves older snapshots deserializable — a missing field takes its type
+// default instead of failing the whole load and silently dropping the file.
+
 /// Reactive-runtime node population, by kind, from `current_runtime_profile()`.
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct NodeCounts {
     pub stored: usize,
     pub signals: usize,
@@ -28,14 +34,16 @@ pub struct NodeCounts {
 
 /// Layout-pass work counters (WS0.5), populated when built with the
 /// `rsact-ui/layout-counters` feature.
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct LayoutCounters {
     pub visits: u64,
     pub measures: u64,
 }
 
 /// One measured scenario.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Scenario {
     pub name: String,
     pub counts: NodeCounts,
@@ -52,7 +60,8 @@ pub struct Scenario {
 }
 
 /// `.text/.rodata/.bss` for one measured binary on one target (Layer 2).
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SectionSizes {
     pub target: String,
     pub binary: String,
@@ -61,7 +70,8 @@ pub struct SectionSizes {
     pub bss: u64,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Snapshot {
     pub git_rev: String,
     pub git_dirty: bool,
@@ -97,5 +107,40 @@ impl Snapshot {
         let text = fs::read_to_string(path)?;
         serde_json::from_str(&text)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // WS0.7f: a snapshot from an older schema (missing fields that were added
+    // later — here: no `section_sizes`, no `observers`, no `layout`) must still
+    // deserialize, taking type defaults, so `diff <old-rev>` and the HTML
+    // regeneration never silently drop history.
+    #[test]
+    fn old_snapshot_missing_additive_fields_still_loads() {
+        let legacy = r#"{
+            "git_rev": "deadbeef",
+            "git_dirty": false,
+            "recorded_at": 1,
+            "host": "x-y",
+            "scenarios": [
+                { "name": "reactive_only_16",
+                  "counts": { "signals": 16 },
+                  "heap_live_bytes": 100,
+                  "idle_frame_allocs": 0 }
+            ]
+        }"#;
+        let snap: Snapshot = serde_json::from_str(legacy)
+            .expect("legacy snapshot must deserialize via serde(default)");
+        assert_eq!(snap.git_rev, "deadbeef");
+        assert!(snap.section_sizes.is_empty()); // field absent → default
+        let s = &snap.scenarios[0];
+        assert_eq!(s.counts.signals, 16);
+        assert_eq!(s.counts.observers, 0); // added later → default
+        assert_eq!(s.idle_frame_allocs, Some(0));
+        assert!(s.change_frame_allocs.is_none()); // absent → None
+        assert!(s.layout.is_none());
     }
 }
