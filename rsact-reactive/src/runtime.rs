@@ -1644,12 +1644,18 @@ mod tests {
         },
         scope::new_scope,
         signal::create_signal,
+        storage::ValueState,
         trigger::{Trigger, create_trigger},
         write::WriteSignal,
     };
     use alloc::rc::Rc;
     use alloc::vec::Vec;
     use core::cell::Cell;
+
+    /// Test helper: the current runtime's [`ValueState`] for a handle.
+    fn state_of(id: crate::storage::ValueId) -> ValueState {
+        with_current_runtime(|rt| rt.state(id))
+    }
 
     #[test]
     fn primary_runtime() {
@@ -1780,6 +1786,173 @@ mod tests {
         src.set(3);
         assert_eq!(runs.get(), 2);
         assert_eq!(seen.get(), 40); // (3+1)*10
+    }
+
+    // --- WS1.5a: check-residue correctness suite ----------------------------
+    //
+    // When a Check node's *completed* source walk finds nothing Dirty (a memo
+    // cut — a source recomputed to an equal value), the node is genuinely
+    // unchanged and should be downgraded Check -> Clean so the next read is an
+    // O(1) state check rather than re-walking every source. Pre-1.5b it stayed
+    // Check forever (residue). These tests prove the state contract (they RED
+    // before 1.5b) and that correctness is preserved.
+
+    /// After a memo cut, the downstream node is Clean (not Check residue).
+    #[test]
+    fn check_residue_downgraded_to_clean_after_memo_cut() {
+        with_new_runtime(|_| {
+            let mut src = create_signal(4i32);
+            let is_pos = create_memo(move || src.get() > 0);
+            let downstream = create_memo(move || is_pos.get() as i32);
+
+            // Prime: everything computes Clean.
+            assert_eq!(downstream.get(), 1);
+
+            // Different source value, identical memo output -> cut.
+            src.set(9);
+            assert_eq!(downstream.get(), 1);
+
+            assert_eq!(
+                state_of(downstream.id().unwrap()),
+                ValueState::Clean,
+                "downstream memo left in Check after a memo cut (residue)"
+            );
+            assert_eq!(
+                state_of(is_pos.id().unwrap()),
+                ValueState::Clean,
+                "cut memo itself left non-Clean"
+            );
+        });
+    }
+
+    /// Diamond: src feeds two memos that both feed a sink. A cut at src leaves
+    /// the whole diamond Clean.
+    #[test]
+    fn diamond_no_check_residue_after_cut() {
+        with_new_runtime(|_| {
+            let mut src = create_signal(2i32);
+            let left = create_memo(move || src.get() > 0);
+            let right = create_memo(move || src.get() >= 0);
+            let sink = create_memo(move || (left.get(), right.get()));
+
+            assert_eq!(sink.get(), (true, true));
+
+            // src 2 -> 5: both branches unchanged -> sink cut.
+            src.set(5);
+            assert_eq!(sink.get(), (true, true));
+
+            assert_eq!(
+                state_of(sink.id().unwrap()),
+                ValueState::Clean,
+                "diamond sink left in Check after a cut"
+            );
+        });
+    }
+
+    /// A genuine change after a cut still re-dirties and recomputes downstream.
+    #[test]
+    fn real_change_after_cut_still_recomputes() {
+        with_new_runtime(|_| {
+            let mut src = create_signal(4i32);
+            let is_pos = create_memo(move || src.get() > 0);
+            let downstream = create_memo(move || is_pos.get() as i32);
+
+            assert_eq!(downstream.get(), 1);
+            src.set(9); // cut
+            assert_eq!(downstream.get(), 1);
+            assert_eq!(state_of(downstream.id().unwrap()), ValueState::Clean);
+
+            // Now a real change flips the memo.
+            src.set(-2);
+            assert_eq!(
+                downstream.get(),
+                0,
+                "genuine change after a cut did not propagate"
+            );
+        });
+    }
+
+    /// Dynamic dependencies: the memo's source set changes across runs. After a
+    /// cut through an old (now-untracked) source, a change through the *new*
+    /// source still propagates.
+    #[test]
+    fn dynamic_deps_cut_then_change_through_new_source() {
+        with_new_runtime(|_| {
+            let mut cond = create_signal(true);
+            let mut a = create_signal(1i32);
+            let mut b = create_signal(100i32);
+            let m = create_memo(move || if cond.get() { a.get() } else { b.get() });
+
+            assert_eq!(m.get(), 1); // tracks cond + a
+
+            // b is not a dependency now -> cut, m stays Clean.
+            b.set(200);
+            assert_eq!(m.get(), 1);
+            assert_eq!(state_of(m.id().unwrap()), ValueState::Clean);
+
+            // Switch branch: m re-tracks cond + b.
+            cond.set(false);
+            assert_eq!(m.get(), 200);
+
+            // a is no longer a dependency -> cut.
+            a.set(5);
+            assert_eq!(m.get(), 200);
+            assert_eq!(state_of(m.id().unwrap()), ValueState::Clean);
+
+            // Change through the new source propagates.
+            b.set(300);
+            assert_eq!(m.get(), 300, "change through the new source was dropped");
+        });
+    }
+
+    /// Property/fuzz: a fixed-shape memo DAG over signals must always match a
+    /// recompute-everything oracle under a stream of pseudo-random writes
+    /// (correctness is preserved regardless of Check/Clean bookkeeping).
+    #[test]
+    fn random_graph_matches_recompute_oracle() {
+        with_new_runtime(|_| {
+            let mut s = [
+                create_signal(0i64),
+                create_signal(0i64),
+                create_signal(0i64),
+                create_signal(0i64),
+            ];
+            let (s0, s1, s2, s3) = (s[0], s[1], s[2], s[3]);
+
+            // DAG: a diamond over s1 plus a tail on s3.
+            let m_a = create_memo(move || s0.get() + s1.get());
+            let m_b = create_memo(move || s1.get() * 2 - s2.get());
+            let m_c = create_memo(move || m_a.get() + m_b.get());
+            let m_d = create_memo(move || m_c.get() + s3.get());
+
+            let oracle = |v: &[i64; 4]| {
+                let a = v[0] + v[1];
+                let b = v[1] * 2 - v[2];
+                let c = a + b;
+                c + v[3]
+            };
+
+            // Deterministic LCG (Date/rand are unavailable / not a dep).
+            let mut rng: u64 = 0x9E3779B97F4A7C15;
+            let mut next = || {
+                rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
+                rng
+            };
+
+            let mut vals = [0i64; 4];
+            for _ in 0..200 {
+                let idx = (next() >> 33) as usize % 4;
+                let val = ((next() >> 24) % 41) as i64 - 20; // -20..=20
+                vals[idx] = val;
+                s[idx].set(val);
+
+                assert_eq!(
+                    m_d.get(),
+                    oracle(&vals),
+                    "memo DAG diverged from the recompute oracle at vals={vals:?}"
+                );
+            }
+        });
     }
 
     #[test]

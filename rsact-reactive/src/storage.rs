@@ -322,7 +322,7 @@ impl Display for ValueKind {
 }
 
 // Note: Order matters
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum ValueState {
     Clean,
     Check,
