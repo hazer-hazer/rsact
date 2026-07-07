@@ -1,0 +1,48 @@
+#!/bin/sh
+# WS0.8 post-commit metrics hook.
+#
+# Records a Layer-1 metrics snapshot for the just-created commit. It is a
+# *post*-commit hook on purpose: at pre-commit time HEAD is still the parent and
+# the tree is dirty, so a snapshot would be keyed to the wrong hash; post-commit
+# sees the new hash and a clean tree, matching metrics-probe's own keying.
+#
+# It NEVER blocks or fails the commit (metrics observe, they don't gate — the
+# 0.4 regression test is the hard gate, CI PR deltas are the review surface):
+# the record runs detached in the background and this script always exits 0.
+#
+# Opt in per-clone with:  git config core.hooksPath .githooks
+#   (or: cargo run -p metrics-probe -- hook-install)
+
+git_dir=$(git rev-parse --git-dir 2>/dev/null) || exit 0
+
+# Skip while a rebase / cherry-pick / merge is in progress — HEAD churns through
+# many intermediate commits and the snapshots would just be noise.
+for state in rebase-merge rebase-apply CHERRY_PICK_HEAD MERGE_HEAD; do
+    if [ -e "$git_dir/$state" ]; then
+        exit 0
+    fi
+done
+
+rev=$(git rev-parse HEAD 2>/dev/null) || exit 0
+
+# Already recorded this commit (e.g. re-run) — nothing to do.
+if [ -f "metrics/snapshots/$rev.json" ]; then
+    exit 0
+fi
+
+mkdir -p metrics
+
+# Detach fully: redirect all three std streams so git doesn't wait on the
+# inherited FDs, and background inside a subshell so no job is tracked. The
+# commit returns immediately; `record` (Layer-1 only, no --sizes) finishes on
+# its own and appends to metrics/hook.log. A build/record failure only lands in
+# the log — the commit already happened.
+(
+    {
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] record ${rev}"
+        cargo run -q -p metrics-probe -- record
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] done ${rev}"
+    } >>metrics/hook.log 2>&1 </dev/null &
+)
+
+exit 0

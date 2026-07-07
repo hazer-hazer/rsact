@@ -5,3 +5,5 @@
 # Snapshots are per-dev/per-commit local artifacts; CI archives its own.
 /metrics/snapshots/
 /metrics/index.html
+# WS0.8 post-commit hook log (local).
+/metrics/hook.log

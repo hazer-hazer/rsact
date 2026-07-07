@@ -55,3 +55,7 @@ __thumbv6m (Cortex-M0/M0+) note.__ These cores have no atomic compare-and-swap, 
   ```
 
 thumbv6m is currently only a compile-check target for rsact (no RAM/flash budgets committed); the floor pair with budgets is Blue Pill (thumbv7m) and Black Pill F401 (thumbv7em-hf).
+
+### Development
+
+Framework metrics (reactive node counts, heap, allocs/frame, layout counters, target section sizes) are tracked by the `metrics-probe` tool — see [metrics/README.md](metrics/README.md) and [docs/features.md](docs/features.md). To auto-record a snapshot on every commit (background, non-blocking), enable the hook once: `cargo run -p metrics-probe -- hook-install`.

@@ -22,6 +22,22 @@ archives its own. The tool CI runs is this same binary; CI merely stores the JSO
 it emits and posts the `diff` output as a PR comment — it never replaces the local
 tool.
 
+## Automatic snapshots on commit (WS0.8, opt-in)
+
+Enable the committed post-commit hook once per clone:
+
+```sh
+cargo run -p metrics-probe -- hook-install     # or: git config core.hooksPath .githooks
+```
+
+After that every commit records a **Layer-1** snapshot (no `--sizes`) for the new
+commit, **in the background** — the commit returns instantly, output goes to
+`metrics/hook.log`, and the hook **never blocks or fails the commit** (metrics
+observe, they don't gate; the 0.4 regression test and CI deltas are the gates).
+It skips during rebase/cherry-pick/merge and when the commit already has a
+snapshot. Because snapshots are git-ignored, the hook only fills in *your local*
+timeline — the durable shared record is still CI's archive.
+
 ## What is measured
 
 **Layer 1 — framework metrics (host, always present).** Per scenario

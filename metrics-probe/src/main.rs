@@ -296,9 +296,26 @@ fn print_snapshot(snap: &Snapshot) {
     }
 }
 
+/// Point this clone's git hooks at `.githooks` (WS0.8), enabling the
+/// post-commit metrics snapshot. One-time, per-clone; equivalent to
+/// `git config core.hooksPath .githooks`.
+fn cmd_hook_install() -> std::io::Result<()> {
+    let status = Command::new("git")
+        .args(["config", "core.hooksPath", ".githooks"])
+        .status()?;
+    if status.success() {
+        println!(
+            "core.hooksPath -> .githooks; the post-commit metrics hook is now active."
+        );
+        Ok(())
+    } else {
+        Err(std::io::Error::other("`git config core.hooksPath` failed"))
+    }
+}
+
 fn usage() -> ! {
     eprintln!(
-        "usage:\n  metrics-probe record [--sizes]\n  metrics-probe diff [--sizes] <rev|file>\n  metrics-probe html\n\n  --sizes  also build the thumb size-probes and record .text/.rodata/.bss (Layer 2, slower)"
+        "usage:\n  metrics-probe record [--sizes]\n  metrics-probe diff [--sizes] <rev|file>\n  metrics-probe html\n  metrics-probe hook-install\n\n  --sizes  also build the thumb size-probes and record .text/.rodata/.bss (Layer 2, slower)"
     );
     std::process::exit(2);
 }
@@ -315,6 +332,7 @@ fn main() {
             None => usage(),
         },
         Some("html") => html::regenerate(Path::new(SNAPSHOT_DIR)),
+        Some("hook-install") => cmd_hook_install(),
         _ => usage(),
     };
     if let Err(e) = result {
