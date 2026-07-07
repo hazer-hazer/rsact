@@ -41,6 +41,12 @@ pub struct ScopeData {
     // TODO: Use enum, deny_new makes values field useless
     pub(crate) deny_new: bool,
     pub(crate) values: Vec<ValueId>,
+    /// The scope that was current when this scope was created. Acts as an
+    /// intrusive stack pointer: `drop_scope` restores `current_scope` to this
+    /// parent (only if the dropped scope is still current), so values created
+    /// after an inner scope drops are owned by the enclosing scope instead of
+    /// leaking with no owner (WS1.1). `None` for a scope created at top level.
+    pub(crate) parent: Option<ScopeId>,
     #[cfg(feature = "debug-info")]
     pub(crate) created_at: &'static core::panic::Location<'static>,
 }
@@ -61,24 +67,28 @@ impl Display for ScopeData {
 
 impl ScopeData {
     pub fn new(
+        parent: Option<ScopeId>,
         #[cfg(feature = "debug-info")]
         created_at: &'static core::panic::Location<'static>,
     ) -> Self {
         Self {
             deny_new: false,
             values: Default::default(),
+            parent,
             #[cfg(feature = "debug-info")]
             created_at,
         }
     }
 
     pub fn new_deny_new(
+        parent: Option<ScopeId>,
         #[cfg(feature = "debug-info")]
         created_at: &'static core::panic::Location<'static>,
     ) -> Self {
         Self {
             deny_new: true,
             values: Default::default(),
+            parent,
             #[cfg(feature = "debug-info")]
             created_at,
         }
@@ -249,6 +259,35 @@ mod tests {
             assert!(
                 !still_alive,
                 "owned inner signal still alive after scope drop"
+            );
+        });
+    }
+
+    /// After an inner scope is dropped, `current_scope` must be restored to the
+    /// inner scope's parent, so values created afterwards are owned by the
+    /// still-live outer scope (and disposed with it) rather than leaking with
+    /// no owner. Regression test for WS1.1 (scope parent chain).
+    #[test]
+    fn value_after_inner_scope_drop_owned_by_outer() {
+        with_new_runtime(|_| {
+            let outer = new_scope();
+
+            {
+                let _inner = new_scope();
+                let _inner_sig = create_signal(0i32);
+                // inner scope drops here
+            }
+
+            // With the parent chain restored, this value is owned by `outer`.
+            let after = create_signal(42i32);
+            assert!(after.is_alive());
+
+            drop(outer);
+
+            assert!(
+                !after.is_alive(),
+                "value created after inner scope drop leaked (not owned by \
+                 the restored outer scope)"
             );
         });
     }

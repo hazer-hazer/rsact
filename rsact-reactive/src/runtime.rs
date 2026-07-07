@@ -366,7 +366,11 @@ impl Runtime {
         &self,
         #[cfg(feature = "debug-info")] created_at: &'static Location<'static>,
     ) -> ScopeHandle {
+        // Record the current scope as this scope's parent so `drop_scope` can
+        // restore it (WS1.1) — the parent pointer *is* the scope stack.
+        let parent = self.current_scope.get();
         let id = self.scopes.borrow_mut().insert(ScopeData::new(
+            parent,
             #[cfg(feature = "debug-info")]
             created_at,
         ));
@@ -379,7 +383,9 @@ impl Runtime {
         &self,
         #[cfg(feature = "debug-info")] created_at: &'static Location<'static>,
     ) -> ScopeHandle {
+        let parent = self.current_scope.get();
         let id = self.scopes.borrow_mut().insert(ScopeData::new_deny_new(
+            parent,
             #[cfg(feature = "debug-info")]
             created_at,
         ));
@@ -733,6 +739,15 @@ impl Runtime {
         // Release the borrow immediately so dispose() can run without
         // conflicts.
         let scope_data = self.scopes.borrow_mut().remove(scope_id).unwrap();
+
+        // Restore `current_scope` to this scope's parent — but *only* if this
+        // scope is still the current one. Page scopes are held across frames
+        // and dropped non-lexically (out of LIFO order); in that case the
+        // current scope belongs to unrelated live work and must be left
+        // untouched (WS1.1).
+        if self.current_scope.get() == Some(scope_id) {
+            self.current_scope.set(scope_data.parent);
+        }
 
         // TODO: Children scopes drop
 
