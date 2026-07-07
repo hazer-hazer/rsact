@@ -13,6 +13,7 @@ use alloc::{rc::Rc, vec::Vec};
 #[cfg(feature = "debug-info")]
 use alloc::collections::btree_set::BTreeSet;
 use core::{
+    any::Any,
     cell::{Cell, RefCell},
     fmt::Display,
     marker::PhantomData,
@@ -474,12 +475,19 @@ impl Runtime {
         ScopeHandle::new(id)
     }
 
-    fn add_value<T: 'static, DT: 'static>(
+    /// Non-generic core of value creation (WS9a.3). It takes an already
+    /// type-erased value cell so the scope / owned-map / storage bookkeeping is
+    /// compiled ONCE instead of monomorphized per concrete `T` — collapsing the
+    /// ×9–14 per-`T` instantiation spread of the seven `create_*` constructors.
+    /// The only per-`T` work (the `Rc<RefCell<T>>` allocation + unsize to
+    /// `dyn Any`, and the debug type name) stays in the thin [`add_value`] shim.
+    fn add_value_raw(
         &self,
-        value: T,
+        value: Rc<RefCell<dyn Any>>,
         kind: ValueKind,
         initial_state: ValueState,
         _caller: &'static Location<'static>,
+        #[cfg(feature = "debug-info")] _ty: &'static str,
     ) -> ValueId {
         let mut scopes = self.scopes.borrow_mut();
         let scope = self
@@ -489,7 +497,7 @@ impl Runtime {
             .flatten();
 
         let id = self.storage.add_value(Value {
-            value: Rc::new(RefCell::new(value)),
+            value,
             kind,
             state: initial_state,
             height: 0,
@@ -514,7 +522,7 @@ impl Runtime {
                 },
                 borrowed_mut: None,
                 borrowed: None,
-                ty: core::any::type_name::<DT>(),
+                ty: _ty,
                 observer: None,
             },
         });
@@ -539,6 +547,28 @@ impl Runtime {
         }
 
         id
+    }
+
+    /// Thin per-`T` shim over [`add_value_raw`] (WS9a.3): the only monomorphized
+    /// work is the `Rc<RefCell<T>>` allocation (unsized to `dyn Any` at the call
+    /// arg) and, under `debug-info`, the type name. `#[inline]` so it folds into
+    /// each `create_*` with no call overhead.
+    #[inline]
+    fn add_value<T: 'static, DT: 'static>(
+        &self,
+        value: T,
+        kind: ValueKind,
+        initial_state: ValueState,
+        caller: &'static Location<'static>,
+    ) -> ValueId {
+        self.add_value_raw(
+            Rc::new(RefCell::new(value)),
+            kind,
+            initial_state,
+            caller,
+            #[cfg(feature = "debug-info")]
+            core::any::type_name::<DT>(),
+        )
     }
 
     pub fn create_stored<T: 'static>(
