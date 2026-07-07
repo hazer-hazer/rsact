@@ -89,7 +89,8 @@ impl<W: WidgetCtx> BuildCtx<W> {
             el.state.built = true;
         }
 
-        self.arena.update_untracked(|arena| arena.restore_el(id, el));
+        self.arena
+            .update_untracked(|arena| arena.restore_el(id, el));
     }
 
     // pub fn add_children(mut self, children: &mut [El<W>]) {
@@ -119,7 +120,8 @@ impl<W: WidgetCtx> BuildCtx<W> {
     }
 
     fn add_inner(&mut self, el: &mut El<W>) -> ElId {
-        self.arena.update_untracked(|arena| arena.add(Some(self.id), el))
+        self.arena
+            .update_untracked(|arena| arena.add(Some(self.id), el))
     }
 }
 

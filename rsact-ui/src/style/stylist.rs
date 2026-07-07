@@ -53,7 +53,8 @@ where
     CS: Stylist<S>,
 {
     fn style(&self, base: &S, selector: &StyleSelector) -> S {
-        self.child.style(&self.parent.style(base, selector), selector)
+        self.child
+            .style(&self.parent.style(base, selector), selector)
     }
 }
 

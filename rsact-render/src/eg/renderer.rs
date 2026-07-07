@@ -199,7 +199,9 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> EGRenderer<C, AA> {
     where
         C: MapColor<TC>,
     {
-        self.layers.values().for_each(|layer| layer.canvas.output(target))
+        self.layers
+            .values()
+            .for_each(|layer| layer.canvas.output(target))
     }
 
     fn renderer_clipped(
@@ -328,7 +330,10 @@ impl<C: Color + PackedColor + PixelColor> Renderer
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
         let eg_rect: embedded_graphics::primitives::Rectangle = rect.into();
-        eg_rect.draw_styled(&style.into_primitive_style(), self).ok().unwrap();
+        eg_rect
+            .draw_styled(&style.into_primitive_style(), self)
+            .ok()
+            .unwrap();
         Ok(())
     }
 
@@ -485,7 +490,10 @@ impl<C: Color + PackedColor + PixelColor> Renderer
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
         let eg_rect: embedded_graphics::primitives::Rectangle = rect.into();
-        eg_rect.draw_styled(&style.into_primitive_style(), self).ok().unwrap();
+        eg_rect
+            .draw_styled(&style.into_primitive_style(), self)
+            .ok()
+            .unwrap();
         Ok(())
     }
 

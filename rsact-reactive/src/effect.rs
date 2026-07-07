@@ -135,7 +135,10 @@ where
         let new_value = (self.f)(pass_value);
 
         let mut value = RefCell::borrow_mut(&value);
-        value.downcast_mut::<Option<T>>().unwrap().replace(new_value);
+        value
+            .downcast_mut::<Option<T>>()
+            .unwrap()
+            .replace(new_value);
 
         true
     }

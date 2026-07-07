@@ -238,7 +238,8 @@ impl<C: Color> BlockStyle<C> {
     }
 
     pub fn background_color(mut self, background_color: C) -> Self {
-        self.background_color.set_high_priority(Some(background_color));
+        self.background_color
+            .set_high_priority(Some(background_color));
         self
     }
 

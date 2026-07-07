@@ -154,7 +154,8 @@ pub trait Framebuf<C: Color + PackedColor> {
             .viewport()
             .points()
             .map(|point| {
-                self.pixel(point).map(|color| Pixel(point, color.map_color()))
+                self.pixel(point)
+                    .map(|color| Pixel(point, color.map_color()))
             })
             .filter_map(|pixel| pixel);
         target.draw(pixels);

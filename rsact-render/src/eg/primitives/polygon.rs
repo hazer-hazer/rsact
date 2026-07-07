@@ -123,7 +123,8 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Polygon {
         }
 
         if style.stroke.is_some() && style.stroke_width > 0 {
-            self.lines().try_for_each(|line| line.draw_aa(renderer, style))?;
+            self.lines()
+                .try_for_each(|line| line.draw_aa(renderer, style))?;
         }
 
         Ok(())

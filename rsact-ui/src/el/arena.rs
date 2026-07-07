@@ -33,10 +33,13 @@ impl<W: WidgetCtx> ArenaEls<W> {
     }
 
     pub fn expect(&self, id: ElId) -> Option<&ElData<W>> {
-        self.els.get(id).and_then(|el| el.data.as_ref()).or_else(|| {
-            error!("Element must exist at this place");
-            None
-        })
+        self.els
+            .get(id)
+            .and_then(|el| el.data.as_ref())
+            .or_else(|| {
+                error!("Element must exist at this place");
+                None
+            })
     }
 
     pub fn expect_unreachable(&self, id: ElId) -> &ElData<W> {
@@ -47,10 +50,12 @@ impl<W: WidgetCtx> ArenaEls<W> {
     }
 
     pub fn expect_mut(&mut self, id: ElId) -> Option<&mut ElData<W>> {
-        self.get_mut(id).and_then(|el| el.data.as_mut()).or_else(|| {
-            error!("Element must exist at this place");
-            None
-        })
+        self.get_mut(id)
+            .and_then(|el| el.data.as_mut())
+            .or_else(|| {
+                error!("Element must exist at this place");
+                None
+            })
     }
 
     /// Number of live element nodes. Used to assert rebuilds don't leak.
@@ -75,7 +80,8 @@ impl ArenaChildren {
         parent: ElId,
         children: Vec<ElId>,
     ) -> Option<ArenaChildrenVec> {
-        self.children.insert(parent, tinyvec::TinyVec::Heap(children))
+        self.children
+            .insert(parent, tinyvec::TinyVec::Heap(children))
     }
 
     pub fn set_single(

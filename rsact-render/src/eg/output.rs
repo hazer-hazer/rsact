@@ -16,7 +16,9 @@ where
         // failure). Log and drop this pixel batch rather than `todo!()`, which
         // would abort the device on a transient glitch.
         if self
-            .draw_iter(pixels.map(|p| embedded_graphics::Pixel(p.0.into(), p.1)))
+            .draw_iter(
+                pixels.map(|p| embedded_graphics::Pixel(p.0.into(), p.1)),
+            )
             .is_err()
         {
             log::error!("draw target draw_iter failed; dropping pixel batch");

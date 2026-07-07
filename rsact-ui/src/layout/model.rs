@@ -47,23 +47,28 @@ impl<'a> LayoutModelNode<'a> {
     }
 
     pub fn children(&'a self) -> impl Iterator<Item = LayoutModelNode<'a>> {
-        self.model.children.iter().map(|child| child.node(self.inner))
+        self.model
+            .children
+            .iter()
+            .map(|child| child.node(self.inner))
     }
 
     // Note: May be slow and expensive
     pub fn dev_hover(&'a self, point: Point) -> Option<DevHoveredLayout> {
-        self.children().find_map(|child| child.dev_hover(point)).or_else(|| {
-            if self.outer.contains(point) {
-                Some(DevHoveredLayout {
-                    area: self.outer,
-                    children_count: self.model.children.len(),
-                    #[cfg(feature = "debug-info")]
-                    layout: self.model.dev.clone(),
-                })
-            } else {
-                None
-            }
-        })
+        self.children()
+            .find_map(|child| child.dev_hover(point))
+            .or_else(|| {
+                if self.outer.contains(point) {
+                    Some(DevHoveredLayout {
+                        area: self.outer,
+                        children_count: self.model.children.len(),
+                        #[cfg(feature = "debug-info")]
+                        layout: self.model.dev.clone(),
+                    })
+                } else {
+                    None
+                }
+            })
     }
 }
 

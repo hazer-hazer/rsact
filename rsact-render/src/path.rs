@@ -69,7 +69,8 @@ impl PathBuilder {
         start: Angle,
         sweep: Angle,
     ) -> Self {
-        self.segments.push(PathSegment::ArcTo { center, radius, start, sweep });
+        self.segments
+            .push(PathSegment::ArcTo { center, radius, start, sweep });
         self
     }
 
