@@ -20,6 +20,8 @@ rsact-reactive = { workspace = true, features = ["std"] }
 rsact-ui = { workspace = true, features = ["std", "embedded-graphics"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Reads .text/.rodata/.bss from the linked thumb size-probe ELFs (Layer 2).
+object = "0.36"
 
 [features]
 # Include WS0.5 layout visit/measure counters in the snapshot. Opt-in because it

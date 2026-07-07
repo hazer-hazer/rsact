@@ -1,0 +1,45 @@
+[package]
+name = "size-probe"
+description = "Linkable thumb binaries for WS0.3 Layer-2 (.text/.rodata/.bss) size metrics"
+edition = "2021"
+version = "0.1.0"
+publish = false
+
+# Deliberately EXCLUDED from the workspace (see root Cargo.toml `exclude`): these
+# are no_std/no_main cortex-m binaries that only build for thumb targets, so a
+# host `cargo build --workspace` / `cargo hack --all` must not try them. The
+# metrics-probe tool builds them per-target via `--manifest-path`. Deps use
+# explicit paths (an excluded crate can't inherit `[workspace.dependencies]`).
+
+[dependencies]
+cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
+cortex-m-rt = "0.7.5"
+embedded-alloc = "0.6"
+panic-halt = "1"
+# Sound thumbv6m atomic fallback (no-CAS cores) via the cortex-m critical-section
+# impl above; unifies with rsact-ui's portable-atomic dep so the `ui` probe links
+# on thumbv6m without the unsafe cfg.
+portable-atomic = { version = "1", features = ["critical-section"] }
+# default features stay on for `default-runtime`; add the no_std backend.
+rsact-reactive = { path = "../rsact-reactive", features = ["unsafe-single-thread"] }
+rsact-ui = { path = "../rsact-ui", features = [
+    "unsafe-single-thread",
+    "embedded-graphics",
+] }
+
+# opt-z + fat-LTO: the profile the audit's 16.8 KiB reactive-core `.text` baseline
+# was measured under. `panic = "abort"` matches a real firmware build.
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+debug = false
+
+[[bin]]
+name = "reactive"
+path = "src/bin/reactive.rs"
+
+[[bin]]
+name = "ui"
+path = "src/bin/ui.rs"

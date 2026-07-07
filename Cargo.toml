@@ -10,7 +10,10 @@ version.workspace = true
 rsact-ui = { path = "./rsact-ui" }
 
 [workspace]
-exclude = ["examples"]
+# size-probe: no_std/no_main cortex-m binaries for WS0.3 Layer-2 section sizes.
+# Excluded so host `cargo build --workspace` / `cargo hack --all` never try them;
+# metrics-probe builds them per-target via `--manifest-path`.
+exclude = ["examples", "size-probe"]
 members = [
   "rsact-ui",
   "rsact-reactive", # "rsact-encoder",

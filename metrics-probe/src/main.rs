@@ -13,6 +13,7 @@
 mod alloc;
 mod html;
 mod scenarios;
+mod sizes;
 mod snapshot;
 
 use snapshot::{SNAPSHOT_DIR, Scenario, Snapshot};
@@ -55,20 +56,25 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// Build a snapshot of the current working tree (runs all scenarios).
-fn measure() -> Snapshot {
+/// Build a snapshot of the current working tree (runs all scenarios). When
+/// `with_sizes`, also builds the thumb size-probes and reads their sections
+/// (Layer 2) — slower, so it is opt-in via `--sizes`.
+fn measure(with_sizes: bool) -> Snapshot {
+    let scenarios = scenarios::run_all();
+    let section_sizes =
+        if with_sizes { sizes::measure_all() } else { Vec::new() };
     Snapshot {
         git_rev: git_rev(),
         git_dirty: git_dirty(),
         recorded_at: now_secs(),
         host: host_triple(),
-        scenarios: scenarios::run_all(),
-        section_sizes: Vec::new(),
+        scenarios,
+        section_sizes,
     }
 }
 
-fn cmd_record() -> std::io::Result<()> {
-    let snap = measure();
+fn cmd_record(with_sizes: bool) -> std::io::Result<()> {
+    let snap = measure(with_sizes);
     let dir = PathBuf::from(SNAPSHOT_DIR);
     let path = snap.save(&dir)?;
     println!(
@@ -102,9 +108,9 @@ fn resolve_baseline(arg: &str) -> std::io::Result<Snapshot> {
     ))
 }
 
-fn cmd_diff(arg: &str) -> std::io::Result<()> {
+fn cmd_diff(arg: &str, with_sizes: bool) -> std::io::Result<()> {
     let baseline = resolve_baseline(arg)?;
-    let current = measure();
+    let current = measure(with_sizes);
     println!(
         "diff  baseline {}{}  ->  current {}{}\n",
         short(&baseline.git_rev),
@@ -115,6 +121,17 @@ fn cmd_diff(arg: &str) -> std::io::Result<()> {
     for cur in &current.scenarios {
         let base = baseline.scenarios.iter().find(|s| s.name == cur.name);
         print_scenario_diff(cur, base);
+    }
+    for cur in &current.section_sizes {
+        let base = baseline
+            .section_sizes
+            .iter()
+            .find(|s| s.binary == cur.binary && s.target == cur.target);
+        println!("  {}/{} (section sizes)", cur.binary, cur.target);
+        irow(".text", base.map(|b| b.text as i64), cur.text as i64);
+        irow(".rodata", base.map(|b| b.rodata as i64), cur.rodata as i64);
+        irow(".bss", base.map(|b| b.bss as i64), cur.bss as i64);
+        println!();
     }
     Ok(())
 }
@@ -235,21 +252,30 @@ fn print_snapshot(snap: &Snapshot) {
                 .unwrap_or("n/a".into()),
         );
     }
+    for sz in &snap.section_sizes {
+        println!(
+            "  size {}/{}: .text={} .rodata={} .bss={}",
+            sz.binary, sz.target, sz.text, sz.rodata, sz.bss
+        );
+    }
 }
 
 fn usage() -> ! {
     eprintln!(
-        "usage:\n  metrics-probe record\n  metrics-probe diff <rev|file>\n  metrics-probe html"
+        "usage:\n  metrics-probe record [--sizes]\n  metrics-probe diff [--sizes] <rev|file>\n  metrics-probe html\n\n  --sizes  also build the thumb size-probes and record .text/.rodata/.bss (Layer 2, slower)"
     );
     std::process::exit(2);
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    let with_sizes = args.iter().any(|a| a == "--sizes");
+    // First non-flag argument after the subcommand.
+    let positional = args.iter().skip(1).find(|a| !a.starts_with("--"));
     let result = match args.first().map(String::as_str) {
-        Some("record") => cmd_record(),
-        Some("diff") => match args.get(1) {
-            Some(arg) => cmd_diff(arg),
+        Some("record") => cmd_record(with_sizes),
+        Some("diff") => match positional {
+            Some(arg) => cmd_diff(arg, with_sizes),
             None => usage(),
         },
         Some("html") => html::regenerate(Path::new(SNAPSHOT_DIR)),

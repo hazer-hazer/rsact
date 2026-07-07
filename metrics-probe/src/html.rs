@@ -98,6 +98,33 @@ if (!SNAPSHOTS.length) {{
     }}
     root.appendChild(table);
   }}
+
+  // Layer-2 target section sizes (bytes), one table per binary/target.
+  const szKeys = [...new Set(SNAPSHOTS.flatMap(s =>
+    (s.section_sizes || []).map(x => x.binary + " / " + x.target)))];
+  for (const key of szKeys) {{
+    const [binary, target] = key.split(" / ");
+    const table = document.createElement("table");
+    const cap = document.createElement("caption");
+    cap.textContent = "size: " + key;
+    table.appendChild(cap);
+    const head = document.createElement("tr");
+    head.innerHTML = "<th>section</th>" + SNAPSHOTS.map(s => {{
+      const rev = s.git_rev.slice(0, 8) + (s.git_dirty ? "*" : "");
+      return `<th class="${{s.git_dirty ? "dirty" : ""}}">${{rev}}</th>`;
+    }}).join("");
+    table.appendChild(head);
+    for (const sec of ["text", "rodata", "bss"]) {{
+      const cells = SNAPSHOTS.map(s => {{
+        const e = (s.section_sizes || []).find(x => x.binary === binary && x.target === target);
+        const v = e ? e[sec] : null;
+        return `<td>${{v === null || v === undefined ? '<span class=muted>-</span>' : v}}</td>`;
+      }});
+      if (cells.every(c => c.includes("muted"))) continue;
+      table.innerHTML += `<tr><td>.${{sec}}</td>${{cells.join("")}}</tr>`;
+    }}
+    root.appendChild(table);
+  }}
 }}
 </script>
 </body>
