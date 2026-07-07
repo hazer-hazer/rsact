@@ -10,15 +10,30 @@
 compile_error!(
     "rsact-render: features `libm` and `micromath` are mutually exclusive — enable exactly one math backend"
 );
-#[cfg(not(any(feature = "libm", feature = "micromath")))]
+// A backend is required only on no_std: with `std`, the inherent `f32` methods
+// shadow `FloatExt` and the trait is never called, so a std build needs no math
+// backend feature (a bare `--features std` builds).
+#[cfg(all(
+    not(feature = "std"),
+    not(any(feature = "libm", feature = "micromath"))
+))]
 compile_error!(
-    "rsact-render: a float-math backend is required — enable `libm` (default) or `micromath`"
+    "rsact-render: a float-math backend is required on no_std — enable `libm` (default) or `micromath` (std uses inherent f32 math)"
 );
 
 #[cfg(all(feature = "micromath", not(feature = "libm")))]
 pub use micromath::F32Ext as FloatExt;
 #[cfg(all(feature = "libm", not(feature = "micromath")))]
 pub use num_traits::Float as FloatExt;
+// std with no explicit backend: `FloatExt` must still exist so the unconditional
+// `use crate::FloatExt as _;` imports resolve; it's an empty marker because the
+// inherent `f32` methods do the work.
+#[cfg(all(feature = "std", not(feature = "libm"), not(feature = "micromath")))]
+pub trait FloatExt {}
+#[cfg(all(feature = "std", not(feature = "libm"), not(feature = "micromath")))]
+impl FloatExt for f32 {}
+#[cfg(all(feature = "std", not(feature = "libm"), not(feature = "micromath")))]
+impl FloatExt for f64 {}
 
 pub mod color;
 pub mod geometry;
