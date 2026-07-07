@@ -997,13 +997,19 @@ impl Runtime {
         if changed {
             if let Some(subs) = self.subscribers.borrow().get(id) {
                 for sub in subs.iter() {
-                    // Use mark_node (not a bare storage.mark) so an effect
-                    // subscriber is enqueued into pending_effects here too. This
-                    // makes the pull path self-sufficient rather than relying on
-                    // the write-time push having queued every reachable effect —
-                    // insurance for WS5's lazier marking (WS1.3b). See the 1.3a
-                    // invariant tests.
-                    self.mark_node(
+                    // The commit path uses a bare `storage.mark` (state byte
+                    // only), NOT `mark_node`. `mark_node` would also enqueue
+                    // effect subscribers into `pending_effects`, but the
+                    // write-time push (`mark_dirty`) already queued every
+                    // transitively-reachable effect — the push-queues-effects
+                    // invariant pinned by the WS1.3a tests. Re-enqueuing here
+                    // doubled effect-rerun allocations (measured 2/112 -> 4/224 B
+                    // in benches/allocations.rs): a redundant BTreeSet insert
+                    // into the just-drained queue plus an extra flush round, for
+                    // zero benefit today. Making the pull self-sufficient is only
+                    // needed once WS5 makes marking lazier, and must be done there
+                    // WITHOUT this re-enqueue cost (WS1.3b).
+                    self.storage.mark(
                         *sub,
                         ValueState::Dirty,
                         requester,
