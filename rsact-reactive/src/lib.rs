@@ -24,6 +24,7 @@ pub mod effect;
 pub mod inert;
 pub mod maybe;
 pub mod memo;
+pub mod probe;
 pub mod read;
 #[cfg(feature = "async")]
 pub mod resource;
@@ -58,6 +59,7 @@ pub mod prelude {
             maybe_signal::IntoMaybeSignal, maybe_signal::MaybeSignal,
         },
         memo::{IntoMemo, Memo, MemoTree, create_memo},
+        probe::{Probe, create_probe},
         read::{
             ReadSignal, SignalMap, SignalMapRef, SignalMapRefMaybeReactive,
             SignalMapSlice, SignalWithRef, SignalWithSlice, map, with,

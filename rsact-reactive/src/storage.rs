@@ -351,7 +351,11 @@ pub enum ValueKind {
     Computed {
         f: Rc<RefCell<dyn AnyCallback>>,
     },
-    Observer,
+    /// An externally-polled reaction (WS2). Runs its closure only when a
+    /// tracked dependency changed since the last poll, or when the caller
+    /// forces it — see [`crate::probe::Probe`]. (Was `Observer`; the word
+    /// "observer" now names only the internal current-running-dependent.)
+    Probe,
 }
 
 /// A cheap `Copy` discriminant of [`ValueKind`], used on hot paths that only
@@ -364,7 +368,7 @@ pub enum ValueKindTag {
     Effect,
     Memo,
     Computed,
-    Observer,
+    Probe,
 }
 
 impl ValueKind {
@@ -376,7 +380,7 @@ impl ValueKind {
             ValueKind::Effect { .. } => ValueKindTag::Effect,
             ValueKind::Memo { .. } => ValueKindTag::Memo,
             ValueKind::Computed { .. } => ValueKindTag::Computed,
-            ValueKind::Observer => ValueKindTag::Observer,
+            ValueKind::Probe => ValueKindTag::Probe,
         }
     }
 }
@@ -392,7 +396,7 @@ impl Display for ValueKind {
                 ValueKind::Signal => "signal",
                 ValueKind::Memo { .. } => "memo",
                 ValueKind::Computed { .. } => "computed",
-                ValueKind::Observer => "observer",
+                ValueKind::Probe => "probe",
             }
         )
     }
