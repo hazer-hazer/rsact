@@ -30,19 +30,18 @@ pub trait Color: Copy + PartialEq + Debug {
         self.map(|c| 255 - c)
     }
 
-    // TODO: Rewrite to use integer math
-    // fn mix(&self, alpha: u8, other: Self) -> Self {
-    //     // let this_alpha = 1.0 - alpha;
-    //     let alpha = alpha as u16;
-    //     let this_alpha = 256 - alpha;
-    //     self.fold(other, |this, other| {
-    //         ((this as u16 * this_alpha + other as u16 * alpha) >> 8) as u8
-    //     })
-    // }
+    /// Blend `self` toward `other` by `alpha` (0.0 = keep self, 1.0 = other).
+    ///
+    /// WS9a.6: 8.8 fixed-point. The API stays `f32` (callers produce coverage /
+    /// blend factors as floats), but `alpha` is scaled to `0..=256` once and the
+    /// per-channel blend is pure integer — removing ~6 per-blend soft-float ops
+    /// that hurt on FPU-less parts (this runs per anti-aliased pixel). `clamp`
+    /// keeps AA coverage that lands slightly outside `[0,1]` well-defined.
     fn mix(&self, alpha: f32, other: Self) -> Self {
-        let this_alpha = 1.0 - alpha;
+        let a = (alpha.clamp(0.0, 1.0) * 256.0) as u16; // 0..=256
+        let inv = 256 - a;
         self.fold(other, |this, other| {
-            (this as f32 * this_alpha + other as f32 * alpha) as u8
+            ((this as u16 * inv + other as u16 * a) >> 8) as u8
         })
     }
 }
