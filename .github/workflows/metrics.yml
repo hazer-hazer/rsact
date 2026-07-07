@@ -1,0 +1,105 @@
+# WS0.9b — the CI half of the metrics contract (0.3). Informational only, NEVER
+# gates a merge (the 0.4 regression test in ci.yml is the hard gate). On master
+# it records a snapshot to the durable orphan `metrics-data` branch and publishes
+# the trend dashboard to GitHub Pages; on a PR it posts one sticky delta comment.
+#
+# CANNOT be fully validated without a real push (Actions, Pages, PR context).
+# The recording/diff core is `scripts/ci-metrics.sh` + the `metrics-probe`
+# binary, both runnable locally; the orphan-branch publish, Pages, sticky
+# comment, and merge-base lookup only exercise on GitHub. See WS0.9 in the
+# roadmap for the push-validation checklist.
+#
+# One-time repo setup (manual, cannot be done from the workflow): enable GitHub
+# Pages with source = branch `metrics-data`, folder `/ (root)`.
+#
+# Caveat baked into the dashboard: reactive node/alloc COUNTS are
+# machine-independent, but heap BYTES differ between the CI runner and a laptop
+# — compare trends only within one store (all-CI or all-local), never across.
+name: metrics
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  # ---- master: record + publish the durable history + Pages dashboard --------
+  record:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the metrics-data branch
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable) + thumb targets (for --sizes)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7m-none-eabi, thumbv6m-none-eabi
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Record snapshot over accumulated history (Layer 1 + Layer 2 sizes)
+        run: ./scripts/ci-metrics.sh --sizes
+
+      # Publishes ./metrics (snapshots/ + index.html) to the orphan metrics-data
+      # branch. ci-metrics.sh already merged the prior history in, so this
+      # accumulates rather than overwrites. That branch is the Pages source.
+      - name: Publish to metrics-data branch (+ Pages source)
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./metrics
+          publish_branch: metrics-data
+          keep_files: true
+          commit_message: "metrics: snapshot ${{ github.sha }}"
+
+  # ---- PR: post one sticky delta comment (edited in place, never spammed) ----
+  pr-diff:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write # sticky comment
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need the base commit for merge-base
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Diff PR head against the base snapshot
+        env:
+          # The base branch tip at PR time — the baseline to compare against.
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p metrics/snapshots
+          # Pull the durable history so the base snapshot (if recorded) is local.
+          if git fetch --quiet origin metrics-data 2>/dev/null; then
+            git archive FETCH_HEAD -- snapshots 2>/dev/null | tar -x -C metrics || true
+          fi
+          base="$BASE_SHA"
+          {
+            echo '### 📊 rsact metrics'
+            echo
+            echo '```'
+            if [ -n "$base" ] && [ -f "metrics/snapshots/$base.json" ]; then
+              # diff re-records the PR head (Layer 1) and compares to the base.
+              cargo run -q -p metrics-probe -- diff "$base"
+            else
+              echo "No baseline snapshot for merge-base ${base:-<unknown>}; absolute values:"
+              echo
+              cargo run -q -p metrics-probe -- record
+            fi
+            echo '```'
+            echo
+            echo '_Counts are machine-independent; heap **bytes** differ from local — trend within CI only. Informational, never gating._'
+          } > metrics-comment.md
+
+      - name: Sticky PR comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: rsact-metrics
+          path: metrics-comment.md
