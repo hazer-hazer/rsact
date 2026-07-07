@@ -890,6 +890,21 @@ impl Runtime {
                     break;
                 }
             }
+
+            // The source walk completed without any source turning us Dirty:
+            // every source was freshened (maybe_update'd) and none reported a
+            // change, so this node is genuinely unchanged (a memo cut).
+            // Downgrade Check -> Clean so the *next* read is an O(1) state check
+            // instead of re-walking the whole source subtree every time
+            // (WS1.5b — the "check residue"). Only ever Check -> Clean here,
+            // never Dirty -> Clean: a changed source would have marked us Dirty
+            // (breaking the loop above), so reaching here still Check means
+            // clean. This is also correct for Observers — a real dependency
+            // change leaves them Dirty (re-run in use_observe), and an unchanged
+            // one would not re-render anyway.
+            if self.is(id, ValueState::Check) {
+                self.mark_clean(id, requester, caller);
+            }
         }
 
         if self.is(id, ValueState::Dirty) {
