@@ -64,6 +64,7 @@ micromath = ["rsact-render/micromath"]
 debug-info = ["rsact-reactive/debug-info"]
 defmt = [
     "dep:defmt",
+    "rsact-render/defmt",
     "embedded-graphics?/defmt",
     "embedded-graphics-core?/defmt",
 ]
