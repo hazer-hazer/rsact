@@ -87,25 +87,55 @@ fn cmd_record(with_sizes: bool) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Resolve a `diff` argument to a snapshot: either a file path, or a git rev
-/// whose snapshot lives under `metrics/snapshots/`.
+/// Resolve a `diff` argument to a snapshot: a file path, a snapshot filename
+/// stem, or any git revision (`HEAD~1`, a short hash, a branch/tag) — the last
+/// is resolved to a full hash via `git rev-parse --verify`.
 fn resolve_baseline(arg: &str) -> std::io::Result<Snapshot> {
     let as_path = Path::new(arg);
     if as_path.is_file() {
         return Snapshot::load(as_path);
     }
-    for name in [format!("{arg}.json"), format!("{arg}-dirty.json")] {
-        let p = Path::new(SNAPSHOT_DIR).join(&name);
-        if p.is_file() {
-            return Snapshot::load(&p);
+    if let Some(snap) = try_load_rev(arg)? {
+        return Ok(snap);
+    }
+    // Fall back to resolving `arg` as a git revision, then look up its hash.
+    if let Some(full) = git_rev_parse(arg) {
+        if let Some(snap) = try_load_rev(&full)? {
+            return Ok(snap);
         }
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("'{arg}' resolved to {full} but {SNAPSHOT_DIR}/{full}.json does not exist"),
+        ));
     }
     Err(std::io::Error::new(
         std::io::ErrorKind::NotFound,
         format!(
-            "no snapshot for '{arg}' (tried file path and {SNAPSHOT_DIR}/{arg}.json)"
+            "no snapshot for '{arg}' (tried a file path, {SNAPSHOT_DIR}/{arg}.json, and `git rev-parse`)"
         ),
     ))
+}
+
+/// Load `<rev>.json` or `<rev>-dirty.json` from the snapshot dir, if present.
+fn try_load_rev(rev: &str) -> std::io::Result<Option<Snapshot>> {
+    for name in [format!("{rev}.json"), format!("{rev}-dirty.json")] {
+        let p = Path::new(SNAPSHOT_DIR).join(&name);
+        if p.is_file() {
+            return Snapshot::load(&p).map(Some);
+        }
+    }
+    Ok(None)
+}
+
+/// Resolve a git revision spec to a full commit hash, or `None`.
+fn git_rev_parse(rev: &str) -> Option<String> {
+    Command::new("git")
+        .args(["rev-parse", "--verify", "--quiet", rev])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn cmd_diff(arg: &str, with_sizes: bool) -> std::io::Result<()> {
