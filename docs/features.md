@@ -121,6 +121,21 @@ The earlier single `--all` command in CLAUDE.md predated `unsafe-single-thread`,
 the `libm`/`micromath` axis, and the font-provider guard, so it could not have
 been green.
 
+## Host-only tools vs `--target thumb*`
+
+`metrics-probe` is a std host tool and a workspace member, so a whole-workspace
+build for a bare-metal target fails on it (it needs `std`):
+
+```sh
+# fails: metrics-probe is std-only
+cargo check --workspace --target thumbv7m-none-eabi
+# escape: exclude the host tool (size-probe is already outside the workspace)
+cargo check --workspace --exclude metrics-probe --target thumbv7m-none-eabi
+```
+
+`size-probe` is deliberately **excluded** from the workspace (it only builds for
+thumb), so it never participates in host `--workspace` builds; the inverse.
+
 ## Removed / fixed leaks (WS0.6)
 
 - `rsact-ui` `std` force-pulled optional `tiny-skia` via `tiny-skia/png-format`

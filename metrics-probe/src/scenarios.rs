@@ -94,8 +94,10 @@ fn reactive_only(n: usize) -> Scenario {
         });
 
         let counts = profile_counts();
-        let heap_live_bytes = alloc::live() - base_live;
-        let heap_peak_bytes = alloc::peak() - base_live;
+        // Saturating: a scenario that nets a free (base measured mid-churn)
+        // must not underflow-panic and abort the whole recording.
+        let heap_live_bytes = alloc::live().saturating_sub(base_live);
+        let heap_peak_bytes = alloc::peak().saturating_sub(base_live);
 
         // Idle frame: re-run the gate with nothing dirty.
         let idle = frame_allocs(|| render());
@@ -144,8 +146,10 @@ fn ui_labels(n: usize) -> Scenario {
 
         // Measure node population / heap in the steady state, after first paint.
         let counts = profile_counts();
-        let heap_live_bytes = alloc::live() - base_live;
-        let heap_peak_bytes = alloc::peak() - base_live;
+        // Saturating: a scenario that nets a free (base measured mid-churn)
+        // must not underflow-panic and abort the whole recording.
+        let heap_live_bytes = alloc::live().saturating_sub(base_live);
+        let heap_peak_bytes = alloc::peak().saturating_sub(base_live);
 
         // Idle frame: re-run the gate with nothing dirty (expect ~0 allocs).
         let idle = painted

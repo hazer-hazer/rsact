@@ -32,26 +32,37 @@ fn record_alloc(size: usize) {
 
 unsafe impl GlobalAlloc for Tracking {
     unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-        record_alloc(l.size());
-        unsafe { System.alloc(l) }
+        // Count only after a successful allocation — a failed (null) alloc must
+        // not bake phantom churn/live drift into the counters.
+        let p = unsafe { System.alloc(l) };
+        if !p.is_null() {
+            record_alloc(l.size());
+        }
+        p
     }
     unsafe fn alloc_zeroed(&self, l: Layout) -> *mut u8 {
-        record_alloc(l.size());
-        unsafe { System.alloc_zeroed(l) }
+        let p = unsafe { System.alloc_zeroed(l) };
+        if !p.is_null() {
+            record_alloc(l.size());
+        }
+        p
     }
     unsafe fn realloc(&self, p: *mut u8, l: Layout, new: usize) -> *mut u8 {
-        // Count a realloc as one allocation event; charge the byte counters
-        // only the growth, but track the true live delta.
-        ALLOCS.fetch_add(1, Relaxed);
-        BYTES.fetch_add(new.saturating_sub(l.size()), Relaxed);
-        if new >= l.size() {
-            let grow = new - l.size();
-            let live = LIVE.fetch_add(grow, Relaxed) + grow;
-            PEAK.fetch_max(live, Relaxed);
-        } else {
-            LIVE.fetch_sub(l.size() - new, Relaxed);
+        let np = unsafe { System.realloc(p, l, new) };
+        if !np.is_null() {
+            // Count a realloc as one allocation event; charge the byte counters
+            // only the growth, but track the true live delta.
+            ALLOCS.fetch_add(1, Relaxed);
+            BYTES.fetch_add(new.saturating_sub(l.size()), Relaxed);
+            if new >= l.size() {
+                let grow = new - l.size();
+                let live = LIVE.fetch_add(grow, Relaxed) + grow;
+                PEAK.fetch_max(live, Relaxed);
+            } else {
+                LIVE.fetch_sub(l.size() - new, Relaxed);
+            }
         }
-        unsafe { System.realloc(p, l, new) }
+        np
     }
     unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
         LIVE.fetch_sub(l.size(), Relaxed);
