@@ -15,6 +15,7 @@
 // of the crate keeps referring to `crate::alloc`.
 pub(crate) use rsact_reactive::alloc_probe as alloc;
 
+mod benches;
 mod html;
 mod scenarios;
 mod sizes;
@@ -62,11 +63,15 @@ fn now_secs() -> u64 {
 
 /// Build a snapshot of the current working tree (runs all scenarios). When
 /// `with_sizes`, also builds the thumb size-probes and reads their sections
-/// (Layer 2) — slower, so it is opt-in via `--sizes`.
-fn measure(with_sizes: bool) -> Snapshot {
+/// (Layer 2) — slower, so it is opt-in via `--sizes`. When `with_benches`, reads
+/// criterion medians from `target/criterion` (WS0.9d) — the caller must have run
+/// `cargo bench` first; opt-in via `--benches`.
+fn measure(with_sizes: bool, with_benches: bool) -> Snapshot {
     let scenarios = scenarios::run_all();
     let section_sizes =
         if with_sizes { sizes::measure_all() } else { Vec::new() };
+    let bench_medians =
+        if with_benches { benches::read_all() } else { Vec::new() };
     Snapshot {
         git_rev: git_rev(),
         git_dirty: git_dirty(),
@@ -74,11 +79,12 @@ fn measure(with_sizes: bool) -> Snapshot {
         host: host_triple(),
         scenarios,
         section_sizes,
+        bench_medians,
     }
 }
 
-fn cmd_record(with_sizes: bool) -> std::io::Result<()> {
-    let snap = measure(with_sizes);
+fn cmd_record(with_sizes: bool, with_benches: bool) -> std::io::Result<()> {
+    let snap = measure(with_sizes, with_benches);
     let dir = PathBuf::from(SNAPSHOT_DIR);
     let path = snap.save(&dir)?;
     println!(
@@ -144,9 +150,13 @@ fn git_rev_parse(rev: &str) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-fn cmd_diff(arg: &str, with_sizes: bool) -> std::io::Result<()> {
+fn cmd_diff(
+    arg: &str,
+    with_sizes: bool,
+    with_benches: bool,
+) -> std::io::Result<()> {
     let baseline = resolve_baseline(arg)?;
-    let current = measure(with_sizes);
+    let current = measure(with_sizes, with_benches);
     println!(
         "diff  baseline {}{}  ->  current {}{}\n",
         short(&baseline.git_rev),
@@ -167,6 +177,25 @@ fn cmd_diff(arg: &str, with_sizes: bool) -> std::io::Result<()> {
         irow(".text", base.map(|b| b.text as i64), cur.text as i64);
         irow(".rodata", base.map(|b| b.rodata as i64), cur.rodata as i64);
         irow(".bss", base.map(|b| b.bss as i64), cur.bss as i64);
+        println!();
+    }
+    if !current.bench_medians.is_empty() {
+        // Wall-clock is noisy (±runner); show the delta but frame it, never gate.
+        println!("  criterion medians (ns) — informational, ±runner noise");
+        for cur in &current.bench_medians {
+            let base = baseline.bench_medians.iter().find(|b| b.id == cur.id);
+            let (b, d) = match base {
+                Some(b) => (
+                    format!("{:.0}", b.median_ns),
+                    delta_str((cur.median_ns - b.median_ns) as i64),
+                ),
+                None => ("-".to_string(), String::new()),
+            };
+            println!(
+                "    {:<34} {b:>12} -> {:>12.0}  ±{:.0}  {d}",
+                cur.id, cur.median_ns, cur.ci_half_ns
+            );
+        }
         println!();
     }
     Ok(())
@@ -294,6 +323,9 @@ fn print_snapshot(snap: &Snapshot) {
             sz.binary, sz.target, sz.text, sz.rodata, sz.bss
         );
     }
+    for bm in &snap.bench_medians {
+        println!("  bench {}: {:.0} ns (±{:.0})", bm.id, bm.median_ns, bm.ci_half_ns);
+    }
 }
 
 /// Point this clone's git hooks at `.githooks` (WS0.8), enabling the
@@ -315,7 +347,7 @@ fn cmd_hook_install() -> std::io::Result<()> {
 
 fn usage() -> ! {
     eprintln!(
-        "usage:\n  metrics-probe record [--sizes]\n  metrics-probe diff [--sizes] <rev|file>\n  metrics-probe html\n  metrics-probe hook-install\n\n  --sizes  also build the thumb size-probes and record .text/.rodata/.bss (Layer 2, slower)"
+        "usage:\n  metrics-probe record [--sizes] [--benches]\n  metrics-probe diff [--sizes] [--benches] <rev|file>\n  metrics-probe html\n  metrics-probe hook-install\n\n  --sizes    also build the thumb size-probes and record .text/.rodata/.bss (Layer 2, slower)\n  --benches  also read criterion medians from target/criterion (run `cargo bench` first; WS0.9d)"
     );
     std::process::exit(2);
 }
@@ -323,12 +355,13 @@ fn usage() -> ! {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let with_sizes = args.iter().any(|a| a == "--sizes");
+    let with_benches = args.iter().any(|a| a == "--benches");
     // First non-flag argument after the subcommand.
     let positional = args.iter().skip(1).find(|a| !a.starts_with("--"));
     let result = match args.first().map(String::as_str) {
-        Some("record") => cmd_record(with_sizes),
+        Some("record") => cmd_record(with_sizes, with_benches),
         Some("diff") => match positional {
-            Some(arg) => cmd_diff(arg, with_sizes),
+            Some(arg) => cmd_diff(arg, with_sizes, with_benches),
             None => usage(),
         },
         Some("html") => html::regenerate(Path::new(SNAPSHOT_DIR)),

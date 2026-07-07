@@ -131,6 +131,32 @@ if (!SNAPSHOTS.length) {{
     }}
     root.appendChild(table);
   }}
+
+  // WS0.9d: criterion bench medians (ns), CI-runner trend. Informational —
+  // wide runner noise (±10–30%), NO thresholds. Cell = median; hover for ±CI.
+  const benchIds = [...new Set(SNAPSHOTS.flatMap(s => (s.bench_medians || []).map(b => b.id)))].sort();
+  if (benchIds.length) {{
+    const table = document.createElement("table");
+    const cap = document.createElement("caption");
+    cap.textContent = "bench medians (ns) — CI-runner trend, ±noise, informational";
+    table.appendChild(cap);
+    const head = document.createElement("tr");
+    head.innerHTML = "<th>bench</th>" + SNAPSHOTS.map(s => {{
+      const rev = s.git_rev.slice(0, 8) + (s.git_dirty ? "*" : "");
+      return `<th class="${{s.git_dirty ? "dirty" : ""}}">${{rev}}</th>`;
+    }}).join("");
+    table.appendChild(head);
+    for (const id of benchIds) {{
+      const cells = SNAPSHOTS.map(s => {{
+        const e = (s.bench_medians || []).find(b => b.id === id);
+        if (!e) return `<td><span class=muted>-</span></td>`;
+        return `<td title="±${{e.ci_half_ns.toFixed(0)}} ns (95% CI)">${{e.median_ns.toFixed(0)}}</td>`;
+      }});
+      if (cells.every(c => c.includes("muted"))) continue;
+      table.innerHTML += `<tr><td>${{id}}</td>${{cells.join("")}}</tr>`;
+    }}
+    root.appendChild(table);
+  }}
 }}
 </script>
 </body>

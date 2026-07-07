@@ -19,8 +19,18 @@ name: metrics
 
 on:
   push:
-    branches: [master]
+    # 0.9c: record on ALL branch pushes (not just master) so the durable
+    # metrics-data history — and the Pages dashboard — has per-commit
+    # granularity, not just per-PR. Layer-1 is seconds; the expensive `--sizes`
+    # stays master-only (below). Never CI the data branch itself.
+    branches-ignore: [metrics-data]
   pull_request:
+
+# 0.9c: cancel a superseded metrics run on the same ref so rapid pushes don't
+# pile up runner minutes — the in-flight snapshot would be immediately obsolete.
+concurrency:
+  group: metrics-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   # ---- master: record + publish the durable history + Pages dashboard --------
@@ -39,8 +49,16 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Record snapshot over accumulated history (Layer 1 + Layer 2 sizes)
-        run: ./scripts/ci-metrics.sh --sizes
+      # Layer-1 (node/alloc/layout counts) + 0.9d criterion medians run on every
+      # push (bench times are bounded — see ci-metrics.sh); Layer-2 `--sizes`
+      # (thumb opt-z fat-LTO, minutes) stays master-only per 0.9c.
+      - name: Record snapshot over accumulated history
+        run: |
+          flags="--benches"
+          if [ "${{ github.ref }}" = "refs/heads/master" ]; then
+            flags="$flags --sizes"
+          fi
+          ./scripts/ci-metrics.sh $flags
 
       # Publishes ./metrics (snapshots/ + index.html) to the orphan metrics-data
       # branch. ci-metrics.sh already merged the prior history in, so this

@@ -70,6 +70,24 @@ pub struct SectionSizes {
     pub bss: u64,
 }
 
+/// One criterion benchmark's median wall-clock (WS0.9d). Recorded on the CI
+/// runner only — a *self-consistent* trend, NOT a gating number: shared GitHub
+/// runners carry ±10–30% noise, so this is charted with wide error bars and no
+/// alert thresholds. Local criterion baselines stay the decision-grade A/B
+/// instrument.
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BenchMedian {
+    /// Criterion bench id — its `target/criterion/<id>` path, `/`-joined
+    /// (e.g. `primitives/signal_read_get`, `layout/layout_only`).
+    pub id: String,
+    /// Median estimate, nanoseconds.
+    pub median_ns: f64,
+    /// Half-width of criterion's confidence interval on the median, ns — the
+    /// ± error bar the viewer draws (runner-noise framing).
+    pub ci_half_ns: f64,
+}
+
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Snapshot {
@@ -82,6 +100,9 @@ pub struct Snapshot {
     pub scenarios: Vec<Scenario>,
     /// Layer-2 target section sizes, empty when the size probes weren't built.
     pub section_sizes: Vec<SectionSizes>,
+    /// Criterion bench medians (WS0.9d), empty unless recorded with `--benches`
+    /// (CI-runner-only trend; see [`BenchMedian`]).
+    pub bench_medians: Vec<BenchMedian>,
 }
 
 impl Snapshot {
@@ -136,6 +157,7 @@ mod tests {
             .expect("legacy snapshot must deserialize via serde(default)");
         assert_eq!(snap.git_rev, "deadbeef");
         assert!(snap.section_sizes.is_empty()); // field absent → default
+        assert!(snap.bench_medians.is_empty()); // WS0.9d field absent → default
         let s = &snap.scenarios[0];
         assert_eq!(s.counts.signals, 16);
         assert_eq!(s.counts.observers, 0); // added later → default
