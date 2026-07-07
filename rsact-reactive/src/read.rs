@@ -87,8 +87,10 @@ pub trait ReadSignal<T>: ReactiveValue {
 ///   distinction).
 /// - `Inert<T>::map` → `Inert<U>` (pure, non-allocating).
 ///
-/// See also [`crate::maybe::SignalMapReactive`] when you always need a
-/// `Memo<U>` regardless of source reactivity.
+/// If you always need a `Memo<U>` regardless of source reactivity, use
+/// [`crate::memo::IntoMemo::memo`] on the mapped result (`x.map(f).memo()`), or
+/// match the source explicitly — computing once for an inert source and
+/// mapping a reactive one.
 pub trait SignalMap<T, U> {
     type Output: ReactiveValue<Value = U>;
 

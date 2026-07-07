@@ -53,7 +53,7 @@ pub mod prelude {
         effect::{Effect, create_effect},
         inert::{Inert, IntoInert},
         maybe::{
-            IsInert, IsReactive, ReactivityMarker, SignalMapReactive,
+            IsInert, IsReactive, ReactivityMarker,
             maybe_reactive::IntoMaybeReactive, maybe_reactive::MaybeReactive,
             maybe_signal::IntoMaybeSignal, maybe_signal::MaybeSignal,
         },
