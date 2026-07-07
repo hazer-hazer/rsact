@@ -326,16 +326,41 @@ fn gen_set<S: IconSet>() {
         })
         .collect::<Vec<_>>();
     let mod_names = mods.iter().map(|(name, ..)| name);
-    let mod_names1 = mods.iter().map(|(name, ..)| name).clone();
     let size_features = mods.iter().map(|(_, _, feature)| feature);
-    let sizes = mods.iter().map(|(_, size, _)| size);
-    let sizes1 = sizes.clone();
-    let largest_size_mod = sizes
-        .clone()
-        .zip(mod_names.clone())
-        .max_by_key(|(size, _)| *size)
-        .map(|(_, mod_name)| mod_name)
-        .into_iter();
+    let sizes1 = mods.iter().map(|(_, size, _)| size);
+
+    // WS9a.2: emit `size()` as cfg-gated match arms so a downstream build that
+    // enables only some `Npx` features compiles — and links — only those size
+    // tables, instead of the runtime match statically referencing (and thus
+    // pinning) every compiled size's module. The arms mirror the cfg-gated
+    // `pub mod` declarations above.
+    let arm_features = mods.iter().map(|(_, _, feature)| feature);
+    let arm_sizes = mods.iter().map(|(_, size, _)| size);
+    let arm_mods = mods.iter().map(|(name, ..)| name);
+    let all_features = mods.iter().map(|(_, _, feature)| feature);
+    // Fallback for a requested size larger than every compiled size: clamp to
+    // the largest compiled one. Each `_` arm is gated on "this size on ∧ no
+    // larger size on", so exactly one survives for any non-empty size selection
+    // (the trailing panic arm — gated on "no size on" — covers the empty set).
+    let size_fallbacks = mods.iter().map(|(name, size, feature)| {
+        let larger: Vec<_> = mods
+            .iter()
+            .filter(|(_, other, _)| other > size)
+            .map(|(_, _, f)| f)
+            .collect();
+        if larger.is_empty() {
+            quote! {
+                #[cfg(feature = #feature)]
+                _ => self::#name::get_icon(*self),
+            }
+        } else {
+            quote! {
+                #[cfg(all(feature = #feature, not(any( #(feature = #larger),* ))))]
+                _ => self::#name::get_icon(*self),
+            }
+        }
+    });
+    let set_name_str = S::ident().to_string();
 
     let set_name = S::ident();
     let icon_names =
@@ -383,9 +408,16 @@ fn gen_set<S: IconSet>() {
 
             fn size(&self, size: u32) -> #icon_type {
                 match size {
-                    #(..#sizes => self::#mod_names1::get_icon(*self),)*
-
-                    #(_ => self::#largest_size_mod::get_icon(*self))*
+                    #(
+                        #[cfg(feature = #arm_features)]
+                        ..#arm_sizes => self::#arm_mods::get_icon(*self),
+                    )*
+                    #(#size_fallbacks)*
+                    #[cfg(not(any( #(feature = #all_features),* )))]
+                    _ => panic!(concat!(
+                        #set_name_str,
+                        ": no icon size feature enabled (select an `Npx` feature)"
+                    )),
                 }
             }
         }

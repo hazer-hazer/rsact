@@ -38,7 +38,11 @@ version = "0.1.0"
 
 [workspace.dependencies]
 # rsact-encoder = {path = "./rsact-encoder", }
-rsact-tiny-icons = { path = "./rsact-tiny-icons" }
+# default-features = false (9a.2): rsact-tiny-icons's default is
+# `["common", "all-sizes"]`; disabling it here lets rsact-ui keep `common` but
+# select icon sizes à la carte (a member can't override an inherited
+# default-features to false, so it must be set on the workspace dep).
+rsact-tiny-icons = { path = "./rsact-tiny-icons", default-features = false }
 rsact-macros = { path = "./rsact-macros" }
 rsact-reactive = { path = "./rsact-reactive" }
 rsact-ui = { path = "./rsact-ui" }
