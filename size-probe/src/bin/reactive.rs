@@ -1,5 +1,5 @@
 //! Reactive-only size probe: exercises the pure reactive engine (signals, memo,
-//! effect, observe-gate, writes) so its `.text` reflects the engine footprint —
+//! effect, probe-gate, writes) so its `.text` reflects the engine footprint —
 //! the "reactive-only bin" whose thumbv6m opt-z fat-LTO baseline is ~16.8 KiB.
 
 #![no_std]
@@ -11,7 +11,7 @@ use alloc::{vec::Vec, vec};
 use core::hint::black_box;
 use cortex_m_rt::entry;
 use rsact_reactive::{
-    effect::create_effect, memo::create_memo, prelude::*, runtime::observe,
+    effect::create_effect, memo::create_memo, prelude::*,
     signal::create_signal,
 };
 
@@ -31,13 +31,16 @@ fn main() -> ! {
         black_box(m.get());
     });
 
-    // Observe-gated tree (the page redraw-gate shape).
+    // Probe-gated tree (the page redraw-gate shape; WS2 replaced keyed
+    // `observe()` with owned `Probe` handles — mirrors benches/allocations.rs).
     let render_sigs = sigs.clone();
+    let outer = create_probe();
+    let children: Vec<Probe> = (0..16).map(|_| create_probe()).collect();
     let render = move || {
-        observe("outer", || {
+        outer.poll(false, || {
             for (i, s) in render_sigs.iter().enumerate() {
                 let s = *s;
-                observe(("child", i), move || {
+                children[i].poll(false, move || {
                     black_box(s.get());
                 });
             }
