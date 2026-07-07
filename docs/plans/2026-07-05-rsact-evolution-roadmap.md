@@ -233,6 +233,16 @@ static_wrapper (WS4's acceptance test) and observe_recreates_disposed_child_obse
 
 Acceptance: each bug lands with a failing test first; UI suite stays green (44/0 baseline); the b.1 canvas decision recorded in this file.
 
+**Done 2026-07-07 — commit `b793577`** (WS1b b.1–b.4). Each bug was verified to
+reproduce with a failing test first (b.1 via the old drain-on-render `DrawQueue`
+before the rewrite; b.2 four tests in `anim::tests`; b.3 `font::tests`; b.4 a
+macro-instantiation compile-fail in `style::tests`), then fixed. rsact-ui lib
+suite `44 → 51/0` (`cargo test -p rsact-ui --features "std,embedded-graphics"
+--lib -- --test-threads=1`; note plain `--features std` does not compile without
+a font backend). No rsact-reactive or rendering-internals changes. Two follow-ups
+handed off: the `Image PartialEq` fix (rsact-render, WS6 → design input for
+WS16.1) and the sibling `border: border` macro-arm defect (WS7.4).
+
 **Session prompt:**
 
 ```
