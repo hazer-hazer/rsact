@@ -62,6 +62,11 @@ pub struct Page<W: WidgetCtx> {
     force_redraw: Signal<bool>,
     render_calls: usize,
     fonts: Signal<FontCtx>,
+    /// The page's render gate (WS2). One probe, polled once per frame in
+    /// [`use_renderer`](Self::use_renderer); it re-runs the page render only
+    /// when a tracked dependency changed or a redraw is forced. Owned by the
+    /// page — disposed in `Drop` alongside the arena.
+    render_probe: Probe,
 }
 
 impl<W: WidgetCtx> Drop for Page<W> {
@@ -141,6 +146,8 @@ impl<W: WidgetCtx> Page<W> {
 
         let style = PageStyle::base().signal().name("Page style");
 
+        let render_probe = create_probe();
+
         Self {
             id,
             root,
@@ -157,6 +164,7 @@ impl<W: WidgetCtx> Page<W> {
             force_redraw,
             render_calls: 0,
             fonts,
+            render_probe,
         }
     }
 
@@ -555,14 +563,10 @@ impl<W: WidgetCtx> Page<W> {
     pub fn use_renderer(&mut self, f: impl FnOnce(&mut W::Renderer)) -> bool {
         let mut renderer = self.renderer;
 
-        #[cfg(feature = "debug-info")]
-        {
-            observe(("page_force_redraw", self.id), || {
-                self.force_redraw.track();
-
-                debug!("Force redraw page {:?}", self.id);
-            });
-        }
+        // (Removed the debug-only `("page_force_redraw", id)` observer here: it
+        // only logged force-redraw changes and its `force_redraw` dependency is
+        // already tracked by `render_probe` below — WS2 dropped it with the
+        // observer registry rather than mint a debug-only probe for a log line.)
 
         let redraw_reason = self.arena.update_untracked(|arena| {
             arena
@@ -573,26 +577,28 @@ impl<W: WidgetCtx> Page<W> {
         });
         let needs_redraw = redraw_reason.is_some() || self.needs_redraw;
 
-        let drawn =
-            observe_with_force(("render_page", self.id), needs_redraw, || {
-                info!(
-                    "Render page {:?} (call: {})",
-                    self.id,
-                    self.render_calls + 1
-                );
+        // Copy the probe handle out (it is `Copy`) so the poll closure can
+        // borrow `self` mutably without aliasing `self.render_probe`.
+        let render_probe = self.render_probe;
+        let drawn = render_probe.poll(needs_redraw, || {
+            info!(
+                "Render page {:?} (call: {})",
+                self.id,
+                self.render_calls + 1
+            );
 
-                #[cfg(feature = "debug-info")]
-                {
-                    rsact_reactive::debug::observer_debug_info().map(|di| {
-                        info!("Rerender debug info: {di}");
-                    });
-                }
+            #[cfg(feature = "debug-info")]
+            {
+                rsact_reactive::debug::observer_debug_info().map(|di| {
+                    info!("Rerender debug info: {di}");
+                });
+            }
 
-                self.force_redraw.track();
+            self.force_redraw.track();
 
-                self.render_calls += 1;
+            self.render_calls += 1;
 
-                renderer
+            renderer
                 .update_untracked(|renderer| {
                     // self.style
                     //     .with(|style| {
@@ -668,7 +674,7 @@ impl<W: WidgetCtx> Page<W> {
                 .unwrap_or_else(|_| {
                     log::error!("page render failed; skipping this frame");
                 });
-            });
+        });
 
         //
         self.force_redraw.set_untracked(false);
