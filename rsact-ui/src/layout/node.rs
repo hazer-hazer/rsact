@@ -15,10 +15,24 @@ use rsact_reactive::{prelude::*, storage::ValueId};
  *   won't make it reactive, as we don't know if value in `.set` comes from
  *   reactive or inert source.
  */
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum Layout {
     Static(ValueId),
     Reactive(Signal<LayoutData>),
+}
+
+// Manual Debug: reactive handles no longer implement Debug (WS1.4), and reading
+// the signal's value here would subscribe whatever observer is formatting it.
+// Print the handle's identity only.
+impl core::fmt::Debug for Layout {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Layout::Static(id) => f.debug_tuple("Static").field(id).finish(),
+            Layout::Reactive(signal) => {
+                write!(f, "Reactive(<signal {:?}>)", signal.id())
+            },
+        }
+    }
 }
 
 impl Layout {

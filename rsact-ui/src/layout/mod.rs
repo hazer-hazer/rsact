@@ -60,7 +60,7 @@ impl Align {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum ContentLayout {
     Text {
         font_props: FontProps,
@@ -70,6 +70,28 @@ pub enum ContentLayout {
     // TODO: MaybeReactive problem described in Icon widget
     Icon(Memo<FontSize>),
     Fixed(Size),
+}
+
+// Manual Debug: the reactive fields (`content`, the icon `Memo`) no longer
+// implement Debug (WS1.4), and reading them here would subscribe the observer
+// that formats the layout. Elide their values.
+impl Debug for ContentLayout {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ContentLayout::Text { font_props, overflow, .. } => f
+                .debug_struct("Text")
+                .field("font_props", font_props)
+                .field("content", &"<reactive>")
+                .field("overflow", overflow)
+                .finish(),
+            ContentLayout::Icon(_) => {
+                f.debug_tuple("Icon").field(&"<reactive>").finish()
+            },
+            ContentLayout::Fixed(size) => {
+                f.debug_tuple("Fixed").field(size).finish()
+            },
+        }
+    }
 }
 
 /// Intrinsic sizing of a content leaf: the inline-axis (width) range and the
@@ -215,7 +237,7 @@ impl ContainerLayout {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct FlexLayout {
     pub wrap: bool,
     pub block_model: BlockModel,
@@ -226,6 +248,23 @@ pub struct FlexLayout {
     pub vertical_align: Align,
     pub children: MaybeReactive<Vec<Layout>>,
     pub font_props: FontProps,
+}
+
+// Manual Debug: `children` is a reactive handle that no longer implements Debug
+// (WS1.4); reading it here would subscribe the formatting observer. Elide it.
+impl Debug for FlexLayout {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("FlexLayout")
+            .field("wrap", &self.wrap)
+            .field("block_model", &self.block_model)
+            .field("axis", &self.axis)
+            .field("gap", &self.gap)
+            .field("horizontal_align", &self.horizontal_align)
+            .field("vertical_align", &self.vertical_align)
+            .field("children", &"<reactive>")
+            .field("font_props", &self.font_props)
+            .finish()
+    }
 }
 
 impl FlexLayout {
@@ -500,12 +539,25 @@ pub enum LayoutKind {
     Scrollable(ScrollableLayout),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct LayoutData {
     kind: LayoutKind,
     // TODO: Does any LayoutKind require size?
     pub size: LengthSize,
     show: Option<Memo<bool>>,
+}
+
+// Manual Debug: `show` holds a reactive Memo that no longer implements Debug
+// (WS1.4); reading it here would subscribe the formatting observer. Show only
+// whether it is present.
+impl Debug for LayoutData {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("LayoutData")
+            .field("kind", &self.kind)
+            .field("size", &self.size)
+            .field("show", &self.show.map(|_| "<reactive>"))
+            .finish()
+    }
 }
 
 impl LayoutData {

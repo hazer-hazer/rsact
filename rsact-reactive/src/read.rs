@@ -19,6 +19,29 @@ use alloc::string::String;
 /// [`crate::computed::Computed`],
 /// [`crate::trigger::Trigger`], [`crate::maybe::Inert`],
 /// [`crate::maybe::MaybeReactive`], [`crate::maybe::MaybeSignal`].
+///
+/// # Reactive handles do not implement `Debug`/`Display`
+///
+/// Formatting a handle would have to read its value, and inside an observer
+/// (effect/memo/render) that read subscribes the observer permanently — an
+/// invisible, accidental dependency. So handles deliberately do **not**
+/// implement `Debug` or `Display` (WS1.4). Read the value explicitly instead,
+/// where the subscription is visible and deliberate:
+///
+/// ```
+/// # use rsact_reactive::prelude::*;
+/// let s = create_signal(42u32);
+/// let text = s.with(|v| format!("{v:?}")); // deliberate read
+/// # assert_eq!(text, "42");
+/// ```
+///
+/// Formatting the handle itself is a compile error:
+///
+/// ```compile_fail
+/// # use rsact_reactive::prelude::*;
+/// let s = create_signal(42u32);
+/// let _ = format!("{s:?}"); // Signal<u32>: Debug is not implemented
+/// ```
 pub trait ReadSignal<T>: ReactiveValue {
     fn track(&self);
     fn with_untracked<U>(&self, f: impl FnOnce(&T) -> U) -> U;
@@ -202,17 +225,14 @@ macro_rules! impl_read_signal_traits {
                 }
             }
 
-            impl<T: core::fmt::Display + 'static + $($($generics+)*)?> core::fmt::Display for $ty {
-                fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-                    self.with(|inner| inner.fmt(f))
-                }
-            }
-
-            impl<T: core::fmt::Debug + 'static + $($($generics+)*)?> core::fmt::Debug for $ty {
-                fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-                    self.with(|inner| inner.fmt(f))
-                }
-            }
+            // Note: `Debug`/`Display` are deliberately NOT implemented for
+            // reactive handles (WS1.4). Formatting one would read its value, and
+            // inside an observer that read subscribes the observer permanently —
+            // an invisible dependency. Users format via `signal.with(|v| ...)`
+            // so the read is explicit. `PartialEq`/`PartialOrd`/arith below stay
+            // tracked: they are genuine dataflow (a memo over `a == b` must
+            // re-run when either side changes). See the compile-fail check on
+            // `ReadSignal`.
 
             impl<T> core::ops::Neg for $ty
             where
