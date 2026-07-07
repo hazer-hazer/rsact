@@ -45,3 +45,9 @@ jobs:
           cargo build -p rsact-ui --no-default-features \
             --features "unsafe-single-thread,embedded-graphics,libm" \
             --target thumbv7m-none-eabi
+
+      # Compile-gate the Layer-2 size probes so probe bit-rot (e.g. WS2's
+      # deleted observe()) fails here loudly instead of silently vanishing from
+      # the metrics dashboard. See scripts/ci-size-probe-check.sh.
+      - name: Size-probe compile check
+        run: ./scripts/ci-size-probe-check.sh
