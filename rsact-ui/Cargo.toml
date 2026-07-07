@@ -79,8 +79,9 @@ tiny-icons = ["dep:rsact-tiny-icons"]
 u8g2-fonts = ["dep:u8g2-fonts", "embedded-graphics"]
 single-thread = ["rsact-reactive/single-thread"]
 # no_std, single-execution-context only (no critical-section). See
-# rsact-reactive's `unsafe-single-thread`. NOTE: a full no_std rsact-ui build is
-# still blocked by the eg primitives' std-only f32 math — a separate task.
+# rsact-reactive's `unsafe-single-thread`. no_std rsact-ui builds for thumb
+# targets (WS0.1 gave the eg primitives a `FloatExt` math backend — pick `libm`
+# or `micromath`; WS0.2 made the font-id counter thumbv6m-safe).
 unsafe-single-thread = ["rsact-reactive/unsafe-single-thread"]
 # `tiny-skia?/png-format` (note the `?`): png encoding only when tiny-skia is
 # already enabled — without the `?` this force-pulled the optional tiny-skia
