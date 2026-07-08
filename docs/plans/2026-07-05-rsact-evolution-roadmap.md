@@ -68,10 +68,11 @@
  (expansion)│ WS12 release eng. → WS13 view-builders ∥ WS14 devtools v2     │
             │ ∥ WS15 fonts ∥ WS16 desktop tier ∥ WS17 hardware validation   │
             │ ∥ WS18 no-alloc storage      (WS17 can start after WS6)       │
+            │ ∥ WS19 website: VitePress + Pages (independent — any time)    │
             └───────────────────────────────────────────────────────────────┘
 ```
 
-**Suggested execution order:** WS0 ✓ ∥ WS1 ✓ ∥ WS1b ✓ → WS2 ✓ → (WS3 ∥ WS4 ∥ WS9a) → WS5 → WS6 → WSi → WS7 → (WS8 ∥ WS10 ∥ WS9b) → WS11 → WS12 → (WS13 ∥ WS14 ∥ WS15 ∥ WS16 ∥ WS18). WS17 may start any time after WS6 — ideally before WS11.7 needs its README numbers. **Now actionable (2026-07-07): WS3 ∥ WS4 ∥ WS9a** — all deps met (WS4 starts with the maintainer-authored 4.0 analysis); parallel sessions need separate worktrees.
+**Suggested execution order:** WS0 ✓ ∥ WS1 ✓ ∥ WS1b ✓ → WS2 ✓ → (WS3 ∥ WS4 ∥ WS9a) → WS5 → WS6 → WSi → WS7 → (WS8 ∥ WS10 ∥ WS9b) → WS11 → WS12 → (WS13 ∥ WS14 ∥ WS15 ∥ WS16 ∥ WS18). WS17 may start any time after WS6 — ideally before WS11.7 needs its README numbers. **WS19 (website) is fully independent — any time** (metrics infra delivered). **Now actionable (2026-07-08): WS4 ∥ WS19 ∥ WS9a-remainder** (WS3 ✓ done); parallel sessions need separate worktrees.
 WS7's _decisions_ are locked at Gate time (now); only its _execution_ is late. 7.2's cheap `Dir`/`V` de-genericization may ride along with WS2/WS4 if convenient — it's zero-user-impact. (7.1 no longer qualifies: G5 keeps `Event::Custom`, and its remaining scope carries a breaking rename plus a G4-dependent default.)
 
 ---
@@ -825,7 +826,7 @@ with encoder events only (Move/Press), focus traverses per the G10-decided model
 - [ ] 11.6 Publish the observability story (mermaid graph export, `what_changed`, profile, DevTools) — it's a hidden selling point.
 - [ ] 11.7 Size/RAM numbers in README from the WS0 CI (the LVGL-comparison headline; target claim per the decided floor: a 10-widget mono UI fits the Blue Pill — framework ≤ ~48 KiB flash, ≤ 20 KiB RAM total). Best sourced from WS17's measured hardware results if it has run.
 - [ ] 11.8 **Rustdoc ratchet (A15):** `deny(missing_docs)` on lib crates (ratcheted allow-list), doc example on every public item, `doc(cfg)` feature annotations, intra-doc-links pass.
-- [ ] 11.9 **mdbook guide (A16):** architecture tour, reactivity mental model (signal/memo/effect/probe), embedded bring-up (display driver + input + heap sizing), theming via the styler registry, writing a custom widget, the minimal/e-paper pattern. Numbers cited from WS17.
+- [ ] 11.9 **guide — destination AMENDED by WS19 (2026-07-08): the website's docs section, NOT mdBook** (one docs pipeline; mdBook dropped). Content unchanged: architecture tour, reactivity mental model (signal/memo/effect/probe), embedded bring-up (display driver + input + heap sizing), theming via the styler registry, writing a custom widget, the minimal/e-paper pattern. Numbers cited from WS17. Lands on WS19.1's docs skeleton.
 
 **Session prompt:**
 
@@ -993,6 +994,35 @@ workstream is conditional by design).
 
 ---
 
+### WS19 — Website: VitePress on GitHub Pages (maintainer-initiated 2026-07-08)
+
+**Sessions:** 2 · **Risk:** low · **Depends on:** nothing (metrics infrastructure already delivered) · **Decisions recorded (2026-07-08):** VitePress chosen (docs+landing+blog hybrid; Vue components enable native metrics charts and future H9 WASM demos; Node toolchain isolated in `site/`); **one assembled Actions Pages deployment**; **VitePress owns all docs** — WS11.9's mdBook is dropped, the guide's destination becomes the site's docs section, rustdoc served under `/api/`; **v1 scope = landing + metrics section + docs skeleton** (blog is a later item); **github.io/rsact path** for now (`base: '/rsact/'`; custom domain = one CNAME + base switch later).
+
+- [ ] **19.1 Scaffold:** `site/` dir with its own `package.json` + committed lockfile (`node_modules` ignored — the Node toolchain stays contained in one directory of a Rust repo); VitePress init with `base: '/rsact/'`, dark/light, Rust via Shiki, nav skeleton (Docs · Metrics · Roadmap · GitHub); `npm run docs:build` green locally and as a CI check.
+- [ ] **19.2 Pages deployment rework (the structural piece):** switch the repo's Pages source from the `metrics-data` branch to **Actions deployment** (`actions/upload-pages-artifact` + `actions/deploy-pages`). A `site.yml` workflow assembles ONE artifact: VitePress `dist/` + the metrics data/dashboard copied from `metrics-data` under `dist/metrics/` (+ later `dist/api/` from 19.5). Triggers: master push (content changes) **and** after `metrics.yml` records fresh snapshots (`workflow_run` or repository_dispatch; mind the publish-race notes from the 0.9c verification). **`metrics-data` stays the durable data store, write path unchanged** — it just stops being the Pages source. PR sticky comments unaffected. Metrics URLs move to `/rsact/metrics/`.
+- [ ] **19.3 Metrics section:** preferably build 0.9e's time-series viewer **as a Vue component in the site** (reads the copied snapshot JSONs + `index.json`) rather than extending the standalone `html.rs` viewer — record the split: `html.rs` viewer = the _local_ store's dev view; the site component = the _CI_ store's public view. Coordinate with 0.9e — whichever session runs first implements the charts, the other consumes/ports.
+- [ ] **19.4 v1 content:** landing page (the pitch: _you pay for what you wire_; hardware-measured numbers only — from the CI/size-probe rows, never estimates; a real code sample; the honest LVGL/Slint comparison once WS17 provides it, placeholder marked until then); docs skeleton (getting started, feature matrix seeded from `docs/features.md`, architecture overview); roadmap page linking the artifact/repo.
+- [ ] **19.5 rustdoc under `/api/`:** CI builds workspace rustdoc (documented feature set: `std,embedded-graphics`; `doc(cfg)` annotations arrive with WS11.8) → copied into the Pages artifact.
+- [ ] **19.6 Later (explicitly not v1):** blog scaffolding (`createContentLoader` posts index + RSS; first-post candidates on record: the evolution-plan story, the Probe redesign write-up); custom domain (CNAME + `base: '/'` switch); og/social cards; sitemap.
+
+Acceptance: site live at `hazer-hazer.github.io/rsact/` with landing + docs skeleton + a metrics section showing live per-commit data; the `metrics-data` store and PR comments provably unaffected (post-deploy snapshot lands, comment appears); `site/` build green in CI; WS11.9's text amended.
+
+**Session prompt (WS19):**
+
+```
+Read docs/plans/2026-07-05-rsact-evolution-roadmap.md — WS19 (all decisions inline).
+Verify current state: Pages currently serves the metrics dashboard from metrics-data;
+check whether 0.9e landed (determines 19.3's build-vs-port). Order: 19.1 scaffold →
+19.2 deployment rework (the risky piece — verify metrics-data writes + PR comments
+still work after the Pages source switch) → 19.3 metrics section → 19.4 content →
+19.5 /api/. Landing-page numbers come from the CI store only, never estimates —
+mark WS17-dependent claims as placeholders. Amend WS11.9's item text (mdBook → site
+docs section) when done. Node stays inside site/; do not add Node steps to ci.yml —
+site.yml owns the web build. Mark items done with commit hashes.
+```
+
+---
+
 ## Parked / rejected register (do not resurrect without new evidence)
 
 - **Per-node layout memos** (D3 candidate b): 350–500 B/node graph freight — disqualified on M0 RAM.
@@ -1070,7 +1100,7 @@ Strategic growth vectors beyond the plan and backlog. None are scheduled; each d
 | H6  | **Headless rsact / remote surfaces** — widget tree + layout on a host/gateway, WS16's `DrawCommand` IR streamed to dumb display clients over the WS14 protocol               | One codebase drives fleet displays, secondary MCUs, debug mirrors. The IR + protocol were built for this even if neither says so yet.                                                            |
 | H7  | **Optional declarative macro layer** — `view! { Col { gap: 4, Label(text) } }` compiling to the builder API                                                                  | Keeps the no-codegen builder as ground truth (the differentiator vs Slint) while offering DSL ergonomics as pure sugar. Only after WS7 + WS13 stabilize what it compiles to.                     |
 | H8  | **The executable reactive spec** — grow WS1.5a's oracle/property tests into a conformance corpus documenting exact engine semantics                                          | Makes engine rewrites (WS18's slab and beyond) safe to attempt; the document serious adopters read before trusting a reactivity engine.                                                          |
-| H9  | **WASM simulator in the docs** — tiny-skia to canvas; mdbook pages embed live, editable examples                                                                             | Zero-install onboarding: try rsact in the browser before installing a toolchain. Highest-leverage docs investment after the guide itself.                                                        |
+| H9  | **WASM simulator in the docs** — tiny-skia to canvas; docs-site pages (VitePress, per WS19) embed live, editable examples                                                                             | Zero-install onboarding: try rsact in the browser before installing a toolchain. Highest-leverage docs investment after the guide itself.                                                        |
 | H10 | **Agent-legible framework** — machine-readable widget/props/styles catalog (the registry + View traits make it introspectable), llms.txt, prompt-friendly docs               | This framework was _evolved_ by agent sessions — lean in. "The embedded UI framework AI assistants are best at" is a real, unclaimed position.                                                   |
 | H11 | **Industrial HMI vocabulary as an ecosystem crate** — gauges, sparklines, seven-segment, tank levels, alarm banners in `rsact-widgets-hmi`, third-party-themed via G9         | Serves the actual industrial market while keeping core widget-minimal; also the first real proof that third-party widget authorship works. After WS12 publishes.                                 |
 | H12 | **Multi-surface compositing** — after WS16's IR: one reactive graph driving N surfaces (main TFT + status OLED) with per-surface damage                                      | Real products have two displays more often than admitted; G4's one-renderer-per-binary stays intact (surfaces share one renderer type per target).                                               |
