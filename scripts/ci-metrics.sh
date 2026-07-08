@@ -29,10 +29,12 @@ done
 
 mkdir -p metrics/snapshots
 
-# Pull existing snapshots from the data branch if it exists (CI). Harmless with
-# no such branch (local / first run / bootstrap).
+# Pull existing snapshots + the ordering index from the data branch if it
+# exists (CI). Harmless with no such branch (local / first run / bootstrap), and
+# each pathspec is tolerated-if-absent (index.json won't exist on first run).
 if git rev-parse --verify --quiet metrics-data >/dev/null; then
     git archive metrics-data -- snapshots 2>/dev/null | tar -x -C metrics || true
+    git archive metrics-data -- index.json 2>/dev/null | tar -x -C metrics || true
 fi
 
 # WS0.9d: run the criterion groups fresh so target/criterion holds only THIS

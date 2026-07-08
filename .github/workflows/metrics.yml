@@ -25,11 +25,20 @@ on:
     # stays master-only (below). Never CI the data branch itself.
     branches-ignore: [metrics-data]
   pull_request:
+  # 0.9e: manual historical backfill / gap-fill (see scripts/ci-backfill.sh).
+  workflow_dispatch:
+    inputs:
+      range:
+        description: "rev-list range to backfill (blank = tool-birth 257f587^..HEAD; low end is always clamped to tool-birth)"
+        required: false
+        default: ""
 
 # 0.9c: cancel a superseded metrics run on the same ref so rapid pushes don't
 # pile up runner minutes — the in-flight snapshot would be immediately obsolete.
+# The event_name in the group keeps the long 0.9e backfill (workflow_dispatch)
+# in its OWN lane, so a routine push never cancels a backfill mid-flight.
 concurrency:
-  group: metrics-${{ github.ref }}
+  group: metrics-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -121,3 +130,42 @@ jobs:
         with:
           header: rsact-metrics
           path: metrics-comment.md
+
+  # ---- manual: historical backfill / gap-fill (WS0.9e) ----------------------
+  # One-shot (and forever-repeatable) job that records a snapshot for every
+  # historical commit currently missing one, using THAT commit's own tool.
+  # Idempotent; also repairs any future CI-missed push. Run when pushes are
+  # quiet — it publishes to metrics-data like the record job (keep_files merges,
+  # but two concurrent publishers to the same branch can still conflict).
+  backfill:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the metrics-data branch
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # backfill walks full first-parent history + checks out old commits
+
+      - name: Install Rust (stable) + thumb targets (for sparse --sizes)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7m-none-eabi, thumbv6m-none-eabi
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Layer-1 for every missing commit + `--benches` for bench-capable ones
+      # (>= f42c154) + `--sizes` on a sparse every-5th subset; then rebuilds
+      # index.json + the viewer with HEAD's tool. Best-effort per commit — an
+      # un-buildable historical tree is logged and skipped, never fatal.
+      - name: Backfill missing snapshots
+        run: scripts/ci-backfill.sh "${{ github.event.inputs.range }}"
+
+      - name: Publish to metrics-data branch (+ Pages source)
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./metrics
+          publish_branch: metrics-data
+          keep_files: true
+          commit_message: "metrics: backfill ${{ github.sha }}"
