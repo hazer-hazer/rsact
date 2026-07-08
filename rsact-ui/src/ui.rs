@@ -9,7 +9,7 @@ use crate::{
     render::prelude::*,
     style::stylist::InternalStylist,
 };
-use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
 use core::{fmt::Debug, marker::PhantomData};
 use log::info;
 use rsact_reactive::prelude::*;
@@ -48,7 +48,11 @@ where
 
 pub struct UI<W: WidgetCtx, P: HasPages> {
     page_history: TinyVec<[W::PageId; 1]>,
-    pages: BTreeMap<W::PageId, Box<dyn PageInitFn<W>>>,
+    // 9a.2: sorted `Vec` keyed by `PageId` instead of a `BTreeMap` — N is tiny
+    // (1–5 pages), so binary search over a flat vec drops the BTreeMap
+    // monomorphization/allocation for no practical lookup cost. Kept sorted by
+    // id so `binary_search_by` is valid.
+    pages: Vec<(W::PageId, Box<dyn PageInitFn<W>>)>,
     /// Currently active page. Lazily (re)built from the corresponding
     /// [`PageInitFn`] on navigation. Only the active page is kept built; each
     /// page owns its own arena, so dropping it (on navigation) frees its tree.
@@ -90,7 +94,7 @@ where
         Self {
             page_history: Default::default(),
             viewport,
-            pages: BTreeMap::new(),
+            pages: Vec::new(),
             active_page: None,
             on_exit: None,
             stylist: stylist.inert(),
@@ -171,7 +175,10 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
         id: W::PageId,
         page_fn: impl PageInitFn<W> + 'static,
     ) {
-        assert!(self.pages.insert(id, Box::new(page_fn)).is_none())
+        match self.pages.binary_search_by(|(k, _)| k.cmp(&id)) {
+            Ok(_) => panic!("Page with this id was already added"),
+            Err(i) => self.pages.insert(i, (id, Box::new(page_fn))),
+        }
     }
 
     // Fonts //
@@ -210,10 +217,11 @@ impl<W: WidgetCtx> UI<W, WithPages> {
     /// Each page gets its own arena so navigating away (dropping the page)
     /// frees its element tree.
     fn load_page(&self, id: W::PageId) -> Page<W> {
-        let page_fn = self
+        let idx = self
             .pages
-            .get(&id)
+            .binary_search_by(|(k, _)| k.cmp(&id))
             .expect("Page not found, likely you forgot to add page to UI");
+        let page_fn = &self.pages[idx].1;
 
         let arena = create_signal(ElArena::new()).name("Page arena");
 

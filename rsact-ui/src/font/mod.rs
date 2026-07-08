@@ -1,5 +1,5 @@
 use crate::{el::ctx::WidgetCtx, render::prelude::*};
-use alloc::collections::btree_map::BTreeMap;
+use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
 use fixed::{FixedFont, FixedFontCollection};
 // portable-atomic gives `AtomicUsize::fetch_add` on no-CAS targets (thumbv6m),
@@ -400,7 +400,11 @@ fn pick_default_font() -> FontImport {
 }
 
 pub struct FontCtx {
-    fonts: BTreeMap<FontId, StoredFont>,
+    // 9a.2: sorted `Vec` keyed by `FontId` instead of a `BTreeMap` — a UI
+    // carries 1–3 fonts, so binary search over a flat vec drops the BTreeMap
+    // monomorphization/allocation. Kept sorted by id; replace-on-duplicate
+    // preserves the previous `BTreeMap::insert` semantics.
+    fonts: Vec<(FontId, StoredFont)>,
     fallback_font: FontId,
 }
 
@@ -420,13 +424,19 @@ impl FontCtx {
     }
 
     pub(crate) fn insert(&mut self, import: FontImport) {
-        self.fonts.insert(import.id, import.data);
+        match self.fonts.binary_search_by(|(k, _)| k.cmp(&import.id)) {
+            // Replace-on-duplicate — the previous `BTreeMap::insert` semantics.
+            Ok(i) => self.fonts[i].1 = import.data,
+            Err(i) => self.fonts.insert(i, (import.id, import.data)),
+        }
     }
 
     pub(crate) fn expect(&self, id: FontId) -> &StoredFont {
-        self.fonts
-            .get(&id)
-            .expect("Font not found, maybe you forgot to import it into UI")
+        let i = self
+            .fonts
+            .binary_search_by(|(k, _)| k.cmp(&id))
+            .expect("Font not found, maybe you forgot to import it into UI");
+        &self.fonts[i].1
     }
 
     pub(crate) fn set_default(&mut self, import: FontImport) {
@@ -435,9 +445,11 @@ impl FontCtx {
     }
 
     fn fallback_font(&self) -> &StoredFont {
-        self.fonts
-            .get(&self.fallback_font)
-            .expect("[BUG] Fallback font not found")
+        let i = self
+            .fonts
+            .binary_search_by(|(k, _)| k.cmp(&self.fallback_font))
+            .expect("[BUG] Fallback font not found");
+        &self.fonts[i].1
     }
 
     fn auto_font(&self) -> &StoredFont {

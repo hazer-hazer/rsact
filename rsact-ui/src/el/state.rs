@@ -93,7 +93,7 @@ impl<W: WidgetCtx> ElState<W> {
     }
 
     pub fn maybe_hover(&mut self, hover: bool) -> UpdateResult {
-        if self.flags.hoverable {
+        if self.flags.is_hoverable() {
             self.hovered = hover;
             self.set_needs_redraw(RedrawReason::PseudoclassChange);
             UpdateResult::request_redraw()
@@ -106,7 +106,7 @@ impl<W: WidgetCtx> ElState<W> {
         &mut self,
         child_hover: bool,
     ) -> UpdateResult {
-        if self.flags.hoverable && self.flags.hoverable_from_children {
+        if self.flags.is_hoverable() && self.flags.is_hoverable_from_children() {
             // Child hovered only affects true values because we could already
             // hover this element directly
             self.hovered = self.hovered || child_hover;
@@ -130,7 +130,7 @@ impl<W: WidgetCtx> ElState<W> {
     /// [`Update::PressChange`] so `render` needs no page-state access. A widget
     /// is pressable if it is `clickable` (mouse) or `focusable` (encoder).
     pub fn maybe_press(&mut self, pressed: bool) -> UpdateResult {
-        if self.flags.clickable || self.flags.focusable {
+        if self.flags.is_clickable() || self.flags.is_focusable() {
             self.pressed = pressed;
             self.set_needs_redraw(RedrawReason::PseudoclassChange);
             UpdateResult::request_redraw()

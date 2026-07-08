@@ -6,8 +6,14 @@ use crate::{
     scope::{ScopeData, ScopeHandle, ScopeId},
     storage::{Storage, Value, ValueId, ValueKind, ValueKindTag, ValueState},
 };
-use alloc::{collections::btree_set::BTreeSet, rc::Rc, vec::Vec};
+use alloc::{rc::Rc, vec::Vec};
+// Only the `debug-info` mermaid-graph helpers below still use a `BTreeSet`; the
+// hot path's pending-effect queue is now a height-bucketed vec (WS9a.1), so this
+// import (and the BTree code it pulls in) stays out of release/embedded builds.
+#[cfg(feature = "debug-info")]
+use alloc::collections::btree_set::BTreeSet;
 use core::{
+    any::Any,
     cell::{Cell, RefCell},
     fmt::Display,
     marker::PhantomData,
@@ -270,11 +276,13 @@ pub struct Runtime {
     /// Sources of signal changes. Signals that affect this observer (memo,
     /// effect, etc.).
     pub(crate) sources: RefCell<SecondaryMap<ValueId, IdVec>>,
-    // TODO: Maybe use Vec or BTreeMap<Vec<>> so values are pre-sorted in
-    // topological order, so we don't need to sort them on every update?
-    /// Effects to run after value changed or after [`DeferEffectsGuard`]
-    /// runs/drops if defer_effects is enabled.
-    pub(crate) pending_effects: RefCell<BTreeSet<ValueId>>,
+    /// Effects to run after a value changed (or after a [`DeferEffectsGuard`]
+    /// runs/drops if `defer_effects` is enabled). Height-bucketed so draining
+    /// ascending is already topological — no per-flush sort — and its buffers
+    /// are reused across flushes, so a steady-state write queues an effect with
+    /// zero heap allocation (WS9a.1, replacing a per-write `BTreeSet` node +
+    /// collected sort `Vec`).
+    pub(crate) pending_effects: RefCell<EffectQueue>,
     /// Nesting depth of active `batch()`/`defer_effects()` guards. Effects are
     /// deferred while > 0.
     pub(crate) defer_effects: Cell<u32>,
@@ -295,6 +303,119 @@ pub struct Runtime {
     /// and turns a dependency cycle into a bounded, logged loop instead of a
     /// stack overflow.
     flushing: Cell<bool>,
+}
+
+/// The pending-effect queue (WS9a.1): effects awaiting a flush, bucketed by
+/// topological height so draining low→high is already glitch-free order with no
+/// per-flush sort.
+///
+/// Replaces a `BTreeSet<ValueId>` that allocated a tree node on the first insert
+/// of every write and was then `collect`ed into a fresh `Vec` to sort each
+/// flush round (2 allocs / 112 B per write with ≥1 effect). Here:
+/// - `pending` holds queued effects indexed by height;
+/// - `draining` is swapped with `pending` at the start of each round so effects
+///   queued *while effects run* accumulate for the next round — the
+///   allocation-free equivalent of the old `.take()`;
+/// - `queued` is an O(1) membership set giving the old set-dedup semantics
+///   (load-bearing when batched writes mark the same effect repeatedly);
+/// - all buffers retain capacity across flushes, so after warm-up a write
+///   queues an effect with zero heap allocation. Peak-sized capacity is the
+///   deterministic RAM embedded targets want.
+///
+/// Invariant: `draining` is empty between rounds (each round drains it fully);
+/// an id is stamped in `queued` iff it sits in `pending` (a `draining` id is
+/// unstamped the moment it is popped, so a cascade can re-queue it).
+#[derive(Default)]
+pub(crate) struct EffectQueue {
+    pending: Vec<Vec<ValueId>>,
+    draining: Vec<Vec<ValueId>>,
+    queued: SecondaryMap<ValueId, ()>,
+    len: usize,
+}
+
+impl EffectQueue {
+    /// Queue `effect` at its topological `height`. No-op if already pending
+    /// (dedup). Allocates only while the buckets/`queued` map are still growing
+    /// to their high-water mark; steady-state writes queue for free.
+    fn push(&mut self, effect: ValueId, height: u32) {
+        if self.queued.insert(effect, ()).is_some() {
+            return;
+        }
+        let h = height as usize;
+        if h >= self.pending.len() {
+            self.pending.resize_with(h + 1, Vec::new);
+        }
+        self.pending[h].push(effect);
+        self.len += 1;
+    }
+
+    /// Remove `effect` from the queue if pending (dispose path). Rare, so a
+    /// linear bucket scan is fine. A `draining` (mid-flush) effect is left in
+    /// place — it is already unstamped and drains as a harmless no-op once its
+    /// storage entry is gone.
+    fn remove(&mut self, effect: ValueId) {
+        if self.queued.remove(effect).is_none() {
+            return;
+        }
+        for bucket in &mut self.pending {
+            if let Some(pos) = bucket.iter().position(|&id| id == effect) {
+                bucket.swap_remove(pos);
+                self.len -= 1;
+                return;
+            }
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Effects currently queued for the next flush (used by `Profile`).
+    pub(crate) fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Begin a flush round: move the accumulated `pending` into `draining` to be
+    /// run, leaving `pending` empty for effects queued during the round. O(1),
+    /// no allocation (`draining` is empty here per the type invariant).
+    fn start_round(&mut self) {
+        core::mem::swap(&mut self.pending, &mut self.draining);
+        self.len = 0;
+    }
+
+    /// Pop the next effect of this round's snapshot, lowest height first, and
+    /// unstamp it so a cascade may re-queue it for a later round. `cursor` is
+    /// the caller's monotonic ascending-height cursor; returns `None` when the
+    /// snapshot is exhausted (all `draining` buckets empty).
+    fn pop_next(&mut self, cursor: &mut usize) -> Option<ValueId> {
+        while *cursor < self.draining.len() {
+            if let Some(id) = self.draining[*cursor].pop() {
+                self.queued.remove(id);
+                return Some(id);
+            }
+            *cursor += 1;
+        }
+        None
+    }
+
+    /// Discard everything (cycle-abort path): clear both buffers and the dedup
+    /// set, retaining capacity.
+    fn clear(&mut self) {
+        for bucket in &mut self.pending {
+            bucket.clear();
+        }
+        for bucket in &mut self.draining {
+            bucket.clear();
+        }
+        self.queued.clear();
+        self.len = 0;
+    }
+
+    /// Ids currently pending — for tests asserting no dead ids linger.
+    #[cfg(test)]
+    fn queued_ids(&self) -> impl Iterator<Item = ValueId> + '_ {
+        self.queued.keys()
+    }
 }
 
 impl Runtime {
@@ -354,12 +475,19 @@ impl Runtime {
         ScopeHandle::new(id)
     }
 
-    fn add_value<T: 'static, DT: 'static>(
+    /// Non-generic core of value creation (WS9a.3). It takes an already
+    /// type-erased value cell so the scope / owned-map / storage bookkeeping is
+    /// compiled ONCE instead of monomorphized per concrete `T` — collapsing the
+    /// ×9–14 per-`T` instantiation spread of the seven `create_*` constructors.
+    /// The only per-`T` work (the `Rc<RefCell<T>>` allocation + unsize to
+    /// `dyn Any`, and the debug type name) stays in the thin [`add_value`] shim.
+    fn add_value_raw(
         &self,
-        value: T,
+        value: Rc<RefCell<dyn Any>>,
         kind: ValueKind,
         initial_state: ValueState,
         _caller: &'static Location<'static>,
+        #[cfg(feature = "debug-info")] _ty: &'static str,
     ) -> ValueId {
         let mut scopes = self.scopes.borrow_mut();
         let scope = self
@@ -369,7 +497,7 @@ impl Runtime {
             .flatten();
 
         let id = self.storage.add_value(Value {
-            value: Rc::new(RefCell::new(value)),
+            value,
             kind,
             state: initial_state,
             height: 0,
@@ -394,7 +522,7 @@ impl Runtime {
                 },
                 borrowed_mut: None,
                 borrowed: None,
-                ty: core::any::type_name::<DT>(),
+                ty: _ty,
                 observer: None,
             },
         });
@@ -419,6 +547,28 @@ impl Runtime {
         }
 
         id
+    }
+
+    /// Thin per-`T` shim over [`add_value_raw`] (WS9a.3): the only monomorphized
+    /// work is the `Rc<RefCell<T>>` allocation (unsized to `dyn Any` at the call
+    /// arg) and, under `debug-info`, the type name. `#[inline]` so it folds into
+    /// each `create_*` with no call overhead.
+    #[inline]
+    fn add_value<T: 'static, DT: 'static>(
+        &self,
+        value: T,
+        kind: ValueKind,
+        initial_state: ValueState,
+        caller: &'static Location<'static>,
+    ) -> ValueId {
+        self.add_value_raw(
+            Rc::new(RefCell::new(value)),
+            kind,
+            initial_state,
+            caller,
+            #[cfg(feature = "debug-info")]
+            core::any::type_name::<DT>(),
+        )
     }
 
     pub fn create_stored<T: 'static>(
@@ -646,7 +796,7 @@ impl Runtime {
         self.sources.borrow_mut().remove(id);
         self.subscribers.borrow_mut().remove(id);
         // TODO: Is it okay to remove from pending_effects?
-        self.pending_effects.borrow_mut().remove(&id);
+        self.pending_effects.borrow_mut().remove(id);
         self.storage
             .values
             .borrow_mut()
@@ -836,7 +986,8 @@ impl Runtime {
         let Some(tag) = self.storage.kind_of(id) else { return };
 
         if self.defer_effects.get() > 0 && tag == ValueKindTag::Effect {
-            self.pending_effects.borrow_mut().insert(id);
+            let height = self.storage.get_height(id);
+            self.pending_effects.borrow_mut().push(id, height);
             return;
         }
 
@@ -1037,7 +1188,8 @@ impl Runtime {
         if self.storage.kind_of(id) == Some(ValueKindTag::Effect)
             && self.observer.get() != Some(id)
         {
-            RefCell::borrow_mut(&self.pending_effects).insert(id);
+            let height = self.storage.get_height(id);
+            RefCell::borrow_mut(&self.pending_effects).push(id, height);
         }
     }
 
@@ -1349,30 +1501,47 @@ impl Runtime {
         const MAX_FLUSH_ROUNDS: u32 = 10_000;
         let mut rounds = 0u32;
         loop {
-            let pending = self.pending_effects.take();
-            if pending.is_empty() {
+            if self.pending_effects.borrow().is_empty() {
                 break;
             }
 
             rounds += 1;
             if rounds > MAX_FLUSH_ROUNDS {
+                let mut queue = self.pending_effects.borrow_mut();
                 log::error!(
                     "reactive effect flush did not settle after {MAX_FLUSH_ROUNDS} rounds \
                      (likely a dependency cycle); aborting flush at {caller} with {} effect(s) \
                      still pending",
-                    pending.len()
+                    queue.len()
                 );
+                // Discard the stuck queue so the cycle can't re-trigger every
+                // flush (WS9a.1 decision: clear-and-log over leave-wedged).
+                queue.clear();
                 break;
             }
 
-            // Sort by topological height so effects closer to source signals
-            // run first, preventing glitches (an observer never
-            // sees a stale intermediate value).
-            let mut sorted: Vec<ValueId> = pending.into_iter().collect();
-            sorted.sort_unstable_by_key(|&id| self.storage.get_height(id));
+            // Snapshot this round's effects into `draining`; effects queued
+            // while they run accumulate in `pending` for the next round (the
+            // allocation-free equivalent of the old `.take()`).
+            self.pending_effects.borrow_mut().start_round();
 
-            for effect in sorted {
-                self.maybe_update(effect, requester, caller);
+            // Drain lowest topological height first — buckets are already in
+            // height order, so no sort. Draining source-adjacent effects first
+            // keeps observers from seeing a stale intermediate value; deeper
+            // glitch-freedom comes from `maybe_update` pulling each effect's
+            // sources on demand. The borrow is released around every
+            // `maybe_update` (which re-enters the queue via `push`, and may
+            // `remove` on dispose), so re-borrowing per pop keeps that safe.
+            let mut cursor = 0usize;
+            loop {
+                let next =
+                    self.pending_effects.borrow_mut().pop_next(&mut cursor);
+                match next {
+                    Some(effect) => {
+                        self.maybe_update(effect, requester, caller);
+                    },
+                    None => break,
+                }
             }
         }
     }
@@ -1588,7 +1757,9 @@ mod tests {
         effect::create_effect,
         memo::{Memo, create_memo},
         read::ReadSignal,
-        runtime::{RUNTIMES, untrack, with_current_runtime, with_new_runtime},
+        runtime::{
+            RUNTIMES, batch, untrack, with_current_runtime, with_new_runtime,
+        },
         scope::new_scope,
         signal::create_signal,
         storage::ValueState,
@@ -1775,6 +1946,145 @@ mod tests {
         src.set(3);
         assert_eq!(runs.get(), 2);
         assert_eq!(seen.get(), 40); // (3+1)*10
+    }
+
+    // --- WS9a.1: effect-queue (height-bucketed) semantics -------------------
+    //
+    // The `pending_effects` structure must, regardless of its internals:
+    //   (a) dedup — an effect marked N times before a flush runs once;
+    //   (b) fan out — every effect subscribed to a written signal fires;
+    //   (c) cascade — an effect that writes a signal re-runs its dependents,
+    //       settling in bounded rounds;
+    //   (d) keep glitch-free ordering across memo layers of differing height.
+    // These lock behavior across the BTreeSet -> height-bucketed-vec swap.
+
+    /// (a) One signal, one effect, 100 batched writes: the effect is marked on
+    /// every write but the queue must dedup so it runs exactly once at flush.
+    #[test]
+    fn effect_queue_dedups_batched_writes() {
+        with_new_runtime(|_| {
+            let mut src = create_signal(0i32);
+            let runs = Rc::new(Cell::new(0u32));
+            let seen = Rc::new(Cell::new(0i32));
+            let runs_c = runs.clone();
+            let seen_c = seen.clone();
+            create_effect(move |_: Option<()>| {
+                seen_c.set(src.get());
+                runs_c.set(runs_c.get() + 1);
+            });
+            assert_eq!(runs.get(), 1, "effect runs once on creation");
+
+            batch(|| {
+                for k in 1..=100i32 {
+                    src.set(k);
+                }
+            });
+
+            assert_eq!(
+                runs.get(),
+                2,
+                "batched writes must coalesce to a single effect run"
+            );
+            assert_eq!(seen.get(), 100, "effect must see the last batched value");
+        });
+    }
+
+    /// (b) Many effects on one signal all fire exactly once per write.
+    #[test]
+    fn effect_queue_fans_out_to_all_subscribers() {
+        with_new_runtime(|_| {
+            let mut src = create_signal(0i32);
+            let runs = Rc::new(Cell::new(0u32));
+            for _ in 0..16 {
+                let runs_c = runs.clone();
+                create_effect(move |_: Option<()>| {
+                    src.get();
+                    runs_c.set(runs_c.get() + 1);
+                });
+            }
+            assert_eq!(runs.get(), 16, "each effect runs once on creation");
+
+            src.set(1);
+            assert_eq!(
+                runs.get(),
+                32,
+                "every subscriber effect must fire once on the write"
+            );
+        });
+    }
+
+    /// (c) Cascade: an effect writes a downstream signal, re-running a second
+    /// effect. Must settle (bounded rounds), and the observer effect must end on
+    /// the final value.
+    #[test]
+    fn effect_queue_cascade_settles() {
+        with_new_runtime(|_| {
+            let mut a = create_signal(0i32);
+            let b = create_signal(0i32);
+
+            // Effect 1: mirror a -> b (writes a signal from inside an effect).
+            let mut b_writer = b;
+            create_effect(move |_: Option<()>| {
+                let v = a.get();
+                b_writer.set(v * 2);
+            });
+
+            // Effect 2: observe b.
+            let seen = Rc::new(Cell::new(-1i32));
+            let runs = Rc::new(Cell::new(0u32));
+            let seen_c = seen.clone();
+            let runs_c = runs.clone();
+            create_effect(move |_: Option<()>| {
+                seen_c.set(b.get());
+                runs_c.set(runs_c.get() + 1);
+            });
+
+            assert_eq!(seen.get(), 0, "observer sees initial cascaded b");
+
+            a.set(21);
+            assert_eq!(
+                seen.get(),
+                42,
+                "cascade a->b->observer must settle on the final value"
+            );
+            assert!(
+                runs.get() >= 2,
+                "observer must re-run after the cascade updated b"
+            );
+        });
+    }
+
+    /// (d) signal -> two memos of different height -> one effect reading both:
+    /// the effect must fire once with a consistent (non-glitched) view even
+    /// though its sources sit at different topological heights (bucket order).
+    #[test]
+    fn effect_queue_no_glitch_across_heights() {
+        with_new_runtime(|_| {
+            let mut src = create_signal(1i32);
+            let shallow = create_memo(move || src.get() + 1); // height 2
+            let deep = create_memo(move || shallow.get() * 10); // height 3
+
+            let seen = Rc::new(Cell::new((0i32, 0i32)));
+            let runs = Rc::new(Cell::new(0u32));
+            let seen_c = seen.clone();
+            let runs_c = runs.clone();
+            create_effect(move |_: Option<()>| {
+                // Reads both a shallow and a deep source; a glitch would show
+                // `deep` computed from a stale `shallow`.
+                seen_c.set((src.get(), deep.get()));
+                runs_c.set(runs_c.get() + 1);
+            });
+            assert_eq!(seen.get(), (1, 20));
+            assert_eq!(runs.get(), 1);
+
+            src.set(5);
+            assert_eq!(
+                seen.get(),
+                (5, 60),
+                "effect saw a glitched (stale-shallow) view of the deep memo"
+            );
+            assert_eq!(runs.get(), 2, "effect must fire exactly once per change");
+        });
     }
 
     // --- WS1.5a: check-residue correctness suite ----------------------------
@@ -1994,7 +2304,7 @@ mod tests {
             // No dead ids should linger in pending_effects.
             sig.set(1); // triggers mark_dirty, which would queue effects
             let pending = rt.pending_effects.borrow();
-            for &id in pending.iter() {
+            for id in pending.queued_ids() {
                 assert!(
                     rt.is_alive(id),
                     "dead ValueId {id:?} in pending_effects after dispose"

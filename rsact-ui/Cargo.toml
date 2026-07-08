@@ -15,13 +15,15 @@ embedded-graphics-core = { workspace = true, optional = true }
 embedded-graphics-simulator = { workspace = true, optional = true }
 embedded-text = { workspace = true, optional = true }
 embedded-time = { workspace = true }
-itertools = { version = "0.14.0", default-features = false }
 log = { workspace = true }
 num = { workspace = true }
 portable-atomic = { workspace = true }
+# 9a.2: the workspace dep sets `default-features = false` (dropping
+# rsact-tiny-icons's default `all-sizes`), so we keep only the `common` set here
+# and select icon sizes à la carte via the `Npx` passthrough features below
+# (or `icons-all-sizes`). This ends the ~46 KiB all-tables pin every app paid.
 rsact-tiny-icons = { workspace = true, features = [
     "common",
-    "all-sizes",
 ], optional = true }
 rsact-macros = { workspace = true }
 rsact-reactive = { workspace = true }
@@ -80,6 +82,32 @@ embedded-graphics = [
     "rsact-render/embedded-graphics",
 ]
 tiny-icons = ["dep:rsact-tiny-icons"]
+# Per-size icon passthrough (9a.2). rsact-ui no longer force-enables `all-sizes`
+# on rsact-tiny-icons, so an app compiles only the icon sizes it renders, e.g.
+# `features = ["tiny-icons", "16px"]`. The weak `?` keeps these no-ops unless
+# `tiny-icons` is on (naming a size never drags in the icon dep on its own).
+# `icons-all-sizes` restores the previous all-tables behavior.
+5px = ["rsact-tiny-icons?/5px"]
+6px = ["rsact-tiny-icons?/6px"]
+7px = ["rsact-tiny-icons?/7px"]
+8px = ["rsact-tiny-icons?/8px"]
+9px = ["rsact-tiny-icons?/9px"]
+10px = ["rsact-tiny-icons?/10px"]
+11px = ["rsact-tiny-icons?/11px"]
+12px = ["rsact-tiny-icons?/12px"]
+13px = ["rsact-tiny-icons?/13px"]
+14px = ["rsact-tiny-icons?/14px"]
+15px = ["rsact-tiny-icons?/15px"]
+16px = ["rsact-tiny-icons?/16px"]
+17px = ["rsact-tiny-icons?/17px"]
+18px = ["rsact-tiny-icons?/18px"]
+19px = ["rsact-tiny-icons?/19px"]
+20px = ["rsact-tiny-icons?/20px"]
+21px = ["rsact-tiny-icons?/21px"]
+22px = ["rsact-tiny-icons?/22px"]
+23px = ["rsact-tiny-icons?/23px"]
+24px = ["rsact-tiny-icons?/24px"]
+icons-all-sizes = ["rsact-tiny-icons?/all-sizes"]
 u8g2-fonts = ["dep:u8g2-fonts", "embedded-graphics"]
 single-thread = ["rsact-reactive/single-thread"]
 # no_std, single-execution-context only (no critical-section). See
@@ -112,11 +140,11 @@ required-features = ["std", "simulator", "embedded-graphics"]
 
 [[example]]
 name = "3d_printer"
-required-features = ["std", "simulator", "embedded-graphics", "tiny-icons"]
+required-features = ["std", "simulator", "embedded-graphics", "tiny-icons", "icons-all-sizes"]
 
 [[example]]
 name = "mem_usage_display_240_240"
-required-features = ["std", "simulator", "embedded-graphics", "tiny-icons"]
+required-features = ["std", "simulator", "embedded-graphics", "tiny-icons", "icons-all-sizes"]
 
 [[example]]
 name = "tiny_skia"
@@ -124,7 +152,7 @@ required-features = ["std", "simulator", "tiny-skia"]
 
 [[example]]
 name = "icons"
-required-features = ["std", "simulator", "embedded-graphics", "tiny-icons"]
+required-features = ["std", "simulator", "embedded-graphics", "tiny-icons", "icons-all-sizes"]
 
 [lints]
 workspace = true
