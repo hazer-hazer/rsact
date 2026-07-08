@@ -956,6 +956,44 @@ mod tests {
         });
     }
 
+    /// Subtree disposal (WS3.2): rebuilding a `Dynamic` child must not leak the
+    /// old subtree's *reactive* nodes (the WS2 `arena_rebuild_does_not_leak_subtree`
+    /// test covers only arena `ElData`; this covers signals/memos/layouts). The
+    /// factory runs inside the `Dynamic` layout effect, so each rebuild's
+    /// widgets are owned by that effect and disposed by its `cleanup` on the
+    /// next run. A nested reactive subtree (`Container` > `Checkbox`, which mints
+    /// a signal + layout) exercises recursive owned-child disposal.
+    #[test]
+    fn dynamic_rebuild_does_not_leak_reactive_nodes() {
+        use crate::widget::{checkbox::Checkbox, container::Container};
+        use rsact_reactive::runtime::{
+            current_runtime_profile, with_new_runtime,
+        };
+
+        with_new_runtime(|_| {
+            let mut rebuild = create_signal(0i32);
+            let _page = create_null_page(move || {
+                rebuild.get(); // track: re-run the factory on each change
+                Container::new(Checkbox::new(false).el()).el()
+            });
+
+            // The layout effect ran once at construction; measure the steady
+            // state, then rebuild many times.
+            let baseline = current_runtime_profile().total();
+
+            for i in 1..=20 {
+                rebuild.set(i);
+            }
+
+            let after = current_runtime_profile().total();
+            assert_eq!(
+                after, baseline,
+                "dynamic rebuild leaked {} reactive node(s) over 20 rebuilds",
+                after as i64 - baseline as i64
+            );
+        });
+    }
+
     #[test]
     fn draw_on_demand() {
         let mut redraw_signal_data = String::new().signal();
