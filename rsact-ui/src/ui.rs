@@ -198,6 +198,53 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
     }
 }
 
+/// One-shot render (WS3.4, D7): build a [`UI`], lay it out, render a single
+/// frame to `target`, then drop everything — reactive graph included — so the
+/// heap returns to baseline. For static, e-paper-class displays that draw once
+/// and never update: no `UI`, no signals, no arena kept alive afterward.
+///
+/// `build` must construct the whole `UI` *inside* the call so that every
+/// reactive node it creates (the UI's own signals and every page node) is owned
+/// by the one-shot scope and disposed when this returns. Returns whether the
+/// frame drew (always `true` for the first frame).
+///
+/// ```no_run
+/// # use rsact_ui::prelude::*;
+/// # use rsact_ui::ui::{UI, render_once};
+/// # fn sketch<D: RenderTarget<Color = NullColor>>(display: &mut D) {
+/// // e-paper: compose the screen, flush it once, reclaim all the RAM.
+/// let drew = render_once(
+///     || {
+///         UI::new((), NullRenderer)
+///             .no_events()
+///             .with_page((), || Label::new("Hello e-paper".inert()).el())
+///     },
+///     display,
+/// );
+/// # let _ = drew;
+/// # }
+/// ```
+pub fn render_once<W, T>(
+    build: impl FnOnce() -> UI<W, WithPages>,
+    target: &mut T,
+) -> bool
+where
+    W: WidgetCtx,
+    T: RenderTarget,
+    W::Renderer: FinishRender<T::Color>,
+{
+    // Everything `build` and the first render create lands in this scope.
+    let scope = new_scope();
+    let mut ui = build();
+    let drew = ui.render(target);
+    // Drop the UI first (its page's Drop disposes the arena + probes), then the
+    // scope (disposes the UI's own signals and any page build-time nodes) —
+    // leaving the runtime as it was before the call.
+    drop(ui);
+    drop(scope);
+    drew
+}
+
 impl<W: WidgetCtx> UI<W, WithPages> {
     pub fn render<T: RenderTarget>(&mut self, target: &mut T) -> bool
     where
@@ -431,4 +478,44 @@ impl<W: WidgetCtx> UI<W, WithPages> {
     // pub fn draw_with_renderer(&mut self, f: impl FnOnce(&W::Renderer)) ->
     // bool {     self.current_page().use_renderer(f)
     // }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{UI, render_once};
+    use crate::prelude::*;
+    use rsact_reactive::{
+        leak::{leak_report, leak_snapshot},
+        runtime::with_new_runtime,
+    };
+
+    /// WS3.4: `render_once` builds, lays out and renders a single frame, then
+    /// drops the whole UI + reactive graph — the runtime node population must
+    /// return to exactly what it was before the call (nothing kept alive for a
+    /// display that never updates again).
+    #[test]
+    fn render_once_returns_heap_to_baseline() {
+        with_new_runtime(|_| {
+            let snap = leak_snapshot();
+
+            let mut target = NullRenderer;
+            let drew = render_once(
+                || {
+                    UI::new((), NullRenderer)
+                        .no_events()
+                        .with_page((), || Label::new("x".inert()).el())
+                },
+                &mut target,
+            );
+
+            assert!(drew, "render_once must draw the first frame");
+
+            let report = leak_report(&snap);
+            assert!(
+                report.is_empty(),
+                "render_once leaked {} node(s): {report}",
+                report.len()
+            );
+        });
+    }
 }
