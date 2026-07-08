@@ -63,24 +63,32 @@ pub fn merge_entry(index: &mut Index, rev: &str, entry: IndexEntry) {
     index.insert(rev.to_string(), entry);
 }
 
-/// Order `revs` **oldest → newest** by commit history: primarily by how many
-/// of the `revs` are ancestors (walking `parent` links in `index`, transitively
-/// skipping commits absent from `revs`), tie-broken by committer `date` then the
-/// rev string. Revs missing from `index` sort as date 0 — the caller should
+/// Order `revs` **oldest → newest** by commit history: primarily by committer
+/// `date` (stored per-rev in `index` — the real commit time, even for
+/// backfilled snapshots), tie-broken by ancestor topology (how many of `revs`
+/// are ancestors, walking `parent` links and transitively skipping commits
+/// absent from `revs`) then the rev string.
+///
+/// Date is primary — not topology — because parent links are **not always
+/// available**: a shallow CI checkout (`fetch-depth: 1`) makes HEAD a parentless
+/// boundary commit, so `record` stores `parent == ""`. Committer date is always
+/// real, so it keeps push-recorded and backfilled commits correctly interleaved;
+/// topology only refines genuinely equal timestamps (e.g. same-second commits in
+/// a backfill). Revs missing from `index` sort as date 0 — the caller should
 /// synthesize a minimal entry (date = the snapshot's `recorded_at`) first.
 pub fn topo_order(index: &Index, revs: &[String]) -> Vec<String> {
     let revset: HashSet<&str> = revs.iter().map(String::as_str).collect();
     let mut ordered = revs.to_vec();
     ordered.sort_by(|a, b| {
-        let (ca, cb) = (
-            ancestor_count(index, &revset, a),
-            ancestor_count(index, &revset, b),
-        );
         let (da, db) = (
             index.get(a).map_or(0, |e| e.date),
             index.get(b).map_or(0, |e| e.date),
         );
-        ca.cmp(&cb).then(da.cmp(&db)).then_with(|| a.cmp(b))
+        let (ca, cb) = (
+            ancestor_count(index, &revset, a),
+            ancestor_count(index, &revset, b),
+        );
+        da.cmp(&db).then(ca.cmp(&cb)).then_with(|| a.cmp(b))
     });
     ordered
 }
@@ -131,6 +139,21 @@ mod tests {
         idx.insert("c".into(), e(30, "b"));
         let revs = vec!["c".to_string(), "a".to_string()];
         assert_eq!(topo_order(&idx, &revs), vec!["a", "c"]);
+    }
+
+    #[test]
+    fn topo_order_mixed_parent_availability_orders_by_date() {
+        // Real CI shape: `root` + `a` are backfilled (fetch-depth 0 → real
+        // parents), while `b` was recorded by a shallow push (fetch-depth 1 →
+        // git can't see its parent, so parent==""). Ancestor-count-primary would
+        // sort the newest commit `b` (count 0) BEFORE `a` (count 1); committer
+        // date must win so history stays oldest→newest: root, a, b.
+        let mut idx = Index::new();
+        idx.insert("root".into(), e(50, ""));
+        idx.insert("a".into(), e(100, "root"));
+        idx.insert("b".into(), e(200, "")); // shallow push: parent unknown
+        let revs = vec!["b".to_string(), "a".to_string(), "root".to_string()];
+        assert_eq!(topo_order(&idx, &revs), vec!["root", "a", "b"]);
     }
 
     #[test]
