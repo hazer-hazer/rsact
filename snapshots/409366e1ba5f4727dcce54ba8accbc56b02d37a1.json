@@ -1,7 +1,7 @@
 {
   "git_rev": "409366e1ba5f4727dcce54ba8accbc56b02d37a1",
   "git_dirty": false,
-  "recorded_at": 1783454042,
+  "recorded_at": 1783528841,
   "host": "x86_64-linux",
   "scenarios": [
     {
@@ -74,20 +74,5 @@
       "layout": null
     }
   ],
-  "section_sizes": [
-    {
-      "target": "thumbv7m-none-eabi",
-      "binary": "ui",
-      "text": 76288,
-      "rodata": 3820,
-      "bss": 1068
-    },
-    {
-      "target": "thumbv6m-none-eabi",
-      "binary": "ui",
-      "text": 81908,
-      "rodata": 3984,
-      "bss": 1068
-    }
-  ]
+  "section_sizes": []
 }

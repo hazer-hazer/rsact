@@ -1,7 +1,7 @@
 {
-  "git_rev": "c3f7ec38387065742d614a60901ea7b3d413cb20",
+  "git_rev": "4b965d240c7edc9fb218eec29479f2516639d129",
   "git_dirty": false,
-  "recorded_at": 1783528888,
+  "recorded_at": 1783529016,
   "host": "x86_64-linux",
   "scenarios": [
     {
@@ -19,10 +19,10 @@
         "sources_bindings": 32,
         "total": 33
       },
-      "heap_live_bytes": 8416,
-      "heap_peak_bytes": 8416,
-      "build_allocs": 47,
-      "build_bytes": 8416,
+      "heap_live_bytes": 10464,
+      "heap_peak_bytes": 10464,
+      "build_allocs": 54,
+      "build_bytes": 10464,
       "idle_frame_allocs": 0,
       "change_frame_allocs": 1,
       "layout": null
@@ -42,12 +42,12 @@
         "sources_bindings": 39,
         "total": 32
       },
-      "heap_live_bytes": 14971,
-      "heap_peak_bytes": 14971,
-      "build_allocs": 64,
-      "build_bytes": 6768,
+      "heap_live_bytes": 16675,
+      "heap_peak_bytes": 16693,
+      "build_allocs": 63,
+      "build_bytes": 6016,
       "idle_frame_allocs": 0,
-      "change_frame_allocs": 8,
+      "change_frame_allocs": 18,
       "layout": null
     },
     {
@@ -65,12 +65,12 @@
         "sources_bindings": 74,
         "total": 52
       },
-      "heap_live_bytes": 22358,
-      "heap_peak_bytes": 22358,
-      "build_allocs": 97,
-      "build_bytes": 11872,
+      "heap_live_bytes": 24598,
+      "heap_peak_bytes": 24616,
+      "build_allocs": 96,
+      "build_bytes": 10392,
       "idle_frame_allocs": 0,
-      "change_frame_allocs": 12,
+      "change_frame_allocs": 32,
       "layout": null
     }
   ],
