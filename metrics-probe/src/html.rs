@@ -137,11 +137,10 @@ const bigSvg = document.getElementById("big");
 const legendEl = document.getElementById("legend");
 const tipEl = document.getElementById("tip");
 
-if (!N) {
-  main.innerHTML = "<p>No snapshots yet. Run <code>cargo run -p metrics-probe -- record</code>.</p>";
-} else {
-  buildAndRender();
-}
+// Entry point lives at the END of the script: buildAndRender() closes over
+// const state (selected / colorCursor / seriesByKey) declared further down, so
+// it must run only after those initialize — calling it here would hit the
+// temporal dead zone (ReferenceError).
 
 function num(v) { return (v === null || v === undefined) ? null : v; }
 function fmt(v) { return v === null ? null : (Number.isInteger(v) ? v.toLocaleString() : v.toFixed(0)); }
@@ -418,6 +417,13 @@ bigSvg.addEventListener("mousemove", ev => {
   }
   tipEl.textContent = lines.join("\n");
 });
+
+// ---- entry point: run only now that every const above is initialized -------
+if (!N) {
+  main.innerHTML = "<p>No snapshots yet. Run <code>cargo run -p metrics-probe -- record</code>.</p>";
+} else {
+  buildAndRender();
+}
 </script>
 </body>
 </html>
