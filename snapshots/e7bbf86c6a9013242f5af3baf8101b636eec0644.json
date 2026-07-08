@@ -1,7 +1,7 @@
 {
   "git_rev": "e7bbf86c6a9013242f5af3baf8101b636eec0644",
   "git_dirty": false,
-  "recorded_at": 1783529127,
+  "recorded_at": 1783535135,
   "host": "x86_64-linux",
   "scenarios": [
     {
@@ -74,5 +74,34 @@
       "layout": null
     }
   ],
-  "section_sizes": []
+  "section_sizes": [
+    {
+      "target": "thumbv7m-none-eabi",
+      "binary": "reactive",
+      "text": 27428,
+      "rodata": 308,
+      "bss": 1064
+    },
+    {
+      "target": "thumbv7m-none-eabi",
+      "binary": "ui",
+      "text": 78784,
+      "rodata": 3768,
+      "bss": 1068
+    },
+    {
+      "target": "thumbv6m-none-eabi",
+      "binary": "reactive",
+      "text": 27528,
+      "rodata": 308,
+      "bss": 1064
+    },
+    {
+      "target": "thumbv6m-none-eabi",
+      "binary": "ui",
+      "text": 84460,
+      "rodata": 3768,
+      "bss": 1068
+    }
+  ]
 }
