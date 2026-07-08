@@ -53,6 +53,13 @@ impl<'a> LayoutModelNode<'a> {
             .map(|child| child.node(self.inner))
     }
 
+    /// Number of layout children. Used by the event/render passes to detect
+    /// arena↔layout structural divergence before positionally zipping them
+    /// (WS3.5) — the parallelism is load-bearing but must degrade, not abort.
+    pub fn children_len(&self) -> usize {
+        self.model.children.len()
+    }
+
     // Note: May be slow and expensive
     pub fn dev_hover(&'a self, point: Point) -> Option<DevHoveredLayout> {
         self.children()

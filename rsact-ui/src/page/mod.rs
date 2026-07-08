@@ -1061,6 +1061,56 @@ mod tests {
         });
     }
 
+    /// WS3.5: when the arena child list and the layout tree diverge in length
+    /// (a rebuild/list update between frames), the event pass must degrade to
+    /// the common prefix and log — never abort. Here we force a divergence by
+    /// dropping an arena child without relaying out, then route an event; the
+    /// checked zip iterates the common prefix and reaching the end of the test
+    /// (no panic) is the assertion.
+    #[test]
+    fn arena_layout_divergence_degrades_without_panic() {
+        use crate::event::{Event, MouseEvent};
+        use crate::widget::{flex::Flex, label::Label};
+        use rsact_reactive::runtime::with_new_runtime;
+
+        with_new_runtime(|_| {
+            let mut page = create_null_page(
+                Flex::col(alloc::vec![
+                    Label::new("a".inert()).el(),
+                    Label::new("b".inert()).el(),
+                    Label::new("c".inert()).el(),
+                ])
+                .el(),
+            );
+
+            // Build the layout tree (3 children) without rendering — the null
+            // theme panics on a Label's unset text color, and the event pass is
+            // what we want to exercise anyway.
+            let pt = page.layout.with(|m| m.tree_root().outer.center());
+            let _ = page.handle_events(core::iter::once(Event::Mouse(
+                MouseEvent::MouseMove(pt),
+            )));
+
+            let root = page.root;
+            let kids: Vec<_> = page
+                .arena
+                .with(|a| a.children(root).map(|c| c.to_vec()))
+                .unwrap_or_default();
+            assert_eq!(kids.len(), 3, "flex root should have 3 children");
+
+            // Desync: drop one arena child WITHOUT relayout, so the arena (2)
+            // and the still-cached layout (3) diverge.
+            page.arena.update_untracked(|a| {
+                a.set_children(root, alloc::vec![kids[0], kids[1]])
+            });
+
+            // Route another event through the divergence. No panic ⇒ pass.
+            let _ = page.handle_events(core::iter::once(Event::Mouse(
+                MouseEvent::MouseMove(pt),
+            )));
+        });
+    }
+
     #[test]
     fn draw_on_demand() {
         let mut redraw_signal_data = String::new().signal();

@@ -30,6 +30,34 @@ slotmap::new_key_type! {
     pub struct ElId;
 }
 
+/// Log (never panic) when an element's arena child list and its layout subtree
+/// diverge in length at `id` during the `pass` traversal.
+///
+/// The arena and the layout tree are built in structural parallel and
+/// positionally zipped in both the event and render passes (the arena↔layout
+/// parallelism invariant, load-bearing until WS5.1 makes identity explicit).
+/// A divergence must **degrade** — the callers keep their `.zip()`, which
+/// truncates to the common prefix — rather than abort (WS3.5). This centralizes
+/// the diagnostic so every pass reports the mismatch identically instead of
+/// truncating silently. Returns whether a divergence was detected (so it is
+/// unit-testable without capturing logs; callers use it as a statement).
+pub(crate) fn check_children_parallel(
+    pass: &str,
+    id: ElId,
+    arena_len: usize,
+    layout_len: usize,
+) -> bool {
+    let diverged = arena_len != layout_len;
+    if diverged {
+        log::error!(
+            "{pass}: arena/layout child divergence at {id:?} ({arena_len} \
+             arena children vs {layout_len} layout children) — iterating the \
+             common prefix, not aborting (WS3.5)"
+        );
+    }
+    diverged
+}
+
 pub struct ElData<W: WidgetCtx> {
     // TODO: If rsact-reactive would support ?Sized as a real smart-pointer we
     // could do MaybeReactive<dyn Widget<W>>, so reactive elements creation
@@ -121,3 +149,35 @@ where
 //         self.widget.on_event(ctx)
 //     }
 // }
+
+#[cfg(test)]
+mod tests {
+    use super::{ElId, check_children_parallel};
+
+    /// WS3.5: the arena↔layout divergence check flags a length mismatch (so it
+    /// can be logged and degraded) and stays silent when the counts match.
+    #[test]
+    fn check_children_parallel_flags_only_divergence() {
+        let id = ElId::default();
+        assert!(
+            check_children_parallel("test", id, 3, 2),
+            "more arena than layout children must be flagged"
+        );
+        assert!(
+            check_children_parallel("test", id, 2, 3),
+            "fewer arena than layout children must be flagged"
+        );
+        assert!(
+            check_children_parallel("test", id, 0, 1),
+            "empty arena vs one layout child must be flagged"
+        );
+        assert!(
+            !check_children_parallel("test", id, 2, 2),
+            "equal counts must not be flagged"
+        );
+        assert!(
+            !check_children_parallel("test", id, 0, 0),
+            "both empty must not be flagged"
+        );
+    }
+}

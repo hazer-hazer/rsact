@@ -562,6 +562,12 @@ fn render_subtree_body<W: WidgetCtx>(
                 children_ids.len(),
                 indent = frame.nesting_level
             );
+            crate::el::check_children_parallel(
+                "render",
+                id,
+                children_ids.len(),
+                layout.children_len(),
+            );
             for (child_id, child_layout) in
                 children_ids.iter().zip(layout.children())
             {
