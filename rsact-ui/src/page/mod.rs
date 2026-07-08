@@ -429,6 +429,13 @@ impl<W: WidgetCtx> Page<W> {
         &mut self,
         event: Event<W::CustomEvent>,
     ) -> Option<UnhandledEvent<W>> {
+        // WS3.3: drop any focus/pointer references to elements that have left
+        // the arena since the last event (a `Dynamic` rebuild or list update
+        // between frames), so the `captured_by` fast-path below — and the
+        // normal focus/hover routing — never dispatch to a freed id (D2-F5).
+        let arena = self.arena;
+        arena.with(|arena| self.state.retain_existing(arena));
+
         // === Pointer capture ===
         // While a widget holds the pointer capture, every mouse event is
         // delivered to it exclusively — no hit-testing and no hover changes —
@@ -990,6 +997,66 @@ mod tests {
                 after, baseline,
                 "dynamic rebuild leaked {} reactive node(s) over 20 rebuilds",
                 after as i64 - baseline as i64
+            );
+        });
+    }
+
+    /// PageState pruning (WS3.3): once an element leaves the arena (subtree
+    /// replace / `Dynamic` rebuild / navigation), focus and pointer state must
+    /// stop referencing it so events are never routed to a freed id (D2-F5);
+    /// an id still present is kept.
+    #[test]
+    fn pagestate_forgets_removed_element_ids() {
+        use crate::widget::{container::Container, label::Label};
+        use rsact_reactive::runtime::with_new_runtime;
+
+        with_new_runtime(|_| {
+            let mut page = create_null_page(|| {
+                Container::new(Label::new("x".inert()).el()).el()
+            });
+            // Build the tree so the Dynamic root's child exists.
+            page.use_renderer(|_| {});
+
+            let root = page.root;
+            let child = page
+                .arena
+                .with(|arena| {
+                    arena.children(root).and_then(|c| c.first().copied())
+                })
+                .expect("root must have a child after build");
+
+            // Point every PageState reference at the child.
+            page.state.focused = Some((child, 0));
+            page.state.focus_pressed = true;
+            page.state.pointer.captured_by = Some(child);
+            page.state.pointer.hovered = Some(child);
+            page.state.pointer.pressed = Some(child);
+
+            // Remove the child subtree from the arena.
+            page.arena.update_untracked(|arena| {
+                arena.set_children(root, alloc::vec::Vec::new());
+            });
+
+            // Prune: every reference to the now-freed child is dropped.
+            let arena = page.arena;
+            arena.with(|arena| page.state.retain_existing(arena));
+
+            assert_eq!(page.state.focused, None, "focused not cleared");
+            assert!(!page.state.focus_pressed, "focus_pressed not cleared");
+            assert_eq!(
+                page.state.pointer.captured_by, None,
+                "captured_by not cleared"
+            );
+            assert_eq!(page.state.pointer.hovered, None, "hovered not cleared");
+            assert_eq!(page.state.pointer.pressed, None, "pressed not cleared");
+
+            // A reference to a still-present element (the root) is retained.
+            page.state.focused = Some((root, 3));
+            arena.with(|arena| page.state.retain_existing(arena));
+            assert_eq!(
+                page.state.focused,
+                Some((root, 3)),
+                "focus on a live element was wrongly cleared"
             );
         });
     }

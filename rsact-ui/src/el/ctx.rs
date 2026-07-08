@@ -130,6 +130,40 @@ impl<W: WidgetCtx> PageState<W> {
         self.focused.map(|focused| focused.0 == id).unwrap_or(false)
     }
 
+    /// Drop every reference to an element id that no longer exists in `arena`
+    /// (WS3.3, addressing the TODO above). A removed element — subtree replace,
+    /// `Dynamic` rebuild, list update, navigation — must never receive focus or
+    /// pointer routing; otherwise an event is dispatched to a stale id (D2-F5),
+    /// e.g. the `captured_by` fast-path in `Page::send_event` would deliver a
+    /// mouse event to a freed widget. Called before event routing, so it is
+    /// lazy (validate-on-use) rather than eager (the arena mutation that removes
+    /// a node happens deep inside a reactive flush with no `PageState` in hand).
+    pub fn retain_existing(&mut self, arena: &crate::el::arena::ElArena<W>) {
+        if let Some((id, _)) = self.focused
+            && !arena.contains(id)
+        {
+            self.focused = None;
+            // `focus_pressed` tracks the focused widget's button; with no focus
+            // there is nothing pressed.
+            self.focus_pressed = false;
+        }
+        if let Some(id) = self.pointer.captured_by
+            && !arena.contains(id)
+        {
+            self.pointer.captured_by = None;
+        }
+        if let Some(id) = self.pointer.hovered
+            && !arena.contains(id)
+        {
+            self.pointer.hovered = None;
+        }
+        if let Some(id) = self.pointer.pressed
+            && !arena.contains(id)
+        {
+            self.pointer.pressed = None;
+        }
+    }
+
     // pub fn is_hovered(&self, id: ElId) -> bool {
     //     self.pointer.hovered == Some(id)
     // }

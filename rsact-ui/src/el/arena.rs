@@ -32,6 +32,13 @@ impl<W: WidgetCtx> ArenaEls<W> {
         self.els.get_mut(id)
     }
 
+    /// Whether `id` still names a node in the arena. Unlike [`expect`], this is
+    /// true even while the node's `data` is temporarily taken (build/event
+    /// take/restore) — it is a pure identity check (WS3.3).
+    pub fn contains(&self, id: ElId) -> bool {
+        self.els.contains_key(id)
+    }
+
     pub fn expect(&self, id: ElId) -> Option<&ElData<W>> {
         self.els
             .get(id)
@@ -261,6 +268,12 @@ impl<W: WidgetCtx> ElArena<W> {
 
     pub fn expect(&self, id: ElId) -> Option<&ElData<W>> {
         self.els.expect(id)
+    }
+
+    /// Whether `id` still names an element in this arena (WS3.3). Pure identity
+    /// check — see [`ArenaEls::contains`].
+    pub fn contains(&self, id: ElId) -> bool {
+        self.els.contains(id)
     }
 
     pub fn expect_mut(&mut self, id: ElId) -> Option<&mut ElData<W>> {
