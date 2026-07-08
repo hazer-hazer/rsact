@@ -153,6 +153,22 @@ re-run, record actual CI minutes in the roadmap. Do NOT backfill --sizes for eve
 commit (sparse subset only).
 ```
 
+  - [ ] **0.9e Historical backfill + per-commit trend charts (maintainer ask, 2026-07-08: "fetch metrics from all previous commits so Pages charts every property per commit").** Three parts. **(a) Backfill/gap-fill job** — `workflow_dispatch` (optional `range` input): for each commit in `git rev-list --first-parent f298b98..HEAD` **without** a JSON on `metrics-data`: `git worktree add` that commit → run **that commit's own** `metrics-probe -- record` (+`--benches`) → copy the snapshot out → batch-commit to `metrics-data` → regenerate Pages. Idempotent by construction (skips existing), so the same job also repairs CI-missed pushes forever. Must run on the CI runner class (local heap bytes aren't comparable); cargo cache keeps per-commit builds cheap; `--sizes` only for a sparse subset (every Nth/tagged commit — thumb builds are minutes each). **Hard boundary on record:** a commit can only be measured by instruments that exist *inside it* — metrics-probe was born at `257f587`, so backfilled history starts there (schema evolution is safe thanks to 0.7f's `serde(default)`); earlier commits stay covered by the frozen audit rows in Baselines. **(b) Ordering index** — snapshots are keyed by hash and hashes don't self-order: CI/backfill emits an `index.json` on `metrics-data` (rev → commit date, parent, branch-hint) so the viewer sorts topologically without needing git. **(c) Time-series viewer mode** — extend the 0.9d dashboard with per-metric line charts across ordered commits; **absent metrics render as gaps, never zeros** (the 0.7e/0.7f lesson — a metric added later must not look like a regression from zero); series pickable per scenario/metric/bench-group. Acceptance: after one backfill run, Pages charts every Layer-1 metric + bench medians from `257f587` to HEAD with visible gaps where instruments didn't yet exist; re-running the job is a no-op.
+
+**Session prompt (0.9e — backfill & trend charts):**
+
+```
+Read docs/plans/2026-07-05-rsact-evolution-roadmap.md — WS0 item 0.9e (design + the
+tool-birth hard boundary inline). Verify current state: 0.9c/0.9d landed and VERIFIED
+(metrics-data live, Pages built). Build (a) the workflow_dispatch backfill job (worktree
+per commit, that commit's OWN tool, idempotent skip, batch-commit), (b) the ordering
+index.json, (c) the time-series viewer mode (gaps ≠ zeros; series picker). Test the
+viewer locally against a hand-built multi-snapshot dir BEFORE touching CI; the backfill
+run itself is observable only on GitHub — trigger it once, verify charts + idempotent
+re-run, record actual CI minutes in the roadmap. Do NOT backfill --sizes for every
+commit (sparse subset only).
+```
+
 **Session prompt (0.9c + 0.9d — metrics granularity & bench trends):**
 
 ```

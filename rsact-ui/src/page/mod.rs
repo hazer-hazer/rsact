@@ -16,6 +16,7 @@ use alloc::vec::Vec;
 use dev::{DevHoveredEl, DevTools};
 use log::{debug, info};
 use rsact_reactive::prelude::*;
+use rsact_reactive::scope::ScopeHandle;
 
 pub mod dev;
 pub mod id;
@@ -67,6 +68,15 @@ pub struct Page<W: WidgetCtx> {
     /// when a tracked dependency changed or a redraw is forced. Owned by the
     /// page — disposed in `Drop` alongside the arena.
     render_probe: Probe,
+    /// The page's reactive scope (WS3.1). Everything the page built —
+    /// `init_page()`'s widgets and `Page::new`'s per-page nodes (`force_redraw`,
+    /// the layout memo, `style`) — is owned by this scope, so dropping the page
+    /// (goto navigation frees the old page) disposes it all. Declared last so
+    /// it drops *after* the `Drop` body's explicit WS2 probe/arena disposal;
+    /// nodes that body already disposed (`render_probe`, arena) are skipped by
+    /// `drop_scope`'s `is_alive` guard. `None` for pages built without a scope
+    /// (some tests) — their build-time nodes are then intentionally unmanaged.
+    scope: Option<ScopeHandle>,
 }
 
 impl<W: WidgetCtx> Drop for Page<W> {
@@ -174,7 +184,16 @@ impl<W: WidgetCtx> Page<W> {
             render_calls: 0,
             fonts,
             render_probe,
+            scope: None,
         }
+    }
+
+    /// Attach the page's reactive scope (WS3.1). Called by the builder
+    /// (`UI::load_page`) after building the page tree with the scope current
+    /// and then `leave`-ing it: the page now owns the scope and disposes it on
+    /// drop. See the `scope` field docs.
+    pub(crate) fn set_scope(&mut self, scope: ScopeHandle) {
+        self.scope = Some(scope);
     }
 
     pub(crate) fn id(&self) -> W::PageId {
@@ -712,13 +731,21 @@ mod tests {
     };
     use alloc::string::String;
     use rsact_reactive::prelude::*;
+    use rsact_reactive::scope::new_scope;
 
     type NullWtf = Wtf<NullRenderer, (), (), ()>;
 
     fn create_null_page(root: impl View<NullWtf>) -> Page<NullWtf> {
+        // Mirror `UI::load_page` (WS3.1): the arena is created outside the page
+        // scope (it keeps its explicit WS2 disposal), then the page is built
+        // with a fresh scope current so every build-time reactive node the page
+        // creates is scope-owned and disposed when the page drops. `root` is a
+        // closure here in the scope-sensitive tests, so its `into_el` (and any
+        // `Dynamic` effects) run inside `Page::new` while the scope is current.
         let arena = create_signal(ElArena::new()).name("Page arena");
 
-        Page::new(
+        let scope = new_scope();
+        let mut page = Page::new(
             (),
             root,
             arena,
@@ -727,7 +754,10 @@ mod tests {
             DevTools::default().signal(),
             NullRenderer::default().signal(),
             FontCtx::new().signal(),
-        )
+        );
+        scope.leave();
+        page.set_scope(scope);
+        page
     }
 
     /// Rebuilding a subtree must not leak the old subtree in the arena. A
@@ -834,6 +864,94 @@ mod tests {
                 after < with_child,
                 "remove_subtree did not dispose the removed subtree's probe(s) \
                  (before={with_child}, after={after})"
+            );
+        });
+    }
+
+    /// D2-F1 disposed-arena delayed-panic repro (WS3.1). A page's `Dynamic`
+    /// reads an app-level signal that OUTLIVES the page. After navigating away
+    /// (dropping the page — goto frees the old page), firing the app signal
+    /// must not re-run the page's build-time effects: they were built against
+    /// the now-freed arena. Before WS3.1 the page owned no scope, so the
+    /// `Dynamic` build effect survived the drop, re-ran on the write, and
+    /// touched the disposed arena (panic / logged dead-handle churn) — and the
+    /// build-time nodes leaked. After WS3.1 the page scope disposes them on
+    /// drop, so the write is inert and nothing survives.
+    #[test]
+    fn disposed_page_effect_does_not_panic_on_app_signal() {
+        use rsact_reactive::{
+            leak::{leak_report, leak_snapshot},
+            runtime::with_new_runtime,
+        };
+
+        with_new_runtime(|_| {
+            // App-level signal, created OUTSIDE any page — it must survive
+            // navigation and remain safe to write.
+            let mut app_signal = create_signal(0i32);
+
+            let snap = leak_snapshot();
+
+            {
+                // A page whose `Dynamic` root subscribes to the app signal.
+                let mut page = create_null_page(move || {
+                    app_signal.get(); // Dynamic factory tracks app_signal
+                    Label::new("x".inert()).el()
+                });
+                // Build the Dynamic child so its build effect actually runs.
+                page.use_renderer(|_| {});
+                // Navigate away.
+                drop(page);
+            }
+
+            // Firing the app signal after the page is gone must not panic and
+            // must not resurrect any disposed effect.
+            app_signal.set(1);
+            app_signal.set(2);
+
+            // Every node the page built must be disposed; only nodes present at
+            // snapshot time (the app signal) remain.
+            let report = leak_report(&snap);
+            assert!(
+                report.is_empty(),
+                "page leaked {} build-time node(s) after drop: {report}",
+                report.len()
+            );
+        });
+    }
+
+    /// Navigation round-trip leak test (WS3.1 acceptance): building and
+    /// dropping pages — what `goto` does on every navigation — must return the
+    /// runtime node population to baseline. Before the per-page scope, each
+    /// visited page leaked all its build-time nodes, growing unbounded with
+    /// navigation depth.
+    #[test]
+    fn page_navigation_round_trip_is_leak_free() {
+        use rsact_reactive::runtime::{
+            current_runtime_profile, with_new_runtime,
+        };
+
+        with_new_runtime(|_| {
+            // One warm-up cycle absorbs any first-time lazy allocation so the
+            // baseline reflects the steady state.
+            {
+                let mut page =
+                    create_null_page(|| Label::new("x".inert()).el());
+                page.use_renderer(|_| {});
+            }
+            let baseline = current_runtime_profile().total();
+
+            for _ in 0..50 {
+                let mut page =
+                    create_null_page(|| Label::new("x".inert()).el());
+                page.use_renderer(|_| {});
+                drop(page);
+            }
+
+            let after = current_runtime_profile().total();
+            assert_eq!(
+                after, baseline,
+                "navigation leaked {} node(s) over 50 round-trips",
+                after as i64 - baseline as i64
             );
         });
     }
