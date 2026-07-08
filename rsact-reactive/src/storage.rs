@@ -361,7 +361,7 @@ pub enum ValueKind {
 /// A cheap `Copy` discriminant of [`ValueKind`], used on hot paths that only
 /// need to know *which* kind a value is (state machine, effect detection)
 /// without cloning the `Rc`-holding [`ValueKind`] out of storage.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ValueKindTag {
     Stored,
     Signal,

@@ -811,6 +811,22 @@ impl Runtime {
         }
     }
 
+    /// Restore `current_scope` to `scope_id`'s parent WITHOUT disposing the
+    /// scope, and only if `scope_id` is still current (same guard as
+    /// [`Runtime::drop_scope`]). This is the non-lexical counterpart of
+    /// dropping a scope handle: a page tree is built with its scope current,
+    /// then `exit_scope` stops the scope capturing later work while keeping it
+    /// alive so its handle can dispose everything it built on navigation
+    /// (WS3.1). Idempotent: a second call after the scope is no longer current
+    /// is a no-op.
+    pub(crate) fn exit_scope(&self, scope_id: ScopeId) {
+        if self.current_scope.get() == Some(scope_id) {
+            let parent =
+                self.scopes.borrow().get(scope_id).and_then(|s| s.parent);
+            self.current_scope.set(parent);
+        }
+    }
+
     pub(crate) fn drop_scope(&self, scope_id: ScopeId) {
         // Release the borrow immediately so dispose() can run without
         // conflicts.

@@ -16,6 +16,7 @@ use alloc::vec::Vec;
 use dev::{DevHoveredEl, DevTools};
 use log::{debug, info};
 use rsact_reactive::prelude::*;
+use rsact_reactive::scope::ScopeHandle;
 
 pub mod dev;
 pub mod id;
@@ -67,6 +68,17 @@ pub struct Page<W: WidgetCtx> {
     /// when a tracked dependency changed or a redraw is forced. Owned by the
     /// page — disposed in `Drop` alongside the arena.
     render_probe: Probe,
+    /// The page's reactive scope (WS3.1). Everything the page built —
+    /// `init_page()`'s widgets (run before `Page::new` while this scope is
+    /// current) and `Page::new`'s per-page nodes (`force_redraw`, the layout
+    /// memo, `style`) — is owned by this scope, so dropping the page (goto
+    /// navigation frees the old page) disposes it all. Declared last so it
+    /// drops *after* the `Drop` body's explicit WS2 probe/arena disposal; nodes
+    /// that body already disposed (`render_probe`, arena) are skipped by
+    /// `drop_scope`'s `is_alive` guard. Always present: `Page::new` requires the
+    /// caller to hand it the scope that was current during the build (G11 —
+    /// page-created is page-owned, no unmanaged pages).
+    scope: ScopeHandle,
 }
 
 impl<W: WidgetCtx> Drop for Page<W> {
@@ -98,6 +110,11 @@ impl<W: WidgetCtx> Page<W> {
         dev_tools: Signal<DevTools>,
         renderer: Signal<W::Renderer>,
         fonts: Signal<FontCtx>,
+        // The page scope (WS3.1, G11). The caller creates it with `new_scope()`
+        // *before* evaluating `root`/`init_page()` so it is current for the
+        // whole build (the widget tree AND the per-page nodes below); `Page::new`
+        // `leave`s it at the end and takes ownership, disposing it on drop.
+        scope: ScopeHandle,
     ) -> Self {
         let mut root: El<W> = root.into_el();
         let state = PageState::new();
@@ -157,6 +174,11 @@ impl<W: WidgetCtx> Page<W> {
         // it and disposes it explicitly in `Drop` (WS2.3).
         let render_probe = untrack(create_probe);
 
+        // The page tree is fully built; `leave` restores the previously-current
+        // scope so later work (renders, events) is not captured here, while the
+        // handle stays alive to dispose everything on page drop (WS3.1).
+        scope.leave();
+
         Self {
             id,
             root,
@@ -174,6 +196,7 @@ impl<W: WidgetCtx> Page<W> {
             render_calls: 0,
             fonts,
             render_probe,
+            scope,
         }
     }
 
@@ -410,6 +433,13 @@ impl<W: WidgetCtx> Page<W> {
         &mut self,
         event: Event<W::CustomEvent>,
     ) -> Option<UnhandledEvent<W>> {
+        // WS3.3: drop any focus/pointer references to elements that have left
+        // the arena since the last event (a `Dynamic` rebuild or list update
+        // between frames), so the `captured_by` fast-path below — and the
+        // normal focus/hover routing — never dispatch to a freed id (D2-F5).
+        let arena = self.arena;
+        arena.with(|arena| self.state.retain_existing(arena));
+
         // === Pointer capture ===
         // While a widget holds the pointer capture, every mouse event is
         // delivered to it exclusively — no hit-testing and no hover changes —
@@ -712,12 +742,20 @@ mod tests {
     };
     use alloc::string::String;
     use rsact_reactive::prelude::*;
+    use rsact_reactive::scope::new_scope;
 
     type NullWtf = Wtf<NullRenderer, (), (), ()>;
 
     fn create_null_page(root: impl View<NullWtf>) -> Page<NullWtf> {
+        // Mirror `UI::load_page` (WS3.1): the arena is created outside the page
+        // scope (it keeps its explicit WS2 disposal), then the page is built
+        // with a fresh scope current so every build-time reactive node the page
+        // creates is scope-owned and disposed when the page drops. `root` is a
+        // closure here in the scope-sensitive tests, so its `into_el` (and any
+        // `Dynamic` effects) run inside `Page::new` while the scope is current.
         let arena = create_signal(ElArena::new()).name("Page arena");
 
+        let scope = new_scope();
         Page::new(
             (),
             root,
@@ -727,6 +765,7 @@ mod tests {
             DevTools::default().signal(),
             NullRenderer::default().signal(),
             FontCtx::new().signal(),
+            scope,
         )
     }
 
@@ -835,6 +874,244 @@ mod tests {
                 "remove_subtree did not dispose the removed subtree's probe(s) \
                  (before={with_child}, after={after})"
             );
+        });
+    }
+
+    /// D2-F1 disposed-arena delayed-panic repro (WS3.1). A page's `Dynamic`
+    /// reads an app-level signal that OUTLIVES the page. After navigating away
+    /// (dropping the page — goto frees the old page), firing the app signal
+    /// must not re-run the page's build-time effects: they were built against
+    /// the now-freed arena. Before WS3.1 the page owned no scope, so the
+    /// `Dynamic` build effect survived the drop, re-ran on the write, and
+    /// touched the disposed arena (panic / logged dead-handle churn) — and the
+    /// build-time nodes leaked. After WS3.1 the page scope disposes them on
+    /// drop, so the write is inert and nothing survives.
+    #[test]
+    fn disposed_page_effect_does_not_panic_on_app_signal() {
+        use rsact_reactive::{
+            leak::{leak_report, leak_snapshot},
+            runtime::with_new_runtime,
+        };
+
+        with_new_runtime(|_| {
+            // App-level signal, created OUTSIDE any page — it must survive
+            // navigation and remain safe to write.
+            let mut app_signal = create_signal(0i32);
+
+            let snap = leak_snapshot();
+
+            {
+                // A page whose `Dynamic` root subscribes to the app signal.
+                let mut page = create_null_page(move || {
+                    app_signal.get(); // Dynamic factory tracks app_signal
+                    Label::new("x".inert()).el()
+                });
+                // Build the Dynamic child so its build effect actually runs.
+                page.use_renderer(|_| {});
+                // Navigate away.
+                drop(page);
+            }
+
+            // Firing the app signal after the page is gone must not panic and
+            // must not resurrect any disposed effect.
+            app_signal.set(1);
+            app_signal.set(2);
+
+            // Every node the page built must be disposed; only nodes present at
+            // snapshot time (the app signal) remain.
+            let report = leak_report(&snap);
+            assert!(
+                report.is_empty(),
+                "page leaked {} build-time node(s) after drop: {report}",
+                report.len()
+            );
+        });
+    }
+
+    /// Navigation round-trip leak test (WS3.1 acceptance): building and
+    /// dropping pages — what `goto` does on every navigation — must return the
+    /// runtime node population to baseline. Before the per-page scope, each
+    /// visited page leaked all its build-time nodes, growing unbounded with
+    /// navigation depth.
+    #[test]
+    fn page_navigation_round_trip_is_leak_free() {
+        use rsact_reactive::runtime::{
+            current_runtime_profile, with_new_runtime,
+        };
+
+        with_new_runtime(|_| {
+            // One warm-up cycle absorbs any first-time lazy allocation so the
+            // baseline reflects the steady state.
+            {
+                let mut page =
+                    create_null_page(|| Label::new("x".inert()).el());
+                page.use_renderer(|_| {});
+            }
+            let baseline = current_runtime_profile().total();
+
+            for _ in 0..50 {
+                let mut page =
+                    create_null_page(|| Label::new("x".inert()).el());
+                page.use_renderer(|_| {});
+                drop(page);
+            }
+
+            let after = current_runtime_profile().total();
+            assert_eq!(
+                after,
+                baseline,
+                "navigation leaked {} node(s) over 50 round-trips",
+                after as i64 - baseline as i64
+            );
+        });
+    }
+
+    /// Subtree disposal (WS3.2): rebuilding a `Dynamic` child must not leak the
+    /// old subtree's *reactive* nodes (the WS2 `arena_rebuild_does_not_leak_subtree`
+    /// test covers only arena `ElData`; this covers signals/memos/layouts). The
+    /// factory runs inside the `Dynamic` layout effect, so each rebuild's
+    /// widgets are owned by that effect and disposed by its `cleanup` on the
+    /// next run. A nested reactive subtree (`Container` > `Checkbox`, which mints
+    /// a signal + layout) exercises recursive owned-child disposal.
+    #[test]
+    fn dynamic_rebuild_does_not_leak_reactive_nodes() {
+        use crate::widget::{checkbox::Checkbox, container::Container};
+        use rsact_reactive::runtime::{
+            current_runtime_profile, with_new_runtime,
+        };
+
+        with_new_runtime(|_| {
+            let mut rebuild = create_signal(0i32);
+            let _page = create_null_page(move || {
+                rebuild.get(); // track: re-run the factory on each change
+                Container::new(Checkbox::new(false).el()).el()
+            });
+
+            // The layout effect ran once at construction; measure the steady
+            // state, then rebuild many times.
+            let baseline = current_runtime_profile().total();
+
+            for i in 1..=20 {
+                rebuild.set(i);
+            }
+
+            let after = current_runtime_profile().total();
+            assert_eq!(
+                after,
+                baseline,
+                "dynamic rebuild leaked {} reactive node(s) over 20 rebuilds",
+                after as i64 - baseline as i64
+            );
+        });
+    }
+
+    /// PageState pruning (WS3.3): once an element leaves the arena (subtree
+    /// replace / `Dynamic` rebuild / navigation), focus and pointer state must
+    /// stop referencing it so events are never routed to a freed id (D2-F5);
+    /// an id still present is kept.
+    #[test]
+    fn pagestate_forgets_removed_element_ids() {
+        use crate::widget::{container::Container, label::Label};
+        use rsact_reactive::runtime::with_new_runtime;
+
+        with_new_runtime(|_| {
+            let mut page = create_null_page(|| {
+                Container::new(Label::new("x".inert()).el()).el()
+            });
+            // Build the tree so the Dynamic root's child exists.
+            page.use_renderer(|_| {});
+
+            let root = page.root;
+            let child = page
+                .arena
+                .with(|arena| {
+                    arena.children(root).and_then(|c| c.first().copied())
+                })
+                .expect("root must have a child after build");
+
+            // Point every PageState reference at the child.
+            page.state.focused = Some((child, 0));
+            page.state.focus_pressed = true;
+            page.state.pointer.captured_by = Some(child);
+            page.state.pointer.hovered = Some(child);
+            page.state.pointer.pressed = Some(child);
+
+            // Remove the child subtree from the arena.
+            page.arena.update_untracked(|arena| {
+                arena.set_children(root, alloc::vec::Vec::new());
+            });
+
+            // Prune: every reference to the now-freed child is dropped.
+            let arena = page.arena;
+            arena.with(|arena| page.state.retain_existing(arena));
+
+            assert_eq!(page.state.focused, None, "focused not cleared");
+            assert!(!page.state.focus_pressed, "focus_pressed not cleared");
+            assert_eq!(
+                page.state.pointer.captured_by, None,
+                "captured_by not cleared"
+            );
+            assert_eq!(page.state.pointer.hovered, None, "hovered not cleared");
+            assert_eq!(page.state.pointer.pressed, None, "pressed not cleared");
+
+            // A reference to a still-present element (the root) is retained.
+            page.state.focused = Some((root, 3));
+            arena.with(|arena| page.state.retain_existing(arena));
+            assert_eq!(
+                page.state.focused,
+                Some((root, 3)),
+                "focus on a live element was wrongly cleared"
+            );
+        });
+    }
+
+    /// WS3.5: when the arena child list and the layout tree diverge in length
+    /// (a rebuild/list update between frames), the event pass must degrade to
+    /// the common prefix and log — never abort. Here we force a divergence by
+    /// dropping an arena child without relaying out, then route an event; the
+    /// checked zip iterates the common prefix and reaching the end of the test
+    /// (no panic) is the assertion.
+    #[test]
+    fn arena_layout_divergence_degrades_without_panic() {
+        use crate::event::{Event, MouseEvent};
+        use crate::widget::{flex::Flex, label::Label};
+        use rsact_reactive::runtime::with_new_runtime;
+
+        with_new_runtime(|_| {
+            let mut page = create_null_page(
+                Flex::col(alloc::vec![
+                    Label::new("a".inert()).el(),
+                    Label::new("b".inert()).el(),
+                    Label::new("c".inert()).el(),
+                ])
+                .el(),
+            );
+
+            // Build the layout tree (3 children) without rendering — the null
+            // theme panics on a Label's unset text color, and the event pass is
+            // what we want to exercise anyway.
+            let pt = page.layout.with(|m| m.tree_root().outer.center());
+            let _ = page.handle_events(core::iter::once(Event::Mouse(
+                MouseEvent::MouseMove(pt),
+            )));
+
+            let root = page.root;
+            let kids: Vec<_> = page
+                .arena
+                .with(|a| a.children(root).map(|c| c.to_vec()))
+                .unwrap_or_default();
+            assert_eq!(kids.len(), 3, "flex root should have 3 children");
+
+            // Desync: drop one arena child WITHOUT relayout, so the arena (2)
+            // and the still-cached layout (3) diverge.
+            page.arena.update_untracked(|a| {
+                a.set_children(root, alloc::vec![kids[0], kids[1]])
+            });
+
+            // Route another event through the divergence. No panic ⇒ pass.
+            let _ = page.handle_events(core::iter::once(Event::Mouse(
+                MouseEvent::MouseMove(pt),
+            )));
         });
     }
 
@@ -1363,6 +1640,7 @@ mod tests {
             let renderer = RecordingRenderer::default();
             let paths = renderer.paths.clone();
             let arena = create_signal(ElArena::new()).name("Page arena");
+            let scope = new_scope();
             let mut page: Page<RecWtf> = Page::new(
                 (),
                 Checkbox::<RecWtf>::new(false),
@@ -1372,6 +1650,7 @@ mod tests {
                 DevTools::default().signal(),
                 renderer.signal(),
                 FontCtx::new().signal(),
+                scope,
             );
 
             // Settle; value is false, so no icon is drawn yet.
@@ -1431,6 +1710,7 @@ mod tests {
             let renderer = RecordingRenderer::default();
             let paths = renderer.paths.clone();
             let arena = create_signal(ElArena::new()).name("Page arena");
+            let scope = new_scope();
             let mut page: Page<RecWtf> = Page::new(
                 (),
                 dynamic(|| Checkbox::<RecWtf>::new(false)),
@@ -1440,6 +1720,7 @@ mod tests {
                 DevTools::default().signal(),
                 renderer.signal(),
                 FontCtx::new().signal(),
+                scope,
             );
 
             for _ in 0..4 {

@@ -9,3 +9,7 @@ pub mod prelude {
 // pub use rsact_encoder as encoder;
 // pub use rsact_reactive as reactive;
 pub use rsact_ui as ui;
+
+/// One-shot render for static / e-paper-class displays (WS3.4). See
+/// [`rsact_ui::ui::render_once`].
+pub use rsact_ui::ui::render_once;

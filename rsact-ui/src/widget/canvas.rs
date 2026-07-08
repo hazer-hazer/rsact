@@ -102,12 +102,14 @@ mod tests {
     };
     use alloc::rc::Rc;
     use core::cell::Cell;
+    use rsact_reactive::scope::new_scope;
     use rsact_render::renderer::NullRenderer;
 
     type NullWtf = Wtf<NullRenderer, (), (), ()>;
 
     fn null_page(root: impl View<NullWtf>) -> Page<NullWtf> {
         let arena = create_signal(ElArena::new());
+        let scope = new_scope();
         Page::new(
             (),
             root,
@@ -117,6 +119,7 @@ mod tests {
             DevTools::default().signal(),
             NullRenderer::default().signal(),
             FontCtx::new().signal(),
+            scope,
         )
     }
 

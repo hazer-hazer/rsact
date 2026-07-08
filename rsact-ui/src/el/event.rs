@@ -84,6 +84,12 @@ impl<'a, W: WidgetCtx> EventPass<'a, W> {
             }
             None
         } else if let Some(children_ids) = self.children.get(id) {
+            crate::el::check_children_parallel(
+                "event(run_to)",
+                id,
+                children_ids.len(),
+                layout.children_len(),
+            );
             for (child, child_layout) in
                 children_ids.iter().zip(layout.children())
             {
@@ -121,6 +127,12 @@ impl<'a, W: WidgetCtx> EventPass<'a, W> {
                 );
             }
         } else if let Some(children_ids) = self.children.get(id) {
+            crate::el::check_children_parallel(
+                "event(run)",
+                id,
+                children_ids.len(),
+                layout.children_len(),
+            );
             for (child, child_layout) in
                 children_ids.iter().zip(layout.children())
             {

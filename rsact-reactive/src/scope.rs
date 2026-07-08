@@ -111,6 +111,22 @@ impl ScopeHandle {
     pub(crate) fn new(scope_id: ScopeId) -> Self {
         Self { scope_id }
     }
+
+    /// Restore the previously-current scope without disposing this one.
+    ///
+    /// [`new_scope`] makes the scope current and keeps it current until its
+    /// handle drops — correct for lexical, LIFO usage. A scope that must
+    /// *outlive* the code that built it (a page tree, built once and held
+    /// across frames) needs the opposite: build with the scope current, then
+    /// `leave()` so work done afterwards is owned by the enclosing scope
+    /// instead of accumulating in this one — while the handle stays alive to
+    /// dispose everything it built when it drops later, non-lexically (WS3.1).
+    ///
+    /// Restores `current_scope` to this scope's parent only if this scope is
+    /// still current; idempotent otherwise.
+    pub fn leave(&self) {
+        with_current_runtime(|rt| rt.exit_scope(self.scope_id));
+    }
 }
 
 impl Drop for ScopeHandle {
@@ -288,6 +304,49 @@ mod tests {
                 !after.is_alive(),
                 "value created after inner scope drop leaked (not owned by \
                  the restored outer scope)"
+            );
+        });
+    }
+
+    /// `leave()` restores `current_scope` to the scope's parent WITHOUT
+    /// disposing the scope — the page-scope pattern (WS3.1): build a tree inside
+    /// the scope, `leave()` so later work does not land in it, but keep the
+    /// scope alive to dispose everything it built when its handle drops later
+    /// (non-lexically, on navigation).
+    #[test]
+    fn leave_restores_current_to_parent() {
+        with_new_runtime(|_| {
+            let outer = new_scope();
+
+            // A "page" scope: enter (new_scope makes it current), build, leave.
+            let page = new_scope();
+            let built = create_signal(0i32); // owned by the page scope
+            page.leave(); // current_scope restored to `outer`
+
+            // Work done after leaving must land in `outer`, not `page`.
+            let after = create_signal(1i32);
+
+            // The page scope is still alive and still owns `built`.
+            assert!(built.is_alive());
+            assert!(after.is_alive());
+
+            // Dropping the page disposes what it built, not `after`.
+            drop(page);
+            assert!(
+                !built.is_alive(),
+                "page scope did not own the value built inside it"
+            );
+            assert!(
+                after.is_alive(),
+                "value created after leave() wrongly owned by the left page \
+                 scope"
+            );
+
+            // `after` is owned by outer, so it dies with outer.
+            drop(outer);
+            assert!(
+                !after.is_alive(),
+                "value after leave() not owned by the restored outer scope"
             );
         });
     }

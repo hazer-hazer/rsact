@@ -41,7 +41,7 @@ pub mod prelude {
             stylist::{InheritedStylist, InternalStylist, Stylist},
         },
         style::{declare_widget_style, theme::Theme},
-        ui::UI,
+        ui::{UI, render_once},
         widget::{
             button::*, checkbox::*, container::*, dynamic::*, edge::*, flex::*,
             label::*, prelude::*, scrollable::*, select::*, slider::*,
