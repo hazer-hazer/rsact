@@ -1,0 +1,24 @@
+{
+  "name": "rsact-metrics-viewer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "WS0.9e metrics dashboard (Vue 3 SFC). `npm run build` emits a single self-contained dist/index.html with a __DATA__ placeholder; metrics-probe include_str!s that file and injects the snapshot/index JSON at generation time.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "vue": "^3.5.39"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.7",
+    "@vue/test-utils": "^2.4.11",
+    "jsdom": "^29.1.1",
+    "vite": "^8.1.3",
+    "vite-plugin-singlefile": "^2.3.3",
+    "vitest": "^4.1.10"
+  }
+}
