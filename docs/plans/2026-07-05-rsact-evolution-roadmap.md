@@ -72,7 +72,7 @@
             └───────────────────────────────────────────────────────────────┘
 ```
 
-**Suggested execution order:** WS0 ✓ ∥ WS1 ✓ ∥ WS1b ✓ → WS2 ✓ → (WS3 ∥ WS4 ∥ WS9a) → WS5 → WS6 → WSi → WS7 → (WS8 ∥ WS10 ∥ WS9b) → WS11 → WS12 → (WS13 ∥ WS14 ∥ WS15 ∥ WS16 ∥ WS18). WS17 may start any time after WS6 — ideally before WS11.7 needs its README numbers. **WS19 (website) is fully independent — any time** (metrics infra delivered). **Now actionable (2026-07-08): WS4 ∥ WS19 ∥ WS9a-remainder** (WS3 ✓ done); parallel sessions need separate worktrees.
+**Suggested execution order:** WS0 ✓ ∥ WS1 ✓ ∥ WS1b ✓ → WS2 ✓ → (WS3 ∥ WS4 ∥ WS9a) → WS5 → WS6 → WSi → WS7 → (WS8 ∥ WS10 ∥ WS9b) → WS11 → WS12 → (WS13 ∥ WS14 ∥ WS15 ∥ WS16 ∥ WS18). WS17 may start any time after WS6 — ideally before WS11.7 needs its README numbers. **WS19 (website) is fully independent — any time** (metrics infra delivered). **Now actionable (2026-07-08): WS4 ∥ WS19 ∥ WS9a-remainder.** WS3 ✓ complete on **PR #7** (CI green; merge is the remaining human step — its merge also brings the WS3 status block, the Q1 landing, and the **Q2 pass-scoped no-create gate proposal** into this file). **WS9b: design PR #6 (DRAFT) is BLOCKED on two maintainer decisions** — the WS4-gate choice (PR recommends: WS4 first or slot order) and the 9b.1 read-path fork (PR recommends: hybrid iii) — decide on the PR before any 9b code. Parallel sessions need separate worktrees.
 WS7's _decisions_ are locked at Gate time (now); only its _execution_ is late. 7.2's cheap `Dir`/`V` de-genericization may ride along with WS2/WS4 if convenient — it's zero-user-impact. (7.1 no longer qualifies: G5 keeps `Event::Custom`, and its remaining scope carries a breaking rename plus a G4-dependent default.)
 
 ---
