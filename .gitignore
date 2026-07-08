@@ -5,5 +5,7 @@
 # Snapshots are per-dev/per-commit local artifacts; CI archives its own.
 /metrics/snapshots/
 /metrics/index.html
+# WS0.9e commit-ordering index (generated; durable copy lives on metrics-data).
+/metrics/index.json
 # WS0.8 post-commit hook log (local).
 /metrics/hook.log

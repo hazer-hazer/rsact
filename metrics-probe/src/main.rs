@@ -17,6 +17,7 @@ pub(crate) use rsact_reactive::alloc_probe as alloc;
 
 mod benches;
 mod html;
+mod index;
 mod scenarios;
 mod sizes;
 mod snapshot;
@@ -93,6 +94,7 @@ fn cmd_record(with_sizes: bool, with_benches: bool) -> std::io::Result<()> {
         snap.scenarios.len()
     );
     print_snapshot(&snap);
+    update_index(&snap)?;
     html::regenerate(&dir)?;
     Ok(())
 }
@@ -148,6 +150,84 @@ fn git_rev_parse(rev: &str) -> Option<String> {
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .filter(|s| !s.is_empty())
+}
+
+/// Run `git <args>` and return trimmed stdout on success, else `None`.
+fn git_out(args: &[&str]) -> Option<String> {
+    Command::new("git")
+        .args(args)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+}
+
+/// Ordering metadata for `rev` from git (WS0.9e): committer date, first-parent
+/// hash, and a `name-rev` branch hint. All resolvable for HEAD even at shallow
+/// `fetch-depth: 1` — the parent *hash* lives in HEAD's own commit object. A
+/// root commit (no parent), an un-nameable rev, or a commit git can't see
+/// (shallow) yields "" / 0, which the viewer treats as "order by date".
+fn git_index_entry(rev: &str) -> index::IndexEntry {
+    let date = git_out(&["show", "-s", "--format=%ct", rev])
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(0);
+    let parent =
+        git_out(&["rev-parse", "--verify", "--quiet", &format!("{rev}^")])
+            .unwrap_or_default();
+    let branch = git_out(&["name-rev", "--name-only", rev])
+        .filter(|s| s != "undefined")
+        .unwrap_or_default();
+    index::IndexEntry { date, parent, branch }
+}
+
+/// Merge one snapshot's rev into `metrics/index.json` (incremental, shallow-safe
+/// — used by `record`).
+fn update_index(snap: &Snapshot) -> std::io::Result<()> {
+    let path = Path::new(index::INDEX_PATH);
+    let mut idx = index::load(path);
+    index::merge_entry(&mut idx, &snap.git_rev, git_index_entry(&snap.git_rev));
+    index::save(&idx, path)
+}
+
+/// Full commit hashes that have a snapshot on disk (strips `.json` and the
+/// `-dirty` suffix; de-duplicated).
+fn snapshot_revs(dir: &Path) -> Vec<String> {
+    let mut revs: Vec<String> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let p = e.path();
+            if p.extension().and_then(|x| x.to_str()) != Some("json") {
+                return None;
+            }
+            let stem = p.file_stem()?.to_str()?;
+            Some(stem.strip_suffix("-dirty").unwrap_or(stem).to_string())
+        })
+        .collect();
+    revs.sort();
+    revs.dedup();
+    revs
+}
+
+/// `index` subcommand (WS0.9e backfill finalize): rebuild `metrics/index.json`
+/// entries for **every** snapshot rev from full git history. Only overwrites a
+/// rev's entry when git can resolve it (date != 0), so on a shallow checkout it
+/// harmlessly leaves unresolvable revs to whatever they already had.
+fn cmd_index() -> std::io::Result<()> {
+    let path = Path::new(index::INDEX_PATH);
+    let mut idx = index::load(path);
+    let mut resolved = 0;
+    for rev in snapshot_revs(Path::new(SNAPSHOT_DIR)) {
+        let entry = git_index_entry(&rev);
+        if entry.date != 0 {
+            index::merge_entry(&mut idx, &rev, entry);
+            resolved += 1;
+        }
+    }
+    index::save(&idx, path)?;
+    println!("index: {} entries ({resolved} resolved from git)", idx.len());
+    Ok(())
 }
 
 fn cmd_diff(
@@ -347,7 +427,7 @@ fn cmd_hook_install() -> std::io::Result<()> {
 
 fn usage() -> ! {
     eprintln!(
-        "usage:\n  metrics-probe record [--sizes] [--benches]\n  metrics-probe diff [--sizes] [--benches] <rev|file>\n  metrics-probe html\n  metrics-probe hook-install\n\n  --sizes    also build the thumb size-probes and record .text/.rodata/.bss (Layer 2, slower)\n  --benches  also read criterion medians from target/criterion (run `cargo bench` first; WS0.9d)"
+        "usage:\n  metrics-probe record [--sizes] [--benches]\n  metrics-probe diff [--sizes] [--benches] <rev|file>\n  metrics-probe html\n  metrics-probe index\n  metrics-probe hook-install\n\n  record     snapshot HEAD; also merges HEAD into metrics/index.json (ordering)\n  index      rebuild metrics/index.json for every snapshot rev from git history (WS0.9e backfill finalize)\n  --sizes    also build the thumb size-probes and record .text/.rodata/.bss (Layer 2, slower)\n  --benches  also read criterion medians from target/criterion (run `cargo bench` first; WS0.9d)"
     );
     std::process::exit(2);
 }
@@ -365,6 +445,7 @@ fn main() {
             None => usage(),
         },
         Some("html") => html::regenerate(Path::new(SNAPSHOT_DIR)),
+        Some("index") => cmd_index(),
         Some("hook-install") => cmd_hook_install(),
         _ => usage(),
     };
