@@ -69,14 +69,16 @@ pub struct Page<W: WidgetCtx> {
     /// page — disposed in `Drop` alongside the arena.
     render_probe: Probe,
     /// The page's reactive scope (WS3.1). Everything the page built —
-    /// `init_page()`'s widgets and `Page::new`'s per-page nodes (`force_redraw`,
-    /// the layout memo, `style`) — is owned by this scope, so dropping the page
-    /// (goto navigation frees the old page) disposes it all. Declared last so
-    /// it drops *after* the `Drop` body's explicit WS2 probe/arena disposal;
-    /// nodes that body already disposed (`render_probe`, arena) are skipped by
-    /// `drop_scope`'s `is_alive` guard. `None` for pages built without a scope
-    /// (some tests) — their build-time nodes are then intentionally unmanaged.
-    scope: Option<ScopeHandle>,
+    /// `init_page()`'s widgets (run before `Page::new` while this scope is
+    /// current) and `Page::new`'s per-page nodes (`force_redraw`, the layout
+    /// memo, `style`) — is owned by this scope, so dropping the page (goto
+    /// navigation frees the old page) disposes it all. Declared last so it
+    /// drops *after* the `Drop` body's explicit WS2 probe/arena disposal; nodes
+    /// that body already disposed (`render_probe`, arena) are skipped by
+    /// `drop_scope`'s `is_alive` guard. Always present: `Page::new` requires the
+    /// caller to hand it the scope that was current during the build (G11 —
+    /// page-created is page-owned, no unmanaged pages).
+    scope: ScopeHandle,
 }
 
 impl<W: WidgetCtx> Drop for Page<W> {
@@ -108,6 +110,11 @@ impl<W: WidgetCtx> Page<W> {
         dev_tools: Signal<DevTools>,
         renderer: Signal<W::Renderer>,
         fonts: Signal<FontCtx>,
+        // The page scope (WS3.1, G11). The caller creates it with `new_scope()`
+        // *before* evaluating `root`/`init_page()` so it is current for the
+        // whole build (the widget tree AND the per-page nodes below); `Page::new`
+        // `leave`s it at the end and takes ownership, disposing it on drop.
+        scope: ScopeHandle,
     ) -> Self {
         let mut root: El<W> = root.into_el();
         let state = PageState::new();
@@ -167,6 +174,11 @@ impl<W: WidgetCtx> Page<W> {
         // it and disposes it explicitly in `Drop` (WS2.3).
         let render_probe = untrack(create_probe);
 
+        // The page tree is fully built; `leave` restores the previously-current
+        // scope so later work (renders, events) is not captured here, while the
+        // handle stays alive to dispose everything on page drop (WS3.1).
+        scope.leave();
+
         Self {
             id,
             root,
@@ -184,16 +196,8 @@ impl<W: WidgetCtx> Page<W> {
             render_calls: 0,
             fonts,
             render_probe,
-            scope: None,
+            scope,
         }
-    }
-
-    /// Attach the page's reactive scope (WS3.1). Called by the builder
-    /// (`UI::load_page`) after building the page tree with the scope current
-    /// and then `leave`-ing it: the page now owns the scope and disposes it on
-    /// drop. See the `scope` field docs.
-    pub(crate) fn set_scope(&mut self, scope: ScopeHandle) {
-        self.scope = Some(scope);
     }
 
     pub(crate) fn id(&self) -> W::PageId {
@@ -752,7 +756,7 @@ mod tests {
         let arena = create_signal(ElArena::new()).name("Page arena");
 
         let scope = new_scope();
-        let mut page = Page::new(
+        Page::new(
             (),
             root,
             arena,
@@ -761,10 +765,8 @@ mod tests {
             DevTools::default().signal(),
             NullRenderer::default().signal(),
             FontCtx::new().signal(),
-        );
-        scope.leave();
-        page.set_scope(scope);
-        page
+            scope,
+        )
     }
 
     /// Rebuilding a subtree must not leak the old subtree in the arena. A
@@ -1638,6 +1640,7 @@ mod tests {
             let renderer = RecordingRenderer::default();
             let paths = renderer.paths.clone();
             let arena = create_signal(ElArena::new()).name("Page arena");
+            let scope = new_scope();
             let mut page: Page<RecWtf> = Page::new(
                 (),
                 Checkbox::<RecWtf>::new(false),
@@ -1647,6 +1650,7 @@ mod tests {
                 DevTools::default().signal(),
                 renderer.signal(),
                 FontCtx::new().signal(),
+                scope,
             );
 
             // Settle; value is false, so no icon is drawn yet.
@@ -1706,6 +1710,7 @@ mod tests {
             let renderer = RecordingRenderer::default();
             let paths = renderer.paths.clone();
             let arena = create_signal(ElArena::new()).name("Page arena");
+            let scope = new_scope();
             let mut page: Page<RecWtf> = Page::new(
                 (),
                 dynamic(|| Checkbox::<RecWtf>::new(false)),
@@ -1715,6 +1720,7 @@ mod tests {
                 DevTools::default().signal(),
                 renderer.signal(),
                 FontCtx::new().signal(),
+                scope,
             );
 
             for _ in 0..4 {

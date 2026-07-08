@@ -277,15 +277,15 @@ impl<W: WidgetCtx> UI<W, WithPages> {
 
         // WS3.1 (G11): page-created = page-owned. Build the whole page — the
         // user's widgets (`init_page`) AND `Page::new`'s per-page nodes — with a
-        // fresh scope current, then `leave` it (restoring the previous current
-        // scope so later work isn't captured) and hand the still-alive handle to
-        // the page. Dropping the page (goto navigation frees the old page)
-        // disposes everything the page built, killing the navigation leak and
-        // the disposed-arena delayed panic (a `Dynamic` build effect no longer
-        // outlives its arena). Signals meant to outlive a page must be created
-        // outside the `PageInitFn` — that is the contract.
+        // fresh scope current, and hand the still-alive handle to `Page::new`,
+        // which `leave`s it (restoring the previous current scope so later work
+        // isn't captured) and takes ownership. Dropping the page (goto
+        // navigation frees the old page) disposes everything the page built,
+        // killing the navigation leak and the disposed-arena delayed panic (a
+        // `Dynamic` build effect no longer outlives its arena). Signals meant to
+        // outlive a page must be created outside the `PageInitFn` — the contract.
         let scope = new_scope();
-        let mut page = Page::new(
+        Page::new(
             id,
             page_fn.init_page(),
             arena,
@@ -294,10 +294,8 @@ impl<W: WidgetCtx> UI<W, WithPages> {
             self.dev_tools,
             self.renderer,
             self.fonts,
-        );
-        scope.leave();
-        page.set_scope(scope);
-        page
+            scope,
+        )
     }
 
     /// Get mutable reference to currently active [`Page`]. You likely don't
