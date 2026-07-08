@@ -1138,12 +1138,14 @@ Strategic growth vectors beyond the plan and backlog. None are scheduled; each d
 ## Baselines & verification commands (ACTUALIZED 2026-07-07 — WS0 complete through 0.9; CI runs these same checks via `.github/workflows/ci.yml` + the runnable scripts it wraps)
 
 ```sh
-cargo test -p rsact-reactive --features std -- --test-threads=1   # 68 pass / 1 known-fail:
+cargo test -p rsact-reactive --features std -- --test-threads=1   # 75 pass / 1 known-fail:
+#   (was 68 pre-WS3; WS3.0a added 2 leak tests + WS3.1 added ScopeHandle::leave test — all pass)
 #   maybe::tests::static_wrapper → WS4's acceptance test (must flip to pass). The old second
 #   known-fail (observe_recreates_disposed_child_observer) no longer exists — rewritten per G2
 #   in WS2 as child_observer_reruns_only_on_own_dep_change (passing). Doctests: 4 pre-existing
 #   maybe-module failures, unrelated — do not chase.
-cargo test -p rsact-ui --lib --features "std,embedded-graphics" -- --test-threads=1   # 53 / 0
+cargo test -p rsact-ui --lib --features "std,embedded-graphics" -- --test-threads=1   # 60 / 0
+#   (was 53 pre-WS3; +7 WS3 lifecycle/repro tests)
 #   (--lib is required: examples lack required-features; a font provider feature is required)
 cargo test -p rsact-render --features "std,embedded-graphics,tiny-skia" -- --test-threads=1  # 6 / 0
 cargo test -p metrics-probe --features layout-counters              # 3 / 0 (parallel-safe)

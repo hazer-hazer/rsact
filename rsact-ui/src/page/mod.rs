@@ -956,7 +956,8 @@ mod tests {
 
             let after = current_runtime_profile().total();
             assert_eq!(
-                after, baseline,
+                after,
+                baseline,
                 "navigation leaked {} node(s) over 50 round-trips",
                 after as i64 - baseline as i64
             );
@@ -994,7 +995,8 @@ mod tests {
 
             let after = current_runtime_profile().total();
             assert_eq!(
-                after, baseline,
+                after,
+                baseline,
                 "dynamic rebuild leaked {} reactive node(s) over 20 rebuilds",
                 after as i64 - baseline as i64
             );
