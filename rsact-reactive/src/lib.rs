@@ -22,6 +22,7 @@ pub mod alloc_probe;
 pub mod async_rt;
 pub mod effect;
 pub mod inert;
+pub mod leak;
 pub mod maybe;
 pub mod memo;
 pub mod probe;
