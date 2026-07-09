@@ -4,7 +4,7 @@ use crate::{
     layout::{LayoutKind, model::LayoutModelNode},
     widget::prelude::*,
 };
-use alloc::string::ToString;
+use alloc::{rc::Rc, string::ToString};
 use core::{fmt::Display, marker::PhantomData};
 use rsact_reactive::prelude::*;
 
@@ -93,7 +93,10 @@ pub struct Select<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> {
     state: Signal<SelectState>,
     style: WidgetStyleFn<SelectStyle<W::Color>>,
     // TODO: Can we do fixed size?
-    options: MaybeReactive<Vec<SelectOption<W, K>>>,
+    // WS4.1: `Rc` because `MaybeReactive<Vec<SelectOption>>` lost blanket `Copy`
+    // (SelectOption holds an `El` — neither Copy nor Clone) yet is read by both
+    // the `selected` setter effect and this widget. See `Select::new`.
+    options: Rc<MaybeReactive<Vec<SelectOption<W, K>>>>,
     dir: PhantomData<Dir>,
 }
 
@@ -140,6 +143,11 @@ where
                 .map(|opt| SelectOption::new(opt))
                 .collect::<Vec<_>>()
         });
+        // WS4.1: `MaybeReactive<Vec<SelectOption>>` is no longer `Copy` (its
+        // `SelectOption`s hold `El`s — neither `Copy` nor `Clone`), yet the
+        // options are read from two long-lived owners: the `selected` setter
+        // effect and the widget itself (render/on_event). Share them via `Rc`.
+        let options = Rc::new(options);
 
         let mut selected = selected.maybe_signal();
 
@@ -161,16 +169,20 @@ where
         // for it, why not just put it inside the `SelectState`? It's not a
         // problem to pass this when accepting styles as it's just a copy-type
         // boolean.
-        let state = SelectState::initial(with!(move |selected, options| {
+        let state = SelectState::initial(with!(|selected, options| {
             options.iter().position(|opt| &opt.key == selected)
         }))
         .signal();
 
+        let options_layout = options
+            .map(|options| options.iter().map(|opt| opt.el.layout()).collect());
+
+        let setter_options = Rc::clone(&options);
         selected.setter(
             state.map(|state| state.selected).maybe_reactive(),
             move |selected, position| {
                 if let Some(option) = position.and_then(|pos| {
-                    options.with(|options| {
+                    setter_options.with(|options| {
                         options.get(pos).map(|opt| opt.key.clone())
                     })
                 }) {
@@ -182,16 +194,11 @@ where
         Self {
             layout: Layout::new(
                 LayoutKind::Flex(
-                    FlexLayout::base(
-                        Dir::AXIS,
-                        options.map(|options| {
-                            options.iter().map(|opt| opt.el.layout()).collect()
-                        }),
-                    )
-                    .block_model(BlockModel::zero().padding(1u32))
-                    .gap(Dir::AXIS.canon(5, 0))
-                    .align_main(Align::Center)
-                    .align_cross(Align::Center),
+                    FlexLayout::base(Dir::AXIS, options_layout)
+                        .block_model(BlockModel::zero().padding(1u32))
+                        .gap(Dir::AXIS.canon(5, 0))
+                        .align_main(Align::Center)
+                        .align_cross(Align::Center),
                 ),
                 Dir::AXIS.canon(
                     Length::InfiniteWindow(Length::Shrink.try_into().unwrap()),

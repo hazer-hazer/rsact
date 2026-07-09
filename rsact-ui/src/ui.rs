@@ -78,7 +78,9 @@ impl<R, I, S, E> UI<Wtf<R, I, S, E>, NoPages>
 where
     R: Renderer + 'static,
     I: PageId + 'static,
-    S: InternalStylist<R::Color> + 'static,
+    // WS4.1: `Wtf<..>: WidgetCtx` now requires the stylist be `Clone` (inline
+    // `Inert` storage; the UI clones it into each page).
+    S: InternalStylist<R::Color> + Clone + 'static,
     E: Debug + 'static,
 {
     // TODO: For now I made viewport inert, but it is possible for the viewport
@@ -290,7 +292,9 @@ impl<W: WidgetCtx> UI<W, WithPages> {
             page_fn.init_page(),
             arena,
             self.viewport,
-            self.stylist,
+            // WS4.1: stylist is inline now (not a Copy node handle) — clone the
+            // per-app config into the page (all stylists are Clone/Copy).
+            self.stylist.clone(),
             self.dev_tools,
             self.renderer,
             self.fonts,

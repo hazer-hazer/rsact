@@ -663,7 +663,9 @@ impl<W: WidgetCtx> Page<W> {
 
                     let fonts = self.fonts.read_only();
                     let layout = self.layout;
-                    let stylist = self.stylist;
+                    // WS4.1: borrow (don't move) — `Inert<W::Stylist>` is inline
+                    // now and no longer `Copy`; the `with!` below only reads it.
+                    let stylist = &self.stylist;
 
                     with!(|layout, stylist| {
                         debug!("Force redraw: {}", self.force_redraw.get());

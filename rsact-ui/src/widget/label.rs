@@ -31,8 +31,14 @@ impl<W: WidgetCtx> Label<W> {
         // Shrink on both axes: the label hugs its text, but because the
         // resolved width is clamped to the available space, text that exceeds
         // it wraps and the height grows (see `Limits::resolve_content_size`).
+        // WS4.1: `content` (MaybeReactive<String>) is no longer `Copy`, and it
+        // is needed both in the layout (for text measurement) and in the field
+        // (for render). Clone the handle: for a reactive label this copies a
+        // Memo handle (cheap); for a static label it clones the String once, at
+        // build time. No runtime node is created either way (the double-*node*
+        // is gone — `Inert::map` no longer allocates).
         let layout = Layout::shrink(super::LayoutKind::Content(
-            ContentLayout::text(content),
+            ContentLayout::text(content.clone()),
         ));
 
         Self { content, layout, style: None }
@@ -116,7 +122,9 @@ impl<W: WidgetCtx> Widget<W> for Label<W> {
     #[track_caller]
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
         ctx.render_self(|mut ctx| {
-            let content = self.content;
+            // Borrow, don't move/clone: keeps render allocation-free for both
+            // reactive and (now inline) static content.
+            let content = &self.content;
             let style = ctx.get_style(self.style.as_deref());
             let props = ctx.visual.font_props;
 

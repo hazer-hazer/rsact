@@ -72,7 +72,9 @@ pub fn model_flex(
         gap,
         horizontal_align,
         vertical_align,
-        children,
+        // WS4.1: `children` is `MaybeReactive<Vec<Layout>>`, no longer `Copy` —
+        // bind it by reference; the remaining fields stay `Copy` by-value.
+        ref children,
         font_props: flex_fp,
     } = flex_layout;
 

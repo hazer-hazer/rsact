@@ -1,7 +1,6 @@
 use crate::{
     ReactiveValue,
     callback::{AnyCallback, CallbackFn},
-    inert::Inert,
     read::{ReadSignal, SignalMap, impl_read_signal_traits},
     runtime::with_current_runtime,
     signal::Signal,
@@ -93,8 +92,7 @@ where
 /// The runtime topologically sorts pending memos before flushing effects, so
 /// a memo is always recomputed at most once per reactive update cycle and
 /// effects never observe a stale intermediate value.
-pub enum Memo<T: ?Sized + PartialEq> {
-    Inert(Inert<T>),
+pub enum Memo<T: PartialEq> {
     Memo {
         id: ValueId,
         ty: PhantomData<T>,
@@ -122,7 +120,6 @@ impl<T: PartialEq + 'static> Clone for Memo<T> {
         match self {
             &Memo::Memo { id, ty } => Self::Memo { id, ty },
             &Memo::Signal(signal) => Memo::Signal(signal),
-            &Memo::Inert(inert) => Memo::Inert(inert),
         }
     }
 }
@@ -135,7 +132,6 @@ impl<T: PartialEq + 'static> ReactiveValue for Memo<T> {
         match self {
             Memo::Memo { id, ty: _ } => Some(*id),
             Memo::Signal(signal) => signal.id(),
-            Memo::Inert(inert) => inert.id(),
         }
     }
 
@@ -145,7 +141,6 @@ impl<T: PartialEq + 'static> ReactiveValue for Memo<T> {
                 with_current_runtime(|rt| rt.is_alive(id))
             },
             Memo::Signal(signal) => signal.is_alive(),
-            Memo::Inert(inert) => inert.is_alive(),
         }
     }
 
@@ -156,7 +151,6 @@ impl<T: PartialEq + 'static> ReactiveValue for Memo<T> {
                     with_current_runtime(|rt| rt.dispose(id))
                 },
                 Memo::Signal(signal) => signal.dispose(),
-                Memo::Inert(inert) => unsafe { inert.dispose() },
             }
         }
     }
@@ -170,7 +164,6 @@ impl<T: PartialEq + 'static> ReadSignal<T> for Memo<T> {
                 with_current_runtime(|rt| id.subscribe(rt))
             },
             Memo::Signal(signal) => signal.track(),
-            Memo::Inert(inert) => inert.track(),
         }
     }
 
@@ -190,7 +183,6 @@ impl<T: PartialEq + 'static> ReadSignal<T> for Memo<T> {
                 })
             },
             Memo::Signal(signal) => signal.with_untracked(f),
-            Memo::Inert(inert) => inert.with_untracked(f),
         }
     }
 }
