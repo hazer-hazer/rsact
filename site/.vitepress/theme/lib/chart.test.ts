@@ -30,9 +30,16 @@ describe('shapes', () => {
     expect(polys.length).toBe(0)
     expect(dots.length).toBe(2)
   })
-  it('normalizes to the provided max (top hugs the top pad)', () => {
-    const { polys } = shapes([50, 100], { ...opts, n: 2, max: 100 })
-    const [, second] = polys[0].points.split(' ')
-    expect(Number(second.split(',')[1])).toBeCloseTo(opts.pad, 1)
+  it('centers point i in cell i: x = pad + (w-2pad)*(i+0.5)/n', () => {
+    const { polys } = shapes([10, 20], { n: 2, width: 400, height: 100, pad: 10, max: 100 })
+    const xs = polys[0].points.split(' ').map((p) => Number(p.split(',')[0]))
+    // cell 0 center = 10 + 380*0.25 = 105; cell 1 center = 10 + 380*0.75 = 295
+    expect(xs[0]).toBeCloseTo(105, 1)
+    expect(xs[1]).toBeCloseTo(295, 1)
+  })
+  it('normalizes y to the provided max (top hugs the top pad)', () => {
+    const { polys } = shapes([50, 100], { n: 2, width: 400, height: 100, pad: 10, max: 100 })
+    const y1 = Number(polys[0].points.split(' ')[1].split(',')[1])
+    expect(y1).toBeCloseTo(10, 1) // v=max → y at top pad
   })
 })

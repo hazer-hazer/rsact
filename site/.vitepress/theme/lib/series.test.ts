@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildSeries, trend, prevPresent, fmt } from './series'
+import { buildSeries, trend, prevPresent, fmt, deltaValues, isFlat } from './series'
 import { SAMPLE } from './sample'
 
 describe('buildSeries', () => {
@@ -61,5 +61,18 @@ describe('prevPresent / fmt', () => {
     expect(fmt(21000)).toBe((21000).toLocaleString())
     expect(fmt(33.7)).toBe('34')
     expect(fmt(null)).toBe(null)
+  })
+})
+
+describe('deltaValues / isFlat', () => {
+  it('deltaValues subtracts the first present value; gaps stay null; first → 0', () => {
+    expect(deltaValues([null, 10, 12, null, 9])).toEqual([null, 0, 2, null, -1])
+  })
+  it('isFlat: a never-changing series (with gaps) is flat', () => {
+    expect(isFlat([10, 10, null, 10])).toBe(true)
+    expect(isFlat([null, null, 5])).toBe(true) // single appearance, no change
+  })
+  it('isFlat: a real change (even across a gap) is not flat', () => {
+    expect(isFlat([10, null, 20])).toBe(false)
   })
 })

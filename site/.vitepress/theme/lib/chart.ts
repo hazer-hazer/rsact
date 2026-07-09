@@ -28,8 +28,11 @@ export function seriesMax(values: (number | null)[]): number {
   return m
 }
 
+// x for commit slot i of n, at the CENTER of cell i within [pad, width-pad].
+// Cell-centered (not endpoint-anchored) so points sit dead-center under their
+// equal-width table columns (fixed-layout table).
 export function xOf(i: number, n: number, width: number, pad: number): number {
-  return pad + (n <= 1 ? 0 : (i / (n - 1)) * (width - 2 * pad))
+  return pad + (n <= 0 ? 0 : ((i + 0.5) / n) * (width - 2 * pad))
 }
 export function yOf(v: number, max: number, height: number, pad: number): number {
   return height - pad - (max <= 0 ? 0 : (v / max) * (height - 2 * pad))
