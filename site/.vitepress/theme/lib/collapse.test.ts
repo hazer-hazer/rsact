@@ -1,10 +1,24 @@
 import { describe, it, expect } from 'vitest'
-import { columnGroups, collapseValues, columnLabel } from './collapse'
+import { boundaryFlags, columnGroups, collapseValues, columnLabel } from './collapse'
 import type { SeriesRow, Snapshot } from './types'
 
 const row = (values: (number | null)[]): SeriesRow => ({ key: 'k', label: 'k', values })
 const snaps = (revs: string[]): Snapshot[] =>
   revs.map((r) => ({ git_rev: r.repeat(8), git_dirty: false, recorded_at: 0, scenarios: [] }))
+
+describe('boundaryFlags', () => {
+  const rows = (values: (number | null)[]) => [{ key: 'k', label: 'k', values }]
+  it('index 0 is always a boundary (baseline), unchanged runs are not', () => {
+    expect(boundaryFlags(rows([10, 10, 10]), 3)).toEqual([true, false, false])
+  })
+  it('a real change flips the flag at that column', () => {
+    expect(boundaryFlags(rows([10, 10, 20]), 3)).toEqual([true, false, true])
+  })
+  it('nulls never flag; a change across a gap flags at the reappearance', () => {
+    expect(boundaryFlags(rows([10, null, 20]), 3)).toEqual([true, false, true])
+    expect(boundaryFlags(rows([10, 10, null, 10]), 4)).toEqual([true, false, false, false])
+  })
+})
 
 describe('columnGroups', () => {
   it('collapses a fully-flat run into one column', () => {
