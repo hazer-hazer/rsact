@@ -1,5 +1,0 @@
-node_modules/
-# dist/index.html is intentionally COMMITTED — metrics-probe include_str!s it at
-# build time, so it must be present in the repo (do NOT ignore dist/).
-*.local
-.vite/

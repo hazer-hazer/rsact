@@ -5,8 +5,8 @@
 # `metrics-data` branch, check it out in a throwaway git worktree and run THAT
 # commit's OWN `metrics-probe -- record` (the tool-birth hard boundary: a commit
 # can only be measured by instruments that live inside it). The snapshots are
-# accumulated into ./metrics/snapshots; the ordering index + viewer are then
-# regenerated with HEAD's tool. Idempotent by construction — commits that
+# accumulated into ./metrics/snapshots; the ordering index is then rebuilt
+# with HEAD's tool. Idempotent by construction — commits that
 # already have a snapshot are skipped — so the same job also repairs any future
 # CI-missed push.
 #
@@ -118,9 +118,8 @@ if [ -n "$DRY_RUN" ]; then
 fi
 
 # Rebuild the ordering index for EVERY snapshot rev from full git history
-# (backfill runs at fetch-depth 0), then regenerate the viewer with HEAD's tool.
+# (backfill runs at fetch-depth 0).
 cargo run -q -p metrics-probe -- index
-cargo run -q -p metrics-probe -- html
 
 count=$(ls metrics/snapshots/*.json 2>/dev/null | wc -l | tr -d ' ')
 echo "== backfill complete: $count snapshots present =="

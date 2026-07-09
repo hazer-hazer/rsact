@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # WS0.9b/0.9c/0.9d — record a metrics snapshot for HEAD over the accumulated
-# history and regenerate the dashboard. Runnable locally; in CI the durable
+# history. Runnable locally; in CI the durable
 # history lives on the orphan `metrics-data` branch and is pulled in first.
 #
 # Usage: scripts/ci-metrics.sh [--sizes] [--benches]
@@ -9,9 +9,8 @@
 #   --benches  run the criterion bench groups (bounded time) then record their
 #              medians → Layer WS0.9d wall-clock trend
 #
-# metrics-probe `record` writes metrics/snapshots/<rev>.json (keyed by HEAD) and
-# regenerates metrics/index.html over every snapshot present — so pulling the
-# history in first makes the dashboard cover the whole timeline.
+# metrics-probe `record` writes metrics/snapshots/<rev>.json keyed by HEAD; the
+# site assembles + charts the store.
 set -euo pipefail
 
 sizes=""

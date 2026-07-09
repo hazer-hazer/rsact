@@ -4,7 +4,6 @@
 //! cargo run -p metrics-probe -- record        # snapshot HEAD -> metrics/snapshots/<rev>.json
 //! cargo run -p metrics-probe -- diff <rev>     # compare current tree vs a stored snapshot
 //! cargo run -p metrics-probe -- diff <file>    # ...or vs an explicit snapshot file
-//! cargo run -p metrics-probe -- html           # regenerate metrics/index.html viewer
 //! ```
 //!
 //! The same binary is what CI runs; CI merely archives the JSON it emits and
@@ -16,7 +15,6 @@
 pub(crate) use rsact_reactive::alloc_probe as alloc;
 
 mod benches;
-mod html;
 mod index;
 mod scenarios;
 mod sizes;
@@ -95,7 +93,6 @@ fn cmd_record(with_sizes: bool, with_benches: bool) -> std::io::Result<()> {
     );
     print_snapshot(&snap);
     update_index(&snap)?;
-    html::regenerate(&dir)?;
     Ok(())
 }
 
@@ -427,7 +424,7 @@ fn cmd_hook_install() -> std::io::Result<()> {
 
 fn usage() -> ! {
     eprintln!(
-        "usage:\n  metrics-probe record [--sizes] [--benches]\n  metrics-probe diff [--sizes] [--benches] <rev|file>\n  metrics-probe html\n  metrics-probe index\n  metrics-probe hook-install\n\n  record     snapshot HEAD; also merges HEAD into metrics/index.json (ordering)\n  index      rebuild metrics/index.json for every snapshot rev from git history (WS0.9e backfill finalize)\n  --sizes    also build the thumb size-probes and record .text/.rodata/.bss (Layer 2, slower)\n  --benches  also read criterion medians from target/criterion (run `cargo bench` first; WS0.9d)"
+        "usage:\n  metrics-probe record [--sizes] [--benches]\n  metrics-probe diff [--sizes] [--benches] <rev|file>\n  metrics-probe index\n  metrics-probe hook-install\n\n  record     snapshot HEAD; also merges HEAD into metrics/index.json (ordering)\n  index      rebuild metrics/index.json for every snapshot rev from git history (WS0.9e backfill finalize)\n  --sizes    also build the thumb size-probes and record .text/.rodata/.bss (Layer 2, slower)\n  --benches  also read criterion medians from target/criterion (run `cargo bench` first; WS0.9d)"
     );
     std::process::exit(2);
 }
@@ -444,7 +441,6 @@ fn main() {
             Some(arg) => cmd_diff(arg, with_sizes, with_benches),
             None => usage(),
         },
-        Some("html") => html::regenerate(Path::new(SNAPSHOT_DIR)),
         Some("index") => cmd_index(),
         Some("hook-install") => cmd_hook_install(),
         _ => usage(),
