@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { reactive, computed, ref, onMounted, provide, watch } from 'vue'
+import { reactive, computed, ref, onMounted, onUnmounted, provide, watch } from 'vue'
 import { withBase } from 'vitepress'
-import MetricTable from './MetricTable.vue'
+import MetricSection from './MetricSection.vue'
 import TrendChart from './TrendChart.vue'
-import { buildSeries, isFlat } from '../lib/series'
-import { columnGroups, columnLabel, collapseValues } from '../lib/collapse'
+import { buildSeries, isFlat, fmt } from '../lib/series'
+import { columnGroups, columnLabel, collapseValues, boundaryFlags, columnNet } from '../lib/collapse'
 import { colorFor } from '../lib/colors'
+import { commitUrl, compareUrl } from '../lib/repo'
 import { HOVER_KEY } from '../lib/hover'
 import { SAMPLE } from '../lib/sample'
 import type { MetricsData, Snapshot, IndexMap, SeriesRow, Series } from '../lib/types'
@@ -16,13 +17,13 @@ const snapshots = ref<Snapshot[]>(props.data?.snapshots ?? [])
 const index = ref<IndexMap>(props.data?.index ?? {})
 const loading = ref(!props.data)
 
-// UI state (also serialized to the URL hash).
 const selected = reactive(new Set<string>())
 const collapse = ref(true)
 const delta = ref(false)
 const onlyChanged = ref(false)
 
-// Synchronized crosshair column, provided to every table + chart.
+// Synchronized crosshair column, provided to every table + chart, and read by
+// the legend below.
 const hover = ref<number | null>(null)
 provide(HOVER_KEY, hover)
 
@@ -47,12 +48,26 @@ function writeHash() {
   history.replaceState(null, '', hash ? `#${hash}` : location.pathname + location.search)
 }
 
+// Measure the (2-row) sticky header so section captions can stick just below it.
+const headEl = ref<HTMLElement | null>(null)
+const gridEl = ref<HTMLElement | null>(null)
+let ro: ResizeObserver | null = null
+function measureHead() {
+  if (headEl.value && gridEl.value) {
+    gridEl.value.style.setProperty('--head-h', `${headEl.value.offsetHeight}px`)
+  }
+}
+
 onMounted(async () => {
   parseHash()
   // Registered synchronously (before any await) so it binds to this component's
   // effect scope and is auto-disposed on unmount. It only depends on UI state,
   // not fetched data, so it doesn't need to wait for the fetch below.
   watch([selected, collapse, delta, onlyChanged], writeHash, { deep: true })
+  if (typeof ResizeObserver !== 'undefined' && headEl.value) {
+    ro = new ResizeObserver(measureHead)
+    ro.observe(headEl.value)
+  }
   if (!props.data) {
     try {
       const res = await fetch(withBase('/metrics/data.json'))
@@ -73,6 +88,7 @@ onMounted(async () => {
     }
   }
 })
+onUnmounted(() => { ro?.disconnect(); ro = null })
 
 const groups = computed(() => buildSeries(snapshots.value))
 const allRows = computed(() => groups.value.flatMap((g) => g.rows))
@@ -83,13 +99,39 @@ const colGroups = computed<number[][]>(() =>
     ? columnGroups(allRows.value, snapshots.value.length)
     : snapshots.value.map((_, i) => [i]),
 )
+
+const iso = (secs?: number) => (secs ? new Date(secs * 1000).toISOString().slice(0, 10) : '')
+
+// Columns carry a label, a hover title, the GitHub href, and their commit group.
 const columns = computed(() =>
   colGroups.value.map((g) => {
     const label = columnLabel(snapshots.value, g)
-    const branch = index.value[snapshots.value[g[0]]?.git_rev]?.branch
-    return { label, title: branch ? `${label} (${branch})` : label, group: g }
+    const first = snapshots.value[g[0]]
+    const last = snapshots.value[g[g.length - 1]]
+    const entry = index.value[first?.git_rev]
+    const branch = entry?.branch
+    const date = iso(entry?.date)
+    const href =
+      g.length === 1
+        ? commitUrl(last.git_rev)
+        : entry?.parent
+          ? compareUrl(entry.parent, last.git_rev)
+          : commitUrl(last.git_rev)
+    const title = [label, branch, date].filter(Boolean).join(' · ')
+    return { label, title, href, group: g }
   }),
 )
+
+// Per-column "changed" flags for dimming (#5). With collapse on every column is a
+// boundary → nothing to dim.
+const changed = computed<boolean[]>(() =>
+  collapse.value
+    ? colGroups.value.map(() => true)
+    : boundaryFlags(allRows.value, snapshots.value.length),
+)
+
+// Per-column net effect for the "Δ overall" row (#6).
+const nets = computed(() => columnNet(allRows.value, colGroups.value))
 
 // Optionally drop groups whose rows are all flat across the (collapsed) range.
 function collapsedRowFlat(r: SeriesRow): boolean {
@@ -123,6 +165,16 @@ const selectedSeries = computed<Series[]>(() =>
     return { label: r?.label ?? key, values: collapsed, color: colorFor(key) }
   }),
 )
+
+// Legend value at the hovered column (folds in the old chart tooltip, #1).
+const hoverLabel = computed(() =>
+  hover.value !== null && columns.value[hover.value] ? columns.value[hover.value].label : null,
+)
+function valAt(s: Series): string {
+  if (hover.value === null) return ''
+  const f = fmt(s.values[hover.value])
+  return f === null ? '–' : f
+}
 </script>
 
 <template>
@@ -137,7 +189,8 @@ const selectedSeries = computed<Series[]>(() =>
         right panel, each normalized to its own max — hover any column to sync the crosshair everywhere.
         <span class="up">▲</span> improved, <span class="down">▼</span> regressed (domain-aware). Gaps
         mean the metric wasn't measured — never zero. Unchanged commits collapse to
-        <code>a..b</code> columns; bench medians are a ±noisy CI trend.
+        <code>a..b</code> columns; the <strong>Δ overall</strong> row sums each commit's net effect;
+        bench medians are a ±noisy CI trend.
       </p>
 
       <div class="controls">
@@ -150,17 +203,53 @@ const selectedSeries = computed<Series[]>(() =>
       </div>
 
       <div class="wrap">
-        <div class="main">
-          <MetricTable
-            v-for="g in shownGroups"
-            :key="g.title"
-            :group="g"
-            :columns="columns"
-            :selected="selected"
-            :delta="delta"
-            @toggle="toggle"
-          />
+        <div class="grid-scroll">
+          <table class="grid" ref="gridEl">
+            <thead ref="headEl">
+              <tr class="cols">
+                <th class="lbl">metric</th>
+                <th
+                  v-for="(c, i) in columns"
+                  :key="c.label + i"
+                  class="col"
+                  :class="{ hov: hover === i, dim: !changed[i] }"
+                  :title="c.title"
+                  @mouseenter="hover = i"
+                  @mouseleave="hover = null"
+                >
+                  <a :href="c.href" target="_blank" rel="noreferrer">{{ c.label }}</a>
+                </th>
+              </tr>
+              <tr class="overall">
+                <th class="lbl">Δ overall</th>
+                <th
+                  v-for="(net, i) in nets"
+                  :key="i"
+                  class="col"
+                  :class="{ hov: hover === i, dim: !changed[i] }"
+                  :title="`${net.up} improved, ${net.down} regressed`"
+                  @mouseenter="hover = i"
+                  @mouseleave="hover = null"
+                >
+                  <span v-if="net.up > net.down" class="up">▲</span>
+                  <span v-else-if="net.down > net.up" class="down">▼</span>
+                  <span v-else class="muted">–</span>
+                </th>
+              </tr>
+            </thead>
+            <MetricSection
+              v-for="g in shownGroups"
+              :key="g.title"
+              :group="g"
+              :columns="columns"
+              :selected="selected"
+              :delta="delta"
+              :changed="changed"
+              @toggle="toggle"
+            />
+          </table>
         </div>
+
         <div class="side">
           <h2>trend (selected)</h2>
           <TrendChart
@@ -175,8 +264,13 @@ const selectedSeries = computed<Series[]>(() =>
           />
           <p v-else class="muted">select metric rows to overlay their trends</p>
           <div v-if="selected.size" class="legend">
+            <p class="legend-head muted">
+              {{ hoverLabel ? `at ${hoverLabel}:` : 'hover a column for values' }}
+            </p>
             <div v-for="s in selectedSeries" :key="s.label" class="legend-item">
-              <span class="swatch" :style="{ background: s.color }"></span>{{ s.label }}
+              <span class="swatch" :style="{ background: s.color }"></span>
+              <span class="legend-label">{{ s.label }}</span>
+              <span class="legend-val">{{ valAt(s) }}</span>
             </div>
           </div>
         </div>
@@ -197,15 +291,51 @@ button {
   border-radius: 4px; background: var(--vp-c-bg-soft); padding: 0.15rem 0.5rem;
 }
 label { font-size: 12px; display: inline-flex; gap: 0.25rem; align-items: center; cursor: pointer; }
+
 .wrap { display: flex; gap: 1.5rem; align-items: flex-start; }
-.main { flex: 1 1 auto; min-width: 0; overflow-x: auto; }
+
+// Bounded scroll region: horizontal AND vertical scrolling happen HERE, so the
+// sticky header/first-column/captions stick relative to this box (a plain
+// overflow-x wrapper would also scroll vertically and break sticky-top).
+.grid-scroll { flex: 1 1 auto; min-width: 0; max-height: 80vh; overflow: auto; }
+
+table.grid {
+  border-collapse: separate; border-spacing: 0; table-layout: fixed;
+  font-family: var(--vp-font-family-mono); font-size: 12px;
+}
+// The WHOLE thead sticks vertically as one block (both header rows move
+// together — more reliable than per-th top offsets); border-collapse:separate
+// is required so sticky cells keep their borders.
+thead { position: sticky; top: 0; z-index: 3; }
+thead th {
+  background: var(--vp-c-bg);
+  border-bottom: 1px solid var(--vp-c-divider);
+  border-right: 1px solid var(--vp-c-divider);
+  padding: 0.2rem 0.5rem; text-align: right; white-space: nowrap;
+  width: 5.5rem; overflow: hidden; text-overflow: ellipsis;
+}
+// first column also sticks horizontally (independent axis); z-index above the
+// other header cells so the corner wins where the two sticky regions overlap.
+thead th.lbl {
+  position: sticky; left: 0; z-index: 4; text-align: left;
+  width: var(--metric-col-w); min-width: var(--metric-col-w);
+}
+thead th.col a { color: var(--vp-c-brand-1); text-decoration: none; }
+thead th.col a:hover { text-decoration: underline; }
+th.hov { background: var(--vp-c-bg-soft); }
+th.dim { opacity: 0.4; }
+
 .side { flex: 0 0 380px; position: sticky; top: 5rem; }
 h2 { font-size: 0.95rem; margin: 0 0 0.4rem; border: 0; padding: 0; }
 @media (max-width: 900px) {
   .wrap { flex-direction: column; }
   .side { position: static; flex-basis: auto; width: 100%; }
+  .grid-scroll { max-height: 70vh; }
 }
 .swatch { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 2px; margin-right: 0.35rem; vertical-align: middle; }
-.legend { margin-top: 0.5rem; }
-.legend-item { display: flex; align-items: center; margin: 0.1rem 0; }
+.legend { margin-top: 0.5rem; font-size: 12px; }
+.legend-head { margin: 0 0 0.25rem; }
+.legend-item { display: flex; align-items: center; gap: 0.35rem; margin: 0.1rem 0; }
+.legend-label { flex: 1 1 auto; }
+.legend-val { font-family: var(--vp-font-family-mono); color: var(--vp-c-text-1); }
 </style>
