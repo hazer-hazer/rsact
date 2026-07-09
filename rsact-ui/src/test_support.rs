@@ -26,7 +26,7 @@ pub fn labels_page(n: usize) -> (UI<NullWtf, WithPages>, Vec<Signal<String>>) {
             Flex::col(
                 init.iter().map(|s| Label::new(*s).el()).collect::<Vec<_>>(),
             )
-            .el()
+            .into_el()
         });
     let _ = ui.current_page();
     (ui, labels)

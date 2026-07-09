@@ -1090,7 +1090,7 @@ mod tests {
                     Label::new("b".inert()).el(),
                     Label::new("c".inert()).el(),
                 ])
-                .el(),
+                .into_el(),
             );
 
             // Build the layout tree (3 children) without rendering — the null
@@ -1825,6 +1825,26 @@ mod tests {
         );
         // And a button page still builds end-to-end (transform ran).
         let _ = create_null_page(Button::new("ok"));
+    }
+
+    // WS13.2: Flex is de-genericized (`Flex<W, Dir>` -> `Flex<W>` with a
+    // runtime `axis: Axis` field) and split — `FlexBuilder` carries the
+    // build-only `children` vec, the retained `Flex` drops it.
+    #[test]
+    fn flex_split_drops_children_and_phantom() {
+        use crate::widget::flex::{Flex, FlexBuilder};
+        // Retained Flex holds only its layout handle — no children Vec, no PhantomData.
+        assert!(
+            core::mem::size_of::<Flex<NullWtf>>()
+                < core::mem::size_of::<FlexBuilder<NullWtf>>(),
+            "retained Flex must be smaller than FlexBuilder (dropped children)"
+        );
+        // De-generic: `Flex<W>` takes no Dir param.
+        let _ = create_null_page(Flex::<NullWtf>::row(("a", "b")));
+        let _ = create_null_page(Flex::<NullWtf>::col([
+            Button::new("x"),
+            Button::new("y"),
+        ]));
     }
 
     // Regression: a reactive source set through the trait-default setter
