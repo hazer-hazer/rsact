@@ -170,6 +170,8 @@ const selectedSeries = computed<Series[]>(() =>
             :normalize="true"
             :interactive="true"
             :height="300"
+            :pad-x="24"
+            :pad-y="24"
           />
           <p v-else class="muted">select metric rows to overlay their trends</p>
           <div v-if="selected.size" class="legend">

@@ -89,8 +89,7 @@ const rows = computed(() =>
             <TrendChart
               :series="[{ label: row.label, values: row.shown, color: colorFor(row.key) }]"
               :n="columns.length"
-              :height="56"
-              :pad="4"
+              :height="38"
               :show-dots="true"
             />
           </td>
@@ -119,7 +118,9 @@ th.hov, td.hov { background: var(--vp-c-bg-soft); }
 tr.metric { cursor: pointer; }
 tr.metric:hover td { background: var(--vp-c-bg-soft); }
 tr.metric.sel td.lbl { font-weight: bold; }
-tr.chartrow td { padding: 0.2rem 0.4rem; }
+// Zero horizontal padding on the chart cell so the SVG spans the data columns
+// exactly — any inset here would shift points off their column centers.
+tr.chartrow td { padding: 0.2rem 0; }
 tr.chartrow td.lbl { background: var(--vp-c-bg); }
 .muted { color: var(--vp-c-text-3); }
 .up { color: #2e9e4f; }

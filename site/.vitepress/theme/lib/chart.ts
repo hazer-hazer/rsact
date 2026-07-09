@@ -5,7 +5,8 @@ export interface DotPt { x: number; y: number; i: number; v: number }
 export interface Poly { points: string }
 export interface Shapes { polys: Poly[]; dots: DotPt[] }
 export interface ShapeOpts {
-  n: number; width: number; height: number; pad: number; max?: number; showDots?: boolean
+  n: number; width: number; height: number; padX: number; padY: number
+  max?: number; showDots?: boolean
 }
 
 export function segments(values: (number | null)[]): Pt[][] {
@@ -28,22 +29,25 @@ export function seriesMax(values: (number | null)[]): number {
   return m
 }
 
-// x for commit slot i of n, at the CENTER of cell i within [pad, width-pad].
+// x for commit slot i of n, at the CENTER of cell i within [padX, width-padX].
 // Cell-centered (not endpoint-anchored) so points sit dead-center under their
-// equal-width table columns (fixed-layout table).
-export function xOf(i: number, n: number, width: number, pad: number): number {
-  return pad + (n <= 0 ? 0 : ((i + 0.5) / n) * (width - 2 * pad))
+// equal-width table columns. With padX = 0 this is exactly (i+0.5)/n * width,
+// which maps 1:1 onto the n equal columns spanned by a colspan chart cell — no
+// inset, so no drift accumulates toward the right edge.
+export function xOf(i: number, n: number, width: number, padX: number): number {
+  return padX + (n <= 0 ? 0 : ((i + 0.5) / n) * (width - 2 * padX))
 }
-export function yOf(v: number, max: number, height: number, pad: number): number {
-  return height - pad - (max <= 0 ? 0 : (v / max) * (height - 2 * pad))
+export function yOf(v: number, max: number, height: number, padY: number): number {
+  return height - padY - (max <= 0 ? 0 : (v / max) * (height - 2 * padY))
 }
 
 // polys: point-strings for runs of >= 2 points; dots: isolated points (+ all
 // points when showDots). `max` lets the caller normalize each series to its own
-// scale when overlaying.
+// scale when overlaying. `padX` insets the x-axis (0 for column-aligned inline
+// charts); `padY` gives vertical breathing room so the line isn't clipped.
 export function shapes(
   values: (number | null)[],
-  { n, width, height, pad, max, showDots = false }: ShapeOpts,
+  { n, width, height, padX, padY, max, showDots = false }: ShapeOpts,
 ): Shapes {
   const m = max ?? seriesMax(values)
   const segs = segments(values)
@@ -51,8 +55,8 @@ export function shapes(
   const dots: DotPt[] = []
   for (const seg of segs) {
     const pts: DotPt[] = seg.map((p) => ({
-      x: xOf(p.i, n, width, pad),
-      y: yOf(p.v, m, height, pad),
+      x: xOf(p.i, n, width, padX),
+      y: yOf(p.v, m, height, padY),
       i: p.i,
       v: p.v,
     }))
