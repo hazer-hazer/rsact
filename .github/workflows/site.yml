@@ -51,6 +51,10 @@ jobs:
         working-directory: site
         run: npm ci
 
+      - name: Install Rust (stable) for rustdoc
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
       - name: Test metrics viewer logic
         working-directory: site
         run: npm test
@@ -69,7 +73,21 @@ jobs:
             _metrics_data site/.vitepress/dist/metrics
           rm -rf _metrics_data
 
-      # rustdoc (/api/) is appended in WS19.5 (Task 6).
+      - name: Build rustdoc (/api/)
+        run: |
+          set -euo pipefail
+          cargo doc --no-deps -p rsact-reactive --features std
+          cargo doc --no-deps -p rsact-render --features "std,embedded-graphics"
+          cargo doc --no-deps -p rsact-ui --features "std,embedded-graphics"
+          mkdir -p site/.vitepress/dist/api
+          cp -r target/doc/. site/.vitepress/dist/api/
+          cat > site/.vitepress/dist/api/index.html <<'HTML'
+          <!doctype html>
+          <meta charset="utf-8" />
+          <meta http-equiv="refresh" content="0; url=rsact_ui/index.html" />
+          <title>rsact API documentation</title>
+          <a href="rsact_ui/index.html">rsact_ui API documentation</a>
+          HTML
 
       - name: Setup Pages
         if: github.event_name != 'pull_request'
