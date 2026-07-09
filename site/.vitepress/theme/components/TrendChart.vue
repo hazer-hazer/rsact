@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, inject } from 'vue'
 import { shapes, seriesMax, xOf } from '../lib/chart'
 import { fmt, revLabel } from '../lib/series'
+import { HOVER_KEY } from '../lib/hover'
 import type { Series, Snapshot } from '../lib/types'
 
 // One or more series as line charts. When `normalize`, each series scales to its
@@ -50,15 +51,22 @@ const lines = computed(() =>
 )
 
 const hover = ref<number | null>(null)
+// Shared crosshair column (synchronized across all tables/charts), if provided.
+const sharedHover = inject(HOVER_KEY, ref<number | null>(null))
+// The guide shows either this chart's own hovered column or the shared one.
+const guideCol = computed(() => hover.value ?? sharedHover.value)
 function onMove(ev: MouseEvent) {
   if (!props.interactive || !n.value) return
   const rect = (ev.currentTarget as SVGSVGElement).getBoundingClientRect()
   const mx = (ev.clientX - rect.left) * (props.width / rect.width)
   const frac = n.value <= 1 ? 0 : (mx - props.pad) / (props.width - 2 * props.pad)
   hover.value = Math.max(0, Math.min(n.value - 1, Math.round(frac * (n.value - 1))))
+  sharedHover.value = hover.value
 }
 const hoverX = computed(() =>
-  hover.value === null ? null : xOf(hover.value, n.value, props.width, props.pad),
+  guideCol.value === null || guideCol.value === undefined
+    ? null
+    : xOf(guideCol.value, n.value, props.width, props.pad),
 )
 const tooltip = computed(() => {
   if (hover.value === null) return null
@@ -81,7 +89,7 @@ const tooltip = computed(() => {
       preserveAspectRatio="none"
       class="chart"
       @mousemove="onMove"
-      @mouseleave="hover = null"
+      @mouseleave="hover = null; sharedHover = null"
     >
       <line class="axis" :x1="pad" :y1="height - pad" :x2="width - pad" :y2="height - pad" />
       <template v-for="line in lines" :key="line.label">
