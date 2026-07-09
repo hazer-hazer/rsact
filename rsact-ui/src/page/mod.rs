@@ -127,7 +127,8 @@ impl<W: WidgetCtx> Page<W> {
             arena
                 .expect(root)
                 .expect("Root node must be built")
-                .widget
+                .widget()
+                .expect("Root node must be built")
                 .layout()
                 .name("Layout tree")
         });
@@ -404,9 +405,12 @@ impl<W: WidgetCtx> Page<W> {
         };
 
         debug!("Send update {:?} to {}[{:?}]", update, el.state.debug_name, id);
-        let result =
-            el.widget
-                .update(UpdateCtx { id, update, state: &mut el.state });
+        let result = match el.stage.built_mut() {
+            Some(widget) => {
+                widget.update(UpdateCtx { id, update, state: &mut el.state })
+            },
+            None => UpdateResult::none(),
+        };
 
         if result.should_bubble()
             && let Some(bubble) = update.as_bubble()
@@ -1820,7 +1824,9 @@ mod tests {
         with_new_runtime(|_| {
             let mut w = create_signal(Length::fill());
             let edge = Edge::<NullWtf>::new().width(w);
-            let layout = edge.layout();
+            // `Edge` now impls both `Widget` and (via `#[derive(View)]`) `Build`,
+            // each exposing `layout()`; disambiguate to the widget's own layout.
+            let layout = Widget::layout(&edge);
 
             // Reading the layout must not panic (the disposed-id bug) and must
             // be tracked so observers re-run on change.
@@ -1848,7 +1854,8 @@ mod tests {
         with_new_runtime(|_| {
             let mut fs = create_signal(FontSize::Fixed(10));
             let label = Label::<NullWtf>::new("x").font_size(fs);
-            let layout = label.layout();
+            // Disambiguate `Widget::layout` from the derived `Build::layout`.
+            let layout = Widget::layout(&label);
 
             let mut runs = create_signal(0u32);
             create_effect(move |_| {

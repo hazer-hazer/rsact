@@ -522,7 +522,10 @@ fn render_subtree_body<W: WidgetCtx>(
         shared,
         _marker: PhantomData::<CtxUnready>,
     };
-    data.widget.render(ctx)?;
+    match data.stage.built() {
+        Some(widget) => widget.render(ctx)?,
+        None => return Ok(()),
+    }
 
     let children_frame = RenderFrame {
         parent_dirty: dirten || frame.parent_dirty,

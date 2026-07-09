@@ -42,12 +42,16 @@ where
 
     fn el(self) -> El<W>
     where
-        Self: Sized + 'static,
+        Self: Sized + crate::el::build::Build<W> + 'static,
     {
         El::new(self)
     }
 
-    fn build(&mut self, ctx: BuildCtx<W>);
+    // TRANSITIONAL (WS13 spec §2.2): `build` moves to `Build`. Kept as a
+    // defaulted no-op so unconverted widgets keep their `fn build(&mut self)`
+    // override (called by the derived identity `Build`). Deleted outright once
+    // the fleet is split (13.4) — the final 7.6 shape.
+    fn build(&mut self, _ctx: BuildCtx<W>) {}
 
     fn update(&mut self, mut ctx: UpdateCtx<'_, W>) -> UpdateResult {
         ctx.handle()

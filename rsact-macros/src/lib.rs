@@ -53,20 +53,54 @@ pub fn view(input: TokenStream) -> TokenStream {
         param.bounds.push(syn::parse_quote!('static));
     }
 
+    // 7.7: find the WidgetCtx type param by its `WidgetCtx` bound; fall back to
+    // a param literally named `W`, else the first type param.
+    let wctx: syn::Ident = input
+        .generics
+        .type_params()
+        .find(|p| {
+            p.bounds.iter().any(|b| matches!(
+                b, syn::TypeParamBound::Trait(t)
+                    if t.path.segments.last().map_or(false, |s| s.ident == "WidgetCtx")
+            ))
+        })
+        .or_else(|| input.generics.type_params().find(|p| p.ident == "W"))
+        .or_else(|| input.generics.type_params().next())
+        .map(|p| p.ident.clone())
+        .unwrap_or_else(|| syn::Ident::new("W", proc_macro2::Span::call_site()));
+
     let name = &input.ident;
     let (impl_gen, type_gen, where_clause) = input.generics.split_for_impl();
 
-    // The widget must be generic over `W` (the `WidgetCtx`), like every other
-    // `Widget<W>`. The body goes through the public `Widget::el` rather than the
-    // crate-private `El::new`, so the derive works for downstream widgets too.
     let result = quote! {
-        impl #impl_gen rsact_ui::el::View<W> for #name #type_gen #where_clause {
-            fn into_el(self) -> rsact_ui::el::El<W> {
-                rsact_ui::widget::Widget::el(self)
+        impl #impl_gen rsact_ui::el::View<#wctx> for #name #type_gen #where_clause {
+            fn into_el(self) -> rsact_ui::el::El<#wctx> {
+                rsact_ui::el::El::new(self)
             }
         }
 
         impl #impl_gen rsact_ui::el::SingleViewMarker for #name #type_gen #where_clause {}
+
+        // Identity `Build`: an unsplit widget is its own builder — run its
+        // in-place `Widget::build`, then hand back `self` as the retained widget.
+        impl #impl_gen rsact_ui::el::build::Build<#wctx> for #name #type_gen #where_clause {
+            fn build(
+                mut self: ::alloc::boxed::Box<Self>,
+                ctx: rsact_ui::el::build::BuildCtx<#wctx>,
+            ) -> ::alloc::boxed::Box<dyn rsact_ui::widget::Widget<#wctx>> {
+                rsact_ui::widget::Widget::build(&mut *self, ctx);
+                self
+            }
+            fn layout(&self) -> rsact_ui::layout::node::Layout {
+                rsact_ui::widget::Widget::layout(self)
+            }
+            fn flags(&self) -> rsact_ui::el::WidgetFlags {
+                rsact_ui::widget::Widget::flags(self)
+            }
+            fn debug_name(&self) -> &'static str {
+                rsact_ui::widget::Widget::debug_name(self)
+            }
+        }
     }
     .into();
 

@@ -146,13 +146,18 @@ impl<'a, W: WidgetCtx> EventPass<'a, W> {
     fn run_el(&mut self, id: ElId, layout: &LayoutModelNode) -> EventResponse {
         if let Some(el) = self.arena.get_mut(id).as_mut() {
             if let Some(data) = el.data.as_mut() {
-                data.widget.on_event(EventCtx {
-                    id,
-                    state: &mut data.state,
-                    event: self.event,
-                    page_state: self.page_state,
-                    layout,
-                })
+                if let Some(widget) = data.stage.built_mut() {
+                    widget.on_event(EventCtx {
+                        id,
+                        state: &mut data.state,
+                        event: self.event,
+                        page_state: self.page_state,
+                        layout,
+                    })
+                } else {
+                    error!("Element {id:?} has no built widget on event path");
+                    EventResponse::Continue(())
+                }
             } else {
                 error!(
                     "Trying to run event on element with id {:?} that has no data",

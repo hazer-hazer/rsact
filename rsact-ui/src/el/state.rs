@@ -1,7 +1,4 @@
-use crate::{
-    el::{UpdateResult, WidgetCtx, WidgetFlags},
-    widget::Widget,
-};
+use crate::el::{UpdateResult, WidgetCtx, WidgetFlags};
 use core::{
     fmt::{Debug, Display},
     marker::PhantomData,
@@ -67,9 +64,9 @@ pub struct ElState<W: WidgetCtx> {
 }
 
 impl<W: WidgetCtx> ElState<W> {
-    pub fn for_widget(widget: &dyn Widget<W>) -> Self {
-        let debug_name = Self::pretty_type_name(widget.debug_name());
-        let flags = widget.flags();
+    pub fn for_builder(builder: &dyn crate::el::build::Build<W>) -> Self {
+        let debug_name = Self::pretty_type_name(builder.debug_name());
+        let flags = builder.flags();
 
         Self {
             _marker: PhantomData,
@@ -106,7 +103,8 @@ impl<W: WidgetCtx> ElState<W> {
         &mut self,
         child_hover: bool,
     ) -> UpdateResult {
-        if self.flags.is_hoverable() && self.flags.is_hoverable_from_children() {
+        if self.flags.is_hoverable() && self.flags.is_hoverable_from_children()
+        {
             // Child hovered only affects true values because we could already
             // hover this element directly
             self.hovered = self.hovered || child_hover;

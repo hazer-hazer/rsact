@@ -9,3 +9,4 @@
 /metrics/index.json
 # WS0.8 post-commit hook log (local).
 /metrics/hook.log
+.superpowers/

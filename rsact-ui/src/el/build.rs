@@ -1,5 +1,32 @@
 use crate::el::{WidgetCtx, arena::ElArena, *};
+use crate::{layout::node::Layout, widget::Widget};
 use log::{error, warn};
+
+/// A transient **builder**: holds construction-only state and is consumed at
+/// build into its retained [`Widget`]. `build` is the type transform
+/// (WS13 spec §2.1). `self: Box<Self>` keeps it object-safe for `dyn Build`.
+///
+/// Unconverted widgets get an *identity* `Build` (build in place, return self)
+/// emitted per-type by `#[derive(View)]` — never a blanket (coherence, see
+/// `el/view.rs`).
+pub trait Build<W: WidgetCtx>: core::any::Any {
+    fn build(
+        self: alloc::boxed::Box<Self>,
+        ctx: BuildCtx<W>,
+    ) -> alloc::boxed::Box<dyn Widget<W>>;
+
+    /// Layout snapshot the parent stores in its `El::Stored { id, layout }`
+    /// husk (read by `arena.add` before build).
+    fn layout(&self) -> Layout;
+
+    fn flags(&self) -> WidgetFlags {
+        WidgetFlags::default()
+    }
+
+    fn debug_name(&self) -> &'static str {
+        core::any::type_name::<Self>()
+    }
+}
 
 /// Context passed to elements on build pass, runs once per element.
 /// `id` is the id of the element being build. But as elements don't call to
@@ -72,8 +99,7 @@ impl<W: WidgetCtx> BuildCtx<W> {
     }
 
     fn build_el(&mut self, id: ElId) {
-        let Some(mut el) =
-            self.arena.update_untracked(|arena| arena.take_el(id))
+        let Some(data) = self.arena.update_untracked(|arena| arena.take_el(id))
         else {
             warn!(
                 "Trying to build non-existent or taken element with id {:?}",
@@ -82,15 +108,26 @@ impl<W: WidgetCtx> BuildCtx<W> {
             return;
         };
 
-        if el.state.built {
+        let ElData { stage, mut state } = data;
+        let stage = if state.built {
             error!("Attempt to rebuild element {id:?}");
+            stage
         } else {
-            el.widget.build(self.for_el(id));
-            el.state.built = true;
-        }
+            state.built = true;
+            match stage {
+                ElStage::Unbuilt(builder) => {
+                    ElStage::Built(builder.build(self.for_el(id)))
+                },
+                built @ ElStage::Built(_) => {
+                    error!("Element {id:?} was already built");
+                    built
+                },
+            }
+        };
 
-        self.arena
-            .update_untracked(|arena| arena.restore_el(id, el));
+        self.arena.update_untracked(|arena| {
+            arena.restore_el(id, ElData { stage, state })
+        });
     }
 
     // pub fn add_children(mut self, children: &mut [El<W>]) {
@@ -127,8 +164,32 @@ impl<W: WidgetCtx> BuildCtx<W> {
 
 #[cfg(test)]
 mod tests {
-    use crate::el::arena::ElArena;
+    use crate::{
+        el::{El, arena::ElArena, build::BuildCtx},
+        test_support::NullWtf,
+        widget::{Widget, combinators::Unit},
+    };
     use rsact_reactive::prelude::*;
 
-    // TODO
+    /// The build pass transforms an `Unbuilt(Box<dyn Build>)` arena node into a
+    /// `Built(Box<dyn Widget>)` node exactly once, and the built widget's layout is
+    /// reachable through the new `ElData::widget()` accessor.
+    #[test]
+    fn build_transforms_unbuilt_to_built() {
+        with_new_runtime(|_| {
+            let mut root: El<NullWtf> = Unit.el();
+            let arena = create_signal(ElArena::new());
+            let root_id = BuildCtx::run(&mut root, arena);
+
+            arena.with(|arena| {
+                let data = arena.expect(root_id).expect("root must exist");
+                assert!(data.state.built, "root must be marked built");
+                // Reachable only through the two-stage accessor (compile-driver):
+                assert!(
+                    data.widget().is_some(),
+                    "a built node must expose its retained widget"
+                );
+            });
+        });
+    }
 }
