@@ -1,8 +1,9 @@
 # Roadmap
 
-rsact is developed against a living plan of record — 21 workstreams (WS0–WS19)
-plus decision gates — covering the reactivity engine, the UI pipeline, embedded
-bring-up, performance transparency, and this website.
+rsact is developed against a living plan of record — the WS0–WS19 workstreams
+(with lettered insertions like WS1b and WSi) plus decision gates — covering the
+reactivity engine, the UI pipeline, embedded bring-up, performance transparency,
+and this website.
 
 The authoritative document lives in the repository:
 [`docs/plans/2026-07-05-rsact-evolution-roadmap.md`](https://github.com/hazer-hazer/rsact/blob/master/docs/plans/2026-07-05-rsact-evolution-roadmap.md).

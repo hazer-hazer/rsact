@@ -31,8 +31,7 @@ features:
 
 ## A taste
 
-A signal drives a widget directly — no manual wiring, no diffing. Adapted from
-[`examples/sandbox.rs`](https://github.com/hazer-hazer/rsact/blob/master/rsact-ui/examples/sandbox.rs):
+A signal drives a widget directly — no manual wiring, no diffing:
 
 ```rust
 use rsact_ui::prelude::*;
@@ -40,13 +39,14 @@ use rsact_ui::prelude::*;
 // A signal is a Copy handle into the reactive runtime.
 let selected = create_signal(0);
 
-// Widgets take reactive values directly.
-let select = Select::vertical(selected, vec![0, 1, 2, 3].inert());
-let page = row![col![select]].center().fill();
-
-// One UI; pick a renderer (embedded-graphics here) and drive it in your loop.
+// One UI; pick a renderer (embedded-graphics here). The page is a closure, so
+// navigating (re)builds its tree — you capture Copy signal handles, not widgets.
 let mut ui = UI::new(Theme::default(), EGRenderer::new(viewport))
-    .with_page(SinglePage, page.el());
+    .with_page(SinglePage, move || {
+        // Widgets take reactive values directly.
+        let select = Select::vertical(selected, vec![0, 1, 2, 3].inert());
+        Flex::col([select.el()]).center().fill()
+    });
 ```
 
 ## Numbers you can check

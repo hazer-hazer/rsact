@@ -35,12 +35,16 @@ cargo build -p rsact-ui --no-default-features \
 ```rust
 use rsact_ui::prelude::*;
 
+// Signals are Copy handles into the reactive runtime.
 let selected = create_signal(0);
-let select = Select::vertical(selected, vec![0, 1, 2, 3].inert());
-let page = row![col![select]].center().fill();
 
+// A page is registered as a closure that builds its widget tree on navigation;
+// capture the Copy signal handles, and build widgets inside.
 let mut ui = UI::new(Theme::default(), EGRenderer::new(viewport))
-    .with_page(SinglePage, page.el());
+    .with_page(SinglePage, move || {
+        let select = Select::vertical(selected, vec![0, 1, 2, 3].inert());
+        Flex::col([select.el()]).center().fill()
+    });
 
 // In your app loop:
 // ui.tick(events);
