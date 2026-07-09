@@ -12,6 +12,7 @@ const props = withDefaults(
   defineProps<{
     series: Series[]
     snapshots?: Snapshot[]
+    n?: number
     width?: number
     height?: number
     pad?: number
@@ -21,6 +22,7 @@ const props = withDefaults(
   }>(),
   {
     snapshots: () => [],
+    n: 0,
     width: 380,
     height: 300,
     pad: 24,
@@ -31,7 +33,7 @@ const props = withDefaults(
 )
 
 const n = computed(
-  () => props.snapshots.length || Math.max(0, ...props.series.map((s) => s.values.length)),
+  () => props.n || props.snapshots.length || Math.max(0, ...props.series.map((s) => s.values.length)),
 )
 const sharedMax = computed(() => Math.max(0, ...props.series.map((s) => seriesMax(s.values))))
 
@@ -63,6 +65,14 @@ function onMove(ev: MouseEvent) {
   hover.value = Math.max(0, Math.min(n.value - 1, Math.round(frac * (n.value - 1))))
   sharedHover.value = hover.value
 }
+// Mirrors onMove's interactive gate: onMove only WRITES sharedHover when
+// interactive, so the clear must match — otherwise a non-interactive inline
+// chart (e.g. MetricTable's per-row chart) would stomp the shared crosshair
+// set by the interactive overlay chart on every mouseleave.
+function onLeave() {
+  hover.value = null
+  if (props.interactive) sharedHover.value = null
+}
 const hoverX = computed(() =>
   guideCol.value === null || guideCol.value === undefined
     ? null
@@ -89,7 +99,7 @@ const tooltip = computed(() => {
       preserveAspectRatio="none"
       class="chart"
       @mousemove="onMove"
-      @mouseleave="hover = null; sharedHover = null"
+      @mouseleave="onLeave"
     >
       <line class="axis" :x1="pad" :y1="height - pad" :x2="width - pad" :y2="height - pad" />
       <template v-for="line in lines" :key="line.label">
