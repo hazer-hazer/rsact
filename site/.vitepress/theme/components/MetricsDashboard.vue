@@ -6,7 +6,7 @@ import TrendChart from './TrendChart.vue'
 import { buildSeries, isFlat, fmt } from '../lib/series'
 import { columnGroups, columnLabel, collapseValues, boundaryFlags, columnNet } from '../lib/collapse'
 import { colorFor } from '../lib/colors'
-import { commitUrl, compareUrl } from '../lib/repo'
+import { columnHref } from '../lib/repo'
 import { HOVER_KEY } from '../lib/hover'
 import { SAMPLE } from '../lib/sample'
 import type { MetricsData, Snapshot, IndexMap, SeriesRow, Series } from '../lib/types'
@@ -117,21 +117,17 @@ const columns = computed(() =>
   colGroups.value.map((g) => {
     const label = columnLabel(snapshots.value, g)
     const first = snapshots.value[g[0]]
-    const last = snapshots.value[g[g.length - 1]]
     const entry = index.value[first?.git_rev]
     const branch = entry?.branch
     const date = iso(entry?.date)
-    const href =
-      g.length === 1
-        ? commitUrl(last.git_rev)
-        : entry?.parent
-          ? compareUrl(entry.parent, last.git_rev)
-          : commitUrl(last.git_rev)
+    const href = columnHref(g, snapshots.value, index.value)
     const title = [label, branch, date].filter(Boolean).join(' · ')
     return { label, title, href, group: g }
   }),
 )
 
+// `changed`/`nets` intentionally derive from `allRows`/`colGroups` (the full column
+// axis), NOT `shownGroups`, so the column axis stays stable under the "only changed" filter.
 // Per-column "changed" flags for dimming (#5). With collapse on every column is a
 // boundary → nothing to dim.
 const changed = computed<boolean[]>(() =>

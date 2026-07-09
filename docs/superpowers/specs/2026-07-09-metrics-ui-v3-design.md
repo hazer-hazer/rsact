@@ -59,12 +59,12 @@ Delivered by A0 (bounded scroll region + sticky thead + sticky caption rows). No
 - Cells and header hash of unchanged columns get `class="dim"` → `opacity: .45`. Only visibly affects the expanded (collapse-off) view, which is the point.
 
 ### A6. Per-column net arrow (#6)
-- New pure `columnNet(rows, groups): { up: number; down: number }[]` in `series.ts`: for each column, over all rows, collapse values (`collapseValues`) and count `trend(collapsed, colIdx, lowerIsBetter(key))` results (`'up'`/`'down'`). Domain-aware. Column 0 has no previous present value → all neutral.
+- New pure `columnNet(rows, groups): { up: number; down: number }[]` in `collapse.ts`: for each column, over all rows, collapse values (`collapseValues`) and count `trend(collapsed, colIdx, lowerIsBetter(key))` results (`'up'`/`'down'`). Domain-aware. Column 0 has no previous present value → all neutral.
 - A **second sticky header row** ("Δ overall" in the label cell) shows per column: green `▲` if `up > down`, red `▼` if `down > up`, neutral `–` if tie/none. `title` = `"{up} improved, {down} regressed"`. Lives in `<thead>` so it sticks with the commit-hash row.
 
 ## Architecture / boundaries
 Logic stays in pure, tested `lib/*.ts`; components stay thin.
-- New pure: `lib/repo.ts` (`commitUrl`/`compareUrl`), `collapse.ts` `boundaryFlags`, `series.ts` `columnNet`.
+- New pure: `lib/repo.ts` (`commitUrl`/`compareUrl`), `collapse.ts` `boundaryFlags`, `collapse.ts` `columnNet`.
 - Components: `MetricsDashboard.vue` (owns `<table>`, `<thead>` with hash-links + net-arrow row, scroll region + `--head-h` measure, hover-aware legend); `MetricSection.vue` (renamed from `MetricTable.vue`, `<tbody>` root, sticky caption, dim class, delta display); `TrendChart.vue` (drop tip/tooltip/snapshots).
 - Rename `components/MetricTable.test.ts` → `components/MetricSection.test.ts`.
 

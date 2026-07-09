@@ -112,6 +112,7 @@ td.dim { opacity: 0.4; }
 tr.metric { cursor: pointer; }
 tr.metric:hover td { background: var(--vp-c-bg-soft); }
 tr.metric.sel td.lbl { font-weight: bold; }
+// Zero horizontal padding so the inline chart SVG spans the data columns exactly — any inset would shift points off their column centers.
 tr.chartrow td { padding: 0.2rem 0; }
 tr.chartrow td.lbl { background: var(--vp-c-bg); }
 .muted { color: var(--vp-c-text-3); }

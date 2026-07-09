@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import MetricsDashboard from './MetricsDashboard.vue'
 import type { MetricsData } from '../lib/types'
@@ -28,6 +28,9 @@ describe('MetricsDashboard', () => {
       observe(el: unknown) { observed.push(el) }
       disconnect() {}
     }
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
   it('attaches the head ResizeObserver once the thead appears on the async no-data path', async () => {
     global.fetch = vi.fn(async () => ({ ok: true, json: async () => DATA })) as unknown as typeof fetch
