@@ -75,7 +75,15 @@ where
 /// upgrade persists in the widget's stored field rather than a discarded copy.
 /// Kept separate from [`Widget`] because some widgets (e.g. `Unit`, `Show`) do
 /// not own a `Layout` and must not expose `layout_mut`.
-pub trait LayoutWidget<W: WidgetCtx>: Widget<W> {
+///
+/// WS13.2 plan-gap fix: this trait deliberately does **not** require
+/// `Widget<W>`. A split *builder* (`ButtonBuilder`, `FlexBuilder`, …) carries
+/// these layout setters but is transient — it is not a `Widget` (it erases via
+/// `Build`, not `Widget`). The 13.1 spec assumed the builder traits could move
+/// onto a non-`Widget` builder but missed that they were bounded on
+/// `Widget<W>`; dropping the supertrait unblocks the split. Nothing generic is
+/// bounded on `LayoutWidget: Widget`, so removing it is capability-widening.
+pub trait LayoutWidget<W: WidgetCtx> {
     fn layout_mut(&mut self) -> &mut Layout;
 }
 
@@ -200,7 +208,13 @@ pub trait BlockModelWidget<W: WidgetCtx>: LayoutWidget<W> {
 pub trait FontSettingWidget<W: WidgetCtx>:
     LayoutWidget<W> + Sized + 'static
 {
-    fn font_props(&self) -> FontProps {
+    // `Self: Widget<W>` here (not on the trait) because this default body reads
+    // `self.layout()`, a `Widget` method. Widgets satisfy it; split builders
+    // (not `Widget`) simply can't call `font_props()` — harmless, nothing does.
+    fn font_props(&self) -> FontProps
+    where
+        Self: Widget<W>,
+    {
         self.layout().with(|layout| layout.font_props().unwrap())
     }
 

@@ -1261,7 +1261,7 @@ mod tests {
             let mut page = create_null_page(
                 Button::new(Label::new("x"))
                     .on_click(move || clicks.update(|c| *c += 1))
-                    .el(),
+                    .into_el(),
             );
 
             // Reading the layout memo builds/lays out the tree; no rendering is
@@ -1309,7 +1309,7 @@ mod tests {
             let mut page = create_null_page(
                 Button::new(Label::new("x"))
                     .on_click(move || clicks.update(|c| *c += 1))
-                    .el(),
+                    .into_el(),
             );
 
             // Reading the layout memo builds/lays out the tree; no rendering is
@@ -1809,6 +1809,22 @@ mod tests {
             "y",
             Button::new("z"),
         )));
+    }
+
+    // WS13.2: Button is the first real builder/widget split — `ButtonBuilder`
+    // carries the build-only `content` child, the retained `Button` drops it.
+    #[test]
+    fn button_split_drops_content_husk() {
+        use crate::widget::button::{Button, ButtonBuilder};
+        // The retained widget must not carry the build-only child husk, so it is
+        // strictly smaller than its builder.
+        assert!(
+            core::mem::size_of::<Button<NullWtf>>()
+                < core::mem::size_of::<ButtonBuilder<NullWtf>>(),
+            "retained Button must be smaller than ButtonBuilder (dropped content husk)"
+        );
+        // And a button page still builds end-to-end (transform ran).
+        let _ = create_null_page(Button::new("ok"));
     }
 
     // Regression: a reactive source set through the trait-default setter

@@ -10,16 +10,21 @@ declare_widget_style! {
     }
 }
 
-#[derive(View)]
-pub struct Button<W: WidgetCtx> {
+pub struct ButtonBuilder<W: WidgetCtx> {
     layout: Layout,
     content: El<W>,
     style: WidgetStyleFn<ButtonStyle<W::Color>>,
     on_click: Option<Box<dyn FnMut()>>,
 }
 
+pub struct Button<W: WidgetCtx> {
+    layout: Layout,
+    style: WidgetStyleFn<ButtonStyle<W::Color>>,
+    on_click: Option<Box<dyn FnMut()>>,
+}
+
 impl<W: WidgetCtx + 'static> Button<W> {
-    pub fn new(content: impl View<W>) -> Self {
+    pub fn new(content: impl View<W>) -> ButtonBuilder<W> {
         let content = content.into_el();
 
         let layout = Layout::shrink(LayoutKind::Container(ContainerLayout {
@@ -30,9 +35,11 @@ impl<W: WidgetCtx + 'static> Button<W> {
             font_props: Default::default(),
         }));
 
-        Self { layout, content, style: None, on_click: None }
+        ButtonBuilder { layout, content, style: None, on_click: None }
     }
+}
 
+impl<W: WidgetCtx + 'static> ButtonBuilder<W> {
     // TODO: Allow function to return some value to be sent to the UI, so user
     // can easily call ui events like goto page, etc without getting access to the [`MessageQueue`].
     pub fn on_click<F: 'static>(mut self, on_click: F) -> Self
@@ -57,18 +64,35 @@ impl<W: WidgetCtx + 'static> Button<W> {
     }
 }
 
-impl<W: WidgetCtx + 'static> LayoutWidget<W> for Button<W> {
+impl<W: WidgetCtx + 'static> LayoutWidget<W> for ButtonBuilder<W> {
     fn layout_mut(&mut self) -> &mut Layout {
         &mut self.layout
     }
 }
-impl<W: WidgetCtx + 'static> SizedWidget<W> for Button<W> {}
-impl<W: WidgetCtx + 'static> BlockModelWidget<W> for Button<W> {}
-impl<W: WidgetCtx> FontSettingWidget<W> for Button<W> {}
+impl<W: WidgetCtx + 'static> SizedWidget<W> for ButtonBuilder<W> {}
+impl<W: WidgetCtx + 'static> BlockModelWidget<W> for ButtonBuilder<W> {}
+impl<W: WidgetCtx + 'static> FontSettingWidget<W> for ButtonBuilder<W> {}
 
-impl<W: WidgetCtx + 'static> Widget<W> for Button<W> {
-    fn debug_name(&self) -> &'static str {
-        "Button"
+impl<W: WidgetCtx + 'static> View<W> for ButtonBuilder<W> {
+    fn into_el(self) -> El<W> {
+        El::new(self)
+    }
+}
+impl<W: WidgetCtx + 'static> SingleViewMarker for ButtonBuilder<W> {}
+
+impl<W: WidgetCtx + 'static> crate::el::build::Build<W> for ButtonBuilder<W> {
+    fn build(self: Box<Self>, mut ctx: BuildCtx<W>) -> Box<dyn Widget<W>> {
+        let mut this = *self;
+        ctx.set_single_child(&mut this.content);
+        Box::new(Button {
+            layout: this.layout,
+            style: this.style,
+            on_click: this.on_click,
+        })
+    }
+
+    fn layout(&self) -> Layout {
+        self.layout
     }
 
     fn flags(&self) -> WidgetFlags {
@@ -79,10 +103,16 @@ impl<W: WidgetCtx + 'static> Widget<W> for Button<W> {
             .focusable()
     }
 
-    fn build(&mut self, mut ctx: BuildCtx<W>) {
-        ctx.set_single_child(&mut self.content);
+    fn debug_name(&self) -> &'static str {
+        "Button"
     }
+}
 
+impl<W: WidgetCtx + 'static> Widget<W> for Button<W> {
+    // NOTE: no `flags`/`debug_name` override on the retained widget — both are
+    // read exactly once, pre-build, from `Build` (seeding `ElState` at
+    // `state.rs:72`); post-build all consumption is via `ElState`, so an
+    // override here would be dead duplication of the builder's `Build::flags`.
     fn layout(&self) -> Layout {
         self.layout
     }
