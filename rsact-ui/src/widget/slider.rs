@@ -63,7 +63,11 @@ pub struct Slider<W: WidgetCtx, Dir: Direction> {
     value: Signal<f32>,
     range: MaybeReactive<RangeInclusive<f32>>,
     step: MaybeReactive<f32>,
-    state: Signal<SliderState>,
+    // WS4.5: plain field, not a Signal — `state` is read/written only in
+    // `on_event(&mut self)` (never in render/layout), so it needs no runtime
+    // node. Global press/focus state lives in PageState; this is only the
+    // widget-local value-adjust mode.
+    state: SliderState,
     layout: Layout,
     style: WidgetStyleFn<SliderStyle<W::Color>>,
     dir: PhantomData<Dir>,
@@ -78,7 +82,7 @@ impl<W: WidgetCtx, Dir: Direction> Slider<W, Dir> {
         let step = range.map(|range| Self::step_from_range(range));
 
         Self {
-            state: SliderState::none().signal(),
+            state: SliderState::none(),
             value: value.signal(),
             range,
             step,
@@ -222,7 +226,7 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Slider<W, Dir> {
     }
 
     fn on_event(&mut self, mut ctx: EventCtx<'_, W>) -> EventResponse {
-        let current_state = self.state.get();
+        let current_state = self.state;
 
         if current_state.active && ctx.is_focused() {
             // TODO: Right slider event interpretation
@@ -242,7 +246,7 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Slider<W, Dir> {
 
         ctx.handle()?; // focus press claim (encoder), automatic
         ctx.handle_click(|ctx| {
-            self.state.update(|state| state.active = !state.active);
+            self.state.active = !self.state.active;
             ctx.capture()
         })
     }

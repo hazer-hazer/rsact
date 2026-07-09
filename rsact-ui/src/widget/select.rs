@@ -177,19 +177,27 @@ where
         let options_layout = options
             .map(|options| options.iter().map(|opt| opt.el.layout()).collect());
 
-        let setter_options = Rc::clone(&options);
-        selected.setter(
-            state.map(|state| state.selected).maybe_reactive(),
-            move |selected, position| {
-                if let Some(option) = position.and_then(|pos| {
-                    setter_options.with(|options| {
-                        options.get(pos).map(|opt| opt.key.clone())
-                    })
-                }) {
-                    *selected = option;
-                }
-            },
-        );
+        // WS4.5: only wire the `state.selected -> selected` feedback when
+        // `selected` is a genuine reactive Signal. For an inert `selected` the
+        // caller holds a plain value with no signal to push into, so `setter`
+        // would promote it to an orphan Signal + build a Memo (state.map) + an
+        // Effect that nothing observes (the pre-existing TODO above). Skipping
+        // it saves 3 nodes per static Select with no observable behavior change.
+        if selected.as_signal().is_some() {
+            let setter_options = Rc::clone(&options);
+            selected.setter(
+                state.map(|state| state.selected).maybe_reactive(),
+                move |selected, position| {
+                    if let Some(option) = position.and_then(|pos| {
+                        setter_options.with(|options| {
+                            options.get(pos).map(|opt| opt.key.clone())
+                        })
+                    }) {
+                        *selected = option;
+                    }
+                },
+            );
+        }
 
         Self {
             layout: Layout::new(
