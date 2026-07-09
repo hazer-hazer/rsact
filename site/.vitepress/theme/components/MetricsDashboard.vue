@@ -58,16 +58,26 @@ function measureHead() {
   }
 }
 
+// Registered synchronously (top-level, before any await) so it binds to this
+// component's effect scope and is auto-disposed on unmount. `headEl` starts
+// out null while `loading` is true (the <thead> is behind v-else), so a
+// one-shot attach in onMounted would miss it; watching the ref re-attaches
+// once the thead actually mounts after the fetch resolves.
+watch(headEl, (el) => {
+  ro?.disconnect()
+  ro = null
+  if (el && typeof ResizeObserver !== 'undefined') {
+    ro = new ResizeObserver(measureHead)
+    ro.observe(el)
+  }
+}, { immediate: true })
+
 onMounted(async () => {
   parseHash()
   // Registered synchronously (before any await) so it binds to this component's
   // effect scope and is auto-disposed on unmount. It only depends on UI state,
   // not fetched data, so it doesn't need to wait for the fetch below.
   watch([selected, collapse, delta, onlyChanged], writeHash, { deep: true })
-  if (typeof ResizeObserver !== 'undefined' && headEl.value) {
-    ro = new ResizeObserver(measureHead)
-    ro.observe(headEl.value)
-  }
   if (!props.data) {
     try {
       const res = await fetch(withBase('/metrics/data.json'))

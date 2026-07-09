@@ -18,10 +18,23 @@ const DATA: MetricsData = {
   ],
 }
 
+const observed: unknown[] = []
+
 describe('MetricsDashboard', () => {
   beforeEach(() => {
+    observed.length = 0
     // @ts-expect-error test env
-    global.ResizeObserver = class { observe() {} disconnect() {} }
+    global.ResizeObserver = class {
+      observe(el: unknown) { observed.push(el) }
+      disconnect() {}
+    }
+  })
+  it('attaches the head ResizeObserver once the thead appears on the async no-data path', async () => {
+    global.fetch = vi.fn(async () => ({ ok: true, json: async () => DATA })) as unknown as typeof fetch
+    const w = mount(MetricsDashboard)
+    await flushPromises()
+    expect(w.find('thead').exists()).toBe(true)
+    expect(observed.length).toBeGreaterThan(0)
   })
   it('renders a single grid table with a thead and per-group tbodies', async () => {
     const w = mount(MetricsDashboard, { props: { data: DATA } })
