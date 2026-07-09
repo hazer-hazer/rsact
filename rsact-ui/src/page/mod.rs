@@ -1857,6 +1857,25 @@ mod tests {
         ]));
     }
 
+    // WS13.2 (Task 5): locks the exact `size_of` byte counts behind the
+    // `<` assertions above (`button_split_drops_content_husk`,
+    // `flex_split_drops_children_and_phantom`) — the concrete numbers fed to
+    // the 13.3 measurement gate (struct-size axis). Measured on
+    // `x86_64`/`aarch64` host (NullWtf: `Wtf<NullRenderer, (), (), ()>`); a
+    // toolchain/target change that shifts padding is expected to move these,
+    // in which case re-lock in the same commit rather than loosening to `<`.
+    #[test]
+    fn split_widget_sizes_recorded() {
+        use crate::widget::{
+            button::{Button, ButtonBuilder},
+            flex::{Flex, FlexBuilder},
+        };
+        assert_eq!(core::mem::size_of::<Button<NullWtf>>(), 48);
+        assert_eq!(core::mem::size_of::<ButtonBuilder<NullWtf>>(), 152);
+        assert_eq!(core::mem::size_of::<Flex<NullWtf>>(), 12);
+        assert_eq!(core::mem::size_of::<FlexBuilder<NullWtf>>(), 40);
+    }
+
     // Regression: a reactive source set through the trait-default setter
     // (`SizedWidget::width` -> `self.layout_mut().setter(...)`) must persist
     // the reactive-on-write upgrade in the widget's own `Layout`.

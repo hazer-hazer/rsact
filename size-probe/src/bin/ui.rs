@@ -19,8 +19,9 @@ type NullWtf = Wtf<NullRenderer, (), (), ()>;
 fn main() -> ! {
     size_probe::init_heap();
 
-    let labels: Vec<Signal<String>> =
-        (0..10).map(|i| create_signal(format!("label {i}"))).collect();
+    let labels: Vec<Signal<String>> = (0..10)
+        .map(|i| create_signal(format!("label {i}")))
+        .collect();
     let init = labels.clone();
 
     let mut ui: UI<NullWtf, _> =
@@ -28,7 +29,7 @@ fn main() -> ! {
             Flex::col(
                 init.iter().map(|s| Label::new(*s).el()).collect::<Vec<_>>(),
             )
-            .el()
+            .into_el()
         });
     let _ = ui.current_page();
     ui.current_page().use_renderer(|_| {});

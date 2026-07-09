@@ -1,6 +1,8 @@
 //! The measured binaries from the audit, in-process: a pure-reactive
-//! observe-gated tree and real widget pages (5 and 10 labels). Each runs in its
-//! own reactive runtime so node counts are isolated, and is measured with the
+//! observe-gated tree and real widget pages (5 and 10 labels, buttons, and
+//! nested-flex containers — the last two added by WS13.2 Task 5 to measure
+//! the builder/widget split on Button and Flex). Each runs in its own
+//! reactive runtime so node counts are isolated, and is measured with the
 //! [`crate::alloc`] tracking allocator.
 
 use crate::{alloc, snapshot::Scenario};
@@ -10,7 +12,7 @@ use rsact_reactive::{
 };
 use rsact_ui::{
     prelude::*,
-    test_support::{NullWtf, labels_page},
+    test_support::{NullWtf, buttons_page, labels_page, nested_flex_page},
     ui::{UI, WithPages},
 };
 use std::hint::black_box;
@@ -197,6 +199,157 @@ fn ui_labels(n: usize) -> Scenario {
     })
 }
 
+/// A widget page of `n` buttons in a column (button-heavy, WS13.2 Task 5): `n`
+/// `ButtonBuilder -> Button` transforms, each wrapping a label bound to a
+/// signal so a change frame is measurable. Built headlessly through the
+/// public `UI` API with a `NullRenderer`. Mirrors [`ui_labels`] exactly except
+/// for the page builder, so the two are directly comparable.
+fn ui_buttons(n: usize) -> Scenario {
+    with_new_runtime(|_| {
+        alloc::reset_peak();
+        let base_live = alloc::live();
+
+        // Build the canonical N-button page. The returned `labels` are kept so
+        // we can dirty one for the change frame.
+        let (build_allocs, build_bytes, (mut ui, labels)) =
+            charge(|| buttons_page(n));
+
+        // Warm-up: the first paint is always full work (page starts dirty and
+        // the render gate's observe-nodes are created here), so it is not a
+        // "frame". Rendering the null theme can hit a pre-existing ColorStyle
+        // panic for some widgets, so guard it and degrade to "not measured"
+        // rather than aborting the whole probe.
+        let painted = guarded_frame(&mut ui, |ui| {
+            ui.current_page().use_renderer(|_| {});
+        })
+        .is_some();
+
+        // Measure node population / heap in the steady state, after first paint.
+        let counts = profile_counts();
+        // Saturating: a scenario that nets a free (base measured mid-churn)
+        // must not underflow-panic and abort the whole recording.
+        let heap_live_bytes = alloc::live().saturating_sub(base_live);
+        let heap_peak_bytes = alloc::peak().saturating_sub(base_live);
+
+        // Idle frame: re-run the gate with nothing dirty (expect ~0 allocs).
+        let idle = painted
+            .then(|| {
+                guarded_frame(&mut ui, |ui| {
+                    ui.current_page().use_renderer(|_| {});
+                })
+            })
+            .flatten();
+
+        // Change frame: dirty one button's label, re-run the gate. Attribute
+        // the layout work of this single-leaf change to the layout counters
+        // (whole-tree today; WS5 makes it incremental).
+        let mut driver = labels[0];
+        driver.set("changed".into());
+        reset_layout();
+        let change = painted
+            .then(|| {
+                guarded_frame(&mut ui, |ui| {
+                    ui.current_page().use_renderer(|_| {});
+                })
+            })
+            .flatten();
+        // Only trust the layout counters if the change frame actually completed;
+        // a panicked frame leaves them at 0 (reset, never incremented), which
+        // would record a phantom `Some {visits: 0, measures: 0}` and show as a
+        // fake −100% "improvement" in a later diff.
+        let layout = change.and_then(|_| read_layout());
+
+        Scenario {
+            name: format!("ui_buttons_{n}"),
+            counts,
+            heap_live_bytes,
+            heap_peak_bytes,
+            build_allocs,
+            build_bytes,
+            idle_frame_allocs: idle,
+            change_frame_allocs: change,
+            layout,
+        }
+    })
+}
+
+/// A widget page of `n` nested `Flex` containers (flex-heavy, WS13.2 Task 5):
+/// `n + 1` `FlexBuilder -> Flex` transforms (one outer column plus `n` inner
+/// rows), each inner row wrapping a label bound to a signal so a change frame
+/// is measurable. Built headlessly through the public `UI` API with a
+/// `NullRenderer`. Mirrors [`ui_labels`] exactly except for the page builder,
+/// so the two are directly comparable — this scenario multiplies the `Flex`
+/// split path `n + 1` times instead of the single outer `Flex` `ui_labels`
+/// exercises.
+fn ui_nested_flex(n: usize) -> Scenario {
+    with_new_runtime(|_| {
+        alloc::reset_peak();
+        let base_live = alloc::live();
+
+        // Build the canonical N-nested-Flex page. The returned `labels` are
+        // kept so we can dirty one for the change frame.
+        let (build_allocs, build_bytes, (mut ui, labels)) =
+            charge(|| nested_flex_page(n));
+
+        // Warm-up: the first paint is always full work (page starts dirty and
+        // the render gate's observe-nodes are created here), so it is not a
+        // "frame". Rendering the null theme can hit a pre-existing ColorStyle
+        // panic for some widgets, so guard it and degrade to "not measured"
+        // rather than aborting the whole probe.
+        let painted = guarded_frame(&mut ui, |ui| {
+            ui.current_page().use_renderer(|_| {});
+        })
+        .is_some();
+
+        // Measure node population / heap in the steady state, after first paint.
+        let counts = profile_counts();
+        // Saturating: a scenario that nets a free (base measured mid-churn)
+        // must not underflow-panic and abort the whole recording.
+        let heap_live_bytes = alloc::live().saturating_sub(base_live);
+        let heap_peak_bytes = alloc::peak().saturating_sub(base_live);
+
+        // Idle frame: re-run the gate with nothing dirty (expect ~0 allocs).
+        let idle = painted
+            .then(|| {
+                guarded_frame(&mut ui, |ui| {
+                    ui.current_page().use_renderer(|_| {});
+                })
+            })
+            .flatten();
+
+        // Change frame: dirty one nested label, re-run the gate. Attribute the
+        // layout work of this single-leaf change to the layout counters
+        // (whole-tree today; WS5 makes it incremental).
+        let mut driver = labels[0];
+        driver.set("changed".into());
+        reset_layout();
+        let change = painted
+            .then(|| {
+                guarded_frame(&mut ui, |ui| {
+                    ui.current_page().use_renderer(|_| {});
+                })
+            })
+            .flatten();
+        // Only trust the layout counters if the change frame actually completed;
+        // a panicked frame leaves them at 0 (reset, never incremented), which
+        // would record a phantom `Some {visits: 0, measures: 0}` and show as a
+        // fake −100% "improvement" in a later diff.
+        let layout = change.and_then(|_| read_layout());
+
+        Scenario {
+            name: format!("ui_nested_flex_{n}"),
+            counts,
+            heap_live_bytes,
+            heap_peak_bytes,
+            build_allocs,
+            build_bytes,
+            idle_frame_allocs: idle,
+            change_frame_allocs: change,
+            layout,
+        }
+    })
+}
+
 /// Measure a frame, returning `None` if the render gate panics (see the
 /// null-theme note above). Uses `catch_unwind`; the closure only touches the
 /// UI, and a panic here just drops the optional metric.
@@ -212,7 +365,15 @@ fn guarded_frame(
 
 /// Run every scenario, in a stable order.
 pub fn run_all() -> Vec<Scenario> {
-    vec![reactive_only(16), ui_labels(5), ui_labels(10)]
+    vec![
+        reactive_only(16),
+        ui_labels(5),
+        ui_labels(10),
+        ui_buttons(5),
+        ui_buttons(10),
+        ui_nested_flex(5),
+        ui_nested_flex(10),
+    ]
 }
 
 #[cfg(test)]
