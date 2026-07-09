@@ -4,7 +4,7 @@ import { withBase } from 'vitepress'
 import MetricTable from './MetricTable.vue'
 import TrendChart from './TrendChart.vue'
 import { buildSeries, isFlat } from '../lib/series'
-import { columnGroups, columnLabel } from '../lib/collapse'
+import { columnGroups, columnLabel, collapseValues } from '../lib/collapse'
 import { colorFor } from '../lib/colors'
 import { HOVER_KEY } from '../lib/hover'
 import { SAMPLE } from '../lib/sample'
@@ -49,6 +49,10 @@ function writeHash() {
 
 onMounted(async () => {
   parseHash()
+  // Registered synchronously (before any await) so it binds to this component's
+  // effect scope and is auto-disposed on unmount. It only depends on UI state,
+  // not fetched data, so it doesn't need to wait for the fetch below.
+  watch([selected, collapse, delta, onlyChanged], writeHash, { deep: true })
   if (!props.data) {
     try {
       const res = await fetch(withBase('/metrics/data.json'))
@@ -68,7 +72,6 @@ onMounted(async () => {
       loading.value = false
     }
   }
-  watch([selected, collapse, delta, onlyChanged], writeHash, { deep: true })
 })
 
 const groups = computed(() => buildSeries(snapshots.value))
@@ -90,11 +93,7 @@ const columns = computed(() =>
 
 // Optionally drop groups whose rows are all flat across the (collapsed) range.
 function collapsedRowFlat(r: SeriesRow): boolean {
-  const vals = colGroups.value.map((g) => {
-    for (const i of g) { const v = r.values[i]; if (v !== null && v !== undefined) return v }
-    return null
-  })
-  return isFlat(vals)
+  return isFlat(collapseValues(r.values, colGroups.value))
 }
 const shownGroups = computed(() =>
   onlyChanged.value
@@ -120,10 +119,7 @@ function selectAll() {
 const selectedSeries = computed<Series[]>(() =>
   [...selected].map((key) => {
     const r = seriesByKey.value.get(key)
-    const collapsed = colGroups.value.map((g) => {
-      for (const i of g) { const v = r?.values[i]; if (v !== null && v !== undefined) return v }
-      return null
-    })
+    const collapsed = collapseValues(r?.values ?? [], colGroups.value)
     return { label: r?.label ?? key, values: collapsed, color: colorFor(key) }
   }),
 )
