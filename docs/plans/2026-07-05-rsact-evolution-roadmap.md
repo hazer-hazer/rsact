@@ -72,7 +72,7 @@
             └───────────────────────────────────────────────────────────────┘
 ```
 
-**Suggested execution order:** WS0 ✓ ∥ WS1 ✓ ∥ WS1b ✓ → WS2 ✓ → (WS3 ∥ WS4 ∥ WS9a) → WS5 → WS6 → WSi → WS7 → (WS8 ∥ WS10 ∥ WS9b) → WS11 → WS12 → (WS13 ∥ WS14 ∥ WS15 ∥ WS16 ∥ WS18). WS17 may start any time after WS6 — ideally before WS11.7 needs its README numbers. **WS19 (website) is fully independent — any time** (metrics infra delivered). **Now actionable (2026-07-08): WS4 ∥ WS19 ∥ WS9a-remainder.** WS3 ✓ complete on **PR #7** (CI green; merge is the remaining human step — its merge also brings the WS3 status block, the Q1 landing, and the **Q2 pass-scoped no-create gate proposal** into this file). **WS9b: design PR #6 (DRAFT) is BLOCKED on two maintainer decisions** — the WS4-gate choice (PR recommends: WS4 first or slot order) and the 9b.1 read-path fork (PR recommends: hybrid iii) — decide on the PR before any 9b code. Parallel sessions need separate worktrees.
+**Suggested execution order:** WS0 ✓ ∥ WS1 ✓ ∥ WS1b ✓ → WS2 ✓ → (WS3 ∥ WS4 ∥ WS9a) → **WS13′ (builder/widget split — bounded: folds 7.2/7.6/7.7; resequenced before WS5, 2026-07-09)** → WS5 → WS6 → WSi → WS7 (remainder 7.1/7.3/7.4/7.5) → (WS8 ∥ WS10 ∥ WS9b) → WS11 → WS12 → (WS14 ∥ WS15 ∥ WS16 ∥ WS18) _(WS13 pulled early — see 2026-07-09 decision)_. WS17 may start any time after WS6 — ideally before WS11.7 needs its README numbers. **WS19 (website) is fully independent — any time** (metrics infra delivered). **Now actionable (2026-07-08): WS4 ∥ WS19 ∥ WS9a-remainder.** WS3 ✓ complete on **PR #7** (CI green; merge is the remaining human step — its merge also brings the WS3 status block, the Q1 landing, and the **Q2 pass-scoped no-create gate proposal** into this file). **WS9b: design PR #6 (DRAFT) is BLOCKED on two maintainer decisions** — the WS4-gate choice (PR recommends: WS4 first or slot order) and the 9b.1 read-path fork (PR recommends: hybrid iii) — decide on the PR before any 9b code. Parallel sessions need separate worktrees.
 WS7's _decisions_ are locked at Gate time (now); only its _execution_ is late. 7.2's cheap `Dir`/`V` de-genericization may ride along with WS2/WS4 if convenient — it's zero-user-impact. (7.1 no longer qualifies: G5 keeps `Event::Custom`, and its remaining scope carries a breaking rename plus a G4-dependent default.)
 
 ---
@@ -530,7 +530,9 @@ Re-baseline the WS0 regression numbers and record old→new in the roadmap.
 
 ### WS5 — Layout: off the graph, then incremental
 
-**Sessions:** 2–3 · **Risk:** medium-high · **Directions:** D3 + D7(P2) merged · **Depends on:** WS4 (MaybeReactive/Layout field ripples), G8 · **Feeds:** WS6.
+**Sessions:** 2–3 · **Risk:** medium-high · **Directions:** D3 + D7(P2) merged · **Depends on:** WS4 (MaybeReactive/Layout field ripples), G8, **WS13 (builder/widget split — resequenced before WS5, 2026-07-09; gates the clean node-free/`Rc`-free/`ElId`-identified 5.1)** · **Feeds:** WS6.
+
+**Sequencing note (2026-07-09):** WS5.1's off-graph Layout was going to reach for `Rc<RefCell<LayoutData>>` (design sketch below + WS4.0 §100-107). The maintainer chose the cleaner destination — arena-owned, `ElId`-identified, node-free layouts — which requires the builder/widget split first (WS13, now resequenced ahead; see its decision block + `docs/plans/2026-07-09-ws13-views-as-builders-analysis.md`). Consequence: the earlier 5.0 quick-win _per-pass measure cache keyed by `ValueId`_ is **dropped** — it would key on the fake-inert being removed; the ElId-identified incremental relayout (5.2) supersedes it. The 5.0 `force_redraw` purification folds into 5.0b/5.1's off-graph dirty-set. Independent 5.0b bits (`renderer`/`dev_tools` → `Rc<RefCell>`) remain free-standing.
 
 Why: P5's layout half. Whole-page memo, O(N·D) min*size recursion, no measure caching, side-effecting memo, O(N) tree PartialEq. The reconciled design (D3×D7): layout data lives **outside the reactive graph** (`Rc<RefCell<LayoutData>>`, identity preserved — retiring the `layout_mut` reactive-on-write trap class entirely); each \_reactive binding* creates exactly one effect that writes the data **and marks the node id in a page-level dirty set** — D7 gets pay-per-binding, D3 gets write→node invalidation, from the same mechanism.
 
@@ -671,6 +673,8 @@ comments; report anything that looks like a real invariant instead of forcing an
 ### WS7 — API collapse: events, WidgetCtx, Stylist, Widget trait (the breaking batch)
 
 **Sessions:** 2–3 · **Risk:** medium (mechanical but wide) · **Directions:** D2, D6(P2a) · **Depends on:** decisions G4/G5/G9 now; execution after WS2/WS4/WS5 · **This is deliberately LATE per the deep-first philosophy — but its decisions are locked at gate time so core work doesn't build on doomed shapes.**
+
+**Note (2026-07-09): 7.2, 7.6, 7.7 pulled forward into WS13** (builder/widget split, resequenced before WS5 — they share the widget-struct/trait/`derive(View)` surface, reshaped once there; see the WS13 decision block). WS7's remaining scope = **7.1** (events), **7.3** (PageId), **7.4** (stylist), **7.5** (ctx-collapse — still G4-blocked). Tick the folded items' checkboxes here when WS13 lands them.
 
 The staged collapse (D2's analysis, amended by G5: widgets vary over exactly TWO degrees of freedom — the renderer and, per the maintainer's decision, the custom-event type; `PageId` never reaches widget code; `Stylist` reaches it only through `get_style`):
 
@@ -906,9 +910,11 @@ one-line rationale in the roadmap. Do not publish without maintainer confirmatio
 
 ### WS13 — Views as widget builders (B2 — maintainer RFC from EVOLUTION.md)
 
-**Sessions:** 2 (design + prototype, then rollout gate) · **Risk:** medium-high (design) · **Depends on:** WS7 (Widget trait settled) · Goal: stop carrying build-only props through the widget's whole lifecycle — RAM per widget + a cleaner `build`.
+**Sessions:** 2–3 (now includes the folded WS7 items) · **Risk:** medium-high · **Depends on:** folds WS7.2/7.6/7.7 (shared widget/trait/derive surface); keeps the current `W`-generic ctx (NOT 7.5) so it is **NOT G4-gated** · **RESEQUENCED before WS5 (2026-07-09 — see decision block)** · Goal: stop carrying build-only props through the widget's whole lifecycle — RAM per widget + a cleaner `build`.
 
-- [ ] 13.1 Design doc: builder/runtime split options — separate Builder types per widget vs a generic builder layer vs build-consumed fields (`Option::take` at build). Note the existing hint: `El`'s two-state `New(ElData)/Stored` enum is already half of this idea. Quantify candidate RAM savings with the 0.4 probe before choosing.
+**DECISION 2026-07-09 (maintainer): RESEQUENCED — WS13 moves BEFORE WS5, bounded scope.** The clean (node-free, `Rc`-free, `ElId`-identified) form of WS5.1 (Layout off-graph) requires deferring reactive-layout bindings to build time, which forces build-only props onto the *retained* widget unless construction is split from retained state — i.e. **WS5.1's clean storage is gated on the builder/widget split.** Full rationale, blast radius, and the pivotal finding (today the fake-inert node absorbs props, so inflation is what the pure-Arena WS5.1 would *create* — the split prevents it) in `docs/plans/2026-07-09-ws13-views-as-builders-analysis.md`. **Bounded scope** (reshape the widget/trait/derive surface *once*): fold **7.6** (Widget trait method set), **7.7** (`derive(View)` param detection), and **7.2** (de-generic `Dir→Axis`/`V→numeric` — removes the `PhantomData` markers the census flags as build-only). **Keep the current `W`-generic ctx (NOT 7.5)** → not G4-gated. WS7's remainder (7.1/7.3/7.4/7.5) stays in its late slot. Recommended shape (analysis §4): an explicit builder consumed into a lean retained widget (`build` *transforms* the type), with a derive to kill boilerplate — not the `pending`-queue half-measure. The analysis already covers most of 13.1's "design doc" ask; next deliverable is the 13.1 spec proper. **Flagged discrepancies (protocol): `icon.rs` does not currently compile (known WS4.5 debt); `image.rs` disabled — both need an explicit call if the split touches them.**
+
+- [ ] 13.1 Design doc: builder/runtime split options — separate Builder types per widget vs a generic builder layer vs build-consumed fields (`Option::take` at build). Note the existing hint: `El`'s two-state `New(ElData)/Stored` enum is already half of this idea. Quantify candidate RAM savings with the 0.4 probe before choosing. **Scoping analysis delivered 2026-07-09 (`docs/plans/2026-07-09-ws13-views-as-builders-analysis.md`) — blast radius + go/no-go + recommended shape (§4): the explicit builder consumed into a lean retained widget (`build` _transforms_ the type: builder → widget) + a boilerplate-killing derive; reject the `pending`-queue-on-the-widget half-measure. RAM caveat (§1): retained widgets are already lean — the payoff is *enabling* node-free off-graph layouts + collapsing the 3-way child encoding + retiring the fake-inert/`layout_mut` trap/WS3.5 zip, not husk-stripping alone. 13.1 REMAINING = the concrete `build`-transform protocol (how `El`/arena/`build` change), the derive design, per-widget migration + the design-around cases (`Show` layout-delegate; reactive-structure effects), and the folded 7.6/7.7/7.2 changes.**
 - [ ] 13.2 Prototype on two widgets (Button, Flex) + measure (RAM/flash/ergonomics diff).
 - [ ] 13.3 **Rollout decision gate** — maintainer sign-off on the measured prototype before any fleet conversion.
 - [ ] 13.4 Fleet conversion (if approved) + `#[derive(View)]` adjustments.
@@ -926,9 +932,47 @@ struct Button { padding: Option<Padding>, /* Option::take()n at build; None ther
 ```
 
 ```
-Read docs/plans/2026-07-05-rsact-evolution-roadmap.md — WS13 + the "Views as widget
-builders" RFC section in EVOLUTION.md. Verify WS7 landed. This is design-first: write
-13.1 with measured numbers, prototype 13.2, then STOP for the 13.3 maintainer gate.
+Read docs/plans/2026-07-05-rsact-evolution-roadmap.md — WS13 (incl. its 2026-07-09
+DECISION block) + docs/plans/2026-07-09-ws13-views-as-builders-analysis.md (the scoping
+analysis produced before this session — READ IT FIRST; it is the bulk of 13.1's
+groundwork) + the "Views as widget builders" RFC in EVOLUTION.md + Cross-cutting
+invariants.
+
+Context already established by the analysis session (do NOT re-derive — verify, then build on):
+- WS13 is RESEQUENCED BEFORE WS5, bounded. It GATES WS5.1's clean off-graph layout
+  (arena-owned, ElId-identified, node-free, Rc-free): removing the Layout fake-inert
+  forces reactive-layout bindings to defer to build time, which forces build-only props
+  onto the RETAINED widget UNLESS construction is split from retained state. There is no
+  Rc-free/node-free builder-time residence for a binding effect (proof: analysis §2).
+- Bounded scope: FOLD WS7.6 (Widget trait method set), 7.7 (derive(View) W-param
+  detection), 7.2 (de-generic Dir→Axis / V→numeric — removes the PhantomData markers).
+  KEEP the current W-generic ctx (NOT 7.5) → NOT G4-gated. WS7 remainder (7.1/7.3/7.4/7.5)
+  stays in its late slot.
+- Recommended shape (analysis §4): explicit builder consumed into a lean retained widget
+  — `build` TRANSFORMS the type (builder → widget) — plus a derive to kill boilerplate.
+  Reject the `pending`-queue-on-the-widget half-measure.
+- Facts the census pinned (§1/§3): TODAY there is no prop inflation (the fake-inert node
+  absorbs props); child widgets are already mem::replace'd into the arena (only {id,layout}
+  husks remain in parent fields); build(&mut self, ctx) already receives the ElId and
+  Dynamic already wires build-time effects capturing ctx (the pattern to extend to props).
+  Blast radius: ~15 live widgets, the builder traits in widget/mod.rs, ~50 src + ~130
+  examples call sites, the 6 by-Copy layout() collection sites (flex/container/scrollable/
+  button/select/page) + arena.add husk-move + model.rs *content, the page/mod.rs:1811
+  reactive-setter regression tests.
+- Design-around cases: (1) Show owns no layout — layout() delegates to its child husk;
+  (2) reactive STRUCTURE (Flex.children / Dynamic.current / Select setter) stays on the
+  existing build-time-effect path — only reactive PROPS are newly routed through build.
+- Pre-existing discrepancies to decide on if the split touches them (protocol: report):
+  icon.rs does not currently compile (known WS4.5 debt); image.rs is disabled.
+
+Verify current state first (WS4 landed; re-read cited code — it may have moved). Use
+superpowers:writing-plans to expand 13.1 into a bite-sized TDD plan. Design-first: write
+the 13.1 spec (build-transform protocol — how El/arena/build change; the derive; per-widget
+migration + design-around cases), PROTOTYPE on Button + Flex with measured RAM/flash/
+ergonomics (13.2), then STOP for the 13.3 maintainer rollout gate before any fleet
+conversion. Start on a fresh branch/worktree (ws13-builder-widget-split), NOT
+ws5-incremental-layout. Keep full-relayout the default path; nothing here rides the
+incremental-layout feature (that is WS5.2).
 ```
 
 ---
