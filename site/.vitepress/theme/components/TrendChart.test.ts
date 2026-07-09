@@ -21,4 +21,10 @@ describe('TrendChart', () => {
     })
     expect(w.find('line.guide').exists()).toBe(false)
   })
+  it('renders no internal tooltip (folded into the dashboard legend)', () => {
+    const w = mount(TrendChart, {
+      props: { series: [{ label: 'x', values: [1, 2, 3], color: '#000' }], interactive: true },
+    })
+    expect(w.find('.tip').exists()).toBe(false)
+  })
 })
