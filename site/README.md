@@ -35,7 +35,9 @@ manual dispatch. PRs build-only (the CI check). `metrics.yml` still WRITES the
 2. Repo **Settings → Pages → Source → GitHub Actions** (turns off the
    `metrics-data` branch source).
 3. Confirm the `site` workflow deploys; site live at `/rsact/`, with
-   `/rsact/metrics/` and `/rsact/api/`.
+   `/rsact/metrics/` and `/rsact/api/`. Also **click the "API" nav item** (not
+   just the direct URL) and confirm it loads the rustdoc in a real page/new tab
+   — not an in-app 404 (rustdoc is a static dir, not a VitePress route).
 4. Prove the data path is intact: push a commit → `metrics.yml` records a new
    snapshot on `metrics-data` and `site.yml` redeploys with the new point; open
    a test PR → exactly one `rsact-metrics` sticky comment appears.

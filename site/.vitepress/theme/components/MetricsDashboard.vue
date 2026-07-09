@@ -26,7 +26,10 @@ onMounted(async () => {
       snapshots.value = d.snapshots
       index.value = d.index ?? {}
     }
-  } catch {
+  } catch (e) {
+    // Log so a broken live data.json is diagnosable in the console rather than
+    // failing silently into the empty state. Dev also falls back to the fixture.
+    console.error('rsact metrics: failed to load /metrics/data.json', e)
     if (import.meta.env.DEV) {
       snapshots.value = SAMPLE.snapshots
       index.value = SAMPLE.index

@@ -15,7 +15,11 @@ export default defineConfig({
     nav: [
       { text: 'Docs', link: '/docs/' },
       { text: 'Metrics', link: '/metrics/' },
-      { text: 'API', link: '/api/' },
+      // rustdoc is a static dir added to the Pages artifact by site.yml, NOT a
+      // VitePress route. `target` makes VitePress render a plain <a> (its router
+      // skips click-interception on anchors with a target), so this does a real
+      // browser navigation to /rsact/api/ instead of an in-app SPA 404.
+      { text: 'API', link: '/api/', target: '_blank', rel: 'noreferrer' },
       { text: 'Roadmap', link: '/roadmap' },
     ],
     sidebar: {
