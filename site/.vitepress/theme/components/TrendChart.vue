@@ -86,7 +86,7 @@ function onMove(ev: MouseEvent) {
 }
 // Mirrors onMove's interactive gate: onMove only WRITES sharedHover when
 // interactive, so the clear must match — otherwise a non-interactive inline
-// chart (e.g. MetricTable's per-row chart) would stomp the shared crosshair
+// chart (e.g. MetricSection's per-row chart) would stomp the shared crosshair
 // set by the interactive overlay chart on every mouseleave.
 function onLeave() {
   hover.value = null
