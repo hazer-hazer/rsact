@@ -117,13 +117,13 @@ export function revLabel(snap: Snapshot): string {
 // Each present value minus the first present value (baseline). The first present
 // value becomes 0; gaps stay null. For the Δ-from-baseline view.
 export function deltaValues(values: (number | null)[]): (number | null)[] {
-  const base = prevPresentOrFirst(values)
+  const base = firstPresent(values)
   if (base === null) return values.map(() => null)
   return values.map((v) => (v === null || v === undefined ? null : v - base))
 }
 
 // The first present value in the series (baseline), or null if all-gap.
-function prevPresentOrFirst(values: (number | null)[]): number | null {
+function firstPresent(values: (number | null)[]): number | null {
   for (const v of values) if (v !== null && v !== undefined) return v
   return null
 }

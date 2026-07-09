@@ -75,4 +75,7 @@ describe('deltaValues / isFlat', () => {
   it('isFlat: a real change (even across a gap) is not flat', () => {
     expect(isFlat([10, null, 20])).toBe(false)
   })
+  it('deltaValues: an all-null input returns all-null (no baseline to subtract)', () => {
+    expect(deltaValues([null, null])).toEqual([null, null])
+  })
 })

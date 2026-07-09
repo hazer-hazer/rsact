@@ -61,8 +61,8 @@ function onMove(ev: MouseEvent) {
   if (!props.interactive || !n.value) return
   const rect = (ev.currentTarget as SVGSVGElement).getBoundingClientRect()
   const mx = (ev.clientX - rect.left) * (props.width / rect.width)
-  const frac = n.value <= 1 ? 0 : (mx - props.pad) / (props.width - 2 * props.pad)
-  hover.value = Math.max(0, Math.min(n.value - 1, Math.round(frac * (n.value - 1))))
+  const frac = (mx - props.pad) / (props.width - 2 * props.pad)
+  hover.value = Math.max(0, Math.min(n.value - 1, Math.floor(frac * n.value)))
   sharedHover.value = hover.value
 }
 // Mirrors onMove's interactive gate: onMove only WRITES sharedHover when
