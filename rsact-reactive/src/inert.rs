@@ -1,38 +1,34 @@
 use crate::{
     ReactiveValue,
-    memo::{IntoMemo, Memo},
+    memo::{IntoMemo, Memo, create_memo},
     read::{ReadSignal, SignalMap, impl_read_signal_traits},
-    runtime::with_current_runtime,
     storage::ValueId,
 };
-use core::marker::PhantomData;
 
-// TODO: Maybe can optimize this to a simple Rc<RefCell<T>> to avoid downcasting
-// in runtime and lookups, while still we need the runtime to know about this
-// value to be cleared when the scope is disposed.
-pub struct Inert<T: ?Sized> {
-    id: ValueId,
-    ty: PhantomData<T>,
-}
+/// A static, non-reactive value stored **inline** (WS4.1).
+///
+/// Previously `Inert` was a `Copy` handle into a `ValueKind::Stored` runtime
+/// node, so every `.inert()` / builder literal minted (and, with no scope
+/// active during view construction, permanently leaked) a node. It now holds
+/// its value directly — zero runtime presence — mirroring `MaybeSignal::Inert`.
+/// Reads are never tracked and there is no node to dispose.
+///
+/// `Inert<T>` is `Copy` iff `T: Copy` and `Clone` iff `T: Clone` (G1: blanket
+/// `Copy` is dropped now that the value, not an id, lives in the wrapper).
+pub struct Inert<T>(T);
 
-impl<T> Clone for Inert<T> {
+impl<T: Clone> Clone for Inert<T> {
     fn clone(&self) -> Self {
-        Self { id: self.id.clone(), ty: self.ty.clone() }
+        Self(self.0.clone())
     }
 }
-impl<T> Copy for Inert<T> {}
+impl<T: Copy> Copy for Inert<T> {}
 
 impl_read_signal_traits!(Inert<T>);
 
 impl<T: 'static> From<T> for Inert<T> {
-    #[track_caller]
     fn from(value: T) -> Self {
-        let caller = core::panic::Location::caller();
-
-        Inert {
-            id: with_current_runtime(|rt| rt.create_inert(value, caller)),
-            ty: PhantomData,
-        }
+        Inert(value)
     }
 }
 
@@ -40,26 +36,24 @@ impl<T: 'static> ReactiveValue for Inert<T> {
     type Value = T;
 
     fn id(&self) -> Option<ValueId> {
-        Some(self.id)
+        // Inline value — no runtime node. Mirrors `MaybeSignal::Inert::id`.
+        None
     }
 
     fn is_alive(&self) -> bool {
-        with_current_runtime(|rt| rt.is_alive(self.id))
+        true
     }
 
     unsafe fn dispose(self) {
-        unsafe { with_current_runtime(|rt| rt.dispose(self.id)) }
+        // Nothing to dispose — the value drops with `self`.
     }
 }
 
 impl<T: 'static> ReadSignal<T> for Inert<T> {
-    #[track_caller]
     fn with_untracked<U>(&self, f: impl FnOnce(&T) -> U) -> U {
-        let caller = core::panic::Location::caller();
-        with_current_runtime(|rt| self.id.with_untracked(rt, f, caller))
+        f(&self.0)
     }
 
-    #[track_caller]
     fn track(&self) {
         // Note: Inert values are not tracked
     }
@@ -73,14 +67,21 @@ impl<T: 'static, U: 'static> SignalMap<T, U> for Inert<T> {
 
     #[track_caller]
     fn map(&self, mut map: impl FnMut(&T) -> U) -> Self::Output {
+        // No node created: maps an inline value to a new inline value.
         Inert::from(self.with_untracked(&mut map))
     }
 }
 
-impl<T: PartialEq + 'static> IntoMemo<T> for Inert<T> {
+impl<T: PartialEq + Clone + 'static> IntoMemo<T> for Inert<T> {
+    /// Materialize a constant as a `Memo`. Unlike the old `Memo::Inert` variant
+    /// (removed in WS4.1 so `Memo<T>` stays unconditionally `Copy`), this mints
+    /// a real constant memo node — so it allocates. This is a cold path:
+    /// builder literals stay `MaybeReactive::Inert` (inline, node-free) and
+    /// never reach here.
     #[track_caller]
-    fn memo(self) -> crate::memo::Memo<T> {
-        Memo::Inert(self)
+    fn memo(self) -> Memo<T> {
+        let Inert(value) = self;
+        create_memo(move || value.clone())
     }
 }
 

@@ -30,6 +30,12 @@ pub struct NodeCounts {
     pub sources_bindings: usize,
     /// Sum of the node kinds (stored+signals+effects+memos+computed+observers).
     pub total: usize,
+    /// WS4.6: value-SlotMap backing capacity — the peak node-slot high-water
+    /// mark (it never shrinks on dispose), i.e. permanent node-slot RAM.
+    pub values_capacity: usize,
+    /// WS4.6: retained-but-unused slots (`values_capacity` − `total`): freed on
+    /// dispose, reusable by future inserts, still costing RAM.
+    pub values_vacant: usize,
 }
 
 /// Layout-pass work counters (WS0.5), populated when built with the

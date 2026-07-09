@@ -6,7 +6,10 @@ pub trait WidgetCtx: Sized + PartialEq + Clone + 'static {
     type Renderer: Renderer<Color = Self::Color>;
     type Color: Color;
     type PageId: PageId;
-    type Stylist: InternalStylist<Self::Color>;
+    // WS4.1: `Clone` because the stylist is stored inline in `Inert` now (not a
+    // shared runtime-node handle), so the UI must clone it into each page it
+    // builds. All concrete stylists (`()`, `Theme<C>`, `BinaryTheme`) are `Copy`.
+    type Stylist: InternalStylist<Self::Color> + Clone;
     type CustomEvent: Debug;
 
     // Methods delegated from renderer //
@@ -61,7 +64,7 @@ impl<R, I, S, E> WidgetCtx for Wtf<R, I, S, E>
 where
     R: Renderer + 'static,
     I: PageId + 'static,
-    S: InternalStylist<R::Color> + 'static,
+    S: InternalStylist<R::Color> + Clone + 'static,
     E: Debug + 'static,
 {
     type Renderer = R;

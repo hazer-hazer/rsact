@@ -60,7 +60,11 @@ impl Align {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
+// WS4.1: `content: MaybeReactive<String>` is now stored inline, so
+// `ContentLayout` is no longer `Copy` (its text is a value, not a node handle).
+// `Clone` is kept — every field is `Clone`. `Layout` itself stays `Copy`: it is
+// still a runtime-node handle; only these layout payload structs lose `Copy`.
+#[derive(Clone, PartialEq)]
 pub enum ContentLayout {
     Text {
         font_props: FontProps,
@@ -140,8 +144,9 @@ impl ContentLayout {
     /// [`ContentLayout::height_for_width`].
     pub fn content_sizing(&self, ctx: &LayoutCtx) -> ContentSizing {
         match self {
-            &ContentLayout::Text { font_props, content, overflow } => {
+            ContentLayout::Text { font_props, content, overflow } => {
                 let resolved = font_props.inherited(&ctx.font_props);
+                let overflow = *overflow;
                 with!(move |content| {
                     #[cfg(feature = "layout-counters")]
                     crate::layout::counters::count_measure();
@@ -176,8 +181,9 @@ impl ContentLayout {
     /// wraps; icon/fixed ignore the width and return their fixed height.
     pub fn height_for_width(&self, ctx: &LayoutCtx, width: u32) -> u32 {
         match self {
-            &ContentLayout::Text { font_props, content, overflow } => {
+            ContentLayout::Text { font_props, content, overflow } => {
                 let resolved = font_props.inherited(&ctx.font_props);
+                let overflow = *overflow;
                 with!(move |content| {
                     #[cfg(feature = "layout-counters")]
                     crate::layout::counters::count_measure();
@@ -237,7 +243,8 @@ impl ContainerLayout {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
+// WS4.1: `children: MaybeReactive<Vec<Layout>>` is inline now → not `Copy`.
+#[derive(Clone, PartialEq)]
 pub struct FlexLayout {
     pub wrap: bool,
     pub block_model: BlockModel,
@@ -529,7 +536,8 @@ impl Display for DevHoveredLayout {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+// WS4.1: contains `ContentLayout`/`FlexLayout`, no longer `Copy`.
+#[derive(Debug, Clone, PartialEq)]
 pub enum LayoutKind {
     Zero,
     Edge,
@@ -539,7 +547,8 @@ pub enum LayoutKind {
     Scrollable(ScrollableLayout),
 }
 
-#[derive(Clone, Copy, PartialEq)]
+// WS4.1: contains `LayoutKind`, no longer `Copy`.
+#[derive(Clone, PartialEq)]
 pub struct LayoutData {
     kind: LayoutKind,
     // TODO: Does any LayoutKind require size?
@@ -600,13 +609,13 @@ impl LayoutData {
 
     // TODO: Panic on invalid layout kind usage in these methods?
     pub fn block_model(&self) -> BlockModel {
-        match self.kind {
+        match &self.kind {
             LayoutKind::Zero
             | LayoutKind::Edge
             | LayoutKind::Content(..)
             | LayoutKind::Scrollable(..) => BlockModel::zero(),
             LayoutKind::Container(ContainerLayout { block_model, .. })
-            | LayoutKind::Flex(FlexLayout { block_model, .. }) => block_model,
+            | LayoutKind::Flex(FlexLayout { block_model, .. }) => *block_model,
         }
     }
 

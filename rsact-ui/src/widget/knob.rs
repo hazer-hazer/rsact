@@ -39,7 +39,9 @@ impl<C: Color> KnobStyle<C> {
 pub struct Knob<W: WidgetCtx, V: RangeValue> {
     layout: Layout,
     value: Signal<V>,
-    state: Signal<KnobState>,
+    // WS4.5: plain field, not a Signal — read/written only in
+    // `on_event(&mut self)`, never in render/layout, so it needs no node.
+    state: KnobState,
     style: WidgetStyleFn<KnobStyle<W::Color>>,
 }
 
@@ -48,7 +50,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
         Self {
             layout: Layout::edge(LengthSize::new_equal(Length::Fixed(25))),
             value,
-            state: KnobState::none().signal(),
+            state: KnobState::none(),
             style: None,
         }
     }
@@ -112,7 +114,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Widget<W> for Knob<W, V> {
     }
 
     fn on_event(&mut self, mut ctx: EventCtx<'_, W>) -> EventResponse {
-        let current_state = self.state.get();
+        let current_state = self.state;
 
         if current_state.active && ctx.is_focused() {
             if let Some(offset) = ctx.event.interpret_as_rotation() {
@@ -130,7 +132,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Widget<W> for Knob<W, V> {
 
         ctx.handle()?; // focus press claim (encoder), automatic
         ctx.handle_click(|ctx| {
-            self.state.update(|state| state.active = !state.active);
+            self.state.active = !self.state.active;
             ctx.capture()
         })
     }

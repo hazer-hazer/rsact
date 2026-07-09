@@ -44,7 +44,7 @@ use core::marker::PhantomData;
 /// [`Memo`] whose closure re-evaluates whenever the source changes.
 ///
 /// For a **read-write** optionally reactive value see [`MaybeSignal`].
-pub enum MaybeReactive<T: ?Sized + PartialEq + 'static> {
+pub enum MaybeReactive<T: PartialEq + 'static> {
     Inert(Inert<T>),
     Memo(Memo<T>),
     // Derived(Rc<RefCell<dyn FnMut() -> T>>),
@@ -52,16 +52,19 @@ pub enum MaybeReactive<T: ?Sized + PartialEq + 'static> {
 
 impl_read_signal_traits!(MaybeReactive<T>: PartialEq);
 
-impl<T: PartialEq + 'static> Clone for MaybeReactive<T> {
+// WS4.1: `Inert` now stores `T` inline, so `MaybeReactive<T>` is `Clone` iff
+// `T: Clone` and `Copy` iff `T: Copy` (G1 — blanket `Copy` dropped). `Memo<T>`
+// remains a `Copy` handle for all `T`.
+impl<T: Clone + PartialEq + 'static> Clone for MaybeReactive<T> {
     fn clone(&self) -> Self {
         match self {
             Self::Inert(arg0) => Self::Inert(arg0.clone()),
-            Self::Memo(arg0) => Self::Memo(arg0.clone()),
+            Self::Memo(arg0) => Self::Memo(*arg0),
             // Self::Derived(arg0) => Self::Derived(arg0.clone()),
         }
     }
 }
-impl<T: PartialEq + 'static> Copy for MaybeReactive<T> {}
+impl<T: Copy + PartialEq + 'static> Copy for MaybeReactive<T> {}
 
 impl<T: PartialEq + 'static> MaybeReactive<T> {
     pub fn new_inert(value: T) -> Self {

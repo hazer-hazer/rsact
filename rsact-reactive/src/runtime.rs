@@ -1619,6 +1619,13 @@ pub fn current_runtime_profile() -> Profile {
                 },
             );
 
+        // WS4.6: node-slot capacity high-water + retained-vacant slack.
+        let (values_capacity, values_len) = {
+            let values = rt.storage.values.borrow();
+            (values.capacity(), values.len())
+        };
+        let values_vacant = values_capacity.saturating_sub(values_len);
+
         let subscribers_bindings = rt
             .subscribers
             .borrow()
@@ -1683,6 +1690,8 @@ pub fn current_runtime_profile() -> Profile {
             sources: rt.sources.borrow().len(),
             sources_bindings,
             pending_effects: rt.pending_effects.borrow().len(),
+            values_capacity,
+            values_vacant,
             #[cfg(feature = "debug-info")]
             top_by_subs,
             #[cfg(feature = "debug-info")]
@@ -1710,6 +1719,18 @@ pub struct Profile {
     pub sources: usize,
     pub sources_bindings: usize,
     pub pending_effects: usize,
+    /// Backing capacity of the value `SlotMap` (WS4.6). `SlotMap::remove` frees
+    /// the payload immediately, but the slot array (and the dense
+    /// `SecondaryMap`s keyed by `ValueId`: subscribers/sources/owned/mark_seen)
+    /// never shrink — capacity grows to the peak live node count and stays
+    /// there. So this is the runtime's permanent node-slot RAM high-water mark;
+    /// on embedded that determinism is usually desirable. Contract: **capacity =
+    /// peak** (see the metrics README / WS4.6). Compaction would need a full
+    /// rebuild — deferred to WS9b.1's storage rework.
+    pub values_capacity: usize,
+    /// Retained-but-unused value slots (`values_capacity` − live node total):
+    /// freed on dispose, reusable by future inserts, but still costing RAM.
+    pub values_vacant: usize,
     #[cfg(feature = "debug-info")]
     top_by_subs: Option<(&'static Location<'static>, usize)>,
     #[cfg(feature = "debug-info")]
@@ -1747,6 +1768,11 @@ impl Display for Profile {
             self.sources,
             self.sources_bindings,
             self.pending_effects
+        )?;
+        writeln!(
+            f,
+            "capacity {} slots ({} vacant — retained peak, WS4.6)",
+            self.values_capacity, self.values_vacant
         )?;
 
         writeln!(f, "top values:")?;
@@ -2001,7 +2027,11 @@ mod tests {
                 2,
                 "batched writes must coalesce to a single effect run"
             );
-            assert_eq!(seen.get(), 100, "effect must see the last batched value");
+            assert_eq!(
+                seen.get(),
+                100,
+                "effect must see the last batched value"
+            );
         });
     }
 
@@ -2099,7 +2129,11 @@ mod tests {
                 (5, 60),
                 "effect saw a glitched (stale-shallow) view of the deep memo"
             );
-            assert_eq!(runs.get(), 2, "effect must fire exactly once per change");
+            assert_eq!(
+                runs.get(),
+                2,
+                "effect must fire exactly once per change"
+            );
         });
     }
 
