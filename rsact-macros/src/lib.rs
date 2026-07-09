@@ -85,7 +85,7 @@ pub fn view(input: TokenStream) -> TokenStream {
     let result = quote! {
         impl #impl_gen rsact_ui::el::View<#wctx> for #name #type_gen #where_clause {
             fn into_el(self) -> rsact_ui::el::El<#wctx> {
-                rsact_ui::el::El::new(self)
+                rsact_ui::el::El::New(rsact_ui::el::ElData::new(::alloc::boxed::Box::new(self)))
             }
         }
 
@@ -285,7 +285,7 @@ fn impl_builder(input: &mut DeriveInput) -> Result<proc_macro2::TokenStream> {
     Ok(quote! {
         impl #impl_gen rsact_ui::el::View<#wctx> for #name #type_gen #where_clause {
             fn into_el(self) -> rsact_ui::el::El<#wctx> {
-                rsact_ui::el::El::new(self)
+                rsact_ui::el::El::New(rsact_ui::el::ElData::new(::alloc::boxed::Box::new(self)))
             }
         }
 
