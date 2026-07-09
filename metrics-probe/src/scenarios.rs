@@ -63,6 +63,8 @@ fn profile_counts() -> crate::snapshot::NodeCounts {
         sources: p.sources,
         sources_bindings: p.sources_bindings,
         total: p.total(),
+        values_capacity: p.values_capacity,
+        values_vacant: p.values_vacant,
     }
 }
 
