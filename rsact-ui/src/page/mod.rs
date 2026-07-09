@@ -1827,6 +1827,16 @@ mod tests {
         let _ = create_null_page(Button::new("ok"));
     }
 
+    // WS13.2 (Task 4): `#[derive(Builder)]` emits `View` (+ `SingleViewMarker` +
+    // `Build`) for `ButtonBuilder` — this compile-drives that the derive path is
+    // actually taken (the hand-written `impl View`/`Build` blocks are gone).
+    #[test]
+    fn derived_button_builder_is_a_view() {
+        fn assert_view<W: crate::el::WidgetCtx, V: crate::el::View<W>>(_: &V) {}
+        let b = crate::widget::button::Button::<NullWtf>::new("x");
+        assert_view(&b);
+    }
+
     // WS13.2: Flex is de-genericized (`Flex<W, Dir>` -> `Flex<W>` with a
     // runtime `axis: Axis` field) and split — `FlexBuilder` carries the
     // build-only `children` vec, the retained `Flex` drops it.

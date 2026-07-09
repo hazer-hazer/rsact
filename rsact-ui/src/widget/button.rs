@@ -10,10 +10,17 @@ declare_widget_style! {
     }
 }
 
+#[derive(Builder)]
+#[builds(Button<W>)]
+#[flags(hoverable, hoverable_from_children, clickable, focusable)]
 pub struct ButtonBuilder<W: WidgetCtx> {
+    #[widget]
     layout: Layout,
+    #[child(single)]
     content: El<W>,
+    #[widget]
     style: WidgetStyleFn<ButtonStyle<W::Color>>,
+    #[widget]
     on_click: Option<Box<dyn FnMut()>>,
 }
 
@@ -72,41 +79,6 @@ impl<W: WidgetCtx + 'static> LayoutWidget<W> for ButtonBuilder<W> {
 impl<W: WidgetCtx + 'static> SizedWidget<W> for ButtonBuilder<W> {}
 impl<W: WidgetCtx + 'static> BlockModelWidget<W> for ButtonBuilder<W> {}
 impl<W: WidgetCtx + 'static> FontSettingWidget<W> for ButtonBuilder<W> {}
-
-impl<W: WidgetCtx + 'static> View<W> for ButtonBuilder<W> {
-    fn into_el(self) -> El<W> {
-        El::new(self)
-    }
-}
-impl<W: WidgetCtx + 'static> SingleViewMarker for ButtonBuilder<W> {}
-
-impl<W: WidgetCtx + 'static> crate::el::build::Build<W> for ButtonBuilder<W> {
-    fn build(self: Box<Self>, mut ctx: BuildCtx<W>) -> Box<dyn Widget<W>> {
-        let mut this = *self;
-        ctx.set_single_child(&mut this.content);
-        Box::new(Button {
-            layout: this.layout,
-            style: this.style,
-            on_click: this.on_click,
-        })
-    }
-
-    fn layout(&self) -> Layout {
-        self.layout
-    }
-
-    fn flags(&self) -> WidgetFlags {
-        WidgetFlags::default()
-            .hoverable()
-            .hoverable_from_children()
-            .clickable()
-            .focusable()
-    }
-
-    fn debug_name(&self) -> &'static str {
-        "Button"
-    }
-}
 
 impl<W: WidgetCtx + 'static> Widget<W> for Button<W> {
     // NOTE: no `flags`/`debug_name` override on the retained widget — both are

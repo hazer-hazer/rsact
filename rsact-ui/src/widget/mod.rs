@@ -288,6 +288,6 @@ pub mod prelude {
         },
     };
     pub use alloc::{boxed::Box, string::String, vec::Vec};
-    pub use rsact_macros::View;
+    pub use rsact_macros::{Builder, View};
     pub use rsact_reactive::prelude::*;
 }

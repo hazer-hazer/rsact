@@ -14,11 +14,19 @@ use rsact_reactive::prelude::*;
 // }
 
 // TODO: Shouldn't Flex support changing direction so we need to store a field instead of using a const param.
+#[derive(Builder)]
+#[builds(Flex<W>)]
 pub struct FlexBuilder<W: WidgetCtx> {
     // TODO: Signal-vector type?
     // TODO: Can we do fixed size?
+    #[children(reactive)]
     children: MaybeSignal<Vec<El<W>>>,
+    #[widget]
     layout: Layout,
+    // Moved 1:1 by the derive into the retained `Flex { layout, ctx }` (a ZST):
+    // the by-name build transform declares every field the widget has.
+    #[widget]
+    ctx: PhantomData<W>,
 }
 
 pub struct Flex<W: WidgetCtx> {
@@ -56,6 +64,7 @@ impl<W: WidgetCtx + 'static> FlexBuilder<W> {
                 axis,
                 layout_children,
             ))),
+            ctx: PhantomData,
         }
     }
 
@@ -163,31 +172,6 @@ impl<W: WidgetCtx + 'static> LayoutWidget<W> for FlexBuilder<W> {
 impl<W: WidgetCtx + 'static> SizedWidget<W> for FlexBuilder<W> {}
 impl<W: WidgetCtx + 'static> BlockModelWidget<W> for FlexBuilder<W> {}
 impl<W: WidgetCtx + 'static> FontSettingWidget<W> for FlexBuilder<W> {}
-
-impl<W: WidgetCtx + 'static> View<W> for FlexBuilder<W> {
-    fn into_el(self) -> El<W> {
-        El::new(self)
-    }
-}
-impl<W: WidgetCtx + 'static> SingleViewMarker for FlexBuilder<W> {}
-
-impl<W: WidgetCtx + 'static> crate::el::build::Build<W> for FlexBuilder<W> {
-    fn build(self: Box<Self>, mut ctx: BuildCtx<W>) -> Box<dyn Widget<W>> {
-        let mut this = *self;
-        this.children.maybe_effect(move |children, _| {
-            ctx.set_children(children);
-        });
-        Box::new(Flex { layout: this.layout, ctx: PhantomData })
-    }
-
-    fn layout(&self) -> Layout {
-        self.layout
-    }
-
-    fn debug_name(&self) -> &'static str {
-        "Flex"
-    }
-}
 
 impl<W: WidgetCtx + 'static> Widget<W> for Flex<W> {
     // NOTE: no `debug_name`/`flags` override on the retained widget — read once
