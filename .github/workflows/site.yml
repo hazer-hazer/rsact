@@ -13,9 +13,9 @@ name: site
 on:
   push:
     branches: [master]
-    paths: ['site/**', 'docs/**', '.github/workflows/site.yml']
+    paths: ['site/**', '.github/workflows/site.yml']
   pull_request:
-    paths: ['site/**', 'docs/**', '.github/workflows/site.yml']
+    paths: ['site/**', '.github/workflows/site.yml']
   # Redeploy when metrics records a fresh snapshot on metrics-data. This fires
   # for metrics runs on ANY branch (per-commit public trend). If runner-minute
   # cost becomes a problem, restrict with: if github.event.workflow_run.head_branch == 'master'.
