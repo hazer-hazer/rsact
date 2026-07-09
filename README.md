@@ -46,17 +46,6 @@ timeline — the durable shared record is still CI's archive.
 allocations, and idle/change-frame allocations. When built with the
 `rsact-ui/layout-counters` feature, layout visit/measure counts are included too.
 
-*WS4.6 capacity metrics:* `values_capacity` and `values_vacant` record the value
-`SlotMap`'s backing capacity and its retained-but-unused slack (`capacity −
-total`). **Contract: capacity = peak.** `SlotMap::remove` frees a disposed
-node's payload immediately, but the slot array — and the dense `SecondaryMap`s
-keyed by `ValueId` (subscribers/sources/owned/mark_seen) — never shrink; capacity
-grows to the peak live node count and stays there, so it is the runtime's
-permanent node-slot RAM high-water. On embedded that determinism is usually
-desirable, so these are recorded (informational), **not** asserted (SlotMap's
-growth strategy is an implementation detail). In-place compaction would require a
-full rebuild — deferred to WS9b.1's storage rework, which changes this layout.
-
 **Layer 2 — target section sizes (`.text`/`.rodata`/`.bss`), opt-in via `--sizes`.**
 Builds the `size-probe` crate (excluded from the workspace; a `cortex-m-rt` +
 `embedded-alloc` + generic `memory.x` no_std binary that is *linked but never run*
