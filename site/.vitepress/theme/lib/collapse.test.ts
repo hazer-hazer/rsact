@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { boundaryFlags, columnGroups, collapseValues, columnLabel } from './collapse'
+import { boundaryFlags, columnGroups, collapseValues, columnLabel, columnNet } from './collapse'
 import type { SeriesRow, Snapshot } from './types'
 
 const row = (values: (number | null)[]): SeriesRow => ({ key: 'k', label: 'k', values })
@@ -56,5 +56,27 @@ describe('columnLabel', () => {
   })
   it('run → first8..last8', () => {
     expect(columnLabel(s, [0, 2])).toBe('11111111..33333333')
+  })
+})
+
+describe('columnNet', () => {
+  it('counts improvements (lower-is-better) and regressions per column; col 0 neutral', () => {
+    // groups = one column per commit (no collapse)
+    const groups = [[0], [1], [2]]
+    const rows = [
+      { key: 'a', label: 'a', values: [10, 8, 8] },   // improves at col1 (10->8)
+      { key: 'b', label: 'b', values: [5, 9, 9] },    // regresses at col1 (5->9)
+      { key: 'c', label: 'c', values: [1, 1, 2] },    // regresses at col2 (1->2)
+    ]
+    expect(columnNet(rows, groups)).toEqual([
+      { up: 0, down: 0 }, // col0 baseline
+      { up: 1, down: 1 }, // a up, b down
+      { up: 0, down: 1 }, // c down
+    ])
+  })
+  it('operates on collapsed values so it matches the displayed columns', () => {
+    const rows = [{ key: 'a', label: 'a', values: [20, 10, 10] }]
+    const groups = columnGroups(rows, 3) // [[0,1],[2]]
+    expect(columnNet(rows, groups)).toEqual([{ up: 0, down: 0 }, { up: 1, down: 0 }])
   })
 })

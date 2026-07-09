@@ -1,4 +1,4 @@
-import { prevPresent } from './series'
+import { prevPresent, trend, lowerIsBetter } from './series'
 import type { SeriesRow, Snapshot } from './types'
 
 // Per-commit boundary flags. flags[0] is always true (the baseline starts the
@@ -64,4 +64,24 @@ export function columnLabel(snapshots: Snapshot[], group: number[]): string {
   const first = snapshots[group[0]]
   const last = snapshots[group[group.length - 1]]
   return `${first.git_rev.slice(0, 8)}..${last.git_rev.slice(0, 8)}`
+}
+
+export interface ColNet { up: number; down: number }
+
+// Per collapsed column: how many metrics improved vs regressed relative to their
+// previous present column value (domain-aware via lowerIsBetter). Column 0 has no
+// predecessor → all neutral. Feeds the "Δ overall" header row (#6). Collapses
+// each row once, then scans columns — O(rows·cols).
+export function columnNet(rows: SeriesRow[], groups: number[][]): ColNet[] {
+  const nets: ColNet[] = groups.map(() => ({ up: 0, down: 0 }))
+  for (const r of rows) {
+    const collapsed = collapseValues(r.values, groups)
+    const low = lowerIsBetter(r.key)
+    for (let c = 0; c < groups.length; c++) {
+      const t = trend(collapsed, c, low)
+      if (t === 'up') nets[c].up++
+      else if (t === 'down') nets[c].down++
+    }
+  }
+  return nets
 }
