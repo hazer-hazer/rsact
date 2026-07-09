@@ -1,0 +1,14 @@
+// Brand accent (rust/embedded warm orange) over the VitePress default theme.
+:root {
+  --vp-c-brand-1: #b7410e;
+  --vp-c-brand-2: #c65a2e;
+  --vp-c-brand-3: #a5390c;
+  --vp-c-brand-soft: rgba(183, 65, 14, 0.14);
+}
+
+.dark {
+  --vp-c-brand-1: #e58a63;
+  --vp-c-brand-2: #d9764a;
+  --vp-c-brand-3: #c8552a;
+  --vp-c-brand-soft: rgba(229, 138, 99, 0.16);
+}

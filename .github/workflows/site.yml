@@ -1,0 +1,113 @@
+# WS19.2 — the assembled Pages deployment. Replaces the metrics-data branch as
+# the Pages *source* with a GitHub Actions artifact = VitePress dist + metrics
+# data (copied from the metrics-data branch) + rustdoc (/api/, added in 19.5).
+#
+# metrics.yml still WRITES snapshots to the metrics-data branch (durable store,
+# unchanged); this workflow only READS that branch to assemble the public site.
+# ci.yml stays Node-free — site.yml owns the web build.
+#
+# One-time human step after merge: repo Settings -> Pages -> Source -> GitHub
+# Actions (turns off the metrics-data branch source).
+name: site
+
+on:
+  push:
+    branches: [master]
+    paths: ['site/**', '.github/workflows/site.yml']
+  pull_request:
+    paths: ['site/**', '.github/workflows/site.yml']
+  # Redeploy when metrics records a fresh snapshot on metrics-data. This fires
+  # for metrics runs on ANY branch (per-commit public trend). If runner-minute
+  # cost becomes a problem, restrict with: if github.event.workflow_run.head_branch == 'master'.
+  workflow_run:
+    workflows: [metrics]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Serialize Pages deploys; never cancel an in-flight deploy (GitHub's own Pages
+# template). Rapid metrics pushes queue rather than race on the artifact.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install site deps
+        working-directory: site
+        run: npm ci
+
+      - name: Install Rust (stable) for rustdoc
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test metrics viewer logic
+        working-directory: site
+        run: npm test
+
+      - name: Build VitePress
+        working-directory: site
+        run: npm run docs:build
+
+      - name: Assemble metrics data into the artifact
+        run: |
+          set -euo pipefail
+          rm -rf _metrics_data && mkdir -p _metrics_data
+          git fetch --quiet origin metrics-data
+          git archive FETCH_HEAD | tar -x -C _metrics_data
+          ./site/node_modules/.bin/tsx site/scripts/assemble-metrics.ts \
+            _metrics_data site/.vitepress/dist/metrics
+          rm -rf _metrics_data
+
+      - name: Build rustdoc (/api/)
+        run: |
+          set -euo pipefail
+          cargo doc --no-deps -p rsact-reactive --features std
+          cargo doc --no-deps -p rsact-render --features "std,embedded-graphics"
+          cargo doc --no-deps -p rsact-ui --features "std,embedded-graphics"
+          mkdir -p site/.vitepress/dist/api
+          cp -r target/doc/. site/.vitepress/dist/api/
+          cat > site/.vitepress/dist/api/index.html <<'HTML'
+          <!doctype html>
+          <meta charset="utf-8" />
+          <meta http-equiv="refresh" content="0; url=rsact_ui/index.html" />
+          <title>rsact API documentation</title>
+          <a href="rsact_ui/index.html">rsact_ui API documentation</a>
+          HTML
+
+      - name: Setup Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/.vitepress/dist
+
+  deploy:
+    # PRs only build (the CI check); deploy runs on master push / metrics
+    # completion / manual dispatch.
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,24 @@
+{
+  "name": "rsact-site",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "WS19 — rsact website (VitePress). Node toolchain contained here; the Rust workspace never depends on it.",
+  "scripts": {
+    "docs:dev": "vitepress dev",
+    "docs:build": "vitepress build",
+    "docs:preview": "vitepress preview",
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "@vue/test-utils": "^2.4.6",
+    "jsdom": "^25.0.1",
+    "sass": "^1.83.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitepress": "^1.6.4",
+    "vitest": "^2.1.8",
+    "vue": "^3.5.39"
+  }
+}
