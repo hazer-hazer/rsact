@@ -1,7 +1,7 @@
 {
   "git_rev": "409366e1ba5f4727dcce54ba8accbc56b02d37a1",
   "git_dirty": false,
-  "recorded_at": 1783534859,
+  "recorded_at": 1783685683,
   "host": "x86_64-linux",
   "scenarios": [
     {
@@ -78,14 +78,14 @@
     {
       "target": "thumbv7m-none-eabi",
       "binary": "ui",
-      "text": 76288,
+      "text": 76212,
       "rodata": 3744,
       "bss": 1068
     },
     {
       "target": "thumbv6m-none-eabi",
       "binary": "ui",
-      "text": 81912,
+      "text": 81552,
       "rodata": 3892,
       "bss": 1068
     }

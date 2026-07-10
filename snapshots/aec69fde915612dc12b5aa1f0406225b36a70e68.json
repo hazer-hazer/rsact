@@ -1,7 +1,7 @@
 {
   "git_rev": "aec69fde915612dc12b5aa1f0406225b36a70e68",
   "git_dirty": false,
-  "recorded_at": 1783535040,
+  "recorded_at": 1783685861,
   "host": "x86_64-linux",
   "scenarios": [
     {
@@ -78,28 +78,28 @@
     {
       "target": "thumbv7m-none-eabi",
       "binary": "reactive",
-      "text": 27428,
+      "text": 27384,
       "rodata": 308,
       "bss": 1064
     },
     {
       "target": "thumbv7m-none-eabi",
       "binary": "ui",
-      "text": 80344,
+      "text": 80256,
       "rodata": 3756,
       "bss": 1068
     },
     {
       "target": "thumbv6m-none-eabi",
       "binary": "reactive",
-      "text": 27528,
+      "text": 27476,
       "rodata": 308,
       "bss": 1064
     },
     {
       "target": "thumbv6m-none-eabi",
       "binary": "ui",
-      "text": 86348,
+      "text": 86028,
       "rodata": 3756,
       "bss": 1068
     }
