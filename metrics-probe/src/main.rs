@@ -22,6 +22,7 @@ mod snapshot;
 
 use snapshot::{SNAPSHOT_DIR, Scenario, Snapshot};
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
@@ -174,7 +175,10 @@ fn git_index_entry(rev: &str) -> index::IndexEntry {
     let branch = git_out(&["name-rev", "--name-only", rev])
         .filter(|s| s != "undefined")
         .unwrap_or_default();
-    index::IndexEntry { date, parent, branch, ..Default::default() }
+    let subject =
+        git_out(&["show", "-s", "--format=%s", rev]).unwrap_or_default();
+    // pr is filled by cmd_index (needs merge history); record leaves it None.
+    index::IndexEntry { date, parent, branch, subject, pr: None }
 }
 
 /// Merge one snapshot's rev into `metrics/index.json` (incremental, shallow-safe
@@ -214,10 +218,36 @@ fn snapshot_revs(dir: &Path) -> Vec<String> {
 fn cmd_index() -> std::io::Result<()> {
     let path = Path::new(index::INDEX_PATH);
     let mut idx = index::load(path);
+
+    // Pure-git PR map: for each `Merge pull request #N` merge commit M, the
+    // commits it brought in are `git rev-list M^2 --not M^1`. No network.
+    let mut pr_of: HashMap<String, u32> = HashMap::new();
+    if let Some(out) = git_out(&["log", "--merges", "--format=%H %s"]) {
+        for line in out.lines() {
+            let (m, subject) = line.split_once(' ').unwrap_or((line, ""));
+            if let Some(n) = index::parse_merge_pr(subject) {
+                if let Some(revs) = git_out(&[
+                    "rev-list",
+                    &format!("{m}^2"),
+                    "--not",
+                    &format!("{m}^1"),
+                ]) {
+                    for c in revs.lines() {
+                        pr_of.insert(c.to_string(), n);
+                    }
+                }
+                pr_of.insert(m.to_string(), n);
+            }
+        }
+    }
+
     let mut resolved = 0;
     for rev in snapshot_revs(Path::new(SNAPSHOT_DIR)) {
-        let entry = git_index_entry(&rev);
+        let mut entry = git_index_entry(&rev);
         if entry.date != 0 {
+            // Squash-merge PR from the commit's own subject wins; else the merge map.
+            entry.pr = index::parse_squash_pr(&entry.subject)
+                .or_else(|| pr_of.get(&rev).copied());
             index::merge_entry(&mut idx, &rev, entry);
             resolved += 1;
         }

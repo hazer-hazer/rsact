@@ -123,7 +123,6 @@ fn ancestor_count(index: &Index, revset: &HashSet<&str>, rev: &str) -> usize {
 }
 
 /// PR number from a GitHub merge-commit subject: `Merge pull request #N from …`.
-#[allow(dead_code)]
 pub fn parse_merge_pr(subject: &str) -> Option<u32> {
     let rest = subject.strip_prefix("Merge pull request #")?;
     let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
@@ -131,7 +130,6 @@ pub fn parse_merge_pr(subject: &str) -> Option<u32> {
 }
 
 /// PR number from a squash-merge subject ending in `(#N)` (GitHub squash default).
-#[allow(dead_code)]
 pub fn parse_squash_pr(subject: &str) -> Option<u32> {
     let trimmed = subject.trim_end();
     let inner = trimmed.strip_suffix(')')?.rsplit_once("(#")?.1;
