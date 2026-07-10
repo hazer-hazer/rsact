@@ -351,7 +351,9 @@ label {
 .wrap {
   display: flex;
   gap: 1.5rem;
-  align-items: flex-start;
+  align-items: stretch;
+  flex: 1 1 auto; // fill the viewport-height page column (desktop) so only the table scrolls
+  min-height: 0;
 }
 
 // Bounded scroll region: horizontal AND vertical scrolling happen HERE, so the
@@ -360,7 +362,7 @@ label {
 .grid-scroll {
   flex: 1 1 auto;
   min-width: 0;
-  max-height: 80vh;
+  min-height: 0;
   overflow: auto;
 }
 
@@ -442,8 +444,8 @@ thead tr.prgroups th.col a:hover {
 
 .side {
   flex: 0 0 380px;
-  position: sticky;
-  top: 5rem;
+  min-height: 0;
+  overflow-y: auto; // sidepanel fits the row height, scrolls internally if tall
 }
 
 h2 {
