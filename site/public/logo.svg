@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" role="img" aria-label="rsact">
+  <!-- rsact "reactive node" mark: one lit cyan source, one live (dashed) trace to
+       a dependent node, one static grey edge to an unwired node. Geometry from
+       the brand stylescape; hollow non-source nodes so it reads on any bg. -->
+  <line x1="12" y1="12" x2="36" y2="14" stroke="#3A464C" stroke-width="2"/>
+  <line x1="12" y1="12" x2="30" y2="38" stroke="#2EE6D6" stroke-width="2.5" stroke-dasharray="6 6"/>
+  <circle cx="36" cy="14" r="5" fill="none" stroke="#5A666C" stroke-width="2"/>
+  <circle cx="30" cy="38" r="5" fill="none" stroke="#2EE6D6" stroke-width="2"/>
+  <circle cx="12" cy="12" r="5.5" fill="#2EE6D6"/>
+</svg>

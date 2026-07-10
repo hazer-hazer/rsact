@@ -1,14 +1,69 @@
-// Brand accent (rust/embedded warm orange) over the VitePress default theme.
+// rsact brand — "Trace" stylescape applied over the VitePress default theme.
+// Shallow scope: typography, color scheme, logo/selection. Dark-first, true
+// black is intentional (OLED home base) — don't lighten the core to grey.
+// Tokens from docs/brand handoff (IBM Plex + phosphor-cyan signal).
+
+// --- Typography -------------------------------------------------------------
 :root {
-  --vp-c-brand-1: #b7410e;
-  --vp-c-brand-2: #c65a2e;
-  --vp-c-brand-3: #a5390c;
-  --vp-c-brand-soft: rgba(183, 65, 14, 0.14);
+  --vp-font-family-base: 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system,
+    'Segoe UI', Roboto, sans-serif;
+  --vp-font-family-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas,
+    'Liberation Mono', monospace;
 }
 
+// --- Color: light (brand light-mode variant: teal on silkscreen-white) ------
+:root {
+  --vp-c-bg: #e6e9e4;
+  --vp-c-bg-alt: #dce0da;
+  --vp-c-bg-elv: #f2f4f0;
+  --vp-c-bg-soft: #dce0da;
+  --vp-c-divider: #c4ccc7;
+  --vp-c-border: #c4ccc7;
+  --vp-c-gutter: #dce0da;
+
+  --vp-c-text-1: #0a0d0f;
+  --vp-c-text-2: #3d4448;
+  --vp-c-text-3: #545c61;
+
+  --vp-c-brand-1: #0a8f83; // links / active — light-mode cyan
+  --vp-c-brand-2: #0b9d90;
+  --vp-c-brand-3: #0a8f83;
+  --vp-c-brand-soft: rgba(10, 143, 131, 0.12);
+}
+
+// --- Color: dark (brand home — true black + phosphor cyan) ------------------
 .dark {
-  --vp-c-brand-1: #e58a63;
-  --vp-c-brand-2: #d9764a;
-  --vp-c-brand-3: #c8552a;
-  --vp-c-brand-soft: rgba(229, 138, 99, 0.16);
+  --vp-c-bg: #000000; // OLED true black
+  --vp-c-bg-alt: #0a0d0f; // panels, nav, sidebar
+  --vp-c-bg-elv: #0a0d0f;
+  --vp-c-bg-soft: #14181b; // raised chips / toolbars
+  --vp-c-divider: #1b2226; // hairlines
+  --vp-c-border: #1b2226;
+  --vp-c-gutter: #000000;
+
+  --vp-c-text-1: #e6e9e4; // "silkscreen white"
+  --vp-c-text-2: #aeb6ba;
+  --vp-c-text-3: #838c91;
+
+  --vp-c-brand-1: #2ee6d6; // phosphor cyan — the one signal color
+  --vp-c-brand-2: #7cf0e4; // link hover tint
+  --vp-c-brand-3: #2ee6d6;
+  --vp-c-brand-soft: rgba(46, 230, 214, 0.14);
+
+  // Cyan buttons carry near-black text (per the stylescape), not white.
+  --vp-button-brand-bg: #2ee6d6;
+  --vp-button-brand-text: #04120f;
+  --vp-button-brand-hover-bg: #7cf0e4;
+  --vp-button-brand-hover-text: #04120f;
+  --vp-button-brand-active-bg: #2ee6d6;
+  --vp-button-brand-active-text: #04120f;
+
+  // Code blocks live on true black too.
+  --vp-code-block-bg: #000000;
+}
+
+// --- Selection: signal cyan -------------------------------------------------
+::selection {
+  background: #2ee6d6;
+  color: #04120f;
 }

@@ -46,7 +46,23 @@ export default defineConfig({
   // fetched at runtime. Don't fail the build on those non-page links.
   ignoreDeadLinks: [/^\/api/, /\/metrics\/data\.json$/],
   vite: { plugins: [localMetricsPlugin()] },
+  // Brand fonts (IBM Plex Sans/Mono per the stylescape) + the reactive-node
+  // favicon. Base is not auto-applied to raw head hrefs, so the icon path is
+  // fully qualified.
+  head: [
+    ['link', { rel: 'preconnect', href: 'https://fonts.googleapis.com' }],
+    ['link', { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' }],
+    [
+      'link',
+      {
+        rel: 'stylesheet',
+        href: 'https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap',
+      },
+    ],
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/rsact/logo.svg' }],
+  ],
   themeConfig: {
+    logo: '/logo.svg',
     nav: [
       { text: 'Docs', link: '/docs/' },
       { text: 'Metrics', link: '/metrics/' },
