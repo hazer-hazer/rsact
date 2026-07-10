@@ -1,7 +1,8 @@
 {
-  "b7bf6bdea79511254400be308fa942d3133c46ce": {
-    "date": 1783676856,
+  "f454643b1774f0c870ca13eba13f8374581df2d0": {
+    "date": 1783680401,
     "parent": "",
-    "branch": "master"
+    "branch": "ws19-metrics-v4",
+    "subject": "WS19.8 Phase B final-review fixes: docs precedence (ancestry-first); normalize branch-ref links; 3-row header comments; parser test"
   }
 }
