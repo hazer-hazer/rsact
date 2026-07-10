@@ -16,6 +16,7 @@ const props = defineProps<{
   selected: Set<string>
   delta: boolean
   changed: boolean[]
+  groupStart: boolean[]
 }>()
 defineEmits<{ toggle: [key: string] }>()
 
@@ -56,7 +57,7 @@ const rows = computed(() =>
         <td
           v-for="(cell, i) in row.cells"
           :key="i"
-          :class="{ hov: sharedHover === i, dim: !changed[i] }"
+          :class="{ hov: sharedHover === i, dim: !changed[i], 'group-start': groupStart[i] }"
           @mouseenter="sharedHover = i"
           @mouseleave="sharedHover = null"
         >
@@ -109,6 +110,7 @@ td.lbl {
 }
 td.hov { background: var(--vp-c-bg-soft); }
 td.dim { opacity: 0.4; }
+td.group-start { border-left: 2px solid var(--vp-c-text-3); }
 tr.metric { cursor: pointer; }
 tr.metric:hover td { background: var(--vp-c-bg-soft); }
 tr.metric.sel td.lbl { font-weight: bold; }
