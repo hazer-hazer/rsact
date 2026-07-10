@@ -19,6 +19,7 @@ let nodes: Node[] = []
 let edges: Edge[] = []
 let out: number[][] = [] // DIRECTED outgoing neighbours per node
 let sigs: Sig[] = []
+let busy = new Set<string>() // directed edges currently carrying a signal
 let last = 0
 let spawnAcc = 0
 let running = false
@@ -27,7 +28,7 @@ let signal = '#c9a24b' // signals are ENIG-gold "pads"
 let edgeStyle = 'rgba(130,150,158,0.10)'
 let nodeStyle = 'rgba(140,160,168,0.28)'
 
-const MAX_SIG = 10
+const MAX_SIG = 50
 const SPAWN_EVERY = 0.7 // seconds between base spawns while under cap
 
 const reduce = () =>
@@ -37,13 +38,16 @@ const reduce = () =>
 function palette() {
   const dark = document.documentElement.classList.contains('dark')
   signal = dark ? '#c9a24b' : '#b28d38' // ENIG gold; deeper on light for contrast
-  edgeStyle = dark ? 'rgba(130,150,158,0.10)' : 'rgba(60,90,90,0.10)'
-  nodeStyle = dark ? 'rgba(150,170,178,0.26)' : 'rgba(50,90,90,0.22)'
+  edgeStyle = dark ? 'rgba(130,150,158,0.20)' : 'rgba(60,90,90,0.10)'
+  nodeStyle = dark ? 'rgba(150,170,178,0.3)' : 'rgba(50,90,90,0.22)'
 }
 
 function rand(a: number, b: number) {
   return a + Math.random() * (b - a)
 }
+
+// A directed edge is uniquely a→b (one connection per pair, fixed direction).
+const edgeKey = (a: number, b: number) => `${a}-${b}`
 
 function layout() {
   if (!el.value) return
@@ -95,23 +99,33 @@ function layout() {
     }
   })
   sigs = []
+  busy.clear()
 }
 
 function spawn(from?: number) {
   if (sigs.length >= MAX_SIG || !edges.length) return
   let a: number, b: number
   if (from !== undefined) {
-    // propagate downstream only, along this node's OUTGOING edges
-    const opts = out[from]
-    if (!opts?.length) return
+    // propagate downstream only, along this node's FREE outgoing edges
+    const opts = out[from]?.filter((n) => !busy.has(edgeKey(from, n)))
+    if (!opts || !opts.length) return
     a = from
     b = opts[(Math.random() * opts.length) | 0]
   } else {
-    const e = edges[(Math.random() * edges.length) | 0]
+    // a random edge that isn't already carrying a signal (a few tries)
+    let e: Edge | undefined
+    for (let tries = 0; tries < 5; tries++) {
+      const c = edges[(Math.random() * edges.length) | 0]
+      if (!busy.has(edgeKey(c.a, c.b))) { e = c; break }
+    }
+    if (!e) return
     a = e.a // the edge's fixed direction — never reversed
     b = e.b
   }
-  sigs.push({ a, b, t: 0, speed: rand(0.55, 1.15) })
+  busy.add(edgeKey(a, b)) // occupy the edge until this signal finishes
+  // const speed = rand(0.55, 1.15)
+  const speed = 1.0
+  sigs.push({ a, b, t: 0, speed })
 }
 
 function frame(ts: number) {
@@ -142,6 +156,7 @@ function frame(ts: number) {
     const B = nodes[s.b]
     if (s.t >= 1) {
       B.charge = 1 // light the destination node
+      busy.delete(edgeKey(s.a, s.b)) // free the edge for reuse
       sigs.splice(i, 1)
       if (Math.random() < 0.62) spawn(s.b) // propagate onward (downstream only)
       continue
@@ -164,7 +179,7 @@ function frame(ts: number) {
     // head
     ctx.fillStyle = signal
     ctx.shadowColor = signal
-    ctx.shadowBlur = 7
+    ctx.shadowBlur = 25
     ctx.beginPath()
     ctx.arc(hx, hy, 2.2, 0, Math.PI * 2)
     ctx.fill()
@@ -177,7 +192,7 @@ function frame(ts: number) {
       ctx.fillStyle = signal
       ctx.globalAlpha = Math.min(1, n.charge) * 0.9
       ctx.beginPath()
-      ctx.arc(n.x, n.y, 5, 0, Math.PI * 2)
+      ctx.arc(n.x, n.y, 4, 0, Math.PI * 2)
       ctx.fill()
       ctx.globalAlpha = 1
       n.charge -= dt * 1.6
