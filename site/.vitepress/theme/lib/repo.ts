@@ -35,3 +35,10 @@ export function prUrl(pr: number): string {
 export function branchCommitsUrl(branch: string): string {
   return `${REPO_URL}/commits/${branch}`
 }
+
+// Normalize a `git name-rev` branch hint into a plain branch name usable in a
+// URL: drop a `remotes/origin/` prefix and a trailing `~N` / `^N` ref-spec.
+// Returns '' for an empty/undefined hint (so callers can treat it as "no branch").
+export function stripBranchRef(hint: string | undefined): string {
+  return (hint ?? '').replace(/^remotes\/origin\//, '').replace(/[~^]\d+$/, '')
+}

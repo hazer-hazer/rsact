@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { REPO_URL, commitUrl, compareUrl, columnHref, prUrl, branchCommitsUrl } from './repo'
+import { REPO_URL, commitUrl, compareUrl, columnHref, prUrl, branchCommitsUrl, stripBranchRef } from './repo'
 import type { IndexMap, Snapshot } from './types'
 
 describe('repo urls', () => {
@@ -44,5 +44,26 @@ describe('pr / branch urls', () => {
     expect(branchCommitsUrl('ws19-metrics-v4')).toBe(
       'https://github.com/hazer-hazer/rsact/commits/ws19-metrics-v4',
     )
+  })
+})
+
+describe('stripBranchRef', () => {
+  it('drops a trailing ~N ref-spec', () => {
+    expect(stripBranchRef('ws19-metrics-v4~2')).toBe('ws19-metrics-v4')
+  })
+  it('drops a remotes/origin/ prefix and a trailing ~N ref-spec', () => {
+    expect(stripBranchRef('remotes/origin/ws3~2')).toBe('ws3')
+  })
+  it('leaves a plain branch name unchanged', () => {
+    expect(stripBranchRef('master')).toBe('master')
+  })
+  it('leaves a branch name with a slash unchanged', () => {
+    expect(stripBranchRef('feature/x')).toBe('feature/x')
+  })
+  it('returns empty string for an empty hint', () => {
+    expect(stripBranchRef('')).toBe('')
+  })
+  it('returns empty string for an undefined hint', () => {
+    expect(stripBranchRef(undefined)).toBe('')
   })
 })

@@ -258,6 +258,10 @@ mod tests {
         assert_eq!(parse_squash_pr("no pr here"), None);
         assert_eq!(parse_squash_pr("mentions (#5) mid-subject only"), None); // not trailing
         assert_eq!(parse_squash_pr("bad (#) ref"), None);
+        // Ends in ')' so the inner branch actually runs (not rejected at the
+        // strip_suffix(')') gate): empty digits, then a non-digit before ')'.
+        assert_eq!(parse_squash_pr("foo (#)"), None);
+        assert_eq!(parse_squash_pr("foo (#5x)"), None);
     }
 
     #[test]

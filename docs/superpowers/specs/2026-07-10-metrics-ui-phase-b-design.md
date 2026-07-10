@@ -21,7 +21,8 @@ pub pr: Option<u32>,   // associated PR number; None = unknown
 - **`pr`** — derived only in `cmd_index()` (full history in the backfill). Pure-git, two sources, unit-testable parsers in `index.rs`:
   - `parse_merge_pr(subject) -> Option<u32>`: `"Merge pull request #N from …"` → `N`. For each such merge commit `M`, `git rev-list M^2 --not M^1` enumerates exactly the commits that PR brought in → each maps to `N` (plus `M` itself).
   - `parse_squash_pr(subject) -> Option<u32>`: a subject ending `"… (#N)"` → `N` (GitHub squash-merge default).
-  - Per rev: `entry.pr = parse_squash_pr(&entry.subject).or_else(|| pr_map.get(rev))`.
+  - `resolve_pr(ancestry, subject) -> Option<u32>`: `ancestry.or_else(|| parse_squash_pr(subject))` — exact merge-map ancestry wins; the squash `(#N)` heuristic only fills commits no merge covers.
+  - Per rev: `entry.pr = index::resolve_pr(pr_map.get(rev).copied(), &entry.subject)`.
   - No regex crate — manual byte/char parsing (no new dependency, no lockfile churn).
 - **No CI-script changes**: it's all inside `metrics-probe`. `record` fills `subject` immediately; `pr` fills on the next `metrics-probe index` (already run by `scripts/ci-backfill.sh`).
 

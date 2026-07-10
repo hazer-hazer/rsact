@@ -6,7 +6,7 @@ import TrendChart from './TrendChart.vue'
 import { buildSeries, isFlat, fmt } from '../lib/series'
 import { columnGroups, columnLabel, collapseValues, boundaryFlags, columnNet, prColumnGroups } from '../lib/collapse'
 import { colorFor } from '../lib/colors'
-import { columnHref, prUrl, branchCommitsUrl } from '../lib/repo'
+import { columnHref, prUrl, branchCommitsUrl, stripBranchRef } from '../lib/repo'
 import { HOVER_KEY } from '../lib/hover'
 import { SAMPLE } from '../lib/sample'
 import type { MetricsData, Snapshot, IndexMap, SeriesRow, Series } from '../lib/types'
@@ -48,7 +48,7 @@ function writeHash() {
   history.replaceState(null, '', hash ? `#${hash}` : location.pathname + location.search)
 }
 
-// Measure the (2-row) sticky header so section captions can stick just below it.
+// Measure the (3-row) sticky header so section captions can stick just below it.
 const headEl = ref<HTMLElement | null>(null)
 const gridEl = ref<HTMLElement | null>(null)
 let ro: ResizeObserver | null = null
@@ -134,7 +134,10 @@ const perColumnKey = computed<(string | number | null)[]>(() =>
     const last = snapshots.value[g[g.length - 1]]
     const entry = index.value[last?.git_rev]
     // `||`, not `??`: an empty-string branch is not a usable grouping key either.
-    return entry?.pr || entry?.branch || null
+    // Normalize the name-rev hint (drop `remotes/origin/` + trailing `~N`/`^N`)
+    // so both the grouping key and the rendered link resolve to a real branch.
+    const branch = stripBranchRef(entry?.branch)
+    return entry?.pr || branch || null
   }),
 )
 const prGroups = computed(() => prColumnGroups(perColumnKey.value))
@@ -351,9 +354,10 @@ table.grid {
   border-collapse: separate; border-spacing: 0; table-layout: fixed;
   font-family: var(--vp-font-family-mono); font-size: 12px;
 }
-// The WHOLE thead sticks vertically as one block (both header rows move
-// together — more reliable than per-th top offsets); border-collapse:separate
-// is required so sticky cells keep their borders.
+// The WHOLE thead sticks vertically as one block (all three header rows — PR
+// groups, commit hashes, Δ-overall — move together; more reliable than
+// per-th top offsets); border-collapse:separate is required so sticky cells
+// keep their borders.
 thead { position: sticky; top: 0; z-index: 3; }
 thead th {
   background: var(--vp-c-bg);
