@@ -211,6 +211,25 @@ impl<W: WidgetCtx> Widget<W> for Unit {
     }
 }
 
+impl<W: WidgetCtx> crate::el::build::Build<W> for Unit {
+    fn build(mut self: Box<Self>, ctx: BuildCtx<W>) -> Box<dyn Widget<W>> {
+        Widget::build(&mut *self, ctx);
+        self
+    }
+    // `Unit: Widget<W>` for *every* `W`, so these need `W` pinned explicitly
+    // (the derived identity `Build` on `Foo<W>` doesn't, as it implements
+    // `Widget<W>` only for its own `W`).
+    fn layout(&self) -> Layout {
+        <Self as Widget<W>>::layout(self)
+    }
+    fn flags(&self) -> WidgetFlags {
+        <Self as Widget<W>>::flags(self)
+    }
+    fn debug_name(&self) -> &'static str {
+        <Self as Widget<W>>::debug_name(self)
+    }
+}
+
 impl<W: WidgetCtx, V: View<W>> View<W> for Option<V> {
     fn into_el(self) -> El<W> {
         self.map(View::into_el).unwrap_or_else(|| Unit.el())

@@ -14,32 +14,44 @@ use rsact_reactive::prelude::*;
 // }
 
 // TODO: Shouldn't Flex support changing direction so we need to store a field instead of using a const param.
-#[derive(View)]
-pub struct Flex<W: WidgetCtx, Dir: Direction> {
+#[derive(Builder)]
+#[builds(Flex<W>)]
+pub struct FlexBuilder<W: WidgetCtx> {
     // TODO: Signal-vector type?
     // TODO: Can we do fixed size?
+    #[children(reactive)]
     children: MaybeSignal<Vec<El<W>>>,
+    #[widget]
     layout: Layout,
-    dir: PhantomData<Dir>,
+    // Moved 1:1 by the derive into the retained `Flex { layout, ctx }` (a ZST):
+    // the by-name build transform declares every field the widget has.
+    #[widget]
+    ctx: PhantomData<W>,
 }
 
-impl<W: WidgetCtx + 'static> Flex<W, RowDir> {
+pub struct Flex<W: WidgetCtx> {
+    layout: Layout,
+    // `W` is otherwise unused on the retained widget (unlike `FlexBuilder`,
+    // which threads it through `children: MaybeSignal<Vec<El<W>>>`) — kept
+    // only to satisfy `Widget<W>`'s own `W` parameter, same as `space.rs`.
+    ctx: PhantomData<W>,
+}
+
+impl<W: WidgetCtx + 'static> Flex<W> {
     #[track_caller]
-    pub fn row(children: impl ViewSequence<W>) -> Self {
-        Self::new(children)
+    pub fn row(children: impl ViewSequence<W>) -> FlexBuilder<W> {
+        FlexBuilder::new(children, Axis::X)
+    }
+
+    #[track_caller]
+    pub fn col(children: impl ViewSequence<W>) -> FlexBuilder<W> {
+        FlexBuilder::new(children, Axis::Y)
     }
 }
 
-impl<W: WidgetCtx + 'static> Flex<W, ColDir> {
+impl<W: WidgetCtx + 'static> FlexBuilder<W> {
     #[track_caller]
-    pub fn col(children: impl ViewSequence<W>) -> Self {
-        Self::new(children)
-    }
-}
-
-impl<W: WidgetCtx + 'static, Dir: Direction> Flex<W, Dir> {
-    #[track_caller]
-    fn new(children: impl ViewSequence<W>) -> Self {
+    fn new(children: impl ViewSequence<W>, axis: Axis) -> Self {
         let children = children.into_children();
 
         let layout_children = children.map(|children| {
@@ -49,10 +61,10 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Flex<W, Dir> {
         Self {
             children,
             layout: Layout::shrink(LayoutKind::Flex(FlexLayout::base(
-                Dir::AXIS,
+                axis,
                 layout_children,
             ))),
-            dir: PhantomData,
+            ctx: PhantomData,
         }
     }
 
@@ -152,40 +164,19 @@ impl<W: WidgetCtx + 'static, Dir: Direction> Flex<W, Dir> {
     // }
 }
 
-impl<W: WidgetCtx + 'static, Dir: Direction + 'static> LayoutWidget<W>
-    for Flex<W, Dir>
-{
+impl<W: WidgetCtx + 'static> LayoutWidget<W> for FlexBuilder<W> {
     fn layout_mut(&mut self) -> &mut Layout {
         &mut self.layout
     }
 }
+impl<W: WidgetCtx + 'static> SizedWidget<W> for FlexBuilder<W> {}
+impl<W: WidgetCtx + 'static> BlockModelWidget<W> for FlexBuilder<W> {}
+impl<W: WidgetCtx + 'static> FontSettingWidget<W> for FlexBuilder<W> {}
 
-impl<W: WidgetCtx + 'static, Dir: Direction + 'static> SizedWidget<W>
-    for Flex<W, Dir>
-{
-}
-impl<W: WidgetCtx + 'static, Dir: Direction + 'static> BlockModelWidget<W>
-    for Flex<W, Dir>
-{
-}
-impl<W: WidgetCtx + 'static, Dir: Direction + 'static> FontSettingWidget<W>
-    for Flex<W, Dir>
-{
-}
-
-impl<W: WidgetCtx + 'static, Dir: Direction + 'static> Widget<W>
-    for Flex<W, Dir>
-{
-    fn debug_name(&self) -> &'static str {
-        "Flex"
-    }
-
-    fn build(&mut self, mut ctx: build::BuildCtx<W>) {
-        self.children.maybe_effect(move |children, _| {
-            ctx.set_children(children);
-        });
-    }
-
+impl<W: WidgetCtx + 'static> Widget<W> for Flex<W> {
+    // NOTE: no `debug_name`/`flags` override on the retained widget — read once
+    // pre-build from `Build` (seeding `ElState`); post-build consumption is via
+    // `ElState`. `Build::debug_name` on `FlexBuilder` returns "Flex".
     fn layout(&self) -> Layout {
         self.layout
     }
@@ -199,29 +190,19 @@ impl<W: WidgetCtx + 'static, Dir: Direction + 'static> Widget<W>
     }
 }
 
-impl<W, Dir> From<Flex<W, Dir>> for El<W>
-where
-    W: WidgetCtx + 'static,
-    Dir: Direction + 'static,
-{
-    fn from(value: Flex<W, Dir>) -> Self {
-        El::new(value)
-    }
-}
-
 pub trait FlexExt<W: WidgetCtx> {
     #[allow(non_snake_case)]
-    fn Col(self) -> Flex<W, ColDir>;
+    fn Col(self) -> FlexBuilder<W>;
     #[allow(non_snake_case)]
-    fn Row(self) -> Flex<W, RowDir>;
+    fn Row(self) -> FlexBuilder<W>;
 }
 
-impl<W: WidgetCtx, T: ViewSequence<W>> FlexExt<W> for T {
-    fn Col(self) -> Flex<W, ColDir> {
+impl<W: WidgetCtx + 'static, T: ViewSequence<W>> FlexExt<W> for T {
+    fn Col(self) -> FlexBuilder<W> {
         Flex::col(self)
     }
 
-    fn Row(self) -> Flex<W, RowDir> {
+    fn Row(self) -> FlexBuilder<W> {
         Flex::row(self)
     }
 }

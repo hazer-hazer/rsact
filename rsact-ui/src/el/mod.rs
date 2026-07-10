@@ -58,25 +58,63 @@ pub(crate) fn check_children_parallel(
     diverged
 }
 
-pub struct ElData<W: WidgetCtx> {
-    // TODO: If rsact-reactive would support ?Sized as a real smart-pointer we
-    // could do MaybeReactive<dyn Widget<W>>, so reactive elements creation
-    // would be possible in place. But the problem is that MaybeReactive is a
-    // readonly value, while MaybeSignal is owned stack value/Signal, so we
-    // either change the MaybeSignal to StoredValue/Signal or create a new
-    // MaybeSignal-like value with heap storage. We can't, Rust does not
-    // allow unsized fields in structs, only through internal Box, Rc, etc. So
-    // we cannot make a custom arena-allocated smart pointer.
-    pub widget: Box<dyn Widget<W>>,
+/// Two-stage arena payload: a builder before the build pass, the retained
+/// widget after (WS13 spec §2.3).
+// TODO: If rsact-reactive would support ?Sized as a real smart-pointer we
+// could do MaybeReactive<dyn Widget<W>>, so reactive elements creation
+// would be possible in place. But the problem is that MaybeReactive is a
+// readonly value, while MaybeSignal is owned stack value/Signal, so we
+// either change the MaybeSignal to StoredValue/Signal or create a new
+// MaybeSignal-like value with heap storage. We can't, Rust does not
+// allow unsized fields in structs, only through internal Box, Rc, etc. So
+// we cannot make a custom arena-allocated smart pointer.
+pub enum ElStage<W: WidgetCtx> {
+    Unbuilt(Box<dyn Build<W>>),
+    Built(Box<dyn Widget<W>>),
+}
 
+impl<W: WidgetCtx> ElStage<W> {
+    /// The retained widget, once built. `None` (logged) if still unbuilt — a
+    /// bug on any hot-loop path; callers degrade rather than panic.
+    pub(crate) fn built(&self) -> Option<&dyn Widget<W>> {
+        match self {
+            Self::Built(w) => Some(w.as_ref()),
+            Self::Unbuilt(_) => {
+                log::error!("Element accessed as widget before build");
+                None
+            },
+        }
+    }
+
+    pub(crate) fn built_mut(
+        &mut self,
+    ) -> Option<&mut (dyn Widget<W> + 'static)> {
+        match self {
+            Self::Built(w) => Some(w.as_mut()),
+            Self::Unbuilt(_) => {
+                log::error!("Element accessed as widget before build");
+                None
+            },
+        }
+    }
+}
+
+pub struct ElData<W: WidgetCtx> {
+    pub stage: ElStage<W>,
     pub state: ElState<W>,
 }
 
 impl<W: WidgetCtx> ElData<W> {
-    pub fn new(widget: Box<dyn Widget<W>>) -> Self {
-        let state = ElState::for_widget(widget.as_ref());
+    pub fn new(builder: Box<dyn Build<W>>) -> Self {
+        let state = ElState::for_builder(builder.as_ref());
+        Self { stage: ElStage::Unbuilt(builder), state }
+    }
 
-        Self { widget, state }
+    /// Read-only access to the retained widget (post-build). For sites that
+    /// need `widget` + `state` disjointly, use `self.stage.built_mut()` and
+    /// `&mut self.state` directly (field-split borrow).
+    pub fn widget(&self) -> Option<&dyn Widget<W>> {
+        self.stage.built()
     }
 }
 
@@ -92,13 +130,16 @@ impl<W> El<W>
 where
     W: WidgetCtx,
 {
-    pub(crate) fn new(widget: impl Widget<W> + 'static) -> Self {
-        Self::New(ElData::new(Box::new(widget)))
+    pub(crate) fn new(builder: impl Build<W> + 'static) -> Self {
+        Self::New(ElData::new(Box::new(builder)))
     }
 
     pub(crate) fn layout(&self) -> Layout {
         match self {
-            Self::New(data) => data.widget.layout(),
+            Self::New(data) => match &data.stage {
+                ElStage::Unbuilt(b) => b.layout(),
+                ElStage::Built(w) => w.layout(),
+            },
             Self::Stored { layout, .. } => *layout,
         }
     }

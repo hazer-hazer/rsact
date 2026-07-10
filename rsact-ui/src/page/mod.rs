@@ -127,7 +127,8 @@ impl<W: WidgetCtx> Page<W> {
             arena
                 .expect(root)
                 .expect("Root node must be built")
-                .widget
+                .widget()
+                .expect("Root node must be built")
                 .layout()
                 .name("Layout tree")
         });
@@ -404,9 +405,12 @@ impl<W: WidgetCtx> Page<W> {
         };
 
         debug!("Send update {:?} to {}[{:?}]", update, el.state.debug_name, id);
-        let result =
-            el.widget
-                .update(UpdateCtx { id, update, state: &mut el.state });
+        let result = match el.stage.built_mut() {
+            Some(widget) => {
+                widget.update(UpdateCtx { id, update, state: &mut el.state })
+            },
+            None => UpdateResult::none(),
+        };
 
         if result.should_bubble()
             && let Some(bubble) = update.as_bubble()
@@ -1086,7 +1090,7 @@ mod tests {
                     Label::new("b".inert()).el(),
                     Label::new("c".inert()).el(),
                 ])
-                .el(),
+                .into_el(),
             );
 
             // Build the layout tree (3 children) without rendering — the null
@@ -1257,7 +1261,7 @@ mod tests {
             let mut page = create_null_page(
                 Button::new(Label::new("x"))
                     .on_click(move || clicks.update(|c| *c += 1))
-                    .el(),
+                    .into_el(),
             );
 
             // Reading the layout memo builds/lays out the tree; no rendering is
@@ -1305,7 +1309,7 @@ mod tests {
             let mut page = create_null_page(
                 Button::new(Label::new("x"))
                     .on_click(move || clicks.update(|c| *c += 1))
-                    .el(),
+                    .into_el(),
             );
 
             // Reading the layout memo builds/lays out the tree; no rendering is
@@ -1807,6 +1811,71 @@ mod tests {
         )));
     }
 
+    // WS13.2: Button is the first real builder/widget split — `ButtonBuilder`
+    // carries the build-only `content` child, the retained `Button` drops it.
+    #[test]
+    fn button_split_drops_content_husk() {
+        use crate::widget::button::{Button, ButtonBuilder};
+        // The retained widget must not carry the build-only child husk, so it is
+        // strictly smaller than its builder.
+        assert!(
+            core::mem::size_of::<Button<NullWtf>>()
+                < core::mem::size_of::<ButtonBuilder<NullWtf>>(),
+            "retained Button must be smaller than ButtonBuilder (dropped content husk)"
+        );
+        // And a button page still builds end-to-end (transform ran).
+        let _ = create_null_page(Button::new("ok"));
+    }
+
+    // WS13.2 (Task 4): `#[derive(Builder)]` emits `View` (+ `SingleViewMarker` +
+    // `Build`) for `ButtonBuilder` — this compile-drives that the derive path is
+    // actually taken (the hand-written `impl View`/`Build` blocks are gone).
+    #[test]
+    fn derived_button_builder_is_a_view() {
+        fn assert_view<W: crate::el::WidgetCtx, V: crate::el::View<W>>(_: &V) {}
+        let b = crate::widget::button::Button::<NullWtf>::new("x");
+        assert_view(&b);
+    }
+
+    // WS13.2: Flex is de-genericized (`Flex<W, Dir>` -> `Flex<W>` with a
+    // runtime `axis: Axis` field) and split — `FlexBuilder` carries the
+    // build-only `children` vec, the retained `Flex` drops it.
+    #[test]
+    fn flex_split_drops_children_and_phantom() {
+        use crate::widget::flex::{Flex, FlexBuilder};
+        // Retained Flex holds only its layout handle — no children Vec, no PhantomData.
+        assert!(
+            core::mem::size_of::<Flex<NullWtf>>()
+                < core::mem::size_of::<FlexBuilder<NullWtf>>(),
+            "retained Flex must be smaller than FlexBuilder (dropped children)"
+        );
+        // De-generic: `Flex<W>` takes no Dir param.
+        let _ = create_null_page(Flex::<NullWtf>::row(("a", "b")));
+        let _ = create_null_page(Flex::<NullWtf>::col([
+            Button::new("x"),
+            Button::new("y"),
+        ]));
+    }
+
+    // WS13.2 (Task 5): locks the exact `size_of` byte counts behind the
+    // `<` assertions above (`button_split_drops_content_husk`,
+    // `flex_split_drops_children_and_phantom`) — the concrete numbers fed to
+    // the 13.3 measurement gate (struct-size axis). Measured on
+    // `x86_64`/`aarch64` host (NullWtf: `Wtf<NullRenderer, (), (), ()>`); a
+    // toolchain/target change that shifts padding is expected to move these,
+    // in which case re-lock in the same commit rather than loosening to `<`.
+    #[test]
+    fn split_widget_sizes_recorded() {
+        use crate::widget::{
+            button::{Button, ButtonBuilder},
+            flex::{Flex, FlexBuilder},
+        };
+        assert_eq!(core::mem::size_of::<Button<NullWtf>>(), 48);
+        assert_eq!(core::mem::size_of::<ButtonBuilder<NullWtf>>(), 152);
+        assert_eq!(core::mem::size_of::<Flex<NullWtf>>(), 12);
+        assert_eq!(core::mem::size_of::<FlexBuilder<NullWtf>>(), 40);
+    }
+
     // Regression: a reactive source set through the trait-default setter
     // (`SizedWidget::width` -> `self.layout_mut().setter(...)`) must persist
     // the reactive-on-write upgrade in the widget's own `Layout`.
@@ -1820,7 +1889,9 @@ mod tests {
         with_new_runtime(|_| {
             let mut w = create_signal(Length::fill());
             let edge = Edge::<NullWtf>::new().width(w);
-            let layout = edge.layout();
+            // `Edge` now impls both `Widget` and (via `#[derive(View)]`) `Build`,
+            // each exposing `layout()`; disambiguate to the widget's own layout.
+            let layout = Widget::layout(&edge);
 
             // Reading the layout must not panic (the disposed-id bug) and must
             // be tracked so observers re-run on change.
@@ -1848,7 +1919,8 @@ mod tests {
         with_new_runtime(|_| {
             let mut fs = create_signal(FontSize::Fixed(10));
             let label = Label::<NullWtf>::new("x").font_size(fs);
-            let layout = label.layout();
+            // Disambiguate `Widget::layout` from the derived `Build::layout`.
+            let layout = Widget::layout(&label);
 
             let mut runs = create_signal(0u32);
             create_effect(move |_| {
