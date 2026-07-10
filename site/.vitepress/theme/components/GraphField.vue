@@ -28,8 +28,8 @@ let signal = '#c9a24b' // signals are ENIG-gold "pads"
 let edgeStyle = 'rgba(130,150,158,0.10)'
 let nodeStyle = 'rgba(140,160,168,0.28)'
 
-const MAX_SIG = 50
-const SPAWN_EVERY = 0.7 // seconds between base spawns while under cap
+const MAX_SIG = 15
+const SPAWN_EVERY = 0.5 // seconds between base spawns while under cap
 
 const reduce = () =>
   typeof window !== 'undefined' &&
@@ -59,45 +59,61 @@ function layout() {
   ctx = el.value.getContext('2d')
   ctx?.setTransform(dpr, 0, 0, dpr, 0, 0)
 
-  // Jittered grid → even but organic node spread; density scales with area.
-  const count = Math.round(Math.min(46, Math.max(14, (W * H) / 46000)))
-  const cols = Math.max(2, Math.round(Math.sqrt((count * W) / H)))
-  const rows = Math.max(2, Math.ceil(count / cols))
-  const cw = W / cols
-  const ch = H / rows
+  // Layered DAG — a reactivity graph: "source" signals on the left fan out to
+  // dependent nodes to the right. Every edge points DOWNSTREAM (left→right), so
+  // signals propagate one way, branching and occasionally merging (a memo with
+  // several sources). Wiring to the nearest node in the next layer keeps edge
+  // crossings low → an organic tree, not a street grid.
+  const layers = Math.min(8, Math.max(4, Math.round(W / 240)))
+  const bandW = W / layers
   nodes = []
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
+  const byLayer: number[][] = []
+  for (let L = 0; L < layers; L++) {
+    const cnt = Math.min(8, Math.max(2, Math.round((H / 170) * rand(0.7, 1.15))))
+    const idxs: number[] = []
+    for (let k = 0; k < cnt; k++) {
+      idxs.push(nodes.length)
       nodes.push({
-        x: c * cw + rand(0.2, 0.8) * cw,
-        y: r * ch + rand(0.2, 0.8) * ch,
+        x: L * bandW + rand(0.28, 0.72) * bandW,
+        y: ((k + rand(0.2, 0.8)) / cnt) * H,
         charge: 0,
       })
     }
+    byLayer.push(idxs)
   }
 
-  // Edges: each node to its 2 nearest neighbours (deduped to ONE per pair), then
-  // each connection gets a single FIXED direction — signals only ever flow that
-  // way, so a wire is never bidirectional.
-  const key = new Set<string>()
   edges = []
   out = nodes.map(() => [])
-  const maxLen = Math.hypot(cw, ch) * 1.7
-  nodes.forEach((n, i) => {
-    const near = nodes
-      .map((m, j) => ({ j, d: Math.hypot(m.x - n.x, m.y - n.y) }))
-      .filter((o) => o.j !== i && o.d < maxLen)
-      .sort((p, q) => p.d - q.d)
-      .slice(0, 2)
-    for (const { j } of near) {
-      const k = i < j ? `${i}-${j}` : `${j}-${i}`
-      if (key.has(k)) continue
-      key.add(k)
-      const [a, b] = Math.random() < 0.5 ? [i, j] : [j, i] // fix direction once
-      edges.push({ a, b })
-      out[a].push(b)
+  const key = new Set<string>()
+  const incoming = new Set<number>()
+  const link = (a: number, b: number) => {
+    const kk = edgeKey(a, b)
+    if (key.has(kk)) return
+    key.add(kk)
+    edges.push({ a, b })
+    out[a].push(b)
+    incoming.add(b)
+  }
+  // the `n` nodes in `pool` closest in y to `from`
+  const nearestBy = (from: number, pool: number[], n: number) =>
+    [...pool]
+      .sort(
+        (p, q) =>
+          Math.abs(nodes[p].y - nodes[from].y) - Math.abs(nodes[q].y - nodes[from].y),
+      )
+      .slice(0, n)
+  for (let L = 0; L < layers - 1; L++) {
+    const next = byLayer[L + 1]
+    // each node fans out to its 1–2 nearest downstream nodes
+    for (const a of byLayer[L]) {
+      const fan = Math.random() < 0.45 ? 2 : 1
+      for (const b of nearestBy(a, next, fan)) link(a, b)
     }
-  })
+    // no orphans: every next-layer node gets at least one upstream source
+    for (const b of next) {
+      if (!incoming.has(b)) link(nearestBy(b, byLayer[L], 1)[0], b)
+    }
+  }
   sigs = []
   busy.clear()
 }
