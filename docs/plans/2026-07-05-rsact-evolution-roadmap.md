@@ -72,7 +72,7 @@
             └───────────────────────────────────────────────────────────────┘
 ```
 
-**Suggested execution order:** WS0 ✓ ∥ WS1 ✓ ∥ WS1b ✓ → WS2 ✓ → (WS3 ✓ ∥ WS4 ✓ ∥ WS9a ✓) → **WS13′ (builder/widget split — bounded: folds 7.2/7.6/7.7; resequenced before WS5, 2026-07-09)** → WS5 → WS6 → WSi → WS7 (remainder 7.1/7.3/7.4/7.5) → (WS8 ∥ WS10 ∥ WS9b) → WS11 → WS12 → (WS14 ∥ WS15 ∥ WS16 ∥ WS18) _(WS13 pulled early — see 2026-07-09 decision)_. WS17 may start any time after WS6 — ideally before WS11.7 needs its README numbers. **WS19 ✓ v1 SHIPPED** (19.1–19.5 + 19.7 + 19.8 A/B live at hazer-hazer.github.io/rsact, site brand applied via PR #16; only the "later" 19.6 items — blog/custom domain/og-cards — remain, any time). **Now actionable (2026-07-10): the 13.3 rollout gate is the next maintainer decision.** WS13.1 spec + 13.2 prototype are merged (PR #17); recommendation on record (findings §6): **GO for the fleet**, conditioned on derive hardening (M1/M2/M3) + excluded-crates/examples sweep + the `icon.rs` repair (WS4.5 debt). Sign-off unlocks 13.4 fleet conversion; **WS5 follows WS13′**. **PR #6 (WS9b design, DRAFT) is UNBLOCKED by events:** WS4 merged (PR #11) = Decision 1's recommended option (a) satisfied; before 9b code, answer **Decision 2** (9b.1 read-path fork — re-evaluate the hybrid-iii recommendation against post-WS4 storage, where inert values no longer flow through reads) and have the returning session re-verify the design doc + rebase onto current master. Its execution slot is unchanged (own branch; both WS2+WS4 dependencies are now merged — may run early if the maintainer chooses). Parallel sessions need separate worktrees.
+**Suggested execution order:** WS0 ✓ ∥ WS1 ✓ ∥ WS1b ✓ → WS2 ✓ → (WS3 ✓ ∥ WS4 ✓ ∥ WS9a ✓) → **WS13′ (builder/widget split — bounded: folds 7.2/7.6/7.7; resequenced before WS5, 2026-07-09)** → WS5 → WS6 → WSi → WS7 (remainder 7.1/7.3/7.4/7.5) → (WS8 ∥ WS10 ∥ WS9b) → WS11 → WS12 → (WS14 ∥ WS15 ∥ WS16 ∥ WS18) _(WS13 pulled early — see 2026-07-09 decision)_. WS17 may start any time after WS6 — ideally before WS11.7 needs its README numbers. **WS19 ✓ v1 SHIPPED** (19.1–19.5 + 19.7 + 19.8 A/B live at hazer-hazer.github.io/rsact, site brand applied via PR #16; only the "later" 19.6 items — blog/custom domain/og-cards — remain, any time). **Now actionable (2026-07-10): the WS13′ execution session — 13.3 is SIGNED OFF GO (maintainer, 2026-07-10).** WS13.1 spec + 13.2 prototype are merged (PR #17). Order inside the session: the binding §6 conditions FIRST (M1–M3 derive hardening → excluded-surfaces sweep → `icon.rs` repair), then 13.4 fleet conversion; session prompt updated in the WS13 section. **WS5 follows WS13′.** **PR #6 (WS9b design, DRAFT) is UNBLOCKED by events:** WS4 merged (PR #11) = Decision 1's recommended option (a) satisfied; before 9b code, answer **Decision 2** (9b.1 read-path fork — re-evaluate the hybrid-iii recommendation against post-WS4 storage, where inert values no longer flow through reads) and have the returning session re-verify the design doc + rebase onto current master. Its execution slot is unchanged (own branch; both WS2+WS4 dependencies are now merged — may run early if the maintainer chooses). Parallel sessions need separate worktrees.
 WS7's _decisions_ are locked at Gate time (now); only its _execution_ is late. 7.2's cheap `Dir`/`V` de-genericization may ride along with WS2/WS4 if convenient — it's zero-user-impact. (7.1 no longer qualifies: G5 keeps `Event::Custom`, and its remaining scope carries a breaking rename plus a G4-dependent default.)
 
 ---
@@ -916,8 +916,8 @@ one-line rationale in the roadmap. Do not publish without maintainer confirmatio
 
 - [ ] 13.1 Design doc: builder/runtime split options — separate Builder types per widget vs a generic builder layer vs build-consumed fields (`Option::take` at build). Note the existing hint: `El`'s two-state `New(ElData)/Stored` enum is already half of this idea. Quantify candidate RAM savings with the 0.4 probe before choosing. **Scoping analysis delivered 2026-07-09 (`docs/plans/2026-07-09-ws13-views-as-builders-analysis.md`) — blast radius + go/no-go + recommended shape (§4): the explicit builder consumed into a lean retained widget (`build` _transforms_ the type: builder → widget) + a boilerplate-killing derive; reject the `pending`-queue-on-the-widget half-measure. RAM caveat (§1): retained widgets are already lean — the payoff is *enabling* node-free off-graph layouts + collapsing the 3-way child encoding + retiring the fake-inert/`layout_mut` trap/WS3.5 zip, not husk-stripping alone. 13.1 REMAINING = the concrete `build`-transform protocol (how `El`/arena/`build` change), the derive design, per-widget migration + the design-around cases (`Show` layout-delegate; reactive-structure effects), and the folded 7.6/7.7/7.2 changes.** **[x] LANDED 2026-07-09 — the 13.1 spec is `docs/plans/2026-07-09-ws13.1-builder-widget-split-spec.md` (commit `5fb2ff9`): the `Build<W>` transform protocol + two-stage `ElStage` arena node + per-type identity-`Build` coexistence (no blanket) + the `#[derive(Builder)]` design + 7.6/7.7/7.2 slices + design-around cases.**
 - [x] 13.2 Prototype on two widgets (Button, Flex) + measure (RAM/flash/ergonomics diff). **LANDED 2026-07-10 (`ws13-builder-widget-split`, commits `997677f..8a125e6`; rsact-ui lib 65/0). Findings for the gate: `docs/plans/2026-07-09-ws13.2-prototype-findings.md`. Result: reactive-node delta 0 (props still bind via node — the win is WS5.1's), heap −4%, flash +0.34% `.text`, retained widget −68–70% vs builder, ergonomics 4.8:1 boilerplate cut (break-even ~9 of ~15 widgets). FULL `#[derive(Builder)]` delivered (not the fallback). Deviations logged in the findings: dropped `LayoutWidget:Widget` supertrait; retained `Flex<W>` needs `PhantomData<W>`; latent split breakage in workspace-excluded `size-probe/bin/ui.rs` found+fixed. TDD plan: `docs/plans/2026-07-09-ws13.2-builder-widget-split-prototype-plan.md`.**
-- [ ] 13.3 **Rollout decision gate** — maintainer sign-off on the measured prototype before any fleet conversion. **AWAITING SIGN-OFF: recommendation = GO for the fleet, conditioned on hardening the derive first (M1 both-attrs guard, M2 `#[layout(delegate)]` for `Show`, M3 extra child modes) + sweeping excluded crates/examples + landing the `icon.rs` repair. See findings §6.**
-- [ ] 13.4 Fleet conversion (if approved) + `#[derive(View)]` adjustments.
+- [x] 13.3 **Rollout decision gate — SIGNED OFF: GO (maintainer, 2026-07-10).** Decision: **GO for the fleet conversion**, with the findings-§6 conditions **binding and sequenced FIRST**: (1) derive hardening — M1 both-attrs guard, M2 `#[layout(delegate)]` for `Show`, M3 the extra child modes; (2) sweep of workspace-excluded surfaces (size-probe bins, `examples/` call sites, cfg'd-off code); (3) landing the `icon.rs` repair (WS4.5 debt — needs `SignalOnWrite`; if it resists a contained fix, report back rather than forcing it). No fleet-wide widget conversion lands before the conditions are green. _(Original ask: sign-off on the measured 13.2 prototype; recommendation was GO-with-conditions and was accepted as-is.)_
+- [ ] 13.4 Fleet conversion (**APPROVED at 13.3 — conditions first**) + `#[derive(View)]` adjustments. Widget-by-widget commits (~13 remaining of ~15; Button+Flex landed in 13.2), folding the 7.6/7.7/7.2 slices where they touch each widget; UI suite green after every widget; re-baseline the 0.4 node/RAM numbers old→new.
 
 **Design sketch (the three 13.1 candidates — decide by measured RAM, not taste):**
 
@@ -932,11 +932,12 @@ struct Button { padding: Option<Padding>, /* Option::take()n at build; None ther
 ```
 
 ```
-Read docs/plans/2026-07-05-rsact-evolution-roadmap.md — WS13 (incl. its 2026-07-09
-DECISION block) + docs/plans/2026-07-09-ws13-views-as-builders-analysis.md (the scoping
-analysis produced before this session — READ IT FIRST; it is the bulk of 13.1's
-groundwork) + the "Views as widget builders" RFC in EVOLUTION.md + Cross-cutting
-invariants.
+Read docs/plans/2026-07-05-rsact-evolution-roadmap.md — WS13 (the 2026-07-09 DECISION
+block + the 13.3 GO record) + docs/plans/2026-07-09-ws13.1-builder-widget-split-spec.md
+(the Build<W> transform protocol — the contract you implement) +
+docs/plans/2026-07-09-ws13.2-prototype-findings.md (§6 conditions + logged deviations)
++ Cross-cutting invariants. 13.3 IS SIGNED OFF (2026-07-10): GO for the fleet —
+the §6 conditions are BINDING and come FIRST.
 
 Context already established by the analysis session (do NOT re-derive — verify, then build on):
 - WS13 is RESEQUENCED BEFORE WS5, bounded. It GATES WS5.1's clean off-graph layout
@@ -965,14 +966,25 @@ Context already established by the analysis session (do NOT re-derive — verify
 - Pre-existing discrepancies to decide on if the split touches them (protocol: report):
   icon.rs does not currently compile (known WS4.5 debt); image.rs is disabled.
 
-Verify current state first (WS4 landed; re-read cited code — it may have moved). Use
-superpowers:writing-plans to expand 13.1 into a bite-sized TDD plan. Design-first: write
-the 13.1 spec (build-transform protocol — how El/arena/build change; the derive; per-widget
-migration + design-around cases), PROTOTYPE on Button + Flex with measured RAM/flash/
-ergonomics (13.2), then STOP for the 13.3 maintainer rollout gate before any fleet
-conversion. Start on a fresh branch/worktree (ws13-builder-widget-split), NOT
-ws5-incremental-layout. Keep full-relayout the default path; nothing here rides the
-incremental-layout feature (that is WS5.2).
+Verify current state first (13.2's Button+Flex split + full #[derive(Builder)] are on
+master via PR #17; baseline rsact-ui lib 65/0, reactive 76/0; re-read cited code — it
+may have moved). Use superpowers:writing-plans to expand this into a bite-sized TDD plan,
+then execute in order:
+(1) CONDITIONS — derive hardening: M1 both-attrs guard (compile-fail test), M2
+    #[layout(delegate)] for Show (layout() delegates to the child husk), M3 the extra
+    child modes — TDD each; excluded-surfaces sweep: size-probe bins (workspace-excluded
+    — latent split breakage was found+fixed there once already), examples/ call sites,
+    cfg'd-off code; icon.rs repair (WS4.5 debt, needs SignalOnWrite) — if it resists a
+    contained fix, REPORT back, don't force it; image.rs stays disabled (report if the
+    split touches it).
+(2) 13.4 FLEET CONVERSION — widget-by-widget commits (~13 remaining of ~15), folding the
+    7.6/7.7/7.2 slices where they touch each widget; UI suite green after EVERY widget;
+    design-around cases per the spec (Show layout-delegate; reactive STRUCTURE stays on
+    build-time effects — only reactive PROPS route through build).
+Re-baseline the 0.4 node/RAM numbers and record old→new in the roadmap; mark 13.4 done
+with commit hashes. Fresh worktree off master (e.g. ws13-fleet-conversion). Keep
+full-relayout the default path; do NOT start WS5 work in this session — WS5.1 launches
+only after this lands.
 ```
 
 ---
