@@ -23,7 +23,7 @@ let last = 0
 let spawnAcc = 0
 let running = false
 
-let accent = '#2ee6d6'
+let signal = '#c9a24b' // signals are ENIG-gold "pads"
 let edgeStyle = 'rgba(130,150,158,0.10)'
 let nodeStyle = 'rgba(140,160,168,0.28)'
 
@@ -36,7 +36,7 @@ const reduce = () =>
 
 function palette() {
   const dark = document.documentElement.classList.contains('dark')
-  accent = dark ? '#2ee6d6' : '#0a8f83'
+  signal = dark ? '#c9a24b' : '#b28d38' // ENIG gold; deeper on light for contrast
   edgeStyle = dark ? 'rgba(130,150,158,0.10)' : 'rgba(60,90,90,0.10)'
   nodeStyle = dark ? 'rgba(150,170,178,0.26)' : 'rgba(50,90,90,0.22)'
 }
@@ -154,7 +154,7 @@ function frame(ts: number) {
     const ty = A.y + (B.y - A.y) * tail
     const g = ctx.createLinearGradient(tx, ty, hx, hy)
     g.addColorStop(0, 'transparent')
-    g.addColorStop(1, accent)
+    g.addColorStop(1, signal)
     ctx.strokeStyle = g
     ctx.lineWidth = 1.6
     ctx.beginPath()
@@ -162,11 +162,11 @@ function frame(ts: number) {
     ctx.lineTo(hx, hy)
     ctx.stroke()
     // head
-    ctx.fillStyle = accent
-    ctx.shadowColor = accent
-    ctx.shadowBlur = 6
+    ctx.fillStyle = signal
+    ctx.shadowColor = signal
+    ctx.shadowBlur = 7
     ctx.beginPath()
-    ctx.arc(hx, hy, 1.7, 0, Math.PI * 2)
+    ctx.arc(hx, hy, 2.2, 0, Math.PI * 2)
     ctx.fill()
     ctx.shadowBlur = 0
   }
@@ -174,17 +174,17 @@ function frame(ts: number) {
   // nodes (dim; briefly bright when just charged)
   for (const n of nodes) {
     if (n.charge > 0) {
-      ctx.fillStyle = accent
+      ctx.fillStyle = signal
       ctx.globalAlpha = Math.min(1, n.charge) * 0.9
       ctx.beginPath()
-      ctx.arc(n.x, n.y, 2.4, 0, Math.PI * 2)
+      ctx.arc(n.x, n.y, 5, 0, Math.PI * 2)
       ctx.fill()
       ctx.globalAlpha = 1
       n.charge -= dt * 1.6
     } else {
       ctx.fillStyle = nodeStyle
       ctx.beginPath()
-      ctx.arc(n.x, n.y, 1.5, 0, Math.PI * 2)
+      ctx.arc(n.x, n.y, 3.2, 0, Math.PI * 2)
       ctx.fill()
     }
   }
@@ -207,7 +207,7 @@ function drawStill() {
   ctx.fillStyle = nodeStyle
   for (const n of nodes) {
     ctx.beginPath()
-    ctx.arc(n.x, n.y, 1.5, 0, Math.PI * 2)
+    ctx.arc(n.x, n.y, 3.2, 0, Math.PI * 2)
     ctx.fill()
   }
 }
