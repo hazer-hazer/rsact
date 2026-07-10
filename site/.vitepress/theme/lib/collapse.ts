@@ -85,3 +85,18 @@ export function columnNet(rows: SeriesRow[], groups: number[][]): ColNet[] {
   }
   return nets
 }
+
+export interface PrGroup { key: string | number | null; start: number; span: number }
+
+// Merge ADJACENT columns that share a grouping key (PR number, else branch,
+// else null) into runs — the column spans for the PR header row (#7). null
+// keys never merge into a value run (an ungrouped gap stays its own span).
+export function prColumnGroups(keys: (string | number | null)[]): PrGroup[] {
+  const out: PrGroup[] = []
+  for (let i = 0; i < keys.length; i++) {
+    const last = out[out.length - 1]
+    if (last && last.key === keys[i]) last.span++
+    else out.push({ key: keys[i], start: i, span: 1 })
+  }
+  return out
+}
