@@ -143,8 +143,8 @@ mod tests {
 
     // WS0.7f: a snapshot from an older schema (missing fields that were added
     // later — here: no `section_sizes`, no `observers`, no `layout`) must still
-    // deserialize, taking type defaults, so `diff <old-rev>` and the HTML
-    // regeneration never silently drop history.
+    // deserialize, taking type defaults, so `diff <old-rev>` works and history
+    // is never silently dropped.
     #[test]
     fn old_snapshot_missing_additive_fields_still_loads() {
         let legacy = r#"{

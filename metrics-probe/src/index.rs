@@ -76,6 +76,10 @@ pub fn merge_entry(index: &mut Index, rev: &str, entry: IndexEntry) {
 /// topology only refines genuinely equal timestamps (e.g. same-second commits in
 /// a backfill). Revs missing from `index` sort as date 0 — the caller should
 /// synthesize a minimal entry (date = the snapshot's `recorded_at`) first.
+// Note: retained (with tests) though currently unused in the build — the site
+// orders the metrics store by date (assemble.ts); this parent-chain topological
+// order is kept for a potential future TS port / index-ordering use.
+#[allow(dead_code)]
 pub fn topo_order(index: &Index, revs: &[String]) -> Vec<String> {
     let revset: HashSet<&str> = revs.iter().map(String::as_str).collect();
     let mut ordered = revs.to_vec();
@@ -96,6 +100,9 @@ pub fn topo_order(index: &Index, revs: &[String]) -> Vec<String> {
 /// How many members of `revset` are strict ancestors of `rev`, walking
 /// first-parent links through `index` and **transitively skipping** commits
 /// absent from `revset`. Cycle-guarded so a corrupt index can't hang.
+// Note: retained (with tests) though currently unused in the build — see
+// topo_order above; kept for a potential future TS port / index-ordering use.
+#[allow(dead_code)]
 fn ancestor_count(index: &Index, revset: &HashSet<&str>, rev: &str) -> usize {
     let mut count = 0;
     let mut seen: HashSet<&str> = HashSet::new();

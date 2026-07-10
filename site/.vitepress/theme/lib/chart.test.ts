@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { segments, seriesMax, shapes } from './chart'
+import { segments, seriesMax, shapes, xOf } from './chart'
 
 describe('segments', () => {
   it('splits on nulls so gaps become breaks, not zero points', () => {
@@ -19,7 +19,7 @@ describe('seriesMax', () => {
 })
 
 describe('shapes', () => {
-  const opts = { n: 4, width: 400, height: 100, pad: 10 }
+  const opts = { n: 4, width: 400, height: 100, padX: 10, padY: 10 }
   it('emits a polyline for a run of >= 2 points', () => {
     const { polys } = shapes([10, 20, 30, 40], opts)
     expect(polys.length).toBe(1)
@@ -30,9 +30,36 @@ describe('shapes', () => {
     expect(polys.length).toBe(0)
     expect(dots.length).toBe(2)
   })
-  it('normalizes to the provided max (top hugs the top pad)', () => {
-    const { polys } = shapes([50, 100], { ...opts, n: 2, max: 100 })
-    const [, second] = polys[0].points.split(' ')
-    expect(Number(second.split(',')[1])).toBeCloseTo(opts.pad, 1)
+  it('centers point i in cell i: x = padX + (w-2padX)*(i+0.5)/n', () => {
+    const { polys } = shapes([10, 20], { n: 2, width: 400, height: 100, padX: 10, padY: 10, max: 100 })
+    const xs = polys[0].points.split(' ').map((p) => Number(p.split(',')[0]))
+    // cell 0 center = 10 + 380*0.25 = 105; cell 1 center = 10 + 380*0.75 = 295
+    expect(xs[0]).toBeCloseTo(105, 1)
+    expect(xs[1]).toBeCloseTo(295, 1)
+  })
+  it('normalizes y to the provided max (top hugs the top padY)', () => {
+    const { polys } = shapes([50, 100], { n: 2, width: 400, height: 100, padX: 10, padY: 10, max: 100 })
+    const y1 = Number(polys[0].points.split(' ')[1].split(',')[1])
+    expect(y1).toBeCloseTo(10, 1) // v=max → y at top padY
+  })
+})
+
+describe('xOf with padX=0 (column-aligned inline chart)', () => {
+  // The inline per-row chart spans n equal columns via colspan with no inset.
+  // Point i must sit at exactly (i+0.5)/n * width so it lines up with the
+  // center of column i — and the error must NOT grow toward the right edge.
+  it('places every point at the exact cell center with no accumulating drift', () => {
+    const n = 18
+    const width = 360
+    for (let i = 0; i < n; i++) {
+      expect(xOf(i, n, width, 0)).toBeCloseTo(((i + 0.5) / n) * width, 6)
+    }
+    // First and last points are symmetric about the center — no left/right bias.
+    expect(xOf(0, n, width, 0)).toBeCloseTo(width - xOf(n - 1, n, width, 0), 6)
+  })
+  it('a nonzero padX would inset and compress (why the inline chart passes 0)', () => {
+    // With padX=8 the endpoints move inward relative to the true cell centers.
+    const n = 10, width = 200
+    expect(xOf(n - 1, n, width, 8)).toBeLessThan(((n - 1 + 0.5) / n) * width)
   })
 })

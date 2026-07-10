@@ -113,3 +113,29 @@ export function fmt(v: number | null | undefined): string | null {
 export function revLabel(snap: Snapshot): string {
   return snap.git_rev.slice(0, 8) + (snap.git_dirty ? '*' : '')
 }
+
+// Each present value minus the first present value (baseline). The first present
+// value becomes 0; gaps stay null. For the Δ-from-baseline view.
+export function deltaValues(values: (number | null)[]): (number | null)[] {
+  const base = firstPresent(values)
+  if (base === null) return values.map(() => null)
+  return values.map((v) => (v === null || v === undefined ? null : v - base))
+}
+
+// The first present value in the series (baseline), or null if all-gap.
+function firstPresent(values: (number | null)[]): number | null {
+  for (const v of values) if (v !== null && v !== undefined) return v
+  return null
+}
+
+// True if no present value ever differs from the previous present value — the
+// series never actually changes (for the "only changed" filter).
+export function isFlat(values: (number | null)[]): boolean {
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i]
+    if (v === null || v === undefined) continue
+    const prev = prevPresent(values, i)
+    if (prev !== null && v !== prev) return false
+  }
+  return true
+}
