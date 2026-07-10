@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { boundaryFlags, columnGroups, collapseValues, columnLabel, columnNet } from './collapse'
+import { boundaryFlags, columnGroups, collapseValues, columnLabel, columnNet, prColumnGroups } from './collapse'
 import type { SeriesRow, Snapshot } from './types'
 
 const row = (values: (number | null)[]): SeriesRow => ({ key: 'k', label: 'k', values })
@@ -78,5 +78,25 @@ describe('columnNet', () => {
     const rows = [{ key: 'a', label: 'a', values: [20, 10, 10] }]
     const groups = columnGroups(rows, 3) // [[0,1],[2]]
     expect(columnNet(rows, groups)).toEqual([{ up: 0, down: 0 }, { up: 1, down: 0 }])
+  })
+})
+
+describe('prColumnGroups', () => {
+  it('merges adjacent equal keys into runs with start + span', () => {
+    expect(prColumnGroups([12, 12, 12, 13])).toEqual([
+      { key: 12, start: 0, span: 3 },
+      { key: 13, start: 3, span: 1 },
+    ])
+  })
+  it('null keys break runs and are not merged with values', () => {
+    expect(prColumnGroups([12, null, null, 'ws3'])).toEqual([
+      { key: 12, start: 0, span: 1 },
+      { key: null, start: 1, span: 2 },
+      { key: 'ws3', start: 3, span: 1 },
+    ])
+  })
+  it('handles empty and single', () => {
+    expect(prColumnGroups([])).toEqual([])
+    expect(prColumnGroups(['a'])).toEqual([{ key: 'a', start: 0, span: 1 }])
   })
 })

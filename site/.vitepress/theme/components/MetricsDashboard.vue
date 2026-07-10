@@ -4,9 +4,9 @@ import { withBase } from 'vitepress'
 import MetricSection from './MetricSection.vue'
 import TrendChart from './TrendChart.vue'
 import { buildSeries, isFlat, fmt } from '../lib/series'
-import { columnGroups, columnLabel, collapseValues, boundaryFlags, columnNet } from '../lib/collapse'
+import { columnGroups, columnLabel, collapseValues, boundaryFlags, columnNet, prColumnGroups } from '../lib/collapse'
 import { colorFor } from '../lib/colors'
-import { columnHref } from '../lib/repo'
+import { columnHref, prUrl, branchCommitsUrl, stripBranchRef } from '../lib/repo'
 import { HOVER_KEY } from '../lib/hover'
 import { SAMPLE } from '../lib/sample'
 import type { MetricsData, Snapshot, IndexMap, SeriesRow, Series } from '../lib/types'
@@ -48,7 +48,7 @@ function writeHash() {
   history.replaceState(null, '', hash ? `#${hash}` : location.pathname + location.search)
 }
 
-// Measure the (2-row) sticky header so section captions can stick just below it.
+// Measure the (3-row) sticky header so section captions can stick just below it.
 const headEl = ref<HTMLElement | null>(null)
 const gridEl = ref<HTMLElement | null>(null)
 let ro: ResizeObserver | null = null
@@ -117,14 +117,46 @@ const columns = computed(() =>
   colGroups.value.map((g) => {
     const label = columnLabel(snapshots.value, g)
     const first = snapshots.value[g[0]]
+    const last = snapshots.value[g[g.length - 1]]
     const entry = index.value[first?.git_rev]
     const branch = entry?.branch
     const date = iso(entry?.date)
     const href = columnHref(g, snapshots.value, index.value)
-    const title = [label, branch, date].filter(Boolean).join(' · ')
+    const subject = index.value[last?.git_rev]?.subject
+    const title = [label, branch, date, subject].filter(Boolean).join(' · ')
     return { label, title, href, group: g }
   }),
 )
+
+// Per-column grouping key: PR number if known, else the branch hint, else null.
+const perColumnKey = computed<(string | number | null)[]>(() =>
+  colGroups.value.map((g) => {
+    const last = snapshots.value[g[g.length - 1]]
+    const entry = index.value[last?.git_rev]
+    // `||`, not `??`: an empty-string branch is not a usable grouping key either.
+    // Normalize the name-rev hint (drop `remotes/origin/` + trailing `~N`/`^N`)
+    // so both the grouping key and the rendered link resolve to a real branch.
+    const branch = stripBranchRef(entry?.branch)
+    return entry?.pr || branch || null
+  }),
+)
+const prGroups = computed(() => prColumnGroups(perColumnKey.value))
+// Show the PR row only when at least one column is actually grouped/labeled.
+const showPrRow = computed(() => prGroups.value.some((g) => g.key !== null))
+// First column of each group (except column 0) starts a separator.
+const groupStart = computed<boolean[]>(() => {
+  const s = new Array(columns.value.length).fill(false)
+  for (const g of prGroups.value) if (g.start > 0) s[g.start] = true
+  return s
+})
+function groupLabel(g: { key: string | number | null }): string {
+  return typeof g.key === 'number' ? `#${g.key}` : typeof g.key === 'string' ? g.key : ''
+}
+function groupHref(g: { key: string | number | null }): string | undefined {
+  return typeof g.key === 'number' ? prUrl(g.key)
+    : typeof g.key === 'string' ? branchCommitsUrl(g.key)
+    : undefined
+}
 
 // `changed`/`nets` intentionally derive from `allRows`/`colGroups` (the full column
 // axis), NOT `shownGroups`, so the column axis stays stable under the "only changed" filter.
@@ -212,13 +244,25 @@ function valAt(s: Series): string {
         <div class="grid-scroll">
           <table class="grid" ref="gridEl">
             <thead ref="headEl">
+              <tr v-if="showPrRow" class="prgroups">
+                <th class="lbl"></th>
+                <th
+                  v-for="(g, gi) in prGroups"
+                  :key="gi"
+                  class="col"
+                  :colspan="g.span"
+                  :class="{ 'group-start': g.start > 0 }"
+                >
+                  <a v-if="groupHref(g)" :href="groupHref(g)" target="_blank" rel="noreferrer">{{ groupLabel(g) }}</a>
+                </th>
+              </tr>
               <tr class="cols">
                 <th class="lbl">metric</th>
                 <th
                   v-for="(c, i) in columns"
                   :key="c.label + i"
                   class="col"
-                  :class="{ hov: hover === i, dim: !changed[i] }"
+                  :class="{ hov: hover === i, dim: !changed[i], 'group-start': groupStart[i] }"
                   :title="c.title"
                   @mouseenter="hover = i"
                   @mouseleave="hover = null"
@@ -232,7 +276,7 @@ function valAt(s: Series): string {
                   v-for="(net, i) in nets"
                   :key="i"
                   class="col"
-                  :class="{ hov: hover === i, dim: !changed[i] }"
+                  :class="{ hov: hover === i, dim: !changed[i], 'group-start': groupStart[i] }"
                   :title="`${net.up} improved, ${net.down} regressed`"
                   @mouseenter="hover = i"
                   @mouseleave="hover = null"
@@ -251,6 +295,7 @@ function valAt(s: Series): string {
               :selected="selected"
               :delta="delta"
               :changed="changed"
+              :group-start="groupStart"
               @toggle="toggle"
             />
           </table>
@@ -309,9 +354,10 @@ table.grid {
   border-collapse: separate; border-spacing: 0; table-layout: fixed;
   font-family: var(--vp-font-family-mono); font-size: 12px;
 }
-// The WHOLE thead sticks vertically as one block (both header rows move
-// together — more reliable than per-th top offsets); border-collapse:separate
-// is required so sticky cells keep their borders.
+// The WHOLE thead sticks vertically as one block (all three header rows — PR
+// groups, commit hashes, Δ-overall — move together; more reliable than
+// per-th top offsets); border-collapse:separate is required so sticky cells
+// keep their borders.
 thead { position: sticky; top: 0; z-index: 3; }
 thead th {
   background: var(--vp-c-bg);
@@ -330,6 +376,10 @@ thead th.col a { color: var(--vp-c-brand-1); text-decoration: none; }
 thead th.col a:hover { text-decoration: underline; }
 th.hov { background: var(--vp-c-bg-soft); }
 th.dim { opacity: 0.4; }
+thead tr.prgroups th.col { text-align: left; font-size: 11px; }
+thead tr.prgroups th.col a { color: var(--vp-c-brand-1); text-decoration: none; }
+thead tr.prgroups th.col a:hover { text-decoration: underline; }
+.group-start { border-left: 2px solid var(--vp-c-text-3); }
 
 .side { flex: 0 0 380px; position: sticky; top: 5rem; }
 h2 { font-size: 0.95rem; margin: 0 0 0.4rem; border: 0; padding: 0; }

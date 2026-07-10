@@ -56,6 +56,8 @@ export interface IndexEntry {
   date: number
   parent: string
   branch: string
+  subject?: string
+  pr?: number
 }
 export type IndexMap = Record<string, IndexEntry>
 

@@ -32,6 +32,12 @@ pub struct IndexEntry {
     pub parent: String,
     /// `git name-rev` hint (e.g. `master`, `remotes/origin/ws3~2`), or "".
     pub branch: String,
+    /// Commit subject (first line of the message), or "" when unknown.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub subject: String,
+    /// Associated PR number (from a merge/squash commit), or None when unknown.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pr: Option<u32>,
 }
 
 /// rev (full hash) → entry. `BTreeMap` for deterministic serialization.
@@ -116,12 +122,35 @@ fn ancestor_count(index: &Index, revset: &HashSet<&str>, rev: &str) -> usize {
     count
 }
 
+/// PR number from a GitHub merge-commit subject: `Merge pull request #N from …`.
+pub fn parse_merge_pr(subject: &str) -> Option<u32> {
+    let rest = subject.strip_prefix("Merge pull request #")?;
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse().ok()
+}
+
+/// PR number from a squash-merge subject ending in `(#N)` (GitHub squash default).
+pub fn parse_squash_pr(subject: &str) -> Option<u32> {
+    let trimmed = subject.trim_end();
+    let inner = trimmed.strip_suffix(')')?.rsplit_once("(#")?.1;
+    if inner.is_empty() || !inner.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    inner.parse().ok()
+}
+
+/// Resolve a commit's PR: exact merge-map ancestry wins; the squash-subject
+/// heuristic only fills commits no merge covers (true squash-merges).
+pub fn resolve_pr(ancestry: Option<u32>, subject: &str) -> Option<u32> {
+    ancestry.or_else(|| parse_squash_pr(subject))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn e(date: u64, parent: &str) -> IndexEntry {
-        IndexEntry { date, parent: parent.to_string(), branch: String::new() }
+        IndexEntry { date, parent: parent.to_string(), branch: String::new(), ..Default::default() }
     }
 
     #[test]
@@ -211,5 +240,55 @@ mod tests {
         let back = load(&path);
         let _ = fs::remove_dir_all(&dir);
         assert_eq!(back, idx);
+    }
+
+    #[test]
+    fn parse_merge_pr_reads_github_merge_subject() {
+        assert_eq!(parse_merge_pr("Merge pull request #14 from hazer-hazer/ws19-metrics-v3"), Some(14));
+        assert_eq!(parse_merge_pr("Merge pull request #7 from x/y"), Some(7));
+        assert_eq!(parse_merge_pr("Merge branch 'main'"), None);
+        assert_eq!(parse_merge_pr("WS19.8: normal commit"), None);
+        assert_eq!(parse_merge_pr("Merge pull request #x from y"), None);
+    }
+
+    #[test]
+    fn parse_squash_pr_reads_trailing_pr_ref() {
+        assert_eq!(parse_squash_pr("Fix the thing (#42)"), Some(42));
+        assert_eq!(parse_squash_pr("Add feature (#3)"), Some(3));
+        assert_eq!(parse_squash_pr("no pr here"), None);
+        assert_eq!(parse_squash_pr("mentions (#5) mid-subject only"), None); // not trailing
+        assert_eq!(parse_squash_pr("bad (#) ref"), None);
+        // Ends in ')' so the inner branch actually runs (not rejected at the
+        // strip_suffix(')') gate): empty digits, then a non-digit before ')'.
+        assert_eq!(parse_squash_pr("foo (#)"), None);
+        assert_eq!(parse_squash_pr("foo (#5x)"), None);
+    }
+
+    #[test]
+    fn resolve_pr_prefers_ancestry_over_squash_subject() {
+        // exact ancestry wins even when the subject mentions a different PR
+        assert_eq!(resolve_pr(Some(14), "unrelated mention (#7)"), Some(14));
+        // no ancestry → fall back to the squash-subject heuristic
+        assert_eq!(resolve_pr(None, "Squash landing (#7)"), Some(7));
+        // neither → None
+        assert_eq!(resolve_pr(None, "plain subject"), None);
+    }
+
+    #[test]
+    fn index_entry_omits_empty_subject_and_none_pr() {
+        let entry = IndexEntry { date: 5, parent: "p".into(), branch: "b".into(), ..Default::default() };
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(!json.contains("subject"), "empty subject must be skipped: {json}");
+        assert!(!json.contains("\"pr\""), "None pr must be skipped: {json}");
+        // Old-shape JSON (no subject/pr) still parses, defaulting the new fields.
+        let back: IndexEntry = serde_json::from_str(r#"{"date":5,"parent":"p","branch":"b"}"#).unwrap();
+        assert_eq!(back, entry);
+    }
+
+    #[test]
+    fn index_entry_roundtrips_with_subject_and_pr() {
+        let entry = IndexEntry { date: 9, parent: "".into(), branch: "".into(), subject: "hi".into(), pr: Some(12) };
+        let json = serde_json::to_string(&entry).unwrap();
+        assert_eq!(serde_json::from_str::<IndexEntry>(&json).unwrap(), entry);
     }
 }

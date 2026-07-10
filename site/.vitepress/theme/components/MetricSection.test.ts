@@ -22,7 +22,14 @@ const mountInTable = (props: Record<string, unknown>) =>
   })
 
 describe('MetricSection', () => {
-  const base = { group, columns, selected: new Set<string>(), delta: false, changed: [true, false, true] }
+  const base = {
+    group,
+    columns,
+    selected: new Set<string>(),
+    delta: false,
+    changed: [true, false, true],
+    groupStart: [false, false, false],
+  }
   it('renders a <tbody> root with a full-width caption row', () => {
     const w = mountInTable(base)
     expect(w.element.tagName).toBe('TBODY')
@@ -36,6 +43,13 @@ describe('MetricSection', () => {
     const firstRowCells = w.findAll('tr.metric')[0].findAll('td:not(.lbl)')
     expect(firstRowCells[0].classes()).not.toContain('dim') // changed[0] = true
     expect(firstRowCells[1].classes()).toContain('dim')     // changed[1] = false
+  })
+  it('marks the group-start column with a separator class', () => {
+    const w = mountInTable({ ...base, groupStart: [false, true, false] })
+    const firstRowCells = w.findAll('tr.metric')[0].findAll('td:not(.lbl)')
+    expect(firstRowCells[0].classes()).not.toContain('group-start')
+    expect(firstRowCells[1].classes()).toContain('group-start')
+    expect(firstRowCells[2].classes()).not.toContain('group-start')
   })
   it('shows an inline chart row only for selected metrics', () => {
     const w = mountInTable({ ...base, selected: new Set(['reactive_only_16/signals']) })
