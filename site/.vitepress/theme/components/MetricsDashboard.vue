@@ -420,8 +420,19 @@ th.hov {
   background: var(--vp-c-bg-soft);
 }
 
+// Dimmed commit-hash header cells are STICKY and overlap the rows scrolling
+// behind them. Fading the whole cell (opacity) made its background see-through,
+// so that row data bled through and muddied the hash. Instead keep a mostly
+// opaque theme-bg backing and frost whatever still shows (backdrop-filter),
+// fading only the cell's content — the hash stays legible, nothing bleeds.
+// (color-mix unsupported → declaration dropped → opaque `thead th` bg remains,
+// which still occludes; so the fallback is safe.)
 th.dim {
-  opacity: 0.4;
+  background: color-mix(in srgb, var(--vp-c-bg) 72%, transparent);
+  backdrop-filter: blur(6px) brightness(0.7);
+}
+th.dim :where(a, span) {
+  opacity: 0.5;
 }
 
 thead tr.prgroups th.col {
