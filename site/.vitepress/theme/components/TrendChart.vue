@@ -1,17 +1,15 @@
 <script setup lang="ts">
 import { computed, ref, inject, onMounted, onUnmounted } from 'vue'
 import { shapes, seriesMax, xOf } from '../lib/chart'
-import { fmt, revLabel } from '../lib/series'
 import { HOVER_KEY } from '../lib/hover'
-import type { Series, Snapshot } from '../lib/types'
+import type { Series } from '../lib/types'
 
 // One or more series as line charts. When `normalize`, each series scales to its
 // OWN 0..max so differently-scaled metrics (bytes vs counts vs ns) are all
-// visible; the hover tooltip always shows real absolute values.
+// visible.
 const props = withDefaults(
   defineProps<{
     series: Series[]
-    snapshots?: Snapshot[]
     n?: number
     width?: number
     height?: number
@@ -24,7 +22,6 @@ const props = withDefaults(
     interactive?: boolean
   }>(),
   {
-    snapshots: () => [],
     n: 0,
     width: 380,
     height: 300,
@@ -37,7 +34,7 @@ const props = withDefaults(
 )
 
 const n = computed(
-  () => props.n || props.snapshots.length || Math.max(0, ...props.series.map((s) => s.values.length)),
+  () => props.n || Math.max(0, ...props.series.map((s) => s.values.length)),
 )
 const sharedMax = computed(() => Math.max(0, ...props.series.map((s) => seriesMax(s.values))))
 
@@ -89,7 +86,7 @@ function onMove(ev: MouseEvent) {
 }
 // Mirrors onMove's interactive gate: onMove only WRITES sharedHover when
 // interactive, so the clear must match — otherwise a non-interactive inline
-// chart (e.g. MetricTable's per-row chart) would stomp the shared crosshair
+// chart (e.g. MetricSection's per-row chart) would stomp the shared crosshair
 // set by the interactive overlay chart on every mouseleave.
 function onLeave() {
   hover.value = null
@@ -100,18 +97,6 @@ const hoverX = computed(() =>
     ? null
     : xOf(guideCol.value, n.value, measuredW.value, props.padX),
 )
-const tooltip = computed(() => {
-  if (hover.value === null) return null
-  const s = props.snapshots[hover.value]
-  return {
-    title: s ? revLabel(s) : `#${hover.value}`,
-    rows: props.series.map((se) => ({
-      label: se.label,
-      color: se.color,
-      v: fmt(se.values[hover.value as number]),
-    })),
-  }
-})
 </script>
 
 <template>
@@ -153,13 +138,6 @@ const tooltip = computed(() => {
         :y2="height - padY"
       />
     </svg>
-    <div v-if="interactive && tooltip" class="tip">
-      <div class="tip-title">{{ tooltip.title }}</div>
-      <div v-for="r in tooltip.rows" :key="r.label" class="tip-row">
-        <span class="swatch" :style="{ background: r.color }"></span>{{ r.label }}:
-        {{ r.v === null ? '–' : r.v }}
-      </div>
-    </div>
   </div>
 </template>
 
@@ -173,11 +151,4 @@ const tooltip = computed(() => {
 .axis { stroke: var(--vp-c-divider); stroke-width: 1; }
 .series-line { stroke-width: 1.25; }
 .guide { stroke: var(--vp-c-text-3); stroke-width: 1; stroke-dasharray: 3 3; }
-.tip { font-size: 12px; margin-top: 0.4rem; line-height: 1.4; }
-.tip-title { font-weight: bold; }
-.tip-row { white-space: nowrap; }
-.swatch {
-  display: inline-block; width: 0.6rem; height: 0.6rem;
-  border-radius: 2px; margin-right: 0.35rem; vertical-align: middle;
-}
 </style>

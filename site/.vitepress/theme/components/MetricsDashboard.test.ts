@@ -1,60 +1,63 @@
-import { describe, it, expect, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
-import { nextTick } from 'vue'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { mount, flushPromises } from '@vue/test-utils'
+import MetricsDashboard from './MetricsDashboard.vue'
+import type { MetricsData } from '../lib/types'
 
 vi.mock('vitepress', () => ({ withBase: (p: string) => p }))
 
-import MetricsDashboard from './MetricsDashboard.vue'
-import { SAMPLE } from '../lib/sample'
-import type { MetricsData } from '../lib/types'
-
-// Two truly-flat adjacent commits (identical counts) followed by one that
-// changes — collapse should merge the first pair into a single column.
-const COLLAPSIBLE: MetricsData = {
+const DATA: MetricsData = {
+  index: {
+    aaa: { date: 1_700_000_000, parent: 'par', branch: 'main' },
+    bbb: { date: 1_700_100_000, parent: 'aaa', branch: 'main' },
+  },
   snapshots: [
-    {
-      git_rev: 'a'.repeat(40), git_dirty: false,
-      scenarios: [{ name: 's', counts: { total: 100 }, heap_live_bytes: 1000, heap_peak_bytes: 1000, build_allocs: 10, change_frame_allocs: 5, layout: null }],
-    },
-    {
-      git_rev: 'b'.repeat(40), git_dirty: false,
-      scenarios: [{ name: 's', counts: { total: 100 }, heap_live_bytes: 1000, heap_peak_bytes: 1000, build_allocs: 10, change_frame_allocs: 5, layout: null }],
-    },
-    {
-      git_rev: 'c'.repeat(40), git_dirty: false,
-      scenarios: [{ name: 's', counts: { total: 200 }, heap_live_bytes: 1000, heap_peak_bytes: 1000, build_allocs: 10, change_frame_allocs: 5, layout: null }],
-    },
+    { git_rev: 'aaaaaaaa11', git_dirty: false, scenarios: [
+      { name: 's1', counts: { signals: 10, total: 10 }, heap_live_bytes: null, heap_peak_bytes: null, build_allocs: null, change_frame_allocs: null, layout: null } ] },
+    { git_rev: 'bbbbbbbb22', git_dirty: false, scenarios: [
+      { name: 's1', counts: { signals: 12, total: 12 }, heap_live_bytes: null, heap_peak_bytes: null, build_allocs: null, change_frame_allocs: null, layout: null } ] },
   ],
-  index: {},
 }
 
-describe('MetricsDashboard', () => {
-  const factory = () => mount(MetricsDashboard, { props: { data: SAMPLE } })
+const observed: unknown[] = []
 
-  it('renders a table per group with domain-aware markers', () => {
-    const w = factory()
-    expect(w.findAll('table').length).toBeGreaterThanOrEqual(3)
-    const html = w.html()
-    expect(html).toContain('▲')
-    expect(html).toContain('▼')
+describe('MetricsDashboard', () => {
+  beforeEach(() => {
+    observed.length = 0
+    // @ts-expect-error test env
+    global.ResizeObserver = class {
+      observe(el: unknown) { observed.push(el) }
+      disconnect() {}
+    }
   })
-  it('toggles a row to reveal an inline chart', async () => {
-    const w = factory()
-    expect(w.find('tr.chartrow').exists()).toBe(false)
-    await w.find('tr.metric').trigger('click')
-    await nextTick()
-    expect(w.find('tr.chartrow').exists()).toBe(true)
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
-  it('collapse checkbox is on by default and reduces column count', async () => {
-    const w = mount(MetricsDashboard, { props: { data: COLLAPSIBLE } })
-    const collapsedCols = w.findAll('table')[0].findAll('thead th').length
-    await w.findAll('input[type=checkbox]')[0].setValue(false) // collapse off
-    await nextTick()
-    const expandedCols = w.findAll('table')[0].findAll('thead th').length
-    expect(collapsedCols).toBeLessThan(expandedCols)
+  it('attaches the head ResizeObserver once the thead appears on the async no-data path', async () => {
+    global.fetch = vi.fn(async () => ({ ok: true, json: async () => DATA })) as unknown as typeof fetch
+    const w = mount(MetricsDashboard)
+    await flushPromises()
+    expect(w.find('thead').exists()).toBe(true)
+    expect(observed.length).toBeGreaterThan(0)
   })
-  it('empty state with no data', () => {
-    const w = mount(MetricsDashboard, { props: { data: { snapshots: [], index: {} } } })
-    expect(w.text()).toContain('No metrics data')
+  it('renders a single grid table with a thead and per-group tbodies', async () => {
+    const w = mount(MetricsDashboard, { props: { data: DATA } })
+    await flushPromises()
+    expect(w.findAll('table.grid').length).toBe(1)
+    expect(w.findAll('table.grid > thead').length).toBe(1)
+    expect(w.findAll('table.grid > tbody').length).toBeGreaterThanOrEqual(1)
+  })
+  it('commit header cells are links to GitHub', async () => {
+    const w = mount(MetricsDashboard, { props: { data: DATA } })
+    await flushPromises()
+    const links = w.findAll('thead tr.cols th.col a')
+    expect(links.length).toBe(2)
+    expect(links[0].attributes('href')).toContain('github.com/hazer-hazer/rsact')
+  })
+  it('renders a "Δ overall" row with one cell per column', async () => {
+    const w = mount(MetricsDashboard, { props: { data: DATA } })
+    await flushPromises()
+    const overall = w.find('thead tr.overall')
+    expect(overall.exists()).toBe(true)
+    expect(overall.findAll('th.col').length).toBe(2)
   })
 })
