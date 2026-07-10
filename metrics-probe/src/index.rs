@@ -139,6 +139,12 @@ pub fn parse_squash_pr(subject: &str) -> Option<u32> {
     inner.parse().ok()
 }
 
+/// Resolve a commit's PR: exact merge-map ancestry wins; the squash-subject
+/// heuristic only fills commits no merge covers (true squash-merges).
+pub fn resolve_pr(ancestry: Option<u32>, subject: &str) -> Option<u32> {
+    ancestry.or_else(|| parse_squash_pr(subject))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -252,6 +258,16 @@ mod tests {
         assert_eq!(parse_squash_pr("no pr here"), None);
         assert_eq!(parse_squash_pr("mentions (#5) mid-subject only"), None); // not trailing
         assert_eq!(parse_squash_pr("bad (#) ref"), None);
+    }
+
+    #[test]
+    fn resolve_pr_prefers_ancestry_over_squash_subject() {
+        // exact ancestry wins even when the subject mentions a different PR
+        assert_eq!(resolve_pr(Some(14), "unrelated mention (#7)"), Some(14));
+        // no ancestry → fall back to the squash-subject heuristic
+        assert_eq!(resolve_pr(None, "Squash landing (#7)"), Some(7));
+        // neither → None
+        assert_eq!(resolve_pr(None, "plain subject"), None);
     }
 
     #[test]

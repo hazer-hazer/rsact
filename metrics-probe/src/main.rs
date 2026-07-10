@@ -245,9 +245,9 @@ fn cmd_index() -> std::io::Result<()> {
     for rev in snapshot_revs(Path::new(SNAPSHOT_DIR)) {
         let mut entry = git_index_entry(&rev);
         if entry.date != 0 {
-            // Squash-merge PR from the commit's own subject wins; else the merge map.
-            entry.pr = index::parse_squash_pr(&entry.subject)
-                .or_else(|| pr_of.get(&rev).copied());
+            // Exact merge-map ancestry wins; squash-subject only fills commits
+            // no merge covers (true squash-merges).
+            entry.pr = index::resolve_pr(pr_of.get(&rev).copied(), &entry.subject);
             index::merge_entry(&mut idx, &rev, entry);
             resolved += 1;
         }
