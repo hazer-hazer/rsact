@@ -174,7 +174,7 @@ fn git_index_entry(rev: &str) -> index::IndexEntry {
     let branch = git_out(&["name-rev", "--name-only", rev])
         .filter(|s| s != "undefined")
         .unwrap_or_default();
-    index::IndexEntry { date, parent, branch }
+    index::IndexEntry { date, parent, branch, ..Default::default() }
 }
 
 /// Merge one snapshot's rev into `metrics/index.json` (incremental, shallow-safe
