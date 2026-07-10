@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { REPO_URL, commitUrl, compareUrl, columnHref } from './repo'
+import { REPO_URL, commitUrl, compareUrl, columnHref, prUrl, branchCommitsUrl } from './repo'
 import type { IndexMap, Snapshot } from './types'
 
 describe('repo urls', () => {
@@ -33,5 +33,16 @@ describe('columnHref', () => {
   it('collapsed run falls back to the last commit\'s page when the parent is unknown', () => {
     const index: IndexMap = {}
     expect(columnHref([0, 1], snapshots, index)).toBe(commitUrl(snapshots[1].git_rev))
+  })
+})
+
+describe('pr / branch urls', () => {
+  it('prUrl points at the PR page', () => {
+    expect(prUrl(14)).toBe('https://github.com/hazer-hazer/rsact/pull/14')
+  })
+  it('branchCommitsUrl points at the branch commits page', () => {
+    expect(branchCommitsUrl('ws19-metrics-v4')).toBe(
+      'https://github.com/hazer-hazer/rsact/commits/ws19-metrics-v4',
+    )
   })
 })
