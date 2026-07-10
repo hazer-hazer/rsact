@@ -5,10 +5,8 @@
 
 // --- Typography -------------------------------------------------------------
 :root {
-  --vp-font-family-base: 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system,
-    'Segoe UI', Roboto, sans-serif;
-  --vp-font-family-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas,
-    'Liberation Mono', monospace;
+  --vp-font-family-base: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --vp-font-family-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 
 // --- Color: light (brand light-mode variant: teal on silkscreen-white) ------
@@ -29,6 +27,8 @@
   --vp-c-brand-2: #0b9d90;
   --vp-c-brand-3: #0a8f83;
   --vp-c-brand-soft: rgba(10, 143, 131, 0.12);
+
+  --vp-home-hero-name-color: var(--vp-c-text-1);
 }
 
 // --- Color: dark (brand home — true black + phosphor cyan) ------------------
@@ -62,6 +62,27 @@
   --vp-code-block-bg: #000000;
 }
 
+// --- Semantic status colors (brand signal palette, both themes) ------------
+// copper = danger/important (the Rust nod), gold = warning/caution, solder-mask
+// green = success/pass. These drive VitePress custom containers (::: danger /
+// ::: warning), badges and status accents. `tip` intentionally stays brand cyan.
+:root {
+  --vp-c-danger-1: #e0703a; // copper
+  --vp-c-danger-2: #e8875a;
+  --vp-c-danger-3: #c85f2c;
+  --vp-c-danger-soft: rgba(224, 112, 58, 0.14);
+
+  --vp-c-warning-1: #c9a24b; // ENIG gold
+  --vp-c-warning-2: #d6b163;
+  --vp-c-warning-3: #b28d38;
+  --vp-c-warning-soft: rgba(201, 162, 75, 0.14);
+
+  --vp-c-success-1: #2c9e6b; // solder-mask green
+  --vp-c-success-2: #38b47d;
+  --vp-c-success-3: #248456;
+  --vp-c-success-soft: rgba(44, 158, 107, 0.14);
+}
+
 // --- Selection: signal cyan -------------------------------------------------
 ::selection {
   background: #2ee6d6;
@@ -73,11 +94,11 @@
 // buttons untouched. The SVG animates itself and honors reduced-motion (see
 // public/hero-node.svg); sized in em so it scales with the hero name.
 .VPHero .name::before {
-  content: '';
+  content: "";
   display: inline-block;
   width: 0.92em;
   height: 0.92em;
-  margin-right: 0.34em;
+  margin-right: 0.2em;
   vertical-align: -0.12em;
-  background: center / contain no-repeat url('/rsact/hero-node.svg');
+  background: center / contain no-repeat url("/rsact/hero-node.svg");
 }

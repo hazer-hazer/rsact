@@ -118,8 +118,8 @@ tr.metric.sel td.lbl { font-weight: bold; }
 tr.chartrow td { padding: 0.2rem 0; }
 tr.chartrow td.lbl { background: var(--vp-c-bg); }
 .muted { color: var(--vp-c-text-3); }
-.up { color: #2e9e4f; }
-.down { color: #d64545; }
+.up { color: var(--vp-c-success-1); }
+.down { color: var(--vp-c-danger-1); }
 .swatch {
   display: inline-block; width: 0.6rem; height: 0.6rem;
   border-radius: 2px; margin-right: 0.35rem; vertical-align: middle;
