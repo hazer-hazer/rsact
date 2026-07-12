@@ -1923,6 +1923,28 @@ mod tests {
         let _ = create_null_page(Space::col(10));
     }
 
+    // WS13.4 (Task 5.4): `Edge` is split, but like `Label`/`Space` it has no
+    // build-only field to drop — `layout`/`style` are both read by
+    // `render`/`layout`, so `EdgeBuilder` moves both fields into the
+    // retained `Edge` unchanged (a `size_of` `<` assertion would be false,
+    // not true).
+    #[test]
+    fn edge_split_builder_exists_and_page_builds() {
+        use crate::widget::edge::{Edge, EdgeBuilder};
+
+        fn assert_is_edge_builder<W: WidgetCtx>(_: &EdgeBuilder<W>) {}
+        let b = Edge::<NullWtf>::new();
+        assert_is_edge_builder(&b);
+
+        // Not rendering: `Edge`'s `container` style panics on the null
+        // theme's unset background/border `ColorStyle`, the same
+        // pre-existing limitation documented on `Container` elsewhere in
+        // this file (e.g. `arena_rebuild_does_not_leak_subtree`'s "unrelated
+        // pre-existing ColorStyle panic" note) — unrelated to this split, so
+        // building (not rendering) the page is the meaningful check here.
+        let _ = create_null_page(Edge::new());
+    }
+
     // WS13.2 (Task 5): locks the exact `size_of` byte counts behind the
     // `<` assertions above (`button_split_drops_content_husk`,
     // `flex_split_drops_children_and_phantom`) — the concrete numbers fed to
@@ -1955,9 +1977,10 @@ mod tests {
         with_new_runtime(|_| {
             let mut w = create_signal(Length::fill());
             let edge = Edge::<NullWtf>::new().width(w);
-            // `Edge` now impls both `Widget` and (via `#[derive(View)]`) `Build`,
-            // each exposing `layout()`; disambiguate to the widget's own layout.
-            let layout = Widget::layout(&edge);
+            // WS13.4: `edge` is now an `EdgeBuilder` (Edge is split), which
+            // implements only `Build`, not `Widget` — so `.layout()` resolves
+            // unambiguously to `Build::layout` (no disambiguation needed).
+            let layout = edge.layout();
 
             // Reading the layout must not panic (the disposed-id bug) and must
             // be tracked so observers re-run on change.
