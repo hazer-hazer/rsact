@@ -35,26 +35,62 @@ impl<C: Color> KnobStyle<C> {
     }
 }
 
-#[derive(View)]
-pub struct Knob<W: WidgetCtx, V: RangeValue> {
+// WS13.4 (Task 5.9): "Like slider" per the fleet checklist, but the `V`
+// question resolves the other way here — `Knob<W, V: RangeValue>` DOES
+// genuinely carry a `V` generic (unlike `Slider`, which never had one; see
+// slider.rs's WS13.4 comment). Applying Bar's decision rule (bar.rs:24-40)
+// to the same evidence Bar found: today's only live `RangeValue` impl is the
+// const-generic `RangeU8<MIN, MAX, STEP>` family (itself a family of
+// distinct instantiations, not one canonical type), and the other candidate
+// impls (plain ints, f32) are still commented-out/TODO in value.rs, not
+// live. So `V` is deliberately left generic here too, NOT de-genericized to
+// a guessed "canonical numeric" type — same call as Bar, deferred to the
+// same WS7 remainder. `Knob` has no `Dir`/`Axis` generic at all (it renders
+// a full sector, not an oriented track), so there is no Dir-side decision to
+// make on this widget.
+//
+// Every field here is read by `render` (`value`/`style`) or by `on_event`
+// (`value`/`state`), so — like `Bar`/`Checkbox`/`Slider` — there is no
+// build-only field to drop; `KnobBuilder` moves all four fields into the
+// retained `Knob` unchanged (a `size_of` `<` assertion would be false, not
+// true). `value: Signal<V>` and `state: KnobState` are the widget's job
+// (WS4.5: the live value + local value-adjust mode ARE what a Knob is), so
+// both stay retained fields.
+#[derive(Builder)]
+#[builds(Knob<W, V>)]
+#[flags(focusable)]
+pub struct KnobBuilder<W: WidgetCtx, V: RangeValue> {
+    #[widget]
     layout: Layout,
+    #[widget]
     value: Signal<V>,
     // WS4.5: plain field, not a Signal — read/written only in
     // `on_event(&mut self)`, never in render/layout, so it needs no node.
+    #[widget]
+    state: KnobState,
+    #[widget]
+    style: WidgetStyleFn<KnobStyle<W::Color>>,
+}
+
+pub struct Knob<W: WidgetCtx, V: RangeValue> {
+    layout: Layout,
+    value: Signal<V>,
     state: KnobState,
     style: WidgetStyleFn<KnobStyle<W::Color>>,
 }
 
 impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
-    pub fn new(value: Signal<V>) -> Self {
-        Self {
+    pub fn new(value: Signal<V>) -> KnobBuilder<W, V> {
+        KnobBuilder {
             layout: Layout::edge(LengthSize::new_equal(Length::Fixed(25))),
             value,
             state: KnobState::none(),
             style: None,
         }
     }
+}
 
+impl<W: WidgetCtx, V: RangeValue + 'static> KnobBuilder<W, V> {
     // pub fn size(self, size: impl AsMemo<u32>) -> Self {
     //     self.layout.setter(size.as_memo(), |size, layout| {
     //         layout.size = Size::new_equal(Length::Fixed(*size));
@@ -71,18 +107,11 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
 }
 
 impl<W: WidgetCtx, V: RangeValue + 'static> Widget<W> for Knob<W, V> {
-    fn debug_name(&self) -> &'static str {
-        "Knob"
-    }
-
-    fn flags(&self) -> WidgetFlags {
-        WidgetFlags::default().focusable()
-    }
-
-    fn build(&mut self, ctx: BuildCtx<W>) {
-        let _ = ctx;
-    }
-
+    // NOTE: no `flags`/`debug_name` override on the retained widget — both are
+    // read exactly once, pre-build, from `Build` (seeding `ElState` at
+    // `state.rs:72`); post-build all consumption is via `ElState`, so an
+    // override here would be dead duplication of `KnobBuilder`'s derived
+    // `Build::flags`/`Build::debug_name` ("Knob" from `#[builds(Knob<W, V>)]`).
     fn layout(&self) -> Layout {
         self.layout
     }

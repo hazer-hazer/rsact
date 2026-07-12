@@ -2059,6 +2059,44 @@ mod tests {
         page.use_renderer(|_| {});
     }
 
+    // WS13.4 (Task 5.9): `Knob` is split like `Slider` — like `Label`/
+    // `Space`/`Edge`/`Bar`/`Checkbox`/`Slider` it has no build-only field to
+    // drop — `layout`/`value`/`state`/`style` are all read by `render`/
+    // `on_event`, so `KnobBuilder` moves all four fields into the retained
+    // `Knob` unchanged (a `size_of` `<` assertion would be false, not true).
+    // Unlike `Slider`, `Knob<W, V: RangeValue>` DOES carry a genuine `V`
+    // generic; applying Bar's decision rule to the same evidence Bar found
+    // (only live `RangeValue` impl is the const-generic `RangeU8` family;
+    // other impls are commented-out/TODO), `V` is deliberately left generic
+    // here too, NOT de-genericized — same call as Bar, deferred to the same
+    // WS7 remainder. `Knob` has no `Dir`/`Axis` generic at all, so there is
+    // no Dir-side decision on this widget — see knob.rs's WS13.4 comment.
+    #[test]
+    fn knob_split_builder_exists_and_page_renders() {
+        use crate::{
+            value::{RangeU8, RangeValue},
+            widget::knob::{Knob, KnobBuilder},
+        };
+
+        fn assert_is_knob_builder<W: WidgetCtx, V: RangeValue>(
+            _: &KnobBuilder<W, V>,
+        ) {
+        }
+        let b = Knob::<NullWtf, RangeU8>::new(create_signal(
+            RangeU8::new_full_range(0),
+        ));
+        assert_is_knob_builder(&b);
+
+        // Unlike Edge/Bar/Container, Knob renders cleanly through the null
+        // theme (its sector draw style resolves `ColorStyle::get()`, never
+        // `.expect()`), so render (not just build) the page for the
+        // meaningful check.
+        let mut page = create_null_page(Knob::<NullWtf, RangeU8>::new(
+            create_signal(RangeU8::new_full_range(0)),
+        ));
+        page.use_renderer(|_| {});
+    }
+
     // WS13.2 (Task 5): locks the exact `size_of` byte counts behind the
     // `<` assertions above (`button_split_drops_content_husk`,
     // `flex_split_drops_children_and_phantom`) — the concrete numbers fed to
