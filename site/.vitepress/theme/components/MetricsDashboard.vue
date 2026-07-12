@@ -6,7 +6,7 @@ import TrendChart from './TrendChart.vue'
 import { buildSeries, isFlat, fmt } from '../lib/series'
 import { columnGroups, columnLabel, collapseValues, boundaryFlags, columnNet, prColumnGroups } from '../lib/collapse'
 import { colorFor } from '../lib/colors'
-import { columnHref, prUrl, branchCommitsUrl, stripBranchRef } from '../lib/repo'
+import { columnHref, prUrl, branchCommitsUrl } from '../lib/repo'
 import { HOVER_KEY } from '../lib/hover'
 import { SAMPLE } from '../lib/sample'
 import type { MetricsData, Snapshot, IndexMap, SeriesRow, Series } from '../lib/types'
@@ -100,7 +100,8 @@ onMounted(async () => {
   }
 
   await nextTick();
-  gridScroll.value?.scrollTo({ left: gridScroll.value.scrollWidth, top: 0 })
+  // `?.scrollTo?.` — the element may lack scrollTo outside a real browser (jsdom).
+  gridScroll.value?.scrollTo?.({ left: gridScroll.value.scrollWidth, top: 0 })
 })
 onUnmounted(() => { ro?.disconnect(); ro = null })
 
@@ -132,16 +133,16 @@ const columns = computed(() =>
   }),
 )
 
-// Per-column grouping key: PR number if known, else the branch hint, else null.
-const perColumnKey = computed<(string | number | null)[]>(() =>
+// Per-column grouping key: the PR number, else null (ungrouped). Columns are
+// ordered by the grouped-mainline sequence (assemble()), so a PR's commits are
+// contiguous and prColumnGroups spans one header cell over the whole PR. We
+// deliberately DON'T fall back to the branch hint: on merged mainline history
+// every commit belongs to a PR, and grouping the stragglers by their name-rev
+// hint only produced noisy, fragmented non-PR cells.
+const perColumnKey = computed<(number | null)[]>(() =>
   colGroups.value.map((g) => {
     const last = snapshots.value[g[g.length - 1]]
-    const entry = index.value[last?.git_rev]
-    // `||`, not `??`: an empty-string branch is not a usable grouping key either.
-    // Normalize the name-rev hint (drop `remotes/origin/` + trailing `~N`/`^N`)
-    // so both the grouping key and the rendered link resolve to a real branch.
-    const branch = stripBranchRef(entry?.branch)
-    return entry?.pr || branch || null
+    return index.value[last?.git_rev]?.pr ?? null
   }),
 )
 const prGroups = computed(() => prColumnGroups(perColumnKey.value))
