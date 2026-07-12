@@ -1,38 +1,55 @@
 use crate::{layout::LayoutKind, widget::prelude::*};
 use core::marker::PhantomData;
 
-#[derive(View)]
-pub struct Space<W: WidgetCtx, Dir: Direction> {
+// WS13.4 (Task 5.3): `Dir: Direction` was a compile-time-only tag — it only
+// ever selected an `Axis` for `new()`'s size computation and was never read
+// at runtime. Per the 7.2 slice (flex precedent: `Dir` type param -> runtime
+// `Axis` ctor arg), it is dropped in favor of a plain `Axis` argument
+// threaded through `row`/`col`, collapsing `Space<W, RowDir>`/
+// `Space<W, ColDir>` into a single `Space<W>` monomorphization.
+#[derive(Builder)]
+#[builds(Space<W>)]
+pub struct SpaceBuilder<W: WidgetCtx> {
+    #[widget]
     layout: Layout,
+    // Moved 1:1 by the derive into the retained `Space { layout, ctx }` (a
+    // ZST): `layout: Layout` alone doesn't use `W`, so `ctx: PhantomData<W>`
+    // carries it (flex.rs/show.rs precedent) — `Space` already carried this
+    // exact field pre-split (the row's "already the PhantomData precedent").
+    #[widget]
     ctx: PhantomData<W>,
-    dir: PhantomData<Dir>,
 }
 
-impl<W: WidgetCtx> Space<W, RowDir> {
+pub struct Space<W: WidgetCtx> {
+    layout: Layout,
+    // `W` is otherwise unused on the retained widget — kept only to satisfy
+    // `Widget<W>`'s own `W` parameter, same as `flex.rs`/`show.rs`.
+    ctx: PhantomData<W>,
+}
+
+impl<W: WidgetCtx> Space<W> {
     // pub fn row<L: Into<Length> + Clone + PartialEq + 'static>(
     //     length: impl AsMemo<L>,
     // ) -> Self {
     //     Self::new(length)
     // }
 
-    pub fn row(length: impl Into<Length>) -> Self {
-        Self::new(length)
+    pub fn row(length: impl Into<Length>) -> SpaceBuilder<W> {
+        SpaceBuilder::new(Axis::X, length)
     }
-}
 
-impl<W: WidgetCtx> Space<W, ColDir> {
     // pub fn col<L: Into<Length> + Clone + PartialEq + 'static>(
     //     length: impl AsMemo<L>,
     // ) -> Self {
     //     Self::new(length)
     // }
 
-    pub fn col(length: impl Into<Length>) -> Self {
-        Self::new(length)
+    pub fn col(length: impl Into<Length>) -> SpaceBuilder<W> {
+        SpaceBuilder::new(Axis::Y, length)
     }
 }
 
-impl<W: WidgetCtx, Dir: Direction> Space<W, Dir> {
+impl<W: WidgetCtx> SpaceBuilder<W> {
     // pub fn new<L: Into<Length> + Clone + PartialEq + 'static>(
     //     length: impl AsMemo<L>,
     // ) -> Self {
@@ -48,23 +65,22 @@ impl<W: WidgetCtx, Dir: Direction> Space<W, Dir> {
     // }
 
     // TODO: Reactive length, MaybeReactive
-    pub fn new(length: impl Into<Length>) -> Self {
+    fn new(axis: Axis, length: impl Into<Length>) -> Self {
         let layout = Layout::shrink(LayoutKind::Edge)
-            .size(Dir::AXIS.canon(length.into(), Length::fill()));
+            .size(axis.canon(length.into(), Length::fill()));
 
-        Self { layout, ctx: PhantomData, dir: PhantomData }
+        Self { layout, ctx: PhantomData }
     }
 }
 
-impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Space<W, Dir> {
-    fn debug_name(&self) -> &'static str {
-        "Space"
-    }
-
-    fn build(&mut self, ctx: build::BuildCtx<W>) {
-        let _ = ctx;
-    }
-
+impl<W: WidgetCtx + 'static> Widget<W> for Space<W> {
+    // NOTE: no `flags`/`debug_name` override on the retained widget — both
+    // are read exactly once, pre-build, from `Build` (seeding `ElState` at
+    // `state.rs:72`); post-build all consumption is via `ElState`, so an
+    // override here would be dead duplication of `SpaceBuilder`'s derived
+    // `Build::debug_name` ("Space" from `#[builds(Space<W>)]`). `Space` never
+    // overrode `flags` either, so no `#[flags(...)]` attr is needed on
+    // `SpaceBuilder`.
     fn layout(&self) -> Layout {
         self.layout
     }
@@ -75,15 +91,5 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Space<W, Dir> {
 
     fn on_event(&mut self, ctx: EventCtx<'_, W>) -> EventResponse {
         ctx.ignore()
-    }
-}
-
-impl<W, Dir> From<Space<W, Dir>> for El<W>
-where
-    W: WidgetCtx + 'static,
-    Dir: Direction + 'static,
-{
-    fn from(value: Space<W, Dir>) -> Self {
-        El::new(value)
     }
 }

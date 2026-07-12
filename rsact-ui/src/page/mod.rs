@@ -1904,6 +1904,25 @@ mod tests {
         page.use_renderer(|_| {});
     }
 
+    // WS13.4 (Task 5.3): `Space` is split, but like `Label` it has no
+    // build-only field to drop — `layout`/`ctx` are the same two fields on
+    // both sides (`Dir: Direction` was de-genericized away per the 7.2 slice,
+    // flex precedent: it was a compile-time-only tag selecting `Axis` in
+    // `new()`, never read at runtime) — a `size_of` `<` assertion would be
+    // false, not true, so this mirrors the label fallback shape test.
+    #[test]
+    fn space_split_builder_exists_and_page_renders() {
+        use crate::widget::space::{Space, SpaceBuilder};
+
+        fn assert_is_space_builder<W: WidgetCtx>(_: &SpaceBuilder<W>) {}
+        let b = Space::<NullWtf>::row(10);
+        assert_is_space_builder(&b);
+
+        // Space renders nothing (a no-op `render`), so building the page
+        // through the derive-generated `Build` path is the meaningful check.
+        let _ = create_null_page(Space::col(10));
+    }
+
     // WS13.2 (Task 5): locks the exact `size_of` byte counts behind the
     // `<` assertions above (`button_split_drops_content_husk`,
     // `flex_split_drops_children_and_phantom`) — the concrete numbers fed to
