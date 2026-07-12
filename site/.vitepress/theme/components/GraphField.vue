@@ -28,7 +28,7 @@ let signal = '#c9a24b' // signals are ENIG-gold "pads"
 let edgeStyle = 'rgba(130,150,158,0.10)'
 let nodeStyle = 'rgba(140,160,168,0.28)'
 
-const MAX_SIG = 15
+const MAX_SIG = 50
 const SPAWN_EVERY = 0.5 // seconds between base spawns while under cap
 
 const reduce = () =>
