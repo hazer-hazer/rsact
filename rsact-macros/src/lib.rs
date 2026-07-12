@@ -218,13 +218,34 @@ fn impl_builder(input: &mut DeriveInput) -> Result<proc_macro2::TokenStream> {
         // Named-fields only (checked above), so `ident` is always present.
         let ident = field.ident.as_ref().unwrap();
 
-        if field.attrs.iter().any(|a| a.path().is_ident("widget")) {
+        // M1: the three roles are mutually exclusive. A double-annotated field
+        // would be silently double-processed (child-wired AND husk-moved). A
+        // widget that genuinely needs to wire a child and keep its husk must
+        // hand-write its `Build` impl (per-type coexistence is by design).
+        let has_widget =
+            field.attrs.iter().any(|a| a.path().is_ident("widget"));
+        let child_attr =
+            field.attrs.iter().find(|a| a.path().is_ident("child"));
+        let children_attr =
+            field.attrs.iter().find(|a| a.path().is_ident("children"));
+        let roles = usize::from(has_widget)
+            + usize::from(child_attr.is_some())
+            + usize::from(children_attr.is_some());
+        if roles > 1 {
+            return Err(syn::Error::new_spanned(
+                field,
+                "a builder field can carry only one of #[widget], \
+                 #[child(...)], #[children(...)]; child fields are build-only \
+                 (the arena owns the child) — to wire a child AND keep its \
+                 husk in the retained widget, hand-write the Build impl",
+            ));
+        }
+
+        if has_widget {
             widget_ctor_fields.push(quote! { #ident: this.#ident });
         }
 
-        if let Some(attr) =
-            field.attrs.iter().find(|a| a.path().is_ident("child"))
-        {
+        if let Some(attr) = child_attr {
             let mode: syn::Ident = attr.parse_args()?;
             if mode == "single" {
                 child_wiring.push(quote! {
@@ -238,9 +259,7 @@ fn impl_builder(input: &mut DeriveInput) -> Result<proc_macro2::TokenStream> {
             }
         }
 
-        if let Some(attr) =
-            field.attrs.iter().find(|a| a.path().is_ident("children"))
-        {
+        if let Some(attr) = children_attr {
             let mode: syn::Ident = attr.parse_args()?;
             if mode == "reactive" {
                 child_wiring.push(quote! {
@@ -314,4 +333,65 @@ fn impl_builder(input: &mut DeriveInput) -> Result<proc_macro2::TokenStream> {
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::impl_builder;
+    use syn::parse_quote;
+
+    fn derive(
+        mut input: syn::DeriveInput,
+    ) -> syn::Result<proc_macro2::TokenStream> {
+        impl_builder(&mut input)
+    }
+
+    /// M1: a field must carry at most ONE of #[widget]/#[child]/#[children] —
+    /// double-annotation would silently wire the child AND move the husk.
+    #[test]
+    fn widget_plus_child_on_one_field_is_an_error() {
+        let err = derive(parse_quote! {
+            #[builds(Button<W>)]
+            struct ButtonBuilder<W: WidgetCtx> {
+                layout: Layout,
+                #[widget]
+                #[child(single)]
+                content: El<W>,
+            }
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("only one of"), "got: {err}");
+    }
+
+    #[test]
+    fn child_plus_children_on_one_field_is_an_error() {
+        let err = derive(parse_quote! {
+            #[builds(Flex<W>)]
+            struct FlexBuilder<W: WidgetCtx> {
+                layout: Layout,
+                #[child(single)]
+                #[children(reactive)]
+                children: MaybeSignal<Vec<El<W>>>,
+            }
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("only one of"), "got: {err}");
+    }
+
+    /// Regression: single-role fields keep deriving fine.
+    #[test]
+    fn single_role_fields_derive_ok() {
+        let ts = derive(parse_quote! {
+            #[builds(Button<W>)]
+            struct ButtonBuilder<W: WidgetCtx> {
+                #[widget]
+                layout: Layout,
+                #[child(single)]
+                content: El<W>,
+            }
+        })
+        .unwrap();
+        let flat = ts.to_string().replace(' ', "");
+        assert!(flat.contains("self.layout"), "default layout body: {flat}");
+    }
 }
