@@ -125,6 +125,9 @@ pub fn view(input: TokenStream) -> TokenStream {
 ///   builder consumes into. Its ident seeds `debug_name` and the ctor.
 /// - `#[flags(a, b, ...)]` (struct, optional) — `Build::flags` returns
 ///   `WidgetFlags::default().a().b()...`; absent → the trait default.
+/// - `#[layout(delegate = "field")]` (struct, optional) — `Build::layout`
+///   returns `self.field.layout()` instead of the default `self.layout`
+///   (for `Show`-style wrappers that own no layout of their own).
 /// - `#[widget]` (field) — moved BY NAME into the retained widget struct literal
 ///   (`Widget { field: this.field, ... }`). The builder must declare EVERY field
 ///   the widget has, each `#[widget]`, so the transform is a pure by-name move
@@ -135,10 +138,15 @@ pub fn view(input: TokenStream) -> TokenStream {
 ///   `this.field.maybe_effect(move |children, _| { ctx.set_children(children); })`.
 ///
 /// Child-wiring statements run in field declaration order, then the retained
-/// widget is constructed. `Build::layout` returns the field named `layout`.
+/// widget is constructed. `Build::layout` returns the field named `layout`,
+/// unless `#[layout(delegate = "field")]` overrides it.
+///
+/// Note: the RETAINED widget must not override `Widget::flags`/`debug_name` —
+/// they are read once, pre-build, from `Build` (seeding `ElState`); a retained
+/// override is silently dead. Declare them here (`#[flags]`/`#[builds]`).
 #[proc_macro_derive(
     Builder,
-    attributes(builds, widget, child, children, flags)
+    attributes(builds, widget, child, children, flags, layout)
 )]
 pub fn builder(input: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(input as DeriveInput);
@@ -211,6 +219,60 @@ fn impl_builder(input: &mut DeriveInput) -> Result<proc_macro2::TokenStream> {
             ));
         },
     };
+
+    // --- M2: #[layout(delegate = "field")] on the struct (optional). ---
+    // Default: return the builder's own `layout` field. Delegate: return a
+    // child field's layout (`Show`-style wrappers own no layout, spec §5.4).
+    let layout_body =
+        match input.attrs.iter().find(|a| a.path().is_ident("layout")) {
+            Some(attr) => {
+                let nv: syn::MetaNameValue = attr.parse_args()?;
+                if !nv.path.is_ident("delegate") {
+                    return Err(syn::Error::new_spanned(
+                        &nv,
+                        "expected #[layout(delegate = \"field\")]",
+                    ));
+                }
+                let syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Str(name),
+                    ..
+                }) = &nv.value
+                else {
+                    return Err(syn::Error::new_spanned(
+                        &nv.value,
+                        "expected a string literal naming a builder field",
+                    ));
+                };
+                let field_ident = syn::Ident::new(&name.value(), name.span());
+                if !fields
+                    .iter()
+                    .any(|f| f.ident.as_ref() == Some(&field_ident))
+                {
+                    return Err(syn::Error::new_spanned(
+                        name,
+                        format!(
+                            "no field named `{}` on this builder",
+                            name.value()
+                        ),
+                    ));
+                }
+                quote! { self.#field_ident.layout() }
+            },
+            None => {
+                if !fields
+                    .iter()
+                    .any(|f| f.ident.as_ref().is_some_and(|i| i == "layout"))
+                {
+                    return Err(syn::Error::new_spanned(
+                        &input.ident,
+                        "builder has no `layout` field; add one or use \
+                     #[layout(delegate = \"field\")] to return a child's \
+                     layout",
+                    ));
+                }
+                quote! { self.layout }
+            },
+        };
 
     let mut child_wiring = Vec::new();
     let mut widget_ctor_fields = Vec::new();
@@ -323,7 +385,7 @@ fn impl_builder(input: &mut DeriveInput) -> Result<proc_macro2::TokenStream> {
             }
 
             fn layout(&self) -> rsact_ui::layout::node::Layout {
-                self.layout
+                #layout_body
             }
 
             #flags_method
@@ -393,5 +455,50 @@ mod tests {
         .unwrap();
         let flat = ts.to_string().replace(' ', "");
         assert!(flat.contains("self.layout"), "default layout body: {flat}");
+    }
+
+    /// M2: #[layout(delegate = "el")] emits `self.el.layout()` (spec §5.4).
+    #[test]
+    fn layout_delegate_emits_field_layout_call() {
+        let ts = derive(parse_quote! {
+            #[builds(Show<W>)]
+            #[layout(delegate = "el")]
+            struct ShowBuilder<W: WidgetCtx> {
+                #[child(single)]
+                el: El<W>,
+            }
+        })
+        .unwrap();
+        let flat = ts.to_string().replace(' ', "");
+        assert!(flat.contains("self.el.layout()"), "delegate body: {flat}");
+    }
+
+    #[test]
+    fn layout_delegate_to_missing_field_is_an_error() {
+        let err = derive(parse_quote! {
+            #[builds(Show<W>)]
+            #[layout(delegate = "missing")]
+            struct ShowBuilder<W: WidgetCtx> {
+                #[child(single)]
+                el: El<W>,
+            }
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("no field named"), "got: {err}");
+    }
+
+    /// M2: no `layout` field and no delegate → a spanned, actionable error
+    /// (was: confusing downstream E0609 on the emitted `self.layout`).
+    #[test]
+    fn missing_layout_field_without_delegate_is_an_error() {
+        let err = derive(parse_quote! {
+            #[builds(Show<W>)]
+            struct ShowBuilder<W: WidgetCtx> {
+                #[child(single)]
+                el: El<W>,
+            }
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("no `layout` field"), "got: {err}");
     }
 }
