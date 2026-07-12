@@ -2097,6 +2097,44 @@ mod tests {
         page.use_renderer(|_| {});
     }
 
+    // WS13.4 (Task 5.10): `Scrollable` is split like `Button`/`Container`
+    // (single child) — `content: El<W>` is build-only (consumed by
+    // `ctx.set_single_child` in `Build::build`, never read again), so
+    // `ScrollableBuilder` carries it as `#[child(single)]` and the retained
+    // `Scrollable` drops it; `state`/`style`/`layout`/`mode` stay retained
+    // `#[widget]` fields (all read by `render`/`on_event`). `Dir: Direction`
+    // is de-genericized like `Bar`/`Slider` into a runtime `axis: Axis`
+    // field — both `render` and `on_event` read `Dir::AXIS` repeatedly (drag
+    // projection, scrollbar geometry), not just `new()`'s one-shot
+    // `Layout::scrollable` call — collapsing `Scrollable<W, RowDir>`/
+    // `Scrollable<W, ColDir>` into a single `Scrollable<W>`. See
+    // scrollable.rs's WS13.4 comment for how the compile-time
+    // `SizedWidget<RowDir>::width`/`SizedWidget<ColDir>::height`
+    // specialization becomes a single runtime `if self.axis == ...` branch.
+    #[test]
+    fn scrollable_split_drops_content_husk() {
+        use crate::widget::scrollable::{Scrollable, ScrollableBuilder};
+        // The retained widget must not carry the build-only child husk, so it
+        // is strictly smaller than its builder.
+        assert!(
+            core::mem::size_of::<Scrollable<NullWtf>>()
+                < core::mem::size_of::<ScrollableBuilder<NullWtf>>(),
+            "retained Scrollable must be smaller than ScrollableBuilder \
+             (dropped content husk)"
+        );
+
+        // De-generic: `Scrollable<W>` takes no Dir param; horizontal/vertical
+        // both produce the same `ScrollableBuilder<W>`. Not rendering: like
+        // Edge/Bar/Container, Scrollable's `container` style panics on the
+        // null theme's unset background/border `ColorStyle`, so building
+        // (not rendering) the page is the meaningful check here.
+        let _ =
+            create_null_page(Scrollable::<NullWtf>::vertical(Button::new("x")));
+        let _ = create_null_page(Scrollable::<NullWtf>::horizontal(
+            Button::new("y"),
+        ));
+    }
+
     // WS13.2 (Task 5): locks the exact `size_of` byte counts behind the
     // `<` assertions above (`button_split_drops_content_husk`,
     // `flex_split_drops_children_and_phantom`) — the concrete numbers fed to

@@ -3,7 +3,6 @@ use crate::{
     event::{MouseButton, MouseEvent},
     widget::prelude::*,
 };
-use core::marker::PhantomData;
 use rsact_reactive::prelude::*;
 
 #[derive(Debug, Clone, Copy)]
@@ -78,45 +77,97 @@ impl<C: Color> ScrollableStyle<C> {
     }
 }
 
-#[derive(View)]
-pub struct Scrollable<W: WidgetCtx, Dir: Direction> {
+// WS13.4 (Task 5.10): single child + a retained `state: Signal<...>` — like
+// Slider's `value`/`state`, the checked/scroll state IS the widget's job
+// (WS4.5), so it stays a retained field rather than becoming build-only.
+// `content: El<W>` is build-only (consumed by `ctx.set_single_child` in
+// `Build::build`, never read again), so `ScrollableBuilder` carries it as
+// `#[child(single)]` and the retained `Scrollable` drops it; `state`/
+// `style`/`layout`/`mode` stay retained `#[widget]` fields (all read by
+// `render`/`on_event`).
+//
+// `Dir: Direction` is de-genericized like `Bar`/`Slider` into a runtime
+// `axis: Axis` field: `render` reads `Dir::AXIS` repeatedly (scrollbar
+// track/thumb geometry) and `on_event` does too (drag-position projection,
+// `max_offset`), not just `new()`'s one-shot `Layout::scrollable` call — so
+// per the 7.2 slice it's a field, not a ctor-only argument, collapsing
+// `Scrollable<W, RowDir>`/`Scrollable<W, ColDir>` into a single
+// `Scrollable<W>`. The compile-time-specialized
+// `SizedWidget<Scrollable<W, RowDir>>::width` /
+// `SizedWidget<Scrollable<W, ColDir>>::height` (the main-axis setter wraps
+// `Length::InfiniteWindow`, the cross-axis setter doesn't) becomes a single
+// `impl SizedWidget for ScrollableBuilder` overriding both methods, each
+// branching on `self.axis` at runtime — same per-axis behavior, checked at
+// runtime instead of by the type system.
+#[derive(Builder)]
+#[builds(Scrollable<W>)]
+// Not `clickable`: the mouse press starts a drag (handled explicitly via
+// `capture_pointer`/`drag_pos`), not a click. Only the focus/encoder
+// press-to-activate is behavioral.
+#[flags(focusable)]
+pub struct ScrollableBuilder<W: WidgetCtx> {
+    #[widget]
+    state: Signal<ScrollableState>,
+    #[widget]
+    style: WidgetStyleFn<ScrollableStyle<W::Color>>,
+    #[child(single)]
+    content: El<W>,
+    #[widget]
+    layout: Layout,
+    #[widget]
+    mode: ScrollableMode,
+    #[widget]
+    axis: Axis,
+}
+
+pub struct Scrollable<W: WidgetCtx> {
     state: Signal<ScrollableState>,
     style: WidgetStyleFn<ScrollableStyle<W::Color>>,
-    content: El<W>,
     layout: Layout,
     mode: ScrollableMode,
-    dir: PhantomData<Dir>,
+    axis: Axis,
 }
 
-impl<W: WidgetCtx> Scrollable<W, RowDir> {
-    pub fn horizontal(content: impl View<W>) -> Self {
-        Self::new(content)
+impl<W: WidgetCtx> Scrollable<W> {
+    pub fn horizontal(content: impl View<W>) -> ScrollableBuilder<W> {
+        Self::new(Axis::X, content)
     }
-}
 
-impl<W: WidgetCtx> Scrollable<W, ColDir> {
-    pub fn vertical(content: impl View<W>) -> Self {
-        Self::new(content)
+    pub fn vertical(content: impl View<W>) -> ScrollableBuilder<W> {
+        Self::new(Axis::Y, content)
     }
-}
 
-impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
-    pub fn new(content: impl View<W>) -> Self {
+    pub fn new(axis: Axis, content: impl View<W>) -> ScrollableBuilder<W> {
         let content = content.into_el();
         let state = create_signal(ScrollableState::none());
 
-        let layout = Layout::scrollable::<Dir>(content.layout());
+        let layout = Layout::scrollable(axis, content.layout());
 
-        Self {
+        ScrollableBuilder {
             content,
             state,
             style: None,
             layout,
             mode: ScrollableMode::Interactive,
-            dir: PhantomData,
+            axis,
         }
     }
 
+    fn max_offset(&self, ctx: &EventCtx<'_, W>) -> u32 {
+        let content_length = ctx
+            .layout
+            .children()
+            .next()
+            .unwrap()
+            .inner
+            .size
+            .main(self.axis);
+
+        content_length.saturating_sub(ctx.layout.inner.size.main(self.axis))
+    }
+}
+
+impl<W: WidgetCtx> ScrollableBuilder<W> {
     pub fn tracker(mut self) -> Self {
         self.mode = ScrollableMode::Tracker;
         self
@@ -129,22 +180,9 @@ impl<W: WidgetCtx, Dir: Direction> Scrollable<W, Dir> {
         self.style = Some(Box::new(class));
         self
     }
-
-    fn max_offset(&self, ctx: &EventCtx<'_, W>) -> u32 {
-        let content_length = ctx
-            .layout
-            .children()
-            .next()
-            .unwrap()
-            .inner
-            .size
-            .main(Dir::AXIS);
-
-        content_length.saturating_sub(ctx.layout.inner.size.main(Dir::AXIS))
-    }
 }
 
-impl<W: WidgetCtx> SizedWidget<W> for Scrollable<W, RowDir> {
+impl<W: WidgetCtx> SizedWidget<W> for ScrollableBuilder<W> {
     fn width<L: Into<Length> + PartialEq + Clone + 'static>(
         mut self,
         width: impl IntoMaybeReactive<L>,
@@ -152,17 +190,26 @@ impl<W: WidgetCtx> SizedWidget<W> for Scrollable<W, RowDir> {
     where
         Self: Sized + 'static,
     {
-        self.layout_mut()
-            .setter(width.maybe_reactive(), |layout, width| {
-                layout.size.set_width(Length::InfiniteWindow(
-                    width.clone().into().try_into().unwrap(),
-                ));
-            });
+        if self.axis == Axis::X {
+            self.layout_mut().setter(
+                width.maybe_reactive(),
+                |layout, width| {
+                    layout.size.set_width(Length::InfiniteWindow(
+                        width.clone().into().try_into().unwrap(),
+                    ));
+                },
+            );
+        } else {
+            self.layout_mut().setter(
+                width.maybe_reactive(),
+                |layout, width| {
+                    layout.size.set_width(width.clone().into());
+                },
+            );
+        }
         self
     }
-}
 
-impl<W: WidgetCtx> SizedWidget<W> for Scrollable<W, ColDir> {
     fn height<L: Into<Length> + PartialEq + Clone + 'static>(
         mut self,
         height: impl IntoMaybeReactive<L> + 'static,
@@ -170,45 +217,42 @@ impl<W: WidgetCtx> SizedWidget<W> for Scrollable<W, ColDir> {
     where
         Self: Sized + 'static,
     {
-        self.layout_mut()
-            .setter(height.maybe_reactive(), |layout, height| {
-                layout.size.set_height(Length::InfiniteWindow(
-                    height.clone().into().try_into().unwrap(),
-                ));
-            });
+        if self.axis == Axis::Y {
+            self.layout_mut().setter(
+                height.maybe_reactive(),
+                |layout, height| {
+                    layout.size.set_height(Length::InfiniteWindow(
+                        height.clone().into().try_into().unwrap(),
+                    ));
+                },
+            );
+        } else {
+            self.layout_mut().setter(
+                height.maybe_reactive(),
+                |layout, height| {
+                    layout.size.set_height(height.clone().into());
+                },
+            );
+        }
         self
     }
 }
 
-impl<W: WidgetCtx, Dir: Direction + 'static> LayoutWidget<W>
-    for Scrollable<W, Dir>
-{
+impl<W: WidgetCtx> LayoutWidget<W> for ScrollableBuilder<W> {
     fn layout_mut(&mut self) -> &mut Layout {
         &mut self.layout
     }
 }
 
-impl<W: WidgetCtx, Dir: Direction + 'static> FontSettingWidget<W>
-    for Scrollable<W, Dir>
-{
-}
+impl<W: WidgetCtx> FontSettingWidget<W> for ScrollableBuilder<W> {}
 
-impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Scrollable<W, Dir> {
-    fn debug_name(&self) -> &'static str {
-        "Scrollable"
-    }
-
-    fn flags(&self) -> WidgetFlags {
-        // Not `clickable`: the mouse press starts a drag (handled explicitly
-        // via `capture_pointer`/`drag_pos`), not a click. Only the
-        // focus/encoder press-to-activate is behavioral.
-        WidgetFlags::default().focusable()
-    }
-
-    fn build(&mut self, mut ctx: BuildCtx<W>) {
-        ctx.set_single_child(&mut self.content);
-    }
-
+impl<W: WidgetCtx> Widget<W> for Scrollable<W> {
+    // NOTE: no `flags`/`debug_name` override on the retained widget — both
+    // are read exactly once, pre-build, from `Build` (seeding `ElState` at
+    // `state.rs:72`); post-build all consumption is via `ElState`, so an
+    // override here would be dead duplication of `ScrollableBuilder`'s
+    // derived `Build::flags`/`Build::debug_name` ("Scrollable" from
+    // `#[builds(Scrollable<W>)]`).
     fn layout(&self) -> Layout {
         self.layout
     }
@@ -229,8 +273,8 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Scrollable<W, Dir> {
             )
             .render(ctx.renderer)?;
 
-            let mut content_length = child_layout.outer.size.main(Dir::AXIS);
-            let scrollable_length = ctx.layout.inner.size.main(Dir::AXIS);
+            let mut content_length = child_layout.outer.size.main(self.axis);
+            let scrollable_length = ctx.layout.inner.size.main(self.axis);
 
             let draw_scrollbar = match style.show {
                 ScrollbarShow::Always => {
@@ -247,7 +291,7 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Scrollable<W, Dir> {
             let offset = state.offset;
 
             if draw_scrollbar {
-                let track_start = match Dir::AXIS {
+                let track_start = match self.axis {
                     Axis::X => {
                         ctx.layout.inner.anchor_point(AnchorPoint::BottomLeft)
                     },
@@ -263,7 +307,7 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Scrollable<W, Dir> {
                     .unwrap_or(ctx.layout.inner.top_left);
 
                 let scrollbar_translation: Point =
-                    Dir::AXIS.canon(0, -((style.scrollbar_width as i32) / 2));
+                    self.axis.canon(0, -((style.scrollbar_width as i32) / 2));
 
                 // Draw track
                 ctx.renderer.line(
@@ -285,12 +329,12 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Scrollable<W, Dir> {
                 let thumb_offset = (visible_ratio * (offset as f32)) as u32;
 
                 let thumb_start = track_start
-                    + Dir::AXIS.canon::<Point>(thumb_offset as i32, 0);
+                    + self.axis.canon::<Point>(thumb_offset as i32, 0);
 
                 ctx.renderer.line(
                     thumb_start + scrollbar_translation,
                     thumb_start
-                        + Dir::AXIS.canon::<Point>(thumb_len as i32, 0)
+                        + self.axis.canon::<Point>(thumb_len as i32, 0)
                         + scrollbar_translation,
                     &style.thumb_draw_style(),
                 )?;
@@ -357,7 +401,7 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Scrollable<W, Dir> {
                     )) => {
                         if let Some(pt) = ctx.cursor_pos() {
                             if ctx.layout.outer.contains(pt) {
-                                let axis_pos = pt.main(Dir::AXIS);
+                                let axis_pos = pt.main(self.axis);
                                 ctx.capture_pointer();
                                 self.state
                                     .update(|s| s.drag_pos = Some(axis_pos));
@@ -368,7 +412,7 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Scrollable<W, Dir> {
                     Event::Mouse(MouseEvent::MouseMove(_)) => {
                         if current_state.drag_pos.is_some() {
                             if let Some(pt) = ctx.cursor_pos() {
-                                let axis_pos = pt.main(Dir::AXIS);
+                                let axis_pos = pt.main(self.axis);
                                 let drag_pos = current_state.drag_pos.unwrap();
                                 let delta = drag_pos - axis_pos;
                                 let max_offset = self.max_offset(&ctx);
