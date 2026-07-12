@@ -27,7 +27,9 @@ fn main() -> ! {
     let mut ui: UI<NullWtf, _> =
         UI::new((), NullRenderer).with_page((), move || {
             Flex::col(
-                init.iter().map(|s| Label::new(*s).el()).collect::<Vec<_>>(),
+                init.iter()
+                    .map(|s| Label::new(*s).into_el())
+                    .collect::<Vec<_>>(),
             )
             .into_el()
         });

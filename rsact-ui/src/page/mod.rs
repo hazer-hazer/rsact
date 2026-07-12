@@ -791,7 +791,7 @@ mod tests {
             // unrelated pre-existing ColorStyle panic).
             let page = create_null_page(move || {
                 rebuild.get(); // track: re-run the factory on each change
-                Container::new(Label::new("x".inert()).el())
+                Container::new(Label::new("x".inert()).into_el())
             });
 
             let baseline = page.arena.with(|arena| arena.el_count());
@@ -826,7 +826,8 @@ mod tests {
             let baseline = current_runtime_profile().observers;
 
             for _ in 0..100 {
-                let mut page = create_null_page(Label::new("x".inert()).el());
+                let mut page =
+                    create_null_page(Label::new("x".inert()).into_el());
                 // Render so the element's `part_probes` and the page's
                 // `render_probe` are actually created.
                 page.use_renderer(|_| {});
@@ -860,7 +861,8 @@ mod tests {
             // the null theme (a bare `Container` would hit the pre-existing
             // ColorStyle render panic). The child is registered under the root
             // via `set_single_child` at build.
-            let mut page = create_null_page(|| Label::new("x".inert()).el());
+            let mut page =
+                create_null_page(|| Label::new("x".inert()).into_el());
 
             // Render so the child Label owns its "self" probe.
             page.use_renderer(|_| {});
@@ -910,7 +912,7 @@ mod tests {
                 // A page whose `Dynamic` root subscribes to the app signal.
                 let mut page = create_null_page(move || {
                     app_signal.get(); // Dynamic factory tracks app_signal
-                    Label::new("x".inert()).el()
+                    Label::new("x".inert()).into_el()
                 });
                 // Build the Dynamic child so its build effect actually runs.
                 page.use_renderer(|_| {});
@@ -950,14 +952,14 @@ mod tests {
             // baseline reflects the steady state.
             {
                 let mut page =
-                    create_null_page(|| Label::new("x".inert()).el());
+                    create_null_page(|| Label::new("x".inert()).into_el());
                 page.use_renderer(|_| {});
             }
             let baseline = current_runtime_profile().total();
 
             for _ in 0..50 {
                 let mut page =
-                    create_null_page(|| Label::new("x".inert()).el());
+                    create_null_page(|| Label::new("x".inert()).into_el());
                 page.use_renderer(|_| {});
                 drop(page);
             }
@@ -1022,7 +1024,7 @@ mod tests {
 
         with_new_runtime(|_| {
             let mut page = create_null_page(|| {
-                Container::new(Label::new("x".inert()).el()).el()
+                Container::new(Label::new("x".inert()).into_el()).el()
             });
             // Build the tree so the Dynamic root's child exists.
             page.use_renderer(|_| {});
@@ -1086,9 +1088,9 @@ mod tests {
         with_new_runtime(|_| {
             let mut page = create_null_page(
                 Flex::col(alloc::vec![
-                    Label::new("a".inert()).el(),
-                    Label::new("b".inert()).el(),
-                    Label::new("c".inert()).el(),
+                    Label::new("a".inert()).into_el(),
+                    Label::new("b".inert()).into_el(),
+                    Label::new("c".inert()).into_el(),
                 ])
                 .into_el(),
             );
@@ -1125,7 +1127,8 @@ mod tests {
     fn draw_on_demand() {
         let mut redraw_signal_data = String::new().signal();
 
-        let mut page = create_null_page(Label::new(redraw_signal_data).el());
+        let mut page =
+            create_null_page(Label::new(redraw_signal_data).into_el());
 
         assert_eq!(page.take_draw_calls(), 0);
 
@@ -1776,7 +1779,7 @@ mod tests {
             "string literal",           // &str leaf
             String::from("owned string"), // String leaf
             Container::new("nested str"), // container takes `impl View`
-            Label::new("explicit").el(), // existing El still fine
+            Label::new("explicit").into_el(), // existing El still fine
             Some(Button::new("optional")), // Option<View>
         )));
 
@@ -1878,6 +1881,29 @@ mod tests {
         ));
     }
 
+    // WS13.4 (Task 5.2): `Label` is split, but unlike `Button`/`Flex`/`Show`
+    // it has no build-only field to drop — `content`/`layout`/`style` are all
+    // read by `render`, so `LabelBuilder` moves every field into the retained
+    // `Label` unchanged (a `size_of` `<` assertion would be false, not true).
+    // Per the row's fallback: lock that `LabelBuilder` exists as a real,
+    // distinct type and that a page built from `Label::new(...).into_el()`
+    // still builds and renders end-to-end through the derive-generated
+    // `Build` path.
+    #[test]
+    fn label_split_builder_exists_and_page_renders() {
+        use crate::widget::label::{Label, LabelBuilder};
+
+        fn assert_is_label_builder<W: WidgetCtx>(_: &LabelBuilder<W>) {}
+        let b = Label::<NullWtf>::new("x".inert());
+        assert_is_label_builder(&b);
+
+        let mut page = create_null_page(Label::new("hello".inert()).into_el());
+        // Label's render falls back to the theme's default foreground on an
+        // unset text color (no panic) — see the render body's Note: — so this
+        // renders cleanly through the null theme, unlike a bare `Container`.
+        page.use_renderer(|_| {});
+    }
+
     // WS13.2 (Task 5): locks the exact `size_of` byte counts behind the
     // `<` assertions above (`button_split_drops_content_husk`,
     // `flex_split_drops_children_and_phantom`) — the concrete numbers fed to
@@ -1940,8 +1966,10 @@ mod tests {
         with_new_runtime(|_| {
             let mut fs = create_signal(FontSize::Fixed(10));
             let label = Label::<NullWtf>::new("x").font_size(fs);
-            // Disambiguate `Widget::layout` from the derived `Build::layout`.
-            let layout = Widget::layout(&label);
+            // WS13.4: `label` is now a `LabelBuilder` (Label is split), which
+            // implements only `Build`, not `Widget` — so `.layout()` resolves
+            // unambiguously to `Build::layout` (no disambiguation needed).
+            let layout = label.layout();
 
             let mut runs = create_signal(0u32);
             create_effect(move |_| {

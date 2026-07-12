@@ -74,7 +74,7 @@ impl<W: WidgetCtx, K: PartialEq> SelectOption<W, K> {
         let string = key.to_string();
         SelectOption {
             key,
-            el: Container::new(Label::new(string.inert()).el())
+            el: Container::new(Label::new(string.inert()).into_el())
                 .padding(5u32)
                 .el(),
         }

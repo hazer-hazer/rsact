@@ -24,7 +24,9 @@ pub fn labels_page(n: usize) -> (UI<NullWtf, WithPages>, Vec<Signal<String>>) {
     let mut ui: UI<NullWtf, _> =
         UI::new((), NullRenderer).with_page((), move || {
             Flex::col(
-                init.iter().map(|s| Label::new(*s).el()).collect::<Vec<_>>(),
+                init.iter()
+                    .map(|s| Label::new(*s).into_el())
+                    .collect::<Vec<_>>(),
             )
             .into_el()
         });
@@ -70,7 +72,7 @@ pub fn nested_flex_page(
         UI::new((), NullRenderer).with_page((), move || {
             Flex::col(
                 init.iter()
-                    .map(|s| Flex::row([Label::new(*s).el()]).into_el())
+                    .map(|s| Flex::row([Label::new(*s).into_el()]).into_el())
                     .collect::<Vec<_>>(),
             )
             .into_el()
