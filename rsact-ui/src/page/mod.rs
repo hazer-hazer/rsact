@@ -2028,6 +2028,37 @@ mod tests {
         let _ = create_null_page(Container::new("ok"));
     }
 
+    // WS13.4 (Task 5.8): `Slider` is split, but like `Label`/`Space`/`Edge`/
+    // `Bar`/`Checkbox` it has no build-only field to drop — `value`/`range`/
+    // `step`/`state`/`layout`/`style`/`axis` are all read by `render`/
+    // `on_event`, so `SliderBuilder` moves all seven fields into the
+    // retained `Slider` unchanged (a `size_of` `<` assertion would be false,
+    // not true). Unlike `Bar`, `Slider` never had a `V: RangeValue` generic
+    // to begin with (its value/range/step are already concrete `f32`), so
+    // there is no `V` decision to make here — only `Dir: Direction` was
+    // de-genericized, into a runtime `axis: Axis` field (Bar precedent:
+    // `render` reads it repeatedly, not just `new()`'s size computation) —
+    // see slider.rs's WS13.4 comment.
+    #[test]
+    fn slider_split_builder_exists_and_page_renders() {
+        use crate::widget::slider::{Slider, SliderBuilder};
+
+        fn assert_is_slider_builder<W: WidgetCtx>(_: &SliderBuilder<W>) {}
+        let b = Slider::<NullWtf>::horizontal(0.5, (0.0..=1.0).inert());
+        assert_is_slider_builder(&b);
+
+        // Unlike Edge/Bar/Container, Slider renders cleanly through the null
+        // theme (its track/thumb draw styles resolve `ColorStyle::get()`,
+        // never `.expect()`), so render (not just build) the page for the
+        // meaningful check, mirroring Checkbox's/Label's version of this
+        // test.
+        let mut page = create_null_page(Slider::<NullWtf>::horizontal(
+            0.5,
+            (0.0..=1.0).inert(),
+        ));
+        page.use_renderer(|_| {});
+    }
+
     // WS13.2 (Task 5): locks the exact `size_of` byte counts behind the
     // `<` assertions above (`button_split_drops_content_husk`,
     // `flex_split_drops_children_and_phantom`) — the concrete numbers fed to

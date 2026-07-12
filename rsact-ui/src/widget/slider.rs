@@ -1,5 +1,5 @@
 use crate::{declare_widget_style, widget::prelude::*};
-use core::{marker::PhantomData, ops::RangeInclusive};
+use core::ops::RangeInclusive;
 use rsact_reactive::prelude::*;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -56,42 +56,93 @@ impl SliderState {
     }
 }
 
-// TODO: Floating label?
-// TODO: Exponential
-#[derive(View)]
-pub struct Slider<W: WidgetCtx, Dir: Direction> {
+// WS13.4 (Task 5.8): unlike Bar's still-open `V: RangeValue` question, Slider
+// never had a `V` generic to begin with — its value/range/step are already
+// concrete on `f32` (see the commented-out `SliderValue`/generic-value TODO
+// above), so there is no "canonical numeric boundary" decision to make here;
+// the fleet checklist row's "`V` + `Dir` de-generic" applies only to `Dir`
+// for this widget. `Dir: Direction` DID read like the Space/Flex
+// compile-time-only tag (only `new()` picked an `Axis` from it), but `render`
+// reads `Dir::AXIS` repeatedly too (track length/orientation, thumb
+// position) — so per the 7.2 slice (Bar precedent: `Dir` type param ->
+// runtime `Axis` FIELD when render/on_event read it, not just a ctor-only
+// argument) it becomes a runtime `axis: Axis` field carried on both structs.
+//
+// Every field here is read by `render` (`value`/`range`/`axis`/`style`) or
+// by `on_event` (`value`/`range`/`step`/`state`), so — like `Bar`/
+// `Checkbox` — there is no build-only field to drop; `SliderBuilder` moves
+// all seven fields into the retained `Slider` unchanged (a `size_of` `<`
+// assertion would be false, not true). `value: Signal<f32>` and `state:
+// SliderState` are the widget's job (WS4.5: the live value + local
+// value-adjust mode ARE what a Slider is), so both stay retained fields.
+#[derive(Builder)]
+#[builds(Slider<W>)]
+#[flags(focusable)]
+pub struct SliderBuilder<W: WidgetCtx> {
+    #[widget]
     value: Signal<f32>,
+    #[widget]
     range: MaybeReactive<RangeInclusive<f32>>,
+    #[widget]
     step: MaybeReactive<f32>,
     // WS4.5: plain field, not a Signal — `state` is read/written only in
     // `on_event(&mut self)` (never in render/layout), so it needs no runtime
     // node. Global press/focus state lives in PageState; this is only the
     // widget-local value-adjust mode.
+    #[widget]
+    state: SliderState,
+    #[widget]
+    layout: Layout,
+    #[widget]
+    style: WidgetStyleFn<SliderStyle<W::Color>>,
+    #[widget]
+    axis: Axis,
+}
+
+// TODO: Floating label?
+// TODO: Exponential
+pub struct Slider<W: WidgetCtx> {
+    value: Signal<f32>,
+    range: MaybeReactive<RangeInclusive<f32>>,
+    step: MaybeReactive<f32>,
     state: SliderState,
     layout: Layout,
     style: WidgetStyleFn<SliderStyle<W::Color>>,
-    dir: PhantomData<Dir>,
+    axis: Axis,
 }
 
-impl<W: WidgetCtx, Dir: Direction> Slider<W, Dir> {
+impl<W: WidgetCtx> Slider<W> {
     pub fn new(
+        axis: Axis,
         value: impl IntoSignal<f32>,
         range: impl IntoMaybeReactive<RangeInclusive<f32>>,
-    ) -> Self {
+    ) -> SliderBuilder<W> {
         let range = range.maybe_reactive();
         let step = range.map(|range| Self::step_from_range(range));
 
-        Self {
+        SliderBuilder {
             state: SliderState::none(),
             value: value.signal(),
             range,
             step,
-            layout: Layout::edge(
-                Dir::AXIS.canon(Length::fill(), Length::Fixed(13)),
-            ),
+            layout: Layout::edge(axis.canon(Length::fill(), Length::Fixed(13))),
             style: None,
-            dir: PhantomData,
+            axis,
         }
+    }
+
+    pub fn vertical(
+        value: impl IntoSignal<f32>,
+        range: impl IntoMaybeReactive<RangeInclusive<f32>>,
+    ) -> SliderBuilder<W> {
+        Self::new(Axis::Y, value, range)
+    }
+
+    pub fn horizontal(
+        value: impl IntoSignal<f32>,
+        range: impl IntoMaybeReactive<RangeInclusive<f32>>,
+    ) -> SliderBuilder<W> {
+        Self::new(Axis::X, value, range)
     }
 
     // TODO: Custom speed
@@ -102,44 +153,21 @@ impl<W: WidgetCtx, Dir: Direction> Slider<W, Dir> {
             (range.end() - range.start()) * 0.01
         }
     }
+}
 
+impl<W: WidgetCtx> SliderBuilder<W> {
     pub fn step(mut self, step: impl IntoMaybeReactive<f32>) -> Self {
         self.step = step.maybe_reactive();
         self
     }
 }
 
-impl<W: WidgetCtx> Slider<W, ColDir> {
-    pub fn vertical(
-        value: impl IntoSignal<f32>,
-        range: impl IntoMaybeReactive<RangeInclusive<f32>>,
-    ) -> Self {
-        Self::new(value, range)
-    }
-}
-
-impl<W: WidgetCtx> Slider<W, RowDir> {
-    pub fn horizontal(
-        value: impl IntoSignal<f32>,
-        range: impl IntoMaybeReactive<RangeInclusive<f32>>,
-    ) -> Self {
-        Self::new(value, range)
-    }
-}
-
-impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Slider<W, Dir> {
-    fn debug_name(&self) -> &'static str {
-        "Slider"
-    }
-
-    fn flags(&self) -> WidgetFlags {
-        WidgetFlags::default().focusable()
-    }
-
-    fn build(&mut self, ctx: BuildCtx<W>) {
-        let _ = ctx;
-    }
-
+impl<W: WidgetCtx> Widget<W> for Slider<W> {
+    // NOTE: no `flags`/`debug_name` override on the retained widget — both are
+    // read exactly once, pre-build, from `Build` (seeding `ElState` at
+    // `state.rs:72`); post-build all consumption is via `ElState`, so an
+    // override here would be dead duplication of `SliderBuilder`'s derived
+    // `Build::flags`/`Build::debug_name` ("Slider" from `#[builds(Slider<W>)]`).
     fn layout(&self) -> Layout {
         self.layout
     }
@@ -155,18 +183,18 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Slider<W, Dir> {
                 .layout
                 .inner
                 .size
-                .main(Dir::AXIS)
+                .main(self.axis)
                 .saturating_sub(style.thumb_size + 2);
 
             let half_thumb_size = style.thumb_size as i32 / 2;
 
             let start = ctx.layout.inner.top_left
-                + Dir::AXIS.canon::<Point>(
+                + self.axis.canon::<Point>(
                     half_thumb_size + 1,
-                    ctx.layout.inner.size.cross(Dir::AXIS) as i32 / 2,
+                    ctx.layout.inner.size.cross(self.axis) as i32 / 2,
                 );
 
-            let end = start + Dir::AXIS.canon::<Point>(track_len as i32, 0);
+            let end = start + self.axis.canon::<Point>(track_len as i32, 0);
 
             ctx.renderer.line(start, end, &style.track_draw_style())?;
 
@@ -184,7 +212,7 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Slider<W, Dir> {
             };
 
             let thumb_pos = start
-                + Dir::AXIS.canon::<Point>(
+                + self.axis.canon::<Point>(
                     (frac * track_len as f32) as i32 - half_thumb_size,
                     -half_thumb_size,
                 );
@@ -200,7 +228,7 @@ impl<W: WidgetCtx, Dir: Direction + 'static> Widget<W> for Slider<W, Dir> {
                 SliderThumbShape::Dash => ctx.renderer.line(
                     thumb_pos,
                     thumb_pos
-                        + Dir::AXIS.canon::<Point>(0, style.thumb_size as i32),
+                        + self.axis.canon::<Point>(0, style.thumb_size as i32),
                     &thumb_draw_style,
                 ),
                 SliderThumbShape::RoundedSquare => {
