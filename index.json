@@ -1,4 +1,10 @@
 {
+  "45d8c162cb0fd341b606a9f30fefd6ad25ca968f": {
+    "date": 1783890445,
+    "parent": "",
+    "branch": "ws-home-hero",
+    "subject": "site: denser graph animation + sticky drop-shadows on the metrics grid"
+  },
   "7b9e9a866a3852871d872a884bc4d2d1efb5fccd": {
     "date": 1783704690,
     "parent": "",
