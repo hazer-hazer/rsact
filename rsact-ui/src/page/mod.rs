@@ -2135,6 +2135,31 @@ mod tests {
         ));
     }
 
+    // WS13.4 (Task 5.11): `Canvas` is split, but like `Label`/`Space`/
+    // `Edge`/`Bar`/`Checkbox`/`Slider`/`Knob` it has no build-only field to
+    // drop — `draw`/`layout` are both read by `render`/`layout`, so
+    // `CanvasBuilder` moves both fields into the retained `Canvas` unchanged
+    // (a `size_of` `<` assertion would be false, not true). The split is
+    // purely mechanical: the WS1b.1 immediate-mode draw closure is moved by
+    // name like any other `#[widget]` field, never invoked or inspected
+    // during the build-time move, so the DrawQueue/draw-command semantics
+    // documented in canvas.rs are untouched.
+    #[test]
+    fn canvas_split_builder_exists_and_page_renders() {
+        use crate::widget::canvas::{Canvas, CanvasBuilder};
+
+        fn assert_is_canvas_builder<W: WidgetCtx>(_: &CanvasBuilder<W>) {}
+        let b = Canvas::<NullWtf>::new(|_renderer| Ok(()));
+        assert_is_canvas_builder(&b);
+
+        // Unlike Edge/Bar/Container, Canvas resolves no style at all (no
+        // `declare_widget_style!`), so it renders cleanly through the null
+        // theme; render (not just build) the page for the meaningful check.
+        let mut page =
+            create_null_page(Canvas::<NullWtf>::new(|_renderer| Ok(())));
+        page.use_renderer(|_| {});
+    }
+
     // WS13.2 (Task 5): locks the exact `size_of` byte counts behind the
     // `<` assertions above (`button_split_drops_content_husk`,
     // `flex_split_drops_children_and_phantom`) — the concrete numbers fed to
