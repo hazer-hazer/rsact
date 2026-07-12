@@ -151,7 +151,7 @@ fn main() {
         },
     ))
     .fill()
-    .el();
+    .into_el();
 
     let mut ui = UI::new(Theme::default(), TinySkiaRenderer::new(size))
         .no_events()

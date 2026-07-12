@@ -992,7 +992,7 @@ mod tests {
             let mut rebuild = create_signal(0i32);
             let _page = create_null_page(move || {
                 rebuild.get(); // track: re-run the factory on each change
-                Container::new(Checkbox::new(false).into_el()).el()
+                Container::new(Checkbox::new(false).into_el()).into_el()
             });
 
             // The layout effect ran once at construction; measure the steady
@@ -1024,7 +1024,7 @@ mod tests {
 
         with_new_runtime(|_| {
             let mut page = create_null_page(|| {
-                Container::new(Label::new("x".inert()).into_el()).el()
+                Container::new(Label::new("x".inert()).into_el()).into_el()
             });
             // Build the tree so the Dynamic root's child exists.
             page.use_renderer(|_| {});
@@ -2001,6 +2001,31 @@ mod tests {
         // check, mirroring Label's version of this test.
         let mut page = create_null_page(Checkbox::<NullWtf>::new(false));
         page.use_renderer(|_| {});
+    }
+
+    // WS13.4 (Task 5.7): `Container` is split like `Button` (single child) —
+    // `content: El<W>` is build-only (consumed by `ctx.set_single_child` in
+    // `Build::build`, never read again), so `ContainerBuilder` carries it as
+    // `#[child(single)]` and the retained `Container` drops it; `layout`/
+    // `style` stay retained `#[widget]` fields (both read by `render`).
+    #[test]
+    fn container_split_drops_content_husk() {
+        use crate::widget::container::{Container, ContainerBuilder};
+        // The retained widget must not carry the build-only child husk, so it
+        // is strictly smaller than its builder.
+        assert!(
+            core::mem::size_of::<Container<NullWtf>>()
+                < core::mem::size_of::<ContainerBuilder<NullWtf>>(),
+            "retained Container must be smaller than ContainerBuilder \
+             (dropped content husk)"
+        );
+
+        // Not rendering: `Container`'s `container` style panics on the null
+        // theme's unset background/border `ColorStyle` (the same
+        // pre-existing limitation noted on `Edge`/`Bar` elsewhere in this
+        // file), so building (not rendering) the page is the meaningful
+        // check here.
+        let _ = create_null_page(Container::new("ok"));
     }
 
     // WS13.2 (Task 5): locks the exact `size_of` byte counts behind the
