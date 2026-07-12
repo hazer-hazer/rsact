@@ -1,5 +1,4 @@
 use crate::{style::WidgetStyleFn, value::RangeValue, widget::prelude::*};
-use core::marker::PhantomData;
 use rsact_reactive::prelude::*;
 
 // TODO: Padding for inner bar
@@ -22,50 +21,73 @@ impl<C: Color> BarStyle<C> {
     }
 }
 
-#[derive(View)]
-pub struct Bar<W: WidgetCtx, V: RangeValue, Dir: Direction> {
+// WS13.4 (Task 5.5): `Dir: Direction` looked like the Space/Flex
+// compile-time-only tag, but `render` reads `Dir::AXIS` too (bar length +
+// resize direction), not just `new()`'s size computation — so per the 7.2
+// slice (Dir type param -> runtime Axis, flex/space precedent) it becomes a
+// runtime `axis: Axis` FIELD carried on both structs, not a ctor-only
+// argument that gets dropped like `Space`'s did.
+//
+// `V: RangeValue` is deliberately left generic here, NOT de-genericized to a
+// "canonical numeric" type: today's only live `RangeValue` impl (`RangeU8<MIN,
+// MAX, STEP>`, see `value.rs`) is itself a const-generic family with distinct
+// call-site instantiations, and the other candidate impls (plain ints, f32)
+// are commented-out/TODO, not live. Picking one concrete type here would be
+// an API-design guess, unlike `Dir` (exactly two concrete impls mapping
+// bijectively onto `Axis`). Deferred to 5.8 (`slider.rs`), where the fleet
+// checklist row explicitly identifies `V` as "really" living, and where the
+// choice can be made once, holistically, against the fuller
+// `RangeInclusive`/thumb-position math rather than piecemeal here.
+#[derive(Builder)]
+#[builds(Bar<W, V>)]
+pub struct BarBuilder<W: WidgetCtx, V: RangeValue> {
+    #[widget]
+    value: MaybeReactive<V>,
+    #[widget]
+    layout: Layout,
+    #[widget]
+    style: WidgetStyleFn<BarStyle<W::Color>>,
+    #[widget]
+    axis: Axis,
+}
+
+pub struct Bar<W: WidgetCtx, V: RangeValue> {
     value: MaybeReactive<V>,
     layout: Layout,
     style: WidgetStyleFn<BarStyle<W::Color>>,
-    dir: PhantomData<Dir>,
+    axis: Axis,
 }
 
-impl<W: WidgetCtx, V: RangeValue + 'static> Bar<W, V, ColDir> {
-    pub fn vertical(value: impl IntoMaybeReactive<V>) -> Self {
-        Self::new(value)
+impl<W: WidgetCtx, V: RangeValue + 'static> Bar<W, V> {
+    pub fn vertical(value: impl IntoMaybeReactive<V>) -> BarBuilder<W, V> {
+        Self::new(Axis::Y, value)
     }
-}
 
-impl<W: WidgetCtx, V: RangeValue + 'static> Bar<W, V, RowDir> {
-    pub fn horizontal(value: impl IntoMaybeReactive<V>) -> Self {
-        Self::new(value)
+    pub fn horizontal(value: impl IntoMaybeReactive<V>) -> BarBuilder<W, V> {
+        Self::new(Axis::X, value)
     }
-}
 
-impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction> Bar<W, V, Dir> {
-    pub fn new(value: impl IntoMaybeReactive<V>) -> Self {
-        Self {
+    pub fn new(
+        axis: Axis,
+        value: impl IntoMaybeReactive<V>,
+    ) -> BarBuilder<W, V> {
+        BarBuilder {
             value: value.maybe_reactive(),
-            layout: Layout::edge(
-                Dir::AXIS.canon(Length::fill(), Length::Fixed(10)),
-            ),
+            layout: Layout::edge(axis.canon(Length::fill(), Length::Fixed(10))),
             style: None,
-            dir: PhantomData,
+            axis,
         }
     }
 }
 
-impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction + 'static> Widget<W>
-    for Bar<W, V, Dir>
-{
-    fn debug_name(&self) -> &'static str {
-        "Bar"
-    }
-
-    fn build(&mut self, ctx: build::BuildCtx<W>) {
-        let _ = ctx;
-    }
-
+impl<W: WidgetCtx + 'static, V: RangeValue + 'static> Widget<W> for Bar<W, V> {
+    // NOTE: no `flags`/`debug_name` override on the retained widget — both are
+    // read exactly once, pre-build, from `Build` (seeding `ElState` at
+    // `state.rs:72`); post-build all consumption is via `ElState`, so an
+    // override here would be dead duplication of `BarBuilder`'s derived
+    // `Build::debug_name` ("Bar" from `#[builds(Bar<W, V>)]`). `Bar` never
+    // overrode `flags` either, so no `#[flags(...)]` attr is needed on
+    // `BarBuilder`.
     fn layout(&self) -> Layout {
         self.layout
     }
@@ -93,11 +115,11 @@ impl<W: WidgetCtx, V: RangeValue + 'static, Dir: Direction + 'static> Widget<W>
             )
             .render(ctx.renderer)?;
 
-            let full_len = ctx.layout.inner.size.main(Dir::AXIS);
+            let full_len = ctx.layout.inner.size.main(self.axis);
             let value_len = self.value.get().point(full_len);
 
             let bar_area = ctx.layout.inner.resized_axis(
-                Dir::AXIS,
+                self.axis,
                 value_len,
                 Anchor::Start,
             );

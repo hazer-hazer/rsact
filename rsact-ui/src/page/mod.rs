@@ -1945,6 +1945,40 @@ mod tests {
         let _ = create_null_page(Edge::new());
     }
 
+    // WS13.4 (Task 5.5): `Bar` is split, but like `Label`/`Space`/`Edge` it
+    // has no build-only field to drop — `value`/`layout`/`style`/`axis` are
+    // all read by `render`, so `BarBuilder` moves all four fields into the
+    // retained `Bar` unchanged (a `size_of` `<` assertion would be false, not
+    // true). `Dir: Direction` was de-genericized into a runtime `axis: Axis`
+    // field (unlike `Space`, `render` reads it too, not just `new()` — see
+    // bar.rs's WS13.4 comment); `V: RangeValue` is deliberately left generic
+    // (deferred to 5.8, see the same comment).
+    #[test]
+    fn bar_split_builder_exists_and_page_builds() {
+        use crate::{
+            value::{RangeU8, RangeValue},
+            widget::bar::{Bar, BarBuilder},
+        };
+
+        fn assert_is_bar_builder<W: WidgetCtx, V: RangeValue>(
+            _: &BarBuilder<W, V>,
+        ) {
+        }
+        let b = Bar::<NullWtf, RangeU8>::horizontal(
+            RangeU8::new_full_range(0).inert(),
+        );
+        assert_is_bar_builder(&b);
+
+        // Not rendering: `Bar`'s `container` style panics on the null
+        // theme's unset background/border `ColorStyle`, the same
+        // pre-existing limitation documented on `Edge`/`Container` elsewhere
+        // in this file — unrelated to this split, so building (not
+        // rendering) the page is the meaningful check here.
+        let _ = create_null_page(Bar::<NullWtf, RangeU8>::vertical(
+            RangeU8::new_full_range(0).inert(),
+        ));
+    }
+
     // WS13.2 (Task 5): locks the exact `size_of` byte counts behind the
     // `<` assertions above (`button_split_drops_content_husk`,
     // `flex_split_drops_children_and_phantom`) — the concrete numbers fed to
