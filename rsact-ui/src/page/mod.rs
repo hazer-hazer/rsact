@@ -1857,6 +1857,27 @@ mod tests {
         ]));
     }
 
+    // WS13.4 (Task 5.1): `Show` is split — `ShowBuilder` carries the
+    // build-only `el` child (and consumes `show: Memo<bool>` inline in
+    // `Show::new`, storing neither on the builder), the retained `Show`
+    // keeps only the `layout` handle it shares with `el` (plus the `ctx`
+    // phantom, since `layout: Layout` alone doesn't use `W`).
+    #[test]
+    fn show_split_drops_el_husk() {
+        use crate::widget::show::{Show, ShowBuilder};
+        // Retained Show holds only its layout handle — no `el` child, no
+        // `show: Memo<bool>`.
+        assert!(
+            core::mem::size_of::<Show<NullWtf>>()
+                < core::mem::size_of::<ShowBuilder<NullWtf>>(),
+            "retained Show must be smaller than ShowBuilder (dropped el child)"
+        );
+        let _ = create_null_page(Show::new(
+            true.inert(),
+            Button::new("ok").into_el(),
+        ));
+    }
+
     // WS13.2 (Task 5): locks the exact `size_of` byte counts behind the
     // `<` assertions above (`button_split_drops_content_husk`,
     // `flex_split_drops_children_and_phantom`) — the concrete numbers fed to
