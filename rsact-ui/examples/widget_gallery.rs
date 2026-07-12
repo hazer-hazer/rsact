@@ -132,7 +132,7 @@ fn page() -> impl View<W> {
         WidgetTab::Container => container().into_el(),
         WidgetTab::Button => Button::new("Some button text").into_el(),
         WidgetTab::Canvas => Label::new("TODO").into_el(),
-        WidgetTab::Checkbox => Checkbox::new(true).el(),
+        WidgetTab::Checkbox => Checkbox::new(true).into_el(),
         WidgetTab::Label => Label::new("Some text").into_el(),
     })
     .Container()

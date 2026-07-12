@@ -992,7 +992,7 @@ mod tests {
             let mut rebuild = create_signal(0i32);
             let _page = create_null_page(move || {
                 rebuild.get(); // track: re-run the factory on each change
-                Container::new(Checkbox::new(false).el()).el()
+                Container::new(Checkbox::new(false).into_el()).el()
             });
 
             // The layout effect ran once at construction; measure the steady
@@ -1166,7 +1166,7 @@ mod tests {
         // page-observer key `("render_page", ())` collides in the shared
         // `static_observers` and tests would pollute each other otherwise.
         with_new_runtime(|_| {
-            let mut page = create_null_page(Checkbox::new(false).el());
+            let mut page = create_null_page(Checkbox::new(false).into_el());
 
             // Render until the page settles (the first passes warm up
             // layout/style), then confirm it is quiescent with nothing changing.
@@ -1211,7 +1211,7 @@ mod tests {
         use crate::event::{Event, MouseButton, MouseEvent};
 
         with_new_runtime(|_| {
-            let mut page = create_null_page(Checkbox::new(false).el());
+            let mut page = create_null_page(Checkbox::new(false).into_el());
 
             // Reading the layout memo builds/lays out the tree; no rendering is
             // needed. (Rendering a `Label` in the null theme panics on the
@@ -1359,7 +1359,7 @@ mod tests {
         use crate::event::{Event, MouseButton, MouseEvent};
 
         with_new_runtime(|_| {
-            let mut page = create_null_page(Checkbox::new(false).el());
+            let mut page = create_null_page(Checkbox::new(false).into_el());
             let cb = page.root;
 
             let pt = page.layout.with(|m| m.tree_root().outer.center());
@@ -1977,6 +1977,30 @@ mod tests {
         let _ = create_null_page(Bar::<NullWtf, RangeU8>::vertical(
             RangeU8::new_full_range(0).inert(),
         ));
+    }
+
+    // WS13.4 (Task 5.6): `Checkbox` is split, but like `Label`/`Space`/
+    // `Edge`/`Bar` it has no build-only field to drop — `layout`/`value`/
+    // `style` are all read by `render`/`on_event`, so `CheckboxBuilder`
+    // moves all three fields into the retained `Checkbox` unchanged (a
+    // `size_of` `<` assertion would be false, not true). `value:
+    // Signal<bool>` is the widget's JOB (WS4.5 audit: the checked state IS
+    // what Checkbox is), so it stays a retained field rather than becoming
+    // build-only — see checkbox.rs's WS13.4 comment.
+    #[test]
+    fn checkbox_split_builder_exists_and_page_renders() {
+        use crate::widget::checkbox::{Checkbox, CheckboxBuilder};
+
+        fn assert_is_checkbox_builder<W: WidgetCtx>(_: &CheckboxBuilder<W>) {}
+        let b = Checkbox::<NullWtf>::new(false);
+        assert_is_checkbox_builder(&b);
+
+        // Unlike Edge/Bar/Container, Checkbox renders cleanly through the
+        // null theme (exercised extensively by the toggle/click tests
+        // above), so render (not just build) the page for the meaningful
+        // check, mirroring Label's version of this test.
+        let mut page = create_null_page(Checkbox::<NullWtf>::new(false));
+        page.use_renderer(|_| {});
     }
 
     // WS13.2 (Task 5): locks the exact `size_of` byte counts behind the
