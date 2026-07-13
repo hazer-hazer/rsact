@@ -1,4 +1,6 @@
 use super::Theme;
+#[cfg(feature = "tiny-icons")]
+use crate::widget::icon::IconStyle;
 use crate::{
     style::{
         StyleSelector,
@@ -171,6 +173,17 @@ impl<C: RgbColor> Stylist<SliderStyle<C>> for Theme<C> {
             .thumb_border_radius(self.border_radius)
             .thumb_size(10)
             .thumb_shape(crate::widget::slider::SliderThumbShape::RoundedSquare)
+    }
+}
+
+#[cfg(feature = "tiny-icons")]
+impl<C: RgbColor> Stylist<IconStyle<C>> for Theme<C> {
+    fn style(
+        &self,
+        base: &IconStyle<C>,
+        _selector: &StyleSelector,
+    ) -> IconStyle<C> {
+        base.color(self.fg)
     }
 }
 

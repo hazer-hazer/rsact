@@ -6,8 +6,12 @@ use rsact_tiny_icons::{EmptyIconSet, IconRaw, IconSet};
 
 declare_widget_style! {
     IconStyle () {
-        background: color,
-        color: color,
+        background: color {
+            transparent_background: transparent
+        },
+        color: color {
+            transparent_color: transparent
+        },
     }
 }
 
@@ -32,7 +36,7 @@ pub enum IconValue<I: IconSet> {
 pub struct Icon<W: WidgetCtx, I: IconSet, R: ReactivityMarker> {
     value: IconValue<I>,
     layout: Layout,
-    style: Option<Box<dyn Fn(IconStyle<W::Color>) -> IconStyle<W::Color>>>,
+    style: WidgetStyleFn<IconStyle<W::Color>>,
     is_reactive: PhantomData<R>,
     visible: MaybeReactive<bool>,
 }
@@ -79,7 +83,7 @@ impl<W: WidgetCtx, I: IconSet + 'static> Icon<W, I, IsReactive> {
         )));
 
         Self {
-            value: IconValue::Relative(icon),
+            value,
             layout,
             style: None,
             is_reactive: PhantomData,
@@ -116,8 +120,8 @@ impl<W: WidgetCtx, I: IconSet + 'static> Icon<W, I, IsReactive> {
     }
 }
 
-impl<W: WidgetCtx, I: IconSet + 'static, R: ReactivityMarker> Widget<W>
-    for Icon<W, I, R>
+impl<W: WidgetCtx, I: IconSet + 'static, R: ReactivityMarker + 'static>
+    Widget<W> for Icon<W, I, R>
 {
     fn debug_name(&self) -> &'static str {
         "Icon"
@@ -132,14 +136,14 @@ impl<W: WidgetCtx, I: IconSet + 'static, R: ReactivityMarker> Widget<W>
     }
 
     #[track_caller]
-    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
+    fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
         ctx.render_self(|ctx| {
             if !self.visible.get() {
                 return Ok(());
             }
 
             let viewport = ctx.shared.viewport;
-            let _style = ctx.get_style(|t| t.icon, self.style.as_deref());
+            let _style = ctx.get_style(self.style.as_deref());
 
             let _icon_raw = match &self.value {
                 &IconValue::Fixed(icon_raw) => icon_raw,
