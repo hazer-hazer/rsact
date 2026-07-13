@@ -1,14 +1,8 @@
 {
-  "45d8c162cb0fd341b606a9f30fefd6ad25ca968f": {
-    "date": 1783890445,
+  "c39c8d23f46c391cd9813fb65c8e55c33b845da9": {
+    "date": 1783940022,
     "parent": "",
-    "branch": "ws-home-hero",
-    "subject": "site: denser graph animation + sticky drop-shadows on the metrics grid"
-  },
-  "7b9e9a866a3852871d872a884bc4d2d1efb5fccd": {
-    "date": 1783704690,
-    "parent": "",
-    "branch": "master",
-    "subject": "WS13: 13.3 rollout gate SIGNED OFF GO (2026-07-10) — conditions binding, fleet conversion approved"
+    "branch": "ws13-fleet-conversion",
+    "subject": "WS13.4: Task 7 - roadmap tick + build-comment correction (fleet complete)"
   }
 }
