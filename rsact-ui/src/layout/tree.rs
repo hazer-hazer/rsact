@@ -36,7 +36,9 @@ pub trait LayoutTree {
 
 impl<W: WidgetCtx> LayoutTree for ElArena<W> {
     fn layout(&self, id: ElId) -> Option<Layout> {
-        self.expect(id).and_then(|d| d.stage.built()).map(|w| w.layout())
+        self.expect(id)
+            .and_then(|d| d.stage.built())
+            .map(|w| w.layout())
     }
 
     fn children(&self, id: ElId) -> &[ElId] {
@@ -66,21 +68,50 @@ pub fn effective_children<T: LayoutTree + ?Sized>(
     id: ElId,
 ) -> Vec<ElId> {
     let mut out = Vec::new();
-    for &child in tree.children(id) {
-        push_effective(tree, child, &mut out);
-    }
+    for_each_effective_child(tree, id, |c| out.push(c));
     out
+}
+
+/// [`effective_children`] without the allocation — visits each effective child
+/// in order. The `min_size` fold uses this so a bottom-up size pass does not
+/// allocate a `Vec` per node.
+pub fn for_each_effective_child<T: LayoutTree + ?Sized>(
+    tree: &T,
+    id: ElId,
+    mut f: impl FnMut(ElId),
+) {
+    for &child in tree.children(id) {
+        push_effective(tree, child, &mut f);
+    }
+}
+
+/// The single effective child of a one-child node (`Container`/`Scrollable`
+/// content). `None` (logged by the caller's degrade) if the node does not have
+/// exactly one effective child.
+pub fn effective_single_child<T: LayoutTree + ?Sized>(
+    tree: &T,
+    id: ElId,
+) -> Option<ElId> {
+    let mut found = None;
+    let mut count = 0usize;
+    for_each_effective_child(tree, id, |c| {
+        if count == 0 {
+            found = Some(c);
+        }
+        count += 1;
+    });
+    if count == 1 { found } else { None }
 }
 
 fn push_effective<T: LayoutTree + ?Sized>(
     tree: &T,
     id: ElId,
-    out: &mut Vec<ElId>,
+    f: &mut impl FnMut(ElId),
 ) {
     if tree.is_transparent(id) {
         let children = tree.children(id);
         if children.len() == 1 {
-            push_effective(tree, children[0], out);
+            push_effective(tree, children[0], f);
         } else {
             log::error!(
                 "Transparent-layout node {id:?} must wrap exactly one child \
@@ -89,7 +120,7 @@ fn push_effective<T: LayoutTree + ?Sized>(
             );
         }
     } else {
-        out.push(id);
+        f(id);
     }
 }
 

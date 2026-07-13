@@ -123,15 +123,6 @@ impl<W: WidgetCtx> Page<W> {
 
         let root = BuildCtx::run(&mut root, arena);
 
-        let layout_tree = arena.with(|arena| {
-            arena
-                .expect(root)
-                .expect("Root node must be built")
-                .widget()
-                .expect("Root node must be built")
-                .layout()
-                .name("Layout tree")
-        });
         // TODO: If we make fonts MaybeReactive, we can go fully MaybeReactive
         // LayoutModel here
         let layout_model = map!(move |fonts, viewport| {
@@ -143,20 +134,29 @@ impl<W: WidgetCtx> Page<W> {
             // returning previous result
 
             let viewport = *viewport;
-            let layout = model_layout(
-                &LayoutCtx {
-                    fonts,
-                    viewport,
-                    font_props: FontProps {
-                        font: Some(Font::Auto),
-                        font_size: None,
-                        font_style: None,
+            // WS5.1: walk the arena from the root, not a snapshotted root
+            // `Layout` handle. `with_untracked` avoids subscribing to the arena
+            // signal itself (its structure writes are untracked); the per-node
+            // layout-handle reads inside `model_layout` still track, so reactive
+            // prop/structure changes re-run this memo (until the dirty set
+            // replaces it in PR2).
+            let layout = arena.with_untracked(|arena| {
+                model_layout(
+                    &LayoutCtx {
+                        fonts,
+                        viewport,
+                        font_props: FontProps {
+                            font: Some(Font::Auto),
+                            font_size: None,
+                            font_style: None,
+                        },
                     },
-                },
-                layout_tree,
-                Limits::only_max(viewport),
-                viewport.into(),
-            );
+                    arena,
+                    root,
+                    Limits::only_max(viewport),
+                    viewport.into(),
+                )
+            });
 
             // TODO: Do we need full page redraw on layout change?
             // [ ] No, we need smart bottom-up propagation to the nearest fixed

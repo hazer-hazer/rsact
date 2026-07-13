@@ -1,11 +1,14 @@
 #[cfg(feature = "debug-info")]
 use crate::layout::{DevLayout, DevLayoutKind};
 use crate::{
+    el::ElId,
     font::FontProps,
     layout::{
         Align, ContainerLayout, ContentLayout, DevHoveredLayout, LayoutCtx,
-        LayoutKind, Limits, ScrollableLayout, flex::model_flex,
-        length::LengthSize, node::Layout,
+        LayoutKind, Limits, ScrollableLayout,
+        flex::model_flex,
+        length::LengthSize,
+        tree::{LayoutTree, effective_single_child},
     },
     render::prelude::*,
 };
@@ -252,14 +255,22 @@ impl<'a> Display for PPLayoutModel<'a> {
 
 // TODO: Should viewport be unwrapped value as we depend modeling on viewport
 // value?
-pub fn model_layout(
+// WS5.1: walks the arena (`tree` + `id`) instead of a self-contained `Layout`
+// handle sub-tree. `tree.layout(id)` reads the node's live layout handle, so
+// the walk sees the same reactive-current data as before; only the child
+// *source* changed (arena `effective_children`, not `FlexLayout.children`).
+pub fn model_layout<T: LayoutTree + ?Sized>(
     ctx: &LayoutCtx,
-    layout: Layout,
+    tree: &T,
+    id: ElId,
     parent_limits: Limits,
     parent_size: LengthSize, // viewport: Memo<Size>,
 ) -> LayoutModel {
     #[cfg(feature = "layout-counters")]
     crate::layout::counters::count_visit();
+    let Some(layout) = tree.layout(id) else {
+        return LayoutModel::zero();
+    };
     layout.with(|layout| {
         if !layout.is_shown() {
             // A hidden element resolves to a zero layout here; `model_flex`
@@ -311,7 +322,9 @@ pub fn model_layout(
                     block_model,
                     horizontal_align,
                     vertical_align,
-                    content,
+                    // WS5.1: the content child comes from the arena, not this
+                    // handle field.
+                    content: _,
                     font_props: container_fp,
                 } = container_layout;
 
@@ -322,12 +335,19 @@ pub fn model_layout(
                 let child_fp = container_fp.inherited(&ctx.font_props);
                 let child_ctx = LayoutCtx { font_props: child_fp, ..*ctx };
 
-                let content_layout = model_layout(
-                    &child_ctx,
-                    *content,
-                    parent_limits.child_limits(size).shrink(full_padding),
-                    size,
-                );
+                let content_limits =
+                    parent_limits.child_limits(size).shrink(full_padding);
+                let content_layout = effective_single_child(tree, id)
+                    .map(|content_id| {
+                        model_layout(
+                            &child_ctx,
+                            tree,
+                            content_id,
+                            content_limits,
+                            size,
+                        )
+                    })
+                    .unwrap_or_else(LayoutModel::zero);
 
                 let content_size = content_layout.outer_size();
                 let real_size = parent_limits.resolve_size(
@@ -356,18 +376,27 @@ pub fn model_layout(
                 .with_font_props(container_fp.has_any().then_some(child_fp))
             },
             LayoutKind::Scrollable(scrollable_layout) => {
-                let ScrollableLayout { content, font_props: scrollable_fp } =
-                    scrollable_layout;
+                let ScrollableLayout {
+                    // WS5.1: content child comes from the arena.
+                    content: _,
+                    font_props: scrollable_fp,
+                } = scrollable_layout;
 
                 let child_fp = scrollable_fp.inherited(&ctx.font_props);
                 let child_ctx = LayoutCtx { font_props: child_fp, ..*ctx };
 
-                let content_layout = model_layout(
-                    &child_ctx,
-                    *content,
-                    parent_limits.child_limits(size),
-                    size,
-                );
+                let content_limits = parent_limits.child_limits(size);
+                let content_layout = effective_single_child(tree, id)
+                    .map(|content_id| {
+                        model_layout(
+                            &child_ctx,
+                            tree,
+                            content_id,
+                            content_limits,
+                            size,
+                        )
+                    })
+                    .unwrap_or_else(LayoutModel::zero);
 
                 let real_size = parent_limits.resolve_size(
                     size,
@@ -387,7 +416,7 @@ pub fn model_layout(
                 .with_font_props(scrollable_fp.has_any().then_some(child_fp))
             },
             LayoutKind::Flex(flex_layout) => {
-                model_flex(ctx, parent_limits, flex_layout, size)
+                model_flex(ctx, tree, id, parent_limits, flex_layout, size)
             },
         }
     })
