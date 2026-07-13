@@ -1,3 +1,5 @@
+#[cfg(feature = "tiny-icons")]
+use crate::widget::icon::IconStyle;
 use crate::{
     style::{Style, StyleSelector},
     widget::{
@@ -22,6 +24,31 @@ pub trait Stylist<S: Style> {
     fn style(&self, base: &S, selector: &StyleSelector) -> S;
 }
 
+// `InternalStylist` is duplicated (rather than cfg-ing individual supertrait
+// terms, which Rust does not allow inside a `+`-joined bound list) so that
+// `Stylist<IconStyle<C>>` is only demanded when `tiny-icons` is on — `IconStyle`
+// lives in the feature-gated `icon` module (`widget/mod.rs`), so an
+// unconditional reference here would break every build without that feature.
+// Every `WidgetCtx::Stylist` (`Theme`, `BinaryTheme`, the `()` test harness)
+// must keep both arms' impls in sync (see `theme/rgb.rs`, `theme/binary_color.rs`,
+// and the `declare_null_stylist!` calls below).
+#[cfg(feature = "tiny-icons")]
+pub trait InternalStylist<C: Color>:
+    Stylist<BarStyle<C>>
+    + Stylist<ButtonStyle<C>>
+    + Stylist<CheckboxStyle<C>>
+    + Stylist<ContainerStyle<C>>
+    + Stylist<EdgeStyle<C>>
+    + Stylist<IconStyle<C>>
+    + Stylist<KnobStyle<C>>
+    + Stylist<LabelStyle<C>>
+    + Stylist<ScrollableStyle<C>>
+    + Stylist<SelectStyle<C>>
+    + Stylist<SliderStyle<C>>
+{
+}
+
+#[cfg(not(feature = "tiny-icons"))]
 pub trait InternalStylist<C: Color>:
     Stylist<BarStyle<C>>
     + Stylist<ButtonStyle<C>>
@@ -84,5 +111,10 @@ declare_null_stylist!(
     SelectStyle<NullColor>,
     SliderStyle<NullColor>,
 );
+
+// Kept as a separate gated call (rather than folded into the list above) so
+// the ungated call site stays untouched when `tiny-icons` is off.
+#[cfg(feature = "tiny-icons")]
+declare_null_stylist!(IconStyle<NullColor>);
 
 impl InternalStylist<NullColor> for () {}

@@ -48,9 +48,13 @@ where
     }
 
     // TRANSITIONAL (WS13 spec §2.2): `build` moves to `Build`. Kept as a
-    // defaulted no-op so unconverted widgets keep their `fn build(&mut self)`
-    // override (called by the derived identity `Build`). Deleted outright once
-    // the fleet is split (13.4) — the final 7.6 shape.
+    // defaulted no-op for the identity-`Build` path of deliberately-unsplit
+    // widgets (`Dynamic` overrides it; `Unit` and other `#[derive(View)]`
+    // types call it via the derived identity `Build`). Post-13.4 the fleet is
+    // split, but this default MUST survive as long as any identity-Build
+    // widget exists — do not delete it wholesale (the original "deleted
+    // outright once the fleet is split" note predates the 5.12/5.14
+    // unsplit-by-design decisions).
     fn build(&mut self, _ctx: BuildCtx<W>) {}
 
     fn update(&mut self, mut ctx: UpdateCtx<'_, W>) -> UpdateResult {

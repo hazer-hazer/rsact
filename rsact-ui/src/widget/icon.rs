@@ -6,8 +6,12 @@ use rsact_tiny_icons::{EmptyIconSet, IconRaw, IconSet};
 
 declare_widget_style! {
     IconStyle () {
-        background: color,
-        color: color,
+        background: color {
+            transparent_background: transparent
+        },
+        color: color {
+            transparent_color: transparent
+        },
     }
 }
 
@@ -28,29 +32,51 @@ pub enum IconValue<I: IconSet> {
     Relative(Signal<FontSize>, MaybeReactive<I>),
 }
 
-#[derive(View)]
-pub struct Icon<W: WidgetCtx, I: IconSet, R: ReactivityMarker> {
+// WS13.4 (Task 5.15): `R: ReactivityMarker` is a compile-time-only tag that
+// selects which constructor (`inert`/`new`) built the value, gating which
+// builder methods are available (`size` only on the `IsReactive` path) — it
+// is never matched on at runtime (`render` dispatches on the `IconValue`
+// enum itself, not on `R`). Per the 7.2 slice (flex.rs `Dir`->`Axis`,
+// space.rs `Dir` drop precedent), it is therefore build-only: `IconBuilder`
+// keeps it to gate its own API surface, the retained `Icon` drops it
+// entirely (a `PhantomData<R>` is a ZST, so — like `label.rs`/`space.rs` —
+// this is not a `size_of` win; the win is not carrying a meaningless type
+// parameter on the retained widget).
+#[derive(Builder)]
+#[builds(Icon<W, I>)]
+pub struct IconBuilder<W: WidgetCtx, I: IconSet, R: ReactivityMarker> {
+    #[widget]
+    value: IconValue<I>,
+    #[widget]
+    layout: Layout,
+    #[widget]
+    style: WidgetStyleFn<IconStyle<W::Color>>,
+    #[widget]
+    visible: MaybeReactive<bool>,
+    is_reactive: PhantomData<R>,
+}
+
+pub struct Icon<W: WidgetCtx, I: IconSet> {
     value: IconValue<I>,
     layout: Layout,
-    style: Option<Box<dyn Fn(IconStyle<W::Color>) -> IconStyle<W::Color>>>,
-    is_reactive: PhantomData<R>,
+    style: WidgetStyleFn<IconStyle<W::Color>>,
     visible: MaybeReactive<bool>,
 }
 
-impl<W: WidgetCtx, I: IconSet, R: ReactivityMarker> Icon<W, I, R> {
+impl<W: WidgetCtx, I: IconSet, R: ReactivityMarker> IconBuilder<W, I, R> {
     pub fn visible(mut self, visible: impl IntoMaybeReactive<bool>) -> Self {
         self.visible = visible.maybe_reactive();
         self
     }
 }
 
-impl<W: WidgetCtx> Icon<W, EmptyIconSet, IsInert> {
-    pub fn inert(icon: IconRaw) -> Self {
+impl<W: WidgetCtx + 'static> Icon<W, EmptyIconSet> {
+    pub fn inert(icon: IconRaw) -> IconBuilder<W, EmptyIconSet, IsInert> {
         let layout = Layout::shrink(LayoutKind::Content(ContentLayout::fixed(
             Size::new_equal(icon.size),
         )));
 
-        Self {
+        IconBuilder {
             value: IconValue::Fixed(icon),
             layout,
             style: None,
@@ -60,8 +86,10 @@ impl<W: WidgetCtx> Icon<W, EmptyIconSet, IsInert> {
     }
 }
 
-impl<W: WidgetCtx, I: IconSet + 'static> Icon<W, I, IsReactive> {
-    pub fn new(icon: impl IntoMaybeReactive<I>) -> Self {
+impl<W: WidgetCtx + 'static, I: IconSet + 'static> Icon<W, I> {
+    pub fn new(
+        icon: impl IntoMaybeReactive<I>,
+    ) -> IconBuilder<W, I, IsReactive> {
         let icon = icon.maybe_reactive();
         // TODO: Here we need something like `SignalOnWrite` reactive type that
         // is unlike MaybeSignal turns into Signal on write instead of writing
@@ -78,15 +106,19 @@ impl<W: WidgetCtx, I: IconSet + 'static> Icon<W, I, IsReactive> {
             size.memo(),
         )));
 
-        Self {
-            value: IconValue::Relative(icon),
+        IconBuilder {
+            value,
             layout,
             style: None,
             is_reactive: PhantomData,
             visible: true.inert().maybe_reactive(),
         }
     }
+}
 
+impl<W: WidgetCtx + 'static, I: IconSet + 'static>
+    IconBuilder<W, I, IsReactive>
+{
     // /// Inert icon kind setter
     // pub fn set(&mut self, new_icon: I) {
     //     match &mut self.value {
@@ -116,30 +148,24 @@ impl<W: WidgetCtx, I: IconSet + 'static> Icon<W, I, IsReactive> {
     }
 }
 
-impl<W: WidgetCtx, I: IconSet + 'static, R: ReactivityMarker> Widget<W>
-    for Icon<W, I, R>
-{
-    fn debug_name(&self) -> &'static str {
-        "Icon"
-    }
-
-    fn build(&mut self, ctx: BuildCtx<W>) {
-        let _ = ctx;
-    }
-
+impl<W: WidgetCtx + 'static, I: IconSet + 'static> Widget<W> for Icon<W, I> {
+    // NOTE: no `flags`/`debug_name` override on the retained widget — both are
+    // read exactly once, pre-build, from `Build` (seeding `ElState`); a
+    // retained override would be dead duplication (M7). `Build::debug_name`
+    // on `IconBuilder` returns "Icon".
     fn layout(&self) -> Layout {
         self.layout
     }
 
     #[track_caller]
-    fn render(&self, ctx: &mut RenderCtx<'_, W>) -> RenderResult {
+    fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
         ctx.render_self(|ctx| {
             if !self.visible.get() {
                 return Ok(());
             }
 
             let viewport = ctx.shared.viewport;
-            let _style = ctx.get_style(|t| t.icon, self.style.as_deref());
+            let _style = ctx.get_style(self.style.as_deref());
 
             let _icon_raw = match &self.value {
                 &IconValue::Fixed(icon_raw) => icon_raw,

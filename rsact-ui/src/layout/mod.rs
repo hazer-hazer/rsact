@@ -714,15 +714,15 @@ impl Layout {
     /// Construct base scrollable layout where main axis will be shrinking and
     /// cross axis will fill. Also checks if content layout is with growing
     /// length on main axis which is disallowed.
-    pub fn scrollable<Dir: Direction>(content: Layout) -> Self {
+    pub fn scrollable(axis: Axis, content: Layout) -> Self {
         let content_layout_length =
-            content.with(|layout| layout.size.main(Dir::AXIS));
+            content.with(|layout| layout.size.main(axis));
 
         if content_layout_length.is_grow() {
             panic!(
                 "Don't use growing Length (Div/fill) for content {} inside {} Scrollable!",
-                Dir::AXIS.length_name(),
-                Dir::AXIS.dir_name()
+                axis.length_name(),
+                axis.dir_name()
             );
         }
 
@@ -731,7 +731,7 @@ impl Layout {
                 content,
                 font_props: Default::default(),
             }),
-            size: Dir::AXIS.canon(
+            size: axis.canon(
                 Length::InfiniteWindow(Length::Shrink.try_into().unwrap()),
                 Length::fill(),
             ),

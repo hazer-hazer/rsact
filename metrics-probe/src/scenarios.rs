@@ -127,92 +127,26 @@ fn reactive_only(n: usize) -> Scenario {
     })
 }
 
-/// A widget page of `n` labels in a column, `n` of them bound to signals so a
-/// change frame is measurable. Built headlessly through the public `UI` API
-/// with a `NullRenderer`.
-fn ui_labels(n: usize) -> Scenario {
+/// Shared body for the widget-page scenarios (`ui_labels`/`ui_buttons`/
+/// `ui_nested_flex`, WS13.4 Task 6/M6): these were ~60-line near-verbatim
+/// copies differing only in the page builder and the scenario name prefix, so
+/// the measurement sequence — build, warm-up paint, node/heap snapshot, idle
+/// frame, dirty-one-leaf change frame, layout counters — is factored here
+/// once. `name` becomes `"{name}_{n}"` in the recorded [`Scenario`], so
+/// renaming it changes the metrics time series key.
+fn ui_scenario(
+    name: &str,
+    n: usize,
+    page_fn: impl FnOnce(usize) -> (UI<NullWtf, WithPages>, Vec<Signal<String>>),
+) -> Scenario {
     with_new_runtime(|_| {
         alloc::reset_peak();
         let base_live = alloc::live();
 
-        // Build the canonical N-label page (shared with the layout bench). The
-        // returned `labels` are kept so we can dirty one for the change frame.
-        let (build_allocs, build_bytes, (mut ui, labels)) =
-            charge(|| labels_page(n));
-
-        // Warm-up: the first paint is always full work (page starts dirty and
-        // the render gate's observe-nodes are created here), so it is not a
-        // "frame". Rendering the null theme can hit a pre-existing ColorStyle
-        // panic for some widgets, so guard it and degrade to "not measured"
-        // rather than aborting the whole probe.
-        let painted = guarded_frame(&mut ui, |ui| {
-            ui.current_page().use_renderer(|_| {});
-        })
-        .is_some();
-
-        // Measure node population / heap in the steady state, after first paint.
-        let counts = profile_counts();
-        // Saturating: a scenario that nets a free (base measured mid-churn)
-        // must not underflow-panic and abort the whole recording.
-        let heap_live_bytes = alloc::live().saturating_sub(base_live);
-        let heap_peak_bytes = alloc::peak().saturating_sub(base_live);
-
-        // Idle frame: re-run the gate with nothing dirty (expect ~0 allocs).
-        let idle = painted
-            .then(|| {
-                guarded_frame(&mut ui, |ui| {
-                    ui.current_page().use_renderer(|_| {});
-                })
-            })
-            .flatten();
-
-        // Change frame: dirty one label, re-run the gate. Attribute the layout
-        // work of this single-leaf change to the layout counters (whole-tree
-        // today; WS5 makes it incremental).
-        let mut driver = labels[0];
-        driver.set("changed".into());
-        reset_layout();
-        let change = painted
-            .then(|| {
-                guarded_frame(&mut ui, |ui| {
-                    ui.current_page().use_renderer(|_| {});
-                })
-            })
-            .flatten();
-        // Only trust the layout counters if the change frame actually completed;
-        // a panicked frame leaves them at 0 (reset, never incremented), which
-        // would record a phantom `Some {visits: 0, measures: 0}` and show as a
-        // fake −100% "improvement" in a later diff.
-        let layout = change.and_then(|_| read_layout());
-
-        Scenario {
-            name: format!("ui_labels_{n}"),
-            counts,
-            heap_live_bytes,
-            heap_peak_bytes,
-            build_allocs,
-            build_bytes,
-            idle_frame_allocs: idle,
-            change_frame_allocs: change,
-            layout,
-        }
-    })
-}
-
-/// A widget page of `n` buttons in a column (button-heavy, WS13.2 Task 5): `n`
-/// `ButtonBuilder -> Button` transforms, each wrapping a label bound to a
-/// signal so a change frame is measurable. Built headlessly through the
-/// public `UI` API with a `NullRenderer`. Mirrors [`ui_labels`] exactly except
-/// for the page builder, so the two are directly comparable.
-fn ui_buttons(n: usize) -> Scenario {
-    with_new_runtime(|_| {
-        alloc::reset_peak();
-        let base_live = alloc::live();
-
-        // Build the canonical N-button page. The returned `labels` are kept so
+        // Build the canonical N-widget page. The returned `labels` are kept so
         // we can dirty one for the change frame.
         let (build_allocs, build_bytes, (mut ui, labels)) =
-            charge(|| buttons_page(n));
+            charge(|| page_fn(n));
 
         // Warm-up: the first paint is always full work (page starts dirty and
         // the render gate's observe-nodes are created here), so it is not a
@@ -240,84 +174,7 @@ fn ui_buttons(n: usize) -> Scenario {
             })
             .flatten();
 
-        // Change frame: dirty one button's label, re-run the gate. Attribute
-        // the layout work of this single-leaf change to the layout counters
-        // (whole-tree today; WS5 makes it incremental).
-        let mut driver = labels[0];
-        driver.set("changed".into());
-        reset_layout();
-        let change = painted
-            .then(|| {
-                guarded_frame(&mut ui, |ui| {
-                    ui.current_page().use_renderer(|_| {});
-                })
-            })
-            .flatten();
-        // Only trust the layout counters if the change frame actually completed;
-        // a panicked frame leaves them at 0 (reset, never incremented), which
-        // would record a phantom `Some {visits: 0, measures: 0}` and show as a
-        // fake −100% "improvement" in a later diff.
-        let layout = change.and_then(|_| read_layout());
-
-        Scenario {
-            name: format!("ui_buttons_{n}"),
-            counts,
-            heap_live_bytes,
-            heap_peak_bytes,
-            build_allocs,
-            build_bytes,
-            idle_frame_allocs: idle,
-            change_frame_allocs: change,
-            layout,
-        }
-    })
-}
-
-/// A widget page of `n` nested `Flex` containers (flex-heavy, WS13.2 Task 5):
-/// `n + 1` `FlexBuilder -> Flex` transforms (one outer column plus `n` inner
-/// rows), each inner row wrapping a label bound to a signal so a change frame
-/// is measurable. Built headlessly through the public `UI` API with a
-/// `NullRenderer`. Mirrors [`ui_labels`] exactly except for the page builder,
-/// so the two are directly comparable — this scenario multiplies the `Flex`
-/// split path `n + 1` times instead of the single outer `Flex` `ui_labels`
-/// exercises.
-fn ui_nested_flex(n: usize) -> Scenario {
-    with_new_runtime(|_| {
-        alloc::reset_peak();
-        let base_live = alloc::live();
-
-        // Build the canonical N-nested-Flex page. The returned `labels` are
-        // kept so we can dirty one for the change frame.
-        let (build_allocs, build_bytes, (mut ui, labels)) =
-            charge(|| nested_flex_page(n));
-
-        // Warm-up: the first paint is always full work (page starts dirty and
-        // the render gate's observe-nodes are created here), so it is not a
-        // "frame". Rendering the null theme can hit a pre-existing ColorStyle
-        // panic for some widgets, so guard it and degrade to "not measured"
-        // rather than aborting the whole probe.
-        let painted = guarded_frame(&mut ui, |ui| {
-            ui.current_page().use_renderer(|_| {});
-        })
-        .is_some();
-
-        // Measure node population / heap in the steady state, after first paint.
-        let counts = profile_counts();
-        // Saturating: a scenario that nets a free (base measured mid-churn)
-        // must not underflow-panic and abort the whole recording.
-        let heap_live_bytes = alloc::live().saturating_sub(base_live);
-        let heap_peak_bytes = alloc::peak().saturating_sub(base_live);
-
-        // Idle frame: re-run the gate with nothing dirty (expect ~0 allocs).
-        let idle = painted
-            .then(|| {
-                guarded_frame(&mut ui, |ui| {
-                    ui.current_page().use_renderer(|_| {});
-                })
-            })
-            .flatten();
-
-        // Change frame: dirty one nested label, re-run the gate. Attribute the
+        // Change frame: dirty one leaf label, re-run the gate. Attribute the
         // layout work of this single-leaf change to the layout counters
         // (whole-tree today; WS5 makes it incremental).
         let mut driver = labels[0];
@@ -337,7 +194,7 @@ fn ui_nested_flex(n: usize) -> Scenario {
         let layout = change.and_then(|_| read_layout());
 
         Scenario {
-            name: format!("ui_nested_flex_{n}"),
+            name: format!("{name}_{n}"),
             counts,
             heap_live_bytes,
             heap_peak_bytes,
@@ -348,6 +205,34 @@ fn ui_nested_flex(n: usize) -> Scenario {
             layout,
         }
     })
+}
+
+/// A widget page of `n` labels in a column, `n` of them bound to signals so a
+/// change frame is measurable. Built headlessly through the public `UI` API
+/// with a `NullRenderer`.
+fn ui_labels(n: usize) -> Scenario {
+    ui_scenario("ui_labels", n, labels_page)
+}
+
+/// A widget page of `n` buttons in a column (button-heavy, WS13.2 Task 5): `n`
+/// `ButtonBuilder -> Button` transforms, each wrapping a label bound to a
+/// signal so a change frame is measurable. Built headlessly through the
+/// public `UI` API with a `NullRenderer`. Mirrors [`ui_labels`] exactly except
+/// for the page builder, so the two are directly comparable.
+fn ui_buttons(n: usize) -> Scenario {
+    ui_scenario("ui_buttons", n, buttons_page)
+}
+
+/// A widget page of `n` nested `Flex` containers (flex-heavy, WS13.2 Task 5):
+/// `n + 1` `FlexBuilder -> Flex` transforms (one outer column plus `n` inner
+/// rows), each inner row wrapping a label bound to a signal so a change frame
+/// is measurable. Built headlessly through the public `UI` API with a
+/// `NullRenderer`. Mirrors [`ui_labels`] exactly except for the page builder,
+/// so the two are directly comparable — this scenario multiplies the `Flex`
+/// split path `n + 1` times instead of the single outer `Flex` `ui_labels`
+/// exercises.
+fn ui_nested_flex(n: usize) -> Scenario {
+    ui_scenario("ui_nested_flex", n, nested_flex_page)
 }
 
 /// Measure a frame, returning `None` if the render gate panics (see the

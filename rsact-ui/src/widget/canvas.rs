@@ -16,6 +16,14 @@ use crate::widget::prelude::*;
 // (it returns false for `Owned == Owned`, defeating memo-diffing of command
 // lists).
 
+// WS13.4 (Task 5.11): like `Label`/`Bar`/`Checkbox`/`Slider`/`Knob`, `Canvas`
+// has no build-only field to drop — `draw`/`layout` are both read by
+// `render`/`layout`, so `CanvasBuilder` moves both fields into the retained
+// `Canvas` unchanged (a `size_of` `<` assertion would be false, not true).
+// The split is purely mechanical: the immediate-mode draw closure is moved
+// by name like any other `#[widget]` field, never invoked or inspected
+// during the build-time move, so none of the WS1b.1 DrawQueue/draw-command
+// semantics documented above are touched.
 /// An immediate-mode drawing surface.
 ///
 /// A `Canvas` is built from a single draw closure. The closure is invoked on
@@ -34,11 +42,19 @@ use crate::widget::prelude::*;
 ///     Ok(())
 /// })
 /// ```
-#[derive(View)]
-pub struct Canvas<W: WidgetCtx> {
+#[derive(Builder)]
+#[builds(Canvas<W>)]
+pub struct CanvasBuilder<W: WidgetCtx> {
     // A single boxed closure is the entire Canvas state — no per-frame
     // `VecDeque` of commands and no image storage, which is the memory win of
     // the immediate-mode model.
+    #[widget]
+    draw: Box<dyn Fn(&mut W::Renderer) -> RenderResult>,
+    #[widget]
+    layout: Layout,
+}
+
+pub struct Canvas<W: WidgetCtx> {
     draw: Box<dyn Fn(&mut W::Renderer) -> RenderResult>,
     layout: Layout,
 }
@@ -48,31 +64,30 @@ impl<W: WidgetCtx> Canvas<W> {
     /// clipped to the Canvas's rect and is called on every (forced) render.
     pub fn new(
         draw: impl Fn(&mut W::Renderer) -> RenderResult + 'static,
-    ) -> Self {
-        Self {
+    ) -> CanvasBuilder<W> {
+        CanvasBuilder {
             draw: Box::new(draw),
             layout: Layout::edge(LengthSize::new_equal(Length::fill())),
         }
     }
 }
 
-impl<W: WidgetCtx> LayoutWidget<W> for Canvas<W> {
+impl<W: WidgetCtx> LayoutWidget<W> for CanvasBuilder<W> {
     fn layout_mut(&mut self) -> &mut Layout {
         &mut self.layout
     }
 }
 
-impl<W: WidgetCtx> SizedWidget<W> for Canvas<W> {}
+impl<W: WidgetCtx> SizedWidget<W> for CanvasBuilder<W> {}
 
 impl<W: WidgetCtx> Widget<W> for Canvas<W> {
-    fn debug_name(&self) -> &'static str {
-        "Canvas"
-    }
-
-    fn build(&mut self, ctx: BuildCtx<W>) {
-        let _ = ctx;
-    }
-
+    // NOTE: no `flags`/`debug_name` override on the retained widget — both
+    // are read exactly once, pre-build, from `Build` (seeding `ElState` at
+    // `state.rs:72`); post-build all consumption is via `ElState`, so an
+    // override here would be dead duplication of `CanvasBuilder`'s derived
+    // `Build::debug_name` ("Canvas" from `#[builds(Canvas<W>)]`). `Canvas`
+    // never overrode `flags` either, so no `#[flags(...)]` attr is needed on
+    // `CanvasBuilder`.
     fn layout(&self) -> Layout {
         self.layout
     }
@@ -138,7 +153,7 @@ mod tests {
                 draws_in.set(draws_in.get() + 1);
                 Ok(())
             })
-            .el(),
+            .into_el(),
         );
 
         page.use_renderer(|_| {});

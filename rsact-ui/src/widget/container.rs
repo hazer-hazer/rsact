@@ -9,26 +9,40 @@ declare_widget_style! {
     }
 }
 
-#[derive(View)]
+// WS13.4 (Task 5.7): single child, like `Button` — `content: El<W>` is
+// build-only (consumed by `ctx.set_single_child` in `Build::build`, never
+// read again after `build`), so it becomes `#[child(single)]`; `layout`/
+// `style` are both read by `render`/`layout`, so they stay retained
+// `#[widget]` fields.
+#[derive(Builder)]
+#[builds(Container<W>)]
+pub struct ContainerBuilder<W: WidgetCtx> {
+    #[widget]
+    layout: Layout,
+    #[child(single)]
+    content: El<W>,
+    #[widget]
+    style: WidgetStyleFn<ContainerStyle<W::Color>>,
+}
+
 pub struct Container<W: WidgetCtx> {
-    pub layout: Layout,
-    pub content: El<W>,
-    pub style: WidgetStyleFn<ContainerStyle<W::Color>>,
+    layout: Layout,
+    style: WidgetStyleFn<ContainerStyle<W::Color>>,
 }
 
 impl<W: WidgetCtx + 'static> Container<W> {
-    pub fn new(content: impl View<W>) -> Self {
+    pub fn new(content: impl View<W>) -> ContainerBuilder<W> {
         let content = content.into_el();
 
-        Self {
-            layout: Layout::shrink(LayoutKind::Container(
-                ContainerLayout::base(content.layout()),
-            )),
-            content,
-            style: None,
-        }
-    }
+        let layout = Layout::shrink(LayoutKind::Container(
+            ContainerLayout::base(content.layout()),
+        ));
 
+        ContainerBuilder { layout, content, style: None }
+    }
+}
+
+impl<W: WidgetCtx + 'static> ContainerBuilder<W> {
     pub fn style(
         mut self,
         style: impl StyleFn<ContainerStyle<W::Color>>,
@@ -99,25 +113,24 @@ impl<W: WidgetCtx + 'static> Container<W> {
     // }
 }
 
-impl<W: WidgetCtx + 'static> LayoutWidget<W> for Container<W> {
+impl<W: WidgetCtx + 'static> LayoutWidget<W> for ContainerBuilder<W> {
     fn layout_mut(&mut self) -> &mut Layout {
         &mut self.layout
     }
 }
-impl<W: WidgetCtx + 'static> SizedWidget<W> for Container<W> {}
-impl<W: WidgetCtx + 'static> BlockModelWidget<W> for Container<W> {}
+impl<W: WidgetCtx + 'static> SizedWidget<W> for ContainerBuilder<W> {}
+impl<W: WidgetCtx + 'static> BlockModelWidget<W> for ContainerBuilder<W> {}
 
-impl<W: WidgetCtx> FontSettingWidget<W> for Container<W> {}
+impl<W: WidgetCtx> FontSettingWidget<W> for ContainerBuilder<W> {}
 
 impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
-    fn debug_name(&self) -> &'static str {
-        "Container"
-    }
-
-    fn build(&mut self, mut ctx: BuildCtx<W>) {
-        ctx.set_single_child(&mut self.content);
-    }
-
+    // NOTE: no `flags`/`debug_name` override on the retained widget — both
+    // are read exactly once, pre-build, from `Build` (seeding `ElState` at
+    // `state.rs:72`); post-build all consumption is via `ElState`, so an
+    // override here would be dead duplication of `ContainerBuilder`'s
+    // derived `Build::debug_name` ("Container" from
+    // `#[builds(Container<W>)]`). `Container` never overrode `flags` either,
+    // so no `#[flags(...)]` attr is needed on `ContainerBuilder`.
     fn layout(&self) -> Layout {
         self.layout
     }
@@ -143,11 +156,11 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
 
 pub trait ContainerExt<W: WidgetCtx> {
     #[allow(non_snake_case)]
-    fn Container(self) -> Container<W>;
+    fn Container(self) -> ContainerBuilder<W>;
 }
 
 impl<W: WidgetCtx, T: View<W>> ContainerExt<W> for T {
-    fn Container(self) -> Container<W> {
+    fn Container(self) -> ContainerBuilder<W> {
         Container::new(self)
     }
 }

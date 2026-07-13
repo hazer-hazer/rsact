@@ -219,7 +219,7 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
 ///     || {
 ///         UI::new((), NullRenderer)
 ///             .no_events()
-///             .with_page((), || Label::new("Hello e-paper".inert()).el())
+///             .with_page((), || Label::new("Hello e-paper".inert()).into_el())
 ///     },
 ///     display,
 /// );
@@ -505,7 +505,7 @@ mod tests {
                 || {
                     UI::new((), NullRenderer)
                         .no_events()
-                        .with_page((), || Label::new("x".inert()).el())
+                        .with_page((), || Label::new("x".inert()).into_el())
                 },
                 &mut target,
             );

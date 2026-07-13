@@ -131,9 +131,9 @@ fn page() -> impl View<W> {
     let widget_view = dynamic(move || match widget.get() {
         WidgetTab::Container => container().into_el(),
         WidgetTab::Button => Button::new("Some button text").into_el(),
-        WidgetTab::Canvas => Label::new("TODO").el(),
-        WidgetTab::Checkbox => Checkbox::new(true).el(),
-        WidgetTab::Label => Label::new("Some text").el(),
+        WidgetTab::Canvas => Label::new("TODO").into_el(),
+        WidgetTab::Checkbox => Checkbox::new(true).into_el(),
+        WidgetTab::Label => Label::new("Some text").into_el(),
     })
     .Container()
     .fill();

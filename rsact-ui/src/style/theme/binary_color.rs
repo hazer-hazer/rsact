@@ -25,6 +25,8 @@
 //! revisit "inverted active" states (active button = background `On`,
 //! foreground `Off`). Until then it would white-out labels, so it is omitted.
 
+#[cfg(feature = "tiny-icons")]
+use crate::widget::icon::IconStyle;
 use crate::{
     style::{
         StyleSelector,
@@ -243,6 +245,20 @@ impl Stylist<SliderStyle<BinaryColor>> for BinaryTheme {
             .thumb_border_radius(self.border_radius)
             .thumb_size(10)
             .thumb_shape(SliderThumbShape::RoundedSquare)
+    }
+}
+
+#[cfg(feature = "tiny-icons")]
+impl Stylist<IconStyle<BinaryColor>> for BinaryTheme {
+    fn style(
+        &self,
+        base: &IconStyle<BinaryColor>,
+        _selector: &StyleSelector,
+    ) -> IconStyle<BinaryColor> {
+        // Icons are content, drawn in `fg` like text (see module docs: content
+        // is always foreground-colored since a widget cannot yet recolor a
+        // child's own drawing).
+        base.color(self.fg)
     }
 }
 

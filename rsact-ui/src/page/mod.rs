@@ -791,7 +791,7 @@ mod tests {
             // unrelated pre-existing ColorStyle panic).
             let page = create_null_page(move || {
                 rebuild.get(); // track: re-run the factory on each change
-                Container::new(Label::new("x".inert()).el())
+                Container::new(Label::new("x".inert()).into_el())
             });
 
             let baseline = page.arena.with(|arena| arena.el_count());
@@ -826,7 +826,8 @@ mod tests {
             let baseline = current_runtime_profile().observers;
 
             for _ in 0..100 {
-                let mut page = create_null_page(Label::new("x".inert()).el());
+                let mut page =
+                    create_null_page(Label::new("x".inert()).into_el());
                 // Render so the element's `part_probes` and the page's
                 // `render_probe` are actually created.
                 page.use_renderer(|_| {});
@@ -860,7 +861,8 @@ mod tests {
             // the null theme (a bare `Container` would hit the pre-existing
             // ColorStyle render panic). The child is registered under the root
             // via `set_single_child` at build.
-            let mut page = create_null_page(|| Label::new("x".inert()).el());
+            let mut page =
+                create_null_page(|| Label::new("x".inert()).into_el());
 
             // Render so the child Label owns its "self" probe.
             page.use_renderer(|_| {});
@@ -910,7 +912,7 @@ mod tests {
                 // A page whose `Dynamic` root subscribes to the app signal.
                 let mut page = create_null_page(move || {
                     app_signal.get(); // Dynamic factory tracks app_signal
-                    Label::new("x".inert()).el()
+                    Label::new("x".inert()).into_el()
                 });
                 // Build the Dynamic child so its build effect actually runs.
                 page.use_renderer(|_| {});
@@ -950,14 +952,14 @@ mod tests {
             // baseline reflects the steady state.
             {
                 let mut page =
-                    create_null_page(|| Label::new("x".inert()).el());
+                    create_null_page(|| Label::new("x".inert()).into_el());
                 page.use_renderer(|_| {});
             }
             let baseline = current_runtime_profile().total();
 
             for _ in 0..50 {
                 let mut page =
-                    create_null_page(|| Label::new("x".inert()).el());
+                    create_null_page(|| Label::new("x".inert()).into_el());
                 page.use_renderer(|_| {});
                 drop(page);
             }
@@ -990,7 +992,7 @@ mod tests {
             let mut rebuild = create_signal(0i32);
             let _page = create_null_page(move || {
                 rebuild.get(); // track: re-run the factory on each change
-                Container::new(Checkbox::new(false).el()).el()
+                Container::new(Checkbox::new(false).into_el()).into_el()
             });
 
             // The layout effect ran once at construction; measure the steady
@@ -1022,7 +1024,7 @@ mod tests {
 
         with_new_runtime(|_| {
             let mut page = create_null_page(|| {
-                Container::new(Label::new("x".inert()).el()).el()
+                Container::new(Label::new("x".inert()).into_el()).into_el()
             });
             // Build the tree so the Dynamic root's child exists.
             page.use_renderer(|_| {});
@@ -1086,9 +1088,9 @@ mod tests {
         with_new_runtime(|_| {
             let mut page = create_null_page(
                 Flex::col(alloc::vec![
-                    Label::new("a".inert()).el(),
-                    Label::new("b".inert()).el(),
-                    Label::new("c".inert()).el(),
+                    Label::new("a".inert()).into_el(),
+                    Label::new("b".inert()).into_el(),
+                    Label::new("c".inert()).into_el(),
                 ])
                 .into_el(),
             );
@@ -1125,7 +1127,8 @@ mod tests {
     fn draw_on_demand() {
         let mut redraw_signal_data = String::new().signal();
 
-        let mut page = create_null_page(Label::new(redraw_signal_data).el());
+        let mut page =
+            create_null_page(Label::new(redraw_signal_data).into_el());
 
         assert_eq!(page.take_draw_calls(), 0);
 
@@ -1163,7 +1166,7 @@ mod tests {
         // page-observer key `("render_page", ())` collides in the shared
         // `static_observers` and tests would pollute each other otherwise.
         with_new_runtime(|_| {
-            let mut page = create_null_page(Checkbox::new(false).el());
+            let mut page = create_null_page(Checkbox::new(false).into_el());
 
             // Render until the page settles (the first passes warm up
             // layout/style), then confirm it is quiescent with nothing changing.
@@ -1208,7 +1211,7 @@ mod tests {
         use crate::event::{Event, MouseButton, MouseEvent};
 
         with_new_runtime(|_| {
-            let mut page = create_null_page(Checkbox::new(false).el());
+            let mut page = create_null_page(Checkbox::new(false).into_el());
 
             // Reading the layout memo builds/lays out the tree; no rendering is
             // needed. (Rendering a `Label` in the null theme panics on the
@@ -1356,7 +1359,7 @@ mod tests {
         use crate::event::{Event, MouseButton, MouseEvent};
 
         with_new_runtime(|_| {
-            let mut page = create_null_page(Checkbox::new(false).el());
+            let mut page = create_null_page(Checkbox::new(false).into_el());
             let cb = page.root;
 
             let pt = page.layout.with(|m| m.tree_root().outer.center());
@@ -1776,7 +1779,7 @@ mod tests {
             "string literal",           // &str leaf
             String::from("owned string"), // String leaf
             Container::new("nested str"), // container takes `impl View`
-            Label::new("explicit").el(), // existing El still fine
+            Label::new("explicit").into_el(), // existing El still fine
             Some(Button::new("optional")), // Option<View>
         )));
 
@@ -1857,6 +1860,385 @@ mod tests {
         ]));
     }
 
+    // WS13.4 (Task 5.1): `Show` is split — `ShowBuilder` carries the
+    // build-only `el` child (and consumes `show: Memo<bool>` inline in
+    // `Show::new`, storing neither on the builder), the retained `Show`
+    // keeps only the `layout` handle it shares with `el` (plus the `ctx`
+    // phantom, since `layout: Layout` alone doesn't use `W`).
+    #[test]
+    fn show_split_drops_el_husk() {
+        use crate::widget::show::{Show, ShowBuilder};
+        // Retained Show holds only its layout handle — no `el` child, no
+        // `show: Memo<bool>`.
+        assert!(
+            core::mem::size_of::<Show<NullWtf>>()
+                < core::mem::size_of::<ShowBuilder<NullWtf>>(),
+            "retained Show must be smaller than ShowBuilder (dropped el child)"
+        );
+        let _ = create_null_page(Show::new(
+            true.inert(),
+            Button::new("ok").into_el(),
+        ));
+    }
+
+    // WS13.4 (Task 5.2): `Label` is split, but unlike `Button`/`Flex`/`Show`
+    // it has no build-only field to drop — `content`/`layout`/`style` are all
+    // read by `render`, so `LabelBuilder` moves every field into the retained
+    // `Label` unchanged (a `size_of` `<` assertion would be false, not true).
+    // Per the row's fallback: lock that `LabelBuilder` exists as a real,
+    // distinct type and that a page built from `Label::new(...).into_el()`
+    // still builds and renders end-to-end through the derive-generated
+    // `Build` path.
+    #[test]
+    fn label_split_builder_exists_and_page_renders() {
+        use crate::widget::label::{Label, LabelBuilder};
+
+        fn assert_is_label_builder<W: WidgetCtx>(_: &LabelBuilder<W>) {}
+        let b = Label::<NullWtf>::new("x".inert());
+        assert_is_label_builder(&b);
+
+        let mut page = create_null_page(Label::new("hello".inert()).into_el());
+        // Label's render falls back to the theme's default foreground on an
+        // unset text color (no panic) — see the render body's Note: — so this
+        // renders cleanly through the null theme, unlike a bare `Container`.
+        page.use_renderer(|_| {});
+    }
+
+    // WS13.4 (Task 5.3): `Space` is split, but like `Label` it has no
+    // build-only field to drop — `layout`/`ctx` are the same two fields on
+    // both sides (`Dir: Direction` was de-genericized away per the 7.2 slice,
+    // flex precedent: it was a compile-time-only tag selecting `Axis` in
+    // `new()`, never read at runtime) — a `size_of` `<` assertion would be
+    // false, not true, so this mirrors the label fallback shape test.
+    #[test]
+    fn space_split_builder_exists_and_page_renders() {
+        use crate::widget::space::{Space, SpaceBuilder};
+
+        fn assert_is_space_builder<W: WidgetCtx>(_: &SpaceBuilder<W>) {}
+        let b = Space::<NullWtf>::row(10);
+        assert_is_space_builder(&b);
+
+        // Space renders nothing (a no-op `render`), so building the page
+        // through the derive-generated `Build` path is the meaningful check.
+        let _ = create_null_page(Space::col(10));
+    }
+
+    // WS13.4 (Task 5.4): `Edge` is split, but like `Label`/`Space` it has no
+    // build-only field to drop — `layout`/`style` are both read by
+    // `render`/`layout`, so `EdgeBuilder` moves both fields into the
+    // retained `Edge` unchanged (a `size_of` `<` assertion would be false,
+    // not true).
+    #[test]
+    fn edge_split_builder_exists_and_page_builds() {
+        use crate::widget::edge::{Edge, EdgeBuilder};
+
+        fn assert_is_edge_builder<W: WidgetCtx>(_: &EdgeBuilder<W>) {}
+        let b = Edge::<NullWtf>::new();
+        assert_is_edge_builder(&b);
+
+        // Not rendering: `Edge`'s `container` style panics on the null
+        // theme's unset background/border `ColorStyle`, the same
+        // pre-existing limitation documented on `Container` elsewhere in
+        // this file (e.g. `arena_rebuild_does_not_leak_subtree`'s "unrelated
+        // pre-existing ColorStyle panic" note) — unrelated to this split, so
+        // building (not rendering) the page is the meaningful check here.
+        let _ = create_null_page(Edge::new());
+    }
+
+    // WS13.4 (Task 5.5): `Bar` is split, but like `Label`/`Space`/`Edge` it
+    // has no build-only field to drop — `value`/`layout`/`style`/`axis` are
+    // all read by `render`, so `BarBuilder` moves all four fields into the
+    // retained `Bar` unchanged (a `size_of` `<` assertion would be false, not
+    // true). `Dir: Direction` was de-genericized into a runtime `axis: Axis`
+    // field (unlike `Space`, `render` reads it too, not just `new()` — see
+    // bar.rs's WS13.4 comment); `V: RangeValue` is deliberately left generic
+    // (deferred to 5.8, see the same comment).
+    #[test]
+    fn bar_split_builder_exists_and_page_builds() {
+        use crate::{
+            value::{RangeU8, RangeValue},
+            widget::bar::{Bar, BarBuilder},
+        };
+
+        fn assert_is_bar_builder<W: WidgetCtx, V: RangeValue>(
+            _: &BarBuilder<W, V>,
+        ) {
+        }
+        let b = Bar::<NullWtf, RangeU8>::horizontal(
+            RangeU8::new_full_range(0).inert(),
+        );
+        assert_is_bar_builder(&b);
+
+        // Not rendering: `Bar`'s `container` style panics on the null
+        // theme's unset background/border `ColorStyle`, the same
+        // pre-existing limitation documented on `Edge`/`Container` elsewhere
+        // in this file — unrelated to this split, so building (not
+        // rendering) the page is the meaningful check here.
+        let _ = create_null_page(Bar::<NullWtf, RangeU8>::vertical(
+            RangeU8::new_full_range(0).inert(),
+        ));
+    }
+
+    // WS13.4 (Task 5.6): `Checkbox` is split, but like `Label`/`Space`/
+    // `Edge`/`Bar` it has no build-only field to drop — `layout`/`value`/
+    // `style` are all read by `render`/`on_event`, so `CheckboxBuilder`
+    // moves all three fields into the retained `Checkbox` unchanged (a
+    // `size_of` `<` assertion would be false, not true). `value:
+    // Signal<bool>` is the widget's JOB (WS4.5 audit: the checked state IS
+    // what Checkbox is), so it stays a retained field rather than becoming
+    // build-only — see checkbox.rs's WS13.4 comment.
+    #[test]
+    fn checkbox_split_builder_exists_and_page_renders() {
+        use crate::widget::checkbox::{Checkbox, CheckboxBuilder};
+
+        fn assert_is_checkbox_builder<W: WidgetCtx>(_: &CheckboxBuilder<W>) {}
+        let b = Checkbox::<NullWtf>::new(false);
+        assert_is_checkbox_builder(&b);
+
+        // Unlike Edge/Bar/Container, Checkbox renders cleanly through the
+        // null theme (exercised extensively by the toggle/click tests
+        // above), so render (not just build) the page for the meaningful
+        // check, mirroring Label's version of this test.
+        let mut page = create_null_page(Checkbox::<NullWtf>::new(false));
+        page.use_renderer(|_| {});
+    }
+
+    // WS13.4 (Task 5.7): `Container` is split like `Button` (single child) —
+    // `content: El<W>` is build-only (consumed by `ctx.set_single_child` in
+    // `Build::build`, never read again), so `ContainerBuilder` carries it as
+    // `#[child(single)]` and the retained `Container` drops it; `layout`/
+    // `style` stay retained `#[widget]` fields (both read by `render`).
+    #[test]
+    fn container_split_drops_content_husk() {
+        use crate::widget::container::{Container, ContainerBuilder};
+        // The retained widget must not carry the build-only child husk, so it
+        // is strictly smaller than its builder.
+        assert!(
+            core::mem::size_of::<Container<NullWtf>>()
+                < core::mem::size_of::<ContainerBuilder<NullWtf>>(),
+            "retained Container must be smaller than ContainerBuilder \
+             (dropped content husk)"
+        );
+
+        // Not rendering: `Container`'s `container` style panics on the null
+        // theme's unset background/border `ColorStyle` (the same
+        // pre-existing limitation noted on `Edge`/`Bar` elsewhere in this
+        // file), so building (not rendering) the page is the meaningful
+        // check here.
+        let _ = create_null_page(Container::new("ok"));
+    }
+
+    // WS13.4 (Task 5.8): `Slider` is split, but like `Label`/`Space`/`Edge`/
+    // `Bar`/`Checkbox` it has no build-only field to drop — `value`/`range`/
+    // `step`/`state`/`layout`/`style`/`axis` are all read by `render`/
+    // `on_event`, so `SliderBuilder` moves all seven fields into the
+    // retained `Slider` unchanged (a `size_of` `<` assertion would be false,
+    // not true). Unlike `Bar`, `Slider` never had a `V: RangeValue` generic
+    // to begin with (its value/range/step are already concrete `f32`), so
+    // there is no `V` decision to make here — only `Dir: Direction` was
+    // de-genericized, into a runtime `axis: Axis` field (Bar precedent:
+    // `render` reads it repeatedly, not just `new()`'s size computation) —
+    // see slider.rs's WS13.4 comment.
+    #[test]
+    fn slider_split_builder_exists_and_page_renders() {
+        use crate::widget::slider::{Slider, SliderBuilder};
+
+        fn assert_is_slider_builder<W: WidgetCtx>(_: &SliderBuilder<W>) {}
+        let b = Slider::<NullWtf>::horizontal(0.5, (0.0..=1.0).inert());
+        assert_is_slider_builder(&b);
+
+        // Unlike Edge/Bar/Container, Slider renders cleanly through the null
+        // theme (its track/thumb draw styles resolve `ColorStyle::get()`,
+        // never `.expect()`), so render (not just build) the page for the
+        // meaningful check, mirroring Checkbox's/Label's version of this
+        // test.
+        let mut page = create_null_page(Slider::<NullWtf>::horizontal(
+            0.5,
+            (0.0..=1.0).inert(),
+        ));
+        page.use_renderer(|_| {});
+    }
+
+    // WS13.4 (Task 5.9): `Knob` is split like `Slider` — like `Label`/
+    // `Space`/`Edge`/`Bar`/`Checkbox`/`Slider` it has no build-only field to
+    // drop — `layout`/`value`/`state`/`style` are all read by `render`/
+    // `on_event`, so `KnobBuilder` moves all four fields into the retained
+    // `Knob` unchanged (a `size_of` `<` assertion would be false, not true).
+    // Unlike `Slider`, `Knob<W, V: RangeValue>` DOES carry a genuine `V`
+    // generic; applying Bar's decision rule to the same evidence Bar found
+    // (only live `RangeValue` impl is the const-generic `RangeU8` family;
+    // other impls are commented-out/TODO), `V` is deliberately left generic
+    // here too, NOT de-genericized — same call as Bar, deferred to the same
+    // WS7 remainder. `Knob` has no `Dir`/`Axis` generic at all, so there is
+    // no Dir-side decision on this widget — see knob.rs's WS13.4 comment.
+    #[test]
+    fn knob_split_builder_exists_and_page_renders() {
+        use crate::{
+            value::{RangeU8, RangeValue},
+            widget::knob::{Knob, KnobBuilder},
+        };
+
+        fn assert_is_knob_builder<W: WidgetCtx, V: RangeValue>(
+            _: &KnobBuilder<W, V>,
+        ) {
+        }
+        let b = Knob::<NullWtf, RangeU8>::new(create_signal(
+            RangeU8::new_full_range(0),
+        ));
+        assert_is_knob_builder(&b);
+
+        // Unlike Edge/Bar/Container, Knob renders cleanly through the null
+        // theme (its sector draw style resolves `ColorStyle::get()`, never
+        // `.expect()`), so render (not just build) the page for the
+        // meaningful check.
+        let mut page = create_null_page(Knob::<NullWtf, RangeU8>::new(
+            create_signal(RangeU8::new_full_range(0)),
+        ));
+        page.use_renderer(|_| {});
+    }
+
+    // WS13.4 (Task 5.10): `Scrollable` is split like `Button`/`Container`
+    // (single child) — `content: El<W>` is build-only (consumed by
+    // `ctx.set_single_child` in `Build::build`, never read again), so
+    // `ScrollableBuilder` carries it as `#[child(single)]` and the retained
+    // `Scrollable` drops it; `state`/`style`/`layout`/`mode` stay retained
+    // `#[widget]` fields (all read by `render`/`on_event`). `Dir: Direction`
+    // is de-genericized like `Bar`/`Slider` into a runtime `axis: Axis`
+    // field — both `render` and `on_event` read `Dir::AXIS` repeatedly (drag
+    // projection, scrollbar geometry), not just `new()`'s one-shot
+    // `Layout::scrollable` call — collapsing `Scrollable<W, RowDir>`/
+    // `Scrollable<W, ColDir>` into a single `Scrollable<W>`. See
+    // scrollable.rs's WS13.4 comment for how the compile-time
+    // `SizedWidget<RowDir>::width`/`SizedWidget<ColDir>::height`
+    // specialization becomes a single runtime `if self.axis == ...` branch.
+    #[test]
+    fn scrollable_split_drops_content_husk() {
+        use crate::widget::scrollable::{Scrollable, ScrollableBuilder};
+        // The retained widget must not carry the build-only child husk, so it
+        // is strictly smaller than its builder.
+        assert!(
+            core::mem::size_of::<Scrollable<NullWtf>>()
+                < core::mem::size_of::<ScrollableBuilder<NullWtf>>(),
+            "retained Scrollable must be smaller than ScrollableBuilder \
+             (dropped content husk)"
+        );
+
+        // De-generic: `Scrollable<W>` takes no Dir param; horizontal/vertical
+        // both produce the same `ScrollableBuilder<W>`. Not rendering: like
+        // Edge/Bar/Container, Scrollable's `container` style panics on the
+        // null theme's unset background/border `ColorStyle`, so building
+        // (not rendering) the page is the meaningful check here.
+        let _ =
+            create_null_page(Scrollable::<NullWtf>::vertical(Button::new("x")));
+        let _ = create_null_page(Scrollable::<NullWtf>::horizontal(
+            Button::new("y"),
+        ));
+    }
+
+    // WS13.4 (Task 5.11): `Canvas` is split, but like `Label`/`Space`/
+    // `Edge`/`Bar`/`Checkbox`/`Slider`/`Knob` it has no build-only field to
+    // drop — `draw`/`layout` are both read by `render`/`layout`, so
+    // `CanvasBuilder` moves both fields into the retained `Canvas` unchanged
+    // (a `size_of` `<` assertion would be false, not true). The split is
+    // purely mechanical: the WS1b.1 immediate-mode draw closure is moved by
+    // name like any other `#[widget]` field, never invoked or inspected
+    // during the build-time move, so the DrawQueue/draw-command semantics
+    // documented in canvas.rs are untouched.
+    #[test]
+    fn canvas_split_builder_exists_and_page_renders() {
+        use crate::widget::canvas::{Canvas, CanvasBuilder};
+
+        fn assert_is_canvas_builder<W: WidgetCtx>(_: &CanvasBuilder<W>) {}
+        let b = Canvas::<NullWtf>::new(|_renderer| Ok(()));
+        assert_is_canvas_builder(&b);
+
+        // Unlike Edge/Bar/Container, Canvas resolves no style at all (no
+        // `declare_widget_style!`), so it renders cleanly through the null
+        // theme; render (not just build) the page for the meaningful check.
+        let mut page =
+            create_null_page(Canvas::<NullWtf>::new(|_renderer| Ok(())));
+        page.use_renderer(|_| {});
+    }
+
+    // WS13.4 (Task 5.13): `Select` is split, but like `Label`/`Space`/`Edge`/
+    // `Bar`/`Checkbox`/`Slider`/`Knob`/`Canvas` it has no build-only field to
+    // drop — `layout`/`state`/`style`/`options` are all read by
+    // `render`/`on_event`, so `SelectBuilder` moves all four fields into the
+    // retained `Select` unchanged (a `size_of` `<` assertion would be false,
+    // not true). `Dir: Direction` was de-genericized like Bar/Slider/
+    // Scrollable into a runtime `axis: Axis` field (`render` reads
+    // `Dir::AXIS` for the selected-option highlight box, not just `new()`'s
+    // size computation); `K: PartialEq` stays generic (no canonical key
+    // type, same call as Bar's undecided `V`). This is a mechanical
+    // rename-only split — the `options: Rc<MaybeReactive<Vec<SelectOption<W,
+    // K>>>>` storage and the `selected.setter(...)` reactive-effect wiring
+    // (both backlogged as awkward under A18) are untouched — see
+    // select.rs's WS13.4 comment.
+    #[test]
+    fn select_split_builder_exists_and_page_builds() {
+        use crate::widget::select::{Select, SelectBuilder};
+
+        fn assert_is_select_builder<W: WidgetCtx, K: PartialEq + 'static>(
+            _: &SelectBuilder<W, K>,
+        ) {
+        }
+        let selected = create_signal(1u32);
+        let b = Select::<NullWtf, u32>::vertical(
+            selected,
+            alloc::vec![1u32, 2, 3].inert(),
+        );
+        assert_is_select_builder(&b);
+
+        // Not rendering: like Edge/Bar/Container/Scrollable, Select's
+        // `selected`/`container` styles panic on the null theme's unset
+        // background/border `ColorStyle`, so building (not rendering) the
+        // page is the meaningful check here.
+        let selected = create_signal(1u32);
+        let _ = create_null_page(Select::<NullWtf, u32>::horizontal(
+            selected,
+            alloc::vec![1u32, 2, 3].inert(),
+        ));
+    }
+
+    // WS13.4 (Task 5.15): `Icon` is split after its WS4.5 repair (icon.rs's
+    // own commit). Like `Label`/`Space`/`Edge`/…, its only build-only field
+    // is a ZST (`is_reactive: PhantomData<R>` — the `ReactivityMarker`
+    // compile-time constructor tag: it only ever selected which builder
+    // methods are available, `render` dispatches on the `IconValue` enum
+    // itself, never on `R`), so a `size_of` `<` assertion would be false,
+    // not true — the 7.2 slice drops `R` from the retained `Icon<W, I>`
+    // (flex.rs `Dir`->`Axis`/space.rs `Dir`-drop precedent) rather than
+    // shrinking it.
+    #[cfg(feature = "tiny-icons")]
+    #[test]
+    fn icon_split_builder_exists_and_page_renders() {
+        use crate::widget::icon::{Icon, IconBuilder};
+        use rsact_tiny_icons::{EmptyIconSet, IconRaw};
+
+        fn assert_is_icon_builder<W: WidgetCtx, R: ReactivityMarker>(
+            _: &IconBuilder<W, EmptyIconSet, R>,
+        ) {
+        }
+        let b = Icon::<NullWtf, EmptyIconSet>::new(EmptyIconSet.inert());
+        assert_is_icon_builder(&b);
+
+        // Not rendering through `new`: the reactive constructor's
+        // `IconValue::Relative` render path calls `IconSet::size`, which
+        // `EmptyIconSet` intentionally panics on ("Cannot use empty icon
+        // set") — there is no other zero-dependency `IconSet` to exercise
+        // here (the generated sets need SVGs this environment lacks, per
+        // WS9a.2). `inert` builds the `Fixed` variant instead, which
+        // `render` never calls `IconSet::size` on, so it is both a real
+        // build+render check (the derive-generated `Build` path ran, the
+        // retained `Icon` renders through the null theme) and panic-free.
+        const ICON_DATA: &[u8] = &[0u8; 1];
+        let mut page = create_null_page(
+            Icon::<NullWtf, EmptyIconSet>::inert(IconRaw::new(ICON_DATA, 1))
+                .into_el(),
+        );
+        page.use_renderer(|_| {});
+    }
+
     // WS13.2 (Task 5): locks the exact `size_of` byte counts behind the
     // `<` assertions above (`button_split_drops_content_husk`,
     // `flex_split_drops_children_and_phantom`) — the concrete numbers fed to
@@ -1889,9 +2271,10 @@ mod tests {
         with_new_runtime(|_| {
             let mut w = create_signal(Length::fill());
             let edge = Edge::<NullWtf>::new().width(w);
-            // `Edge` now impls both `Widget` and (via `#[derive(View)]`) `Build`,
-            // each exposing `layout()`; disambiguate to the widget's own layout.
-            let layout = Widget::layout(&edge);
+            // WS13.4: `edge` is now an `EdgeBuilder` (Edge is split), which
+            // implements only `Build`, not `Widget` — so `.layout()` resolves
+            // unambiguously to `Build::layout` (no disambiguation needed).
+            let layout = edge.layout();
 
             // Reading the layout must not panic (the disposed-id bug) and must
             // be tracked so observers re-run on change.
@@ -1919,8 +2302,10 @@ mod tests {
         with_new_runtime(|_| {
             let mut fs = create_signal(FontSize::Fixed(10));
             let label = Label::<NullWtf>::new("x").font_size(fs);
-            // Disambiguate `Widget::layout` from the derived `Build::layout`.
-            let layout = Widget::layout(&label);
+            // WS13.4: `label` is now a `LabelBuilder` (Label is split), which
+            // implements only `Build`, not `Widget` — so `.layout()` resolves
+            // unambiguously to `Build::layout` (no disambiguation needed).
+            let layout = label.layout();
 
             let mut runs = create_signal(0u32);
             create_effect(move |_| {

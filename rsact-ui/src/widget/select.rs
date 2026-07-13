@@ -5,7 +5,7 @@ use crate::{
     widget::prelude::*,
 };
 use alloc::{rc::Rc, string::ToString};
-use core::{fmt::Display, marker::PhantomData};
+use core::fmt::Display;
 use rsact_reactive::prelude::*;
 
 #[derive(Clone, Copy)]
@@ -74,9 +74,9 @@ impl<W: WidgetCtx, K: PartialEq> SelectOption<W, K> {
         let string = key.to_string();
         SelectOption {
             key,
-            el: Container::new(Label::new(string.inert()).el())
+            el: Container::new(Label::new(string.inert()).into_el())
                 .padding(5u32)
-                .el(),
+                .into_el(),
         }
     }
 }
@@ -87,20 +87,71 @@ impl<W: WidgetCtx, K: PartialEq> PartialEq for SelectOption<W, K> {
     }
 }
 
-#[derive(View)]
-pub struct Select<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction> {
+// WS13.4 (Task 5.13): mechanical split like Label/Edge/Bar/Slider/Knob —
+// `layout`/`state`/`style`/`options` are ALL read by `render`/`on_event`
+// post-build, so there is no build-only field to drop (a `size_of` `<`
+// assertion would be false, not true, same as those widgets' fallback
+// shape test). Unlike Button/Container/Flex/Scrollable, `Select` never
+// registers any arena children via `ctx.set_single_child`/
+// `ctx.set_children` in the first place — each `SelectOption::el` lives
+// only inside the `options` `Rc` and is iterated manually in
+// `render_part` (rendering it is itself `TODO(unimplemented)` below), so
+// there is no `#[child]`/`#[children]` field on `SelectBuilder` either;
+// `Build::build` here is a pure by-name field move with zero child
+// wiring, same shape as Label/Edge/Bar.
+//
+// `Dir: Direction` is de-genericized into a runtime `axis: Axis` field,
+// same 7.2 rule as Bar/Slider/Scrollable: `render` reads `Dir::AXIS`
+// (`.inverted()`/cross-size) for the selected-option highlight box, not
+// just `new()`'s one-shot layout construction, so it can't be dropped
+// like `Space`'s ctor-only tag.
+//
+// `K: PartialEq` stays generic — it's `SelectOption`'s key type, with no
+// canonical concrete choice, same call as Bar's undecided `V`.
+//
+// WS4.1/A18 (`docs/plans/2026-07-05-rsact-evolution-roadmap.md`'s A18
+// backlog row, maintainer: "looks horrible"): the
+// `options: Rc<MaybeReactive<Vec<SelectOption<W, K>>>>` storage and the
+// `selected.setter(...)` reactive-effect wiring below (in `new()`) are
+// UNTOUCHED by this split — both are constructed exactly as before,
+// still inside `new()` on the "effect path" (not deferred into
+// `Build::build`'s generated child-wiring), just now assembled into a
+// `SelectBuilder` literal instead of a bare `Select`; the derive's
+// by-name `#[widget]` move only relocates the already-built `Rc`
+// handle/effect closures, it does not rebuild or rewire them. This is a
+// pure identity-preserving mechanical split (assessment (a) of the
+// 5.13 checklist row) — it does not touch, and does not attempt to fix,
+// the A18 entanglement (options storage / selected-wiring awkwardness),
+// which stays exactly as backlogged as before.
+#[derive(Builder)]
+#[builds(Select<W, K>)]
+#[flags(focusable)]
+pub struct SelectBuilder<W: WidgetCtx, K: PartialEq + 'static> {
+    #[widget]
     layout: Layout,
+    #[widget]
     state: Signal<SelectState>,
+    #[widget]
     style: WidgetStyleFn<SelectStyle<W::Color>>,
     // TODO: Can we do fixed size?
     // WS4.1: `Rc` because `MaybeReactive<Vec<SelectOption>>` lost blanket `Copy`
     // (SelectOption holds an `El` — neither Copy nor Clone) yet is read by both
     // the `selected` setter effect and this widget. See `Select::new`.
+    #[widget]
     options: Rc<MaybeReactive<Vec<SelectOption<W, K>>>>,
-    dir: PhantomData<Dir>,
+    #[widget]
+    axis: Axis,
 }
 
-impl<W: WidgetCtx, K> Select<W, K, ColDir>
+pub struct Select<W: WidgetCtx, K: PartialEq + 'static> {
+    layout: Layout,
+    state: Signal<SelectState>,
+    style: WidgetStyleFn<SelectStyle<W::Color>>,
+    options: Rc<MaybeReactive<Vec<SelectOption<W, K>>>>,
+    axis: Axis,
+}
+
+impl<W: WidgetCtx, K> Select<W, K>
 where
     K: PartialEq + Clone + Display + 'static,
 {
@@ -108,34 +159,24 @@ where
         selected: impl IntoMaybeSignal<K>,
         options: impl SignalMapRefMaybeReactive<[K], Vec<SelectOption<W, K>>>
         + PartialEq,
-    ) -> Self {
-        Self::new(selected, options)
+    ) -> SelectBuilder<W, K> {
+        Self::new(Axis::Y, selected, options)
     }
-}
 
-impl<W: WidgetCtx, K> Select<W, K, RowDir>
-where
-    K: PartialEq + Clone + Display + 'static,
-{
     pub fn horizontal(
         selected: impl IntoMaybeSignal<K>,
         options: impl SignalMapRefMaybeReactive<[K], Vec<SelectOption<W, K>>>,
-    ) -> Self {
-        Self::new(selected, options)
+    ) -> SelectBuilder<W, K> {
+        Self::new(Axis::X, selected, options)
     }
-}
 
-impl<W: WidgetCtx, K, Dir> Select<W, K, Dir>
-where
-    K: PartialEq + Clone + Display + 'static,
-    Dir: Direction,
-{
     // TODO: Inert options?
     // TODO: MaybeReactive options
     pub fn new(
+        axis: Axis,
         selected: impl IntoMaybeSignal<K>,
         options: impl SignalMapRefMaybeReactive<[K], Vec<SelectOption<W, K>>>,
-    ) -> Self {
+    ) -> SelectBuilder<W, K> {
         let options = options.map_ref_maybe_reactive(|options| {
             options
                 .into_iter()
@@ -199,16 +240,16 @@ where
             );
         }
 
-        Self {
+        SelectBuilder {
             layout: Layout::new(
                 LayoutKind::Flex(
-                    FlexLayout::base(Dir::AXIS, options_layout)
+                    FlexLayout::base(axis, options_layout)
                         .block_model(BlockModel::zero().padding(1u32))
-                        .gap(Dir::AXIS.canon(5, 0))
+                        .gap(axis.canon(5, 0))
                         .align_main(Align::Center)
                         .align_cross(Align::Center),
                 ),
-                Dir::AXIS.canon(
+                axis.canon(
                     Length::InfiniteWindow(Length::Shrink.try_into().unwrap()),
                     Length::Shrink,
                 ),
@@ -216,7 +257,7 @@ where
             state,
             style: None,
             options,
-            dir: PhantomData,
+            axis,
         }
     }
 
@@ -249,52 +290,37 @@ where
     // }
 }
 
-impl<W: WidgetCtx, K, Dir> LayoutWidget<W> for Select<W, K, Dir>
+impl<W: WidgetCtx, K> LayoutWidget<W> for SelectBuilder<W, K>
 where
     K: PartialEq + Display + 'static,
-    Dir: Direction + 'static,
 {
     fn layout_mut(&mut self) -> &mut Layout {
         &mut self.layout
     }
 }
 
-impl<W: WidgetCtx, K, Dir> BlockModelWidget<W> for Select<W, K, Dir>
-where
-    K: PartialEq + Display + 'static,
-    Dir: Direction + 'static,
+impl<W: WidgetCtx, K> BlockModelWidget<W> for SelectBuilder<W, K> where
+    K: PartialEq + Display + 'static
 {
 }
 
-impl<W: WidgetCtx, K, Dir> SizedWidget<W> for Select<W, K, Dir>
-where
-    K: PartialEq + Clone + Display + 'static,
-    Dir: Direction + 'static,
+impl<W: WidgetCtx, K> SizedWidget<W> for SelectBuilder<W, K> where
+    K: PartialEq + Clone + Display + 'static
 {
 }
 
-impl<W: WidgetCtx, K, Dir> FontSettingWidget<W> for Select<W, K, Dir>
-where
-    K: PartialEq + Clone + Display + 'static,
-    Dir: Direction + 'static,
+impl<W: WidgetCtx, K> FontSettingWidget<W> for SelectBuilder<W, K> where
+    K: PartialEq + Clone + Display + 'static
 {
 }
 
-impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction + 'static> Widget<W>
-    for Select<W, K, Dir>
-{
-    fn debug_name(&self) -> &'static str {
-        "Select"
-    }
-
-    fn flags(&self) -> WidgetFlags {
-        WidgetFlags::default().focusable()
-    }
-
-    fn build(&mut self, ctx: BuildCtx<W>) {
-        let _ = ctx;
-    }
-
+impl<W: WidgetCtx, K: PartialEq + 'static> Widget<W> for Select<W, K> {
+    // NOTE: no `debug_name`/`flags` override on the retained widget — both are
+    // read exactly once, pre-build, from `Build` (seeding `ElState` at
+    // `state.rs:72`); post-build all consumption is via `ElState`, so an
+    // override here would be dead duplication of `SelectBuilder`'s derived
+    // `Build::flags`/`Build::debug_name` ("Select" from
+    // `#[builds(Select<W, K>)]`, `focusable` from `#[flags(focusable)]`).
     fn layout(&self) -> Layout {
         self.layout
     }
@@ -318,8 +344,8 @@ impl<W: WidgetCtx, K: PartialEq + 'static, Dir: Direction + 'static> Widget<W>
                         .outer
                         .translate(options_offset)
                         .resized_axis(
-                            Dir::AXIS.inverted(),
-                            ctx.layout.inner.size.cross(Dir::AXIS),
+                            self.axis.inverted(),
+                            ctx.layout.inner.size.cross(self.axis),
                             Anchor::Center,
                         ),
                     BlockModel::zero().border_width(1),

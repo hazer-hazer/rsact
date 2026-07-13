@@ -55,7 +55,7 @@ fn main() {
     let back_button = || {
         Button::new(
             Flex::row([
-                Icon::new(SystemIcon::ArrowLeft).size(6u32).el(),
+                Icon::new(SystemIcon::ArrowLeft).size(6u32).into_el(),
                 "Back".into(),
             ])
             .gap(2u32)
@@ -314,7 +314,7 @@ fn main() {
         Flex::col([
             Button::new(
                 Flex::row([
-                    Icon::new(CommonIcon::File).size(8u32).el(),
+                    Icon::new(CommonIcon::File).size(8u32).into_el(),
                     "Files".into(),
                 ])
                 .gap(3u32),
@@ -326,7 +326,7 @@ fn main() {
             .el(),
             Button::new(
                 Flex::row([
-                    Icon::new(CommonIcon::MapMarker).size(8u32).el(),
+                    Icon::new(CommonIcon::MapMarker).size(8u32).into_el(),
                     "Position".into(),
                 ])
                 .gap(3u32),
@@ -338,7 +338,7 @@ fn main() {
             .el(),
             Button::new(
                 Flex::row([
-                    Icon::new(CommonIcon::Thermometer).size(8u32).el(),
+                    Icon::new(CommonIcon::Thermometer).size(8u32).into_el(),
                     "Temperature".into(),
                 ])
                 .gap(3u32),

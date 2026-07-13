@@ -14,7 +14,24 @@ declare_widget_style! {
     }
 }
 
-#[derive(View)]
+// WS13.4 (Task 5.2): every field here is read by `render` (`content`,
+// `style`) or by `layout`/the layout tree (`layout`) — there is no
+// build-only field to drop, unlike `Button`/`Flex`/`Show`. `LabelBuilder`
+// therefore moves all three fields into the retained `Label` unchanged; the
+// split's value here is fleet uniformity (7.6 slice: no `Widget::build`
+// override) rather than a smaller retained struct — see the row's note and
+// the shape test (`label_split_builder_exists_and_page_renders`).
+#[derive(Builder)]
+#[builds(Label<W>)]
+pub struct LabelBuilder<W: WidgetCtx> {
+    #[widget]
+    content: MaybeReactive<String>,
+    #[widget]
+    layout: Layout,
+    #[widget]
+    style: WidgetStyleFn<LabelStyle<W::Color>>,
+}
+
 pub struct Label<W: WidgetCtx> {
     content: MaybeReactive<String>,
     layout: Layout,
@@ -24,7 +41,9 @@ pub struct Label<W: WidgetCtx> {
 impl<W: WidgetCtx> Label<W> {
     // TODO: 'static string optimization, can store &'static str directly
     // without allocating String
-    pub fn new(content: impl SignalMapRefMaybeReactive<str, String>) -> Self {
+    pub fn new(
+        content: impl SignalMapRefMaybeReactive<str, String>,
+    ) -> LabelBuilder<W> {
         let content =
             content.map_ref_maybe_reactive(|content| content.to_string());
 
@@ -41,9 +60,11 @@ impl<W: WidgetCtx> Label<W> {
             ContentLayout::text(content.clone()),
         ));
 
-        Self { content, layout, style: None }
+        LabelBuilder { content, layout, style: None }
     }
+}
 
+impl<W: WidgetCtx> LabelBuilder<W> {
     pub fn style(mut self, class: impl StyleFn<LabelStyle<W::Color>>) -> Self {
         self.style = Some(Box::new(class));
         self
@@ -100,21 +121,22 @@ impl<W: WidgetCtx> Label<W> {
     // }
 }
 
-impl<W: WidgetCtx> LayoutWidget<W> for Label<W> {
+impl<W: WidgetCtx> LayoutWidget<W> for LabelBuilder<W> {
     fn layout_mut(&mut self) -> &mut Layout {
         &mut self.layout
     }
 }
 
-impl<W: WidgetCtx> FontSettingWidget<W> for Label<W> {}
+impl<W: WidgetCtx> FontSettingWidget<W> for LabelBuilder<W> {}
 
 impl<W: WidgetCtx> Widget<W> for Label<W> {
-    fn debug_name(&self) -> &'static str {
-        "Label"
-    }
-
-    fn build(&mut self, _ctx: build::BuildCtx<W>) {}
-
+    // NOTE: no `flags`/`debug_name` override on the retained widget — both
+    // are read exactly once, pre-build, from `Build` (seeding `ElState` at
+    // `state.rs:72`); post-build all consumption is via `ElState`, so an
+    // override here would be dead duplication of `LabelBuilder`'s derived
+    // `Build::debug_name` ("Label" from `#[builds(Label<W>)]`). `Label` never
+    // overrode `flags` either, so no `#[flags(...)]` attr is needed on
+    // `LabelBuilder`.
     fn layout(&self) -> Layout {
         self.layout
     }
@@ -158,29 +180,29 @@ impl<W: WidgetCtx> Widget<W> for Label<W> {
 
 impl<'a, W: WidgetCtx> View<W> for &'a str {
     fn into_el(self) -> El<W> {
-        Label::new(self.to_string().inert()).el()
+        Label::new(self.to_string().inert()).into_el()
     }
 }
 
 impl<W: WidgetCtx> View<W> for String {
     fn into_el(self) -> El<W> {
-        Label::new(self.inert()).el()
+        Label::new(self.inert()).into_el()
     }
 }
 
 impl<W: WidgetCtx> View<W> for Signal<String> {
     fn into_el(self) -> El<W> {
-        Label::new(self).el()
+        Label::new(self).into_el()
     }
 }
 
 pub trait LabelView<W: WidgetCtx> {
-    fn label(self) -> Label<W>;
+    fn label(self) -> LabelBuilder<W>;
 
     fn font_size<S: Into<FontSize> + Clone + PartialEq + 'static>(
         self,
         font_size: impl IntoMaybeReactive<S>,
-    ) -> Label<W>
+    ) -> LabelBuilder<W>
     where
         Self: Sized,
     {
@@ -189,19 +211,19 @@ pub trait LabelView<W: WidgetCtx> {
 }
 
 impl<'a, W: WidgetCtx> LabelView<W> for &'a str {
-    fn label(self) -> Label<W> {
+    fn label(self) -> LabelBuilder<W> {
         Label::new(self.to_string().inert())
     }
 }
 
 impl<W: WidgetCtx> LabelView<W> for String {
-    fn label(self) -> Label<W> {
+    fn label(self) -> LabelBuilder<W> {
         Label::new(self.inert())
     }
 }
 
 impl<W: WidgetCtx> LabelView<W> for Signal<String> {
-    fn label(self) -> Label<W> {
+    fn label(self) -> LabelBuilder<W> {
         Label::new(self)
     }
 }
