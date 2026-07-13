@@ -2160,6 +2160,46 @@ mod tests {
         page.use_renderer(|_| {});
     }
 
+    // WS13.4 (Task 5.13): `Select` is split, but like `Label`/`Space`/`Edge`/
+    // `Bar`/`Checkbox`/`Slider`/`Knob`/`Canvas` it has no build-only field to
+    // drop — `layout`/`state`/`style`/`options` are all read by
+    // `render`/`on_event`, so `SelectBuilder` moves all four fields into the
+    // retained `Select` unchanged (a `size_of` `<` assertion would be false,
+    // not true). `Dir: Direction` was de-genericized like Bar/Slider/
+    // Scrollable into a runtime `axis: Axis` field (`render` reads
+    // `Dir::AXIS` for the selected-option highlight box, not just `new()`'s
+    // size computation); `K: PartialEq` stays generic (no canonical key
+    // type, same call as Bar's undecided `V`). This is a mechanical
+    // rename-only split — the `options: Rc<MaybeReactive<Vec<SelectOption<W,
+    // K>>>>` storage and the `selected.setter(...)` reactive-effect wiring
+    // (both backlogged as awkward under A18) are untouched — see
+    // select.rs's WS13.4 comment.
+    #[test]
+    fn select_split_builder_exists_and_page_builds() {
+        use crate::widget::select::{Select, SelectBuilder};
+
+        fn assert_is_select_builder<W: WidgetCtx, K: PartialEq + 'static>(
+            _: &SelectBuilder<W, K>,
+        ) {
+        }
+        let selected = create_signal(1u32);
+        let b = Select::<NullWtf, u32>::vertical(
+            selected,
+            alloc::vec![1u32, 2, 3].inert(),
+        );
+        assert_is_select_builder(&b);
+
+        // Not rendering: like Edge/Bar/Container/Scrollable, Select's
+        // `selected`/`container` styles panic on the null theme's unset
+        // background/border `ColorStyle`, so building (not rendering) the
+        // page is the meaningful check here.
+        let selected = create_signal(1u32);
+        let _ = create_null_page(Select::<NullWtf, u32>::horizontal(
+            selected,
+            alloc::vec![1u32, 2, 3].inert(),
+        ));
+    }
+
     // WS13.2 (Task 5): locks the exact `size_of` byte counts behind the
     // `<` assertions above (`button_split_drops_content_husk`,
     // `flex_split_drops_children_and_phantom`) — the concrete numbers fed to
