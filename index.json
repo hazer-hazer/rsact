@@ -1,8 +1,8 @@
 {
-  "fab053629023377efc0dccfd015cc38eea422538": {
-    "date": 1783972522,
+  "3e7748a3198b311156a3d4cd0b5400c0330f0f8a": {
+    "date": 1783974252,
     "parent": "",
-    "branch": "master",
-    "subject": "Roadmap: now-actionable = WS5 (WS13' fully merged via PR #19)"
+    "branch": "ws5-incremental-layout",
+    "subject": "WS5.0: tick roadmap + reconcile stale charter with the dropped ValueId cache"
   }
 }
