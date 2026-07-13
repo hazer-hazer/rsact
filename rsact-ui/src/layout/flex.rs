@@ -40,6 +40,14 @@ struct FlexItem {
     line: usize,
     /// Marker for item which is the last in line
     last_in_line: bool,
+    /// WS5.0: the child's declared `size` and computed `min_size`, captured
+    /// once in the sizing pass so the placement pass can reuse them instead of
+    /// running a second `child.min_size(ctx)` — a full subtree descent that
+    /// re-measures one text leaf per content node and, for every non-fluid
+    /// child, was discarded. Zero retained RAM: dropped with `items` when the
+    /// pass returns.
+    size: LengthSize,
+    min_size: Size,
 }
 
 // Single main axis line in flexbox
@@ -216,6 +224,8 @@ pub fn model_flex(
         items.push(FlexItem {
             line: line_number,
             last_in_line: item_index == visible_count - 1,
+            size: child_size,
+            min_size: child_min_size,
         });
     }
 
@@ -338,12 +348,16 @@ pub fn model_flex(
     // TODO: Should flex item be at least of min content size?
 
     for (&(orig_index, child), item) in visible.iter().zip(items.iter()) {
-        let (child_min_size, child_size) =
-            child.with(|child| (child.min_size(ctx), child.size));
+        // WS5.0: reuse the sizing-pass `size`/`min_size` (stored on `FlexItem`)
+        // rather than a second `child.min_size(ctx)` subtree descent. `min_size`
+        // is only needed to lower-bound a fluid child's limits, so it is read
+        // inside the fluid branch.
+        let child_size = item.size;
         let model_line = &mut model_lines[item.line];
 
         let child_div_factors = child_size.div_factors();
         if child_div_factors.main(axis) != 0 {
+            let child_min_size = item.min_size;
             let child_rem_part = model_line.base_div_remainder_part
                 + model_line.line_div_remainder_rem.sub_take(1);
 
