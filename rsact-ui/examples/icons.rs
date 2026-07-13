@@ -9,7 +9,7 @@ use rsact_render::eg::renderer::EGRenderer;
 use rsact_tiny_icons::{IconSet, common::CommonIcon, system::SystemIcon};
 use rsact_ui::{
     page::id::SinglePage,
-    prelude::{Flex, Icon, IntoInert, Label, Size},
+    prelude::{Flex, Icon, IntoInert, Label, Size, View},
     style::theme::Theme,
     ui::UI,
     widget::{SizedWidget, Widget},
@@ -33,13 +33,13 @@ fn main() {
     let system_icons = SystemIcon::KINDS
         .iter()
         .copied()
-        .map(|kind| Icon::new(kind).size(ICON_SIZE).el())
+        .map(|kind| Icon::new(kind).size(ICON_SIZE).into_el())
         .collect::<Vec<_>>();
 
     let common_icons = CommonIcon::KINDS
         .iter()
         .copied()
-        .map(|kind| Icon::new(kind).size(ICON_SIZE).el())
+        .map(|kind| Icon::new(kind).size(ICON_SIZE).into_el())
         .collect::<Vec<_>>();
 
     let mut ui = UI::new(

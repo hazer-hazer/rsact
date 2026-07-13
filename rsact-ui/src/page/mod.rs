@@ -2200,6 +2200,45 @@ mod tests {
         ));
     }
 
+    // WS13.4 (Task 5.15): `Icon` is split after its WS4.5 repair (icon.rs's
+    // own commit). Like `Label`/`Space`/`Edge`/…, its only build-only field
+    // is a ZST (`is_reactive: PhantomData<R>` — the `ReactivityMarker`
+    // compile-time constructor tag: it only ever selected which builder
+    // methods are available, `render` dispatches on the `IconValue` enum
+    // itself, never on `R`), so a `size_of` `<` assertion would be false,
+    // not true — the 7.2 slice drops `R` from the retained `Icon<W, I>`
+    // (flex.rs `Dir`->`Axis`/space.rs `Dir`-drop precedent) rather than
+    // shrinking it.
+    #[cfg(feature = "tiny-icons")]
+    #[test]
+    fn icon_split_builder_exists_and_page_renders() {
+        use crate::widget::icon::{Icon, IconBuilder};
+        use rsact_tiny_icons::{EmptyIconSet, IconRaw};
+
+        fn assert_is_icon_builder<W: WidgetCtx, R: ReactivityMarker>(
+            _: &IconBuilder<W, EmptyIconSet, R>,
+        ) {
+        }
+        let b = Icon::<NullWtf, EmptyIconSet>::new(EmptyIconSet.inert());
+        assert_is_icon_builder(&b);
+
+        // Not rendering through `new`: the reactive constructor's
+        // `IconValue::Relative` render path calls `IconSet::size`, which
+        // `EmptyIconSet` intentionally panics on ("Cannot use empty icon
+        // set") — there is no other zero-dependency `IconSet` to exercise
+        // here (the generated sets need SVGs this environment lacks, per
+        // WS9a.2). `inert` builds the `Fixed` variant instead, which
+        // `render` never calls `IconSet::size` on, so it is both a real
+        // build+render check (the derive-generated `Build` path ran, the
+        // retained `Icon` renders through the null theme) and panic-free.
+        const ICON_DATA: &[u8] = &[0u8; 1];
+        let mut page = create_null_page(
+            Icon::<NullWtf, EmptyIconSet>::inert(IconRaw::new(ICON_DATA, 1))
+                .into_el(),
+        );
+        page.use_renderer(|_| {});
+    }
+
     // WS13.2 (Task 5): locks the exact `size_of` byte counts behind the
     // `<` assertions above (`button_split_drops_content_husk`,
     // `flex_split_drops_children_and_phantom`) — the concrete numbers fed to
