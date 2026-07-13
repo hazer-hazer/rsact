@@ -28,10 +28,18 @@ done
 
 mkdir -p metrics/snapshots
 
-# Pull existing snapshots + the ordering index from the data branch if it
-# exists (CI). Harmless with no such branch (local / first run / bootstrap), and
-# each pathspec is tolerated-if-absent (index.json won't exist on first run).
-if git rev-parse --verify --quiet metrics-data >/dev/null; then
+# Pull existing snapshots + the ordering index from the durable data branch so
+# `record` APPENDS to the accumulated history and PRESERVES the backfilled index
+# (order/pr for every commit) — otherwise it would publish a fresh single-entry
+# index.json that clobbers the rich one (snapshots survive via keep_files, but
+# index.json is one fixed path → overwritten). A fresh CI checkout has no local
+# `metrics-data` ref, so fetch it explicitly (remote-only); harmless locally.
+# Each pathspec is tolerated-if-absent (index.json won't exist on first run).
+if git fetch --quiet origin metrics-data 2>/dev/null; then
+    git archive FETCH_HEAD -- snapshots 2>/dev/null | tar -x -C metrics || true
+    git archive FETCH_HEAD -- index.json 2>/dev/null | tar -x -C metrics || true
+elif git rev-parse --verify --quiet metrics-data >/dev/null; then
+    # local run: the data branch may already be a local ref (no remote to fetch).
     git archive metrics-data -- snapshots 2>/dev/null | tar -x -C metrics || true
     git archive metrics-data -- index.json 2>/dev/null | tar -x -C metrics || true
 fi

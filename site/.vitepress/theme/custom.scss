@@ -1,56 +1,110 @@
-// rsact brand — "Trace" stylescape applied over the VitePress default theme.
-// Shallow scope: typography, color scheme, logo/selection. Dark-first, true
-// black is intentional (OLED home base) — don't lighten the core to grey.
-// Tokens from docs/brand handoff (IBM Plex + phosphor-cyan signal).
+// rsact brand — the full color system (rsact-tokens.css) mapped onto VitePress's
+// semantic variables. Dark-first: true black is the home surface. VitePress is
+// light-default (:root) + `.dark` override, i.e. INVERTED from the tokens'
+// dark-first `:root`; so rsact's dark values live in `.dark` here and its
+// light-banner override in `:root`.
+//
+// Token → VitePress hue map: primary→brand (cyan), success→success (green),
+// warning→warning (amber), error→danger (fault red), secondary→caution (copper),
+// accent→important (gold), info→note (blue). tip inherits brand.
+// Code SYNTAX colors (Shiki) and the metrics chart palette are separate systems
+// (not VitePress `--vp-c-*` vars) — not mapped here.
 
 // --- Typography -------------------------------------------------------------
 :root {
-  --vp-font-family-base: 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system,
-    'Segoe UI', Roboto, sans-serif;
-  --vp-font-family-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas,
-    'Liberation Mono', monospace;
+  --vp-font-family-base: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --vp-font-family-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 
-// --- Color: light (brand light-mode variant: teal on silkscreen-white) ------
+// ===========================================================================
+// LIGHT — VitePress default (:root). rsact light-banner override: teal on
+// "silkscreen white". Per the tokens, light only re-specifies brand/surfaces/
+// text; status hues keep VitePress's WCAG-tuned light defaults for contrast.
+// ===========================================================================
 :root {
   --vp-c-bg: #e6e9e4;
   --vp-c-bg-alt: #dce0da;
-  --vp-c-bg-elv: #f2f4f0;
+  --vp-c-bg-elv: #d0d5ce;
   --vp-c-bg-soft: #dce0da;
-  --vp-c-divider: #c4ccc7;
   --vp-c-border: #c4ccc7;
-  --vp-c-gutter: #dce0da;
+  --vp-c-divider: #c4ccc7;
+  --vp-c-gutter: #c4ccc7;
 
   --vp-c-text-1: #0a0d0f;
   --vp-c-text-2: #3d4448;
-  --vp-c-text-3: #545c61;
+  --vp-c-text-3: #5a6165;
 
-  --vp-c-brand-1: #0a8f83; // links / active — light-mode cyan
-  --vp-c-brand-2: #0b9d90;
+  --vp-c-brand-1: #0a8f83; // light-mode cyan (teal)
+  --vp-c-brand-2: #0a7a70;
   --vp-c-brand-3: #0a8f83;
   --vp-c-brand-soft: rgba(10, 143, 131, 0.12);
+
+  --vp-home-hero-name-color: var(--vp-c-text-1);
+
+  --vp-code-block-bg: #0a0d0f; // code blocks stay dark even in light (per tokens)
 }
 
-// --- Color: dark (brand home — true black + phosphor cyan) ------------------
+// ===========================================================================
+// DARK — VitePress `.dark` = the brand's home. Full rsact token mapping.
+// ===========================================================================
 .dark {
-  --vp-c-bg: #000000; // OLED true black
-  --vp-c-bg-alt: #0a0d0f; // panels, nav, sidebar
-  --vp-c-bg-elv: #0a0d0f;
-  --vp-c-bg-soft: #14181b; // raised chips / toolbars
-  --vp-c-divider: #1b2226; // hairlines
-  --vp-c-border: #1b2226;
+  // surfaces
+  --vp-c-bg: #000000; // OLED true black (--bg)
+  --vp-c-bg-alt: #0a0d0f; // surface — sidebar / code block
+  --vp-c-bg-elv: #14181b; // raised — floating dialogs
+  --vp-c-bg-soft: #14181b; // raised — tables / subtle panels
+  --vp-c-border: #232b30; // border-strong — interactive outlines
+  --vp-c-divider: #1b2226; // hairline
   --vp-c-gutter: #000000;
 
-  --vp-c-text-1: #e6e9e4; // "silkscreen white"
+  // text
+  --vp-c-text-1: #e6e9e4; // silkscreen white (--fg)
   --vp-c-text-2: #aeb6ba;
   --vp-c-text-3: #838c91;
 
-  --vp-c-brand-1: #2ee6d6; // phosphor cyan — the one signal color
-  --vp-c-brand-2: #7cf0e4; // link hover tint
+  // brand · link — phosphor cyan (--primary)
+  --vp-c-brand-1: #2ee6d6;
+  --vp-c-brand-2: #7cf0e4;
   --vp-c-brand-3: #2ee6d6;
-  --vp-c-brand-soft: rgba(46, 230, 214, 0.14);
+  --vp-c-brand-soft: rgba(46, 230, 214, 0.16);
 
-  // Cyan buttons carry near-black text (per the stylescape), not white.
+  // success — solder-mask green (bright -1 for contrast on black)
+  --vp-c-success-1: #5bc08e;
+  --vp-c-success-2: #45b884;
+  --vp-c-success-3: #2c9e6b;
+  --vp-c-success-soft: rgba(44, 158, 107, 0.16);
+
+  // warning — amber (--warning)
+  --vp-c-warning-1: #f9b44e;
+  --vp-c-warning-2: #f5b942;
+  --vp-c-warning-3: #d99a20;
+  --vp-c-warning-soft: rgba(245, 185, 66, 0.16);
+
+  // danger · error — fault red (--error)
+  --vp-c-danger-1: #f0726c;
+  --vp-c-danger-2: #e5544e;
+  --vp-c-danger-3: #c53f3a;
+  --vp-c-danger-soft: rgba(229, 84, 78, 0.16);
+
+  // caution — copper, the Rust nod / "watching" states (--secondary)
+  --vp-c-caution-1: #f0895a;
+  --vp-c-caution-2: #e0703a;
+  --vp-c-caution-3: #c05a32;
+  --vp-c-caution-soft: rgba(224, 112, 58, 0.16);
+
+  // important — ENIG gold, rare emphasis (--accent)
+  --vp-c-important-1: #dfb863;
+  --vp-c-important-2: #c9a24b;
+  --vp-c-important-3: #a9853a;
+  --vp-c-important-soft: rgba(201, 162, 75, 0.16);
+
+  // note — notice blue, info / namespaces (--info)
+  --vp-c-note-1: #63a6ea;
+  --vp-c-note-2: #3e8fe0;
+  --vp-c-note-3: #2f79c9;
+  --vp-c-note-soft: rgba(62, 143, 224, 0.16);
+
+  // Cyan buttons carry near-black text (--on-primary), not white.
   --vp-button-brand-bg: #2ee6d6;
   --vp-button-brand-text: #04120f;
   --vp-button-brand-hover-bg: #7cf0e4;
@@ -58,12 +112,28 @@
   --vp-button-brand-active-bg: #2ee6d6;
   --vp-button-brand-active-text: #04120f;
 
-  // Code blocks live on true black too.
+  // code blocks on true black
   --vp-code-block-bg: #000000;
 }
+
+// tip inherits brand (cyan) via VitePress's own default mapping — not overridden.
 
 // --- Selection: signal cyan -------------------------------------------------
 ::selection {
   background: #2ee6d6;
   color: #04120f;
+}
+
+// --- Home hero: animated reactive-node mark inline before the "rsact" name --
+// A ::before on the hero name keeps VitePress's gradient name / tagline /
+// buttons untouched. The SVG animates itself and honors reduced-motion (see
+// public/hero-node.svg); sized in em so it scales with the hero name.
+.VPHero .name::before {
+  content: "";
+  display: inline-block;
+  width: 0.92em;
+  height: 0.92em;
+  margin-right: 0.2em;
+  vertical-align: -0.12em;
+  background: center / contain no-repeat url("/rsact/hero-node.svg");
 }

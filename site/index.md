@@ -29,6 +29,12 @@ features:
     details: The LVGL / Slint comparison and on-device numbers land with hardware validation (WS17). Until then they are marked placeholders — never estimates.
 ---
 
+<script setup>
+import GraphField from './.vitepress/theme/components/GraphField.vue'
+</script>
+
+<GraphField />
+
 ## A taste
 
 A signal drives a widget directly — no manual wiring, no diffing:

@@ -13,7 +13,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fs, io,
     path::Path,
 };
@@ -38,6 +38,15 @@ pub struct IndexEntry {
     /// Associated PR number (from a merge/squash commit), or None when unknown.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pr: Option<u32>,
+    /// Total x-axis order (WS19.8): the commit's position in the *grouped
+    /// mainline* sequence — master's first-parent walk with each PR's branch
+    /// commits placed contiguously just before their merge commit. Lets the
+    /// viewer lay a PR's commits side-by-side (one header span) instead of
+    /// scattering them by commit date. None when unknown (a shallow `record`,
+    /// or a rev off the mainline) → the viewer sorts those after all ordered
+    /// commits, by date. Filled by `cmd_index` (needs full merge history).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order: Option<u32>,
 }
 
 /// rev (full hash) → entry. `BTreeMap` for deterministic serialization.
@@ -125,7 +134,8 @@ fn ancestor_count(index: &Index, revset: &HashSet<&str>, rev: &str) -> usize {
 /// PR number from a GitHub merge-commit subject: `Merge pull request #N from …`.
 pub fn parse_merge_pr(subject: &str) -> Option<u32> {
     let rest = subject.strip_prefix("Merge pull request #")?;
-    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    let digits: String =
+        rest.chars().take_while(|c| c.is_ascii_digit()).collect();
     digits.parse().ok()
 }
 
@@ -145,12 +155,58 @@ pub fn resolve_pr(ancestry: Option<u32>, subject: &str) -> Option<u32> {
     ancestry.or_else(|| parse_squash_pr(subject))
 }
 
+/// Build a total commit order for the metrics x-axis from git topology.
+///
+/// Walk `mainline` (master's first-parent line, oldest→newest); for each merge
+/// commit emit its `branch_commits` (the commits that PR introduced,
+/// oldest→newest) immediately *before* the merge itself, and emit non-merge
+/// commits as singletons. The result groups every PR's commits contiguously —
+/// `[branch commits…, merge]` — in first-parent (merge) order, so the viewer can
+/// span one header cell over a whole PR instead of scattering its commits by
+/// commit date (PR number reflects *merge* order, not author/commit date, so a
+/// pure-date x-axis interleaves PRs).
+///
+/// A commit already placed keeps its first slot. Branch commits are off the
+/// first-parent line by construction (`M^2 --not M^1`), so on a clean history
+/// they never collide with mainline commits; the dedup only guards pathological
+/// shapes. Returns rev → 0-based order; revs absent here fall back to date
+/// ordering in the viewer.
+pub fn mainline_order(
+    mainline: &[String],
+    branch_commits: &HashMap<String, Vec<String>>,
+) -> HashMap<String, u32> {
+    let mut order: HashMap<String, u32> = HashMap::new();
+    let mut next = 0u32;
+    for m in mainline {
+        if let Some(branch) = branch_commits.get(m) {
+            for c in branch {
+                order.entry(c.clone()).or_insert_with(|| {
+                    let o = next;
+                    next += 1;
+                    o
+                });
+            }
+        }
+        order.entry(m.clone()).or_insert_with(|| {
+            let o = next;
+            next += 1;
+            o
+        });
+    }
+    order
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn e(date: u64, parent: &str) -> IndexEntry {
-        IndexEntry { date, parent: parent.to_string(), branch: String::new(), ..Default::default() }
+        IndexEntry {
+            date,
+            parent: parent.to_string(),
+            branch: String::new(),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -244,7 +300,12 @@ mod tests {
 
     #[test]
     fn parse_merge_pr_reads_github_merge_subject() {
-        assert_eq!(parse_merge_pr("Merge pull request #14 from hazer-hazer/ws19-metrics-v3"), Some(14));
+        assert_eq!(
+            parse_merge_pr(
+                "Merge pull request #14 from hazer-hazer/ws19-metrics-v3"
+            ),
+            Some(14)
+        );
         assert_eq!(parse_merge_pr("Merge pull request #7 from x/y"), Some(7));
         assert_eq!(parse_merge_pr("Merge branch 'main'"), None);
         assert_eq!(parse_merge_pr("WS19.8: normal commit"), None);
@@ -276,19 +337,73 @@ mod tests {
 
     #[test]
     fn index_entry_omits_empty_subject_and_none_pr() {
-        let entry = IndexEntry { date: 5, parent: "p".into(), branch: "b".into(), ..Default::default() };
+        let entry = IndexEntry {
+            date: 5,
+            parent: "p".into(),
+            branch: "b".into(),
+            ..Default::default()
+        };
         let json = serde_json::to_string(&entry).unwrap();
-        assert!(!json.contains("subject"), "empty subject must be skipped: {json}");
+        assert!(
+            !json.contains("subject"),
+            "empty subject must be skipped: {json}"
+        );
         assert!(!json.contains("\"pr\""), "None pr must be skipped: {json}");
         // Old-shape JSON (no subject/pr) still parses, defaulting the new fields.
-        let back: IndexEntry = serde_json::from_str(r#"{"date":5,"parent":"p","branch":"b"}"#).unwrap();
+        let back: IndexEntry =
+            serde_json::from_str(r#"{"date":5,"parent":"p","branch":"b"}"#)
+                .unwrap();
         assert_eq!(back, entry);
     }
 
     #[test]
     fn index_entry_roundtrips_with_subject_and_pr() {
-        let entry = IndexEntry { date: 9, parent: "".into(), branch: "".into(), subject: "hi".into(), pr: Some(12) };
+        let entry = IndexEntry {
+            date: 9,
+            parent: "".into(),
+            branch: "".into(),
+            subject: "hi".into(),
+            pr: Some(12),
+            order: Some(7),
+        };
         let json = serde_json::to_string(&entry).unwrap();
+        assert!(json.contains("\"order\":7"), "order must serialize: {json}");
         assert_eq!(serde_json::from_str::<IndexEntry>(&json).unwrap(), entry);
+    }
+
+    #[test]
+    fn mainline_order_places_branch_commits_before_their_merge() {
+        // first-parent line: root, A (direct commit), M (a PR's merge commit).
+        // M brought in branch commits [b1, b2] (oldest→newest).
+        let mainline = vec!["root".into(), "A".into(), "M".into()];
+        let mut bc = HashMap::new();
+        bc.insert("M".to_string(), vec!["b1".into(), "b2".into()]);
+        let ord = mainline_order(&mainline, &bc);
+        // grouped mainline order: root=0, A=1, [b1=2, b2=3, M=4]
+        assert_eq!(ord["root"], 0);
+        assert_eq!(ord["A"], 1);
+        assert_eq!(ord["b1"], 2);
+        assert_eq!(ord["b2"], 3);
+        assert_eq!(ord["M"], 4);
+    }
+
+    #[test]
+    fn mainline_order_singletons_when_no_merges() {
+        let mainline = vec!["a".into(), "b".into(), "c".into()];
+        let ord = mainline_order(&mainline, &HashMap::new());
+        assert_eq!((ord["a"], ord["b"], ord["c"]), (0, 1, 2));
+    }
+
+    #[test]
+    fn mainline_order_dedups_a_rev_to_its_first_slot() {
+        // Pathological: a mainline commit also listed as another merge's branch
+        // commit must keep its FIRST (mainline) slot, not be reordered.
+        let mainline = vec!["a".into(), "b".into(), "c".into()];
+        let mut bc = HashMap::new();
+        bc.insert("b".to_string(), vec!["a".into()]); // 'a' already placed at 0
+        let ord = mainline_order(&mainline, &bc);
+        assert_eq!(ord["a"], 0); // unchanged — first slot wins
+        assert_eq!(ord["b"], 1);
+        assert_eq!(ord["c"], 2);
     }
 }

@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { reactive, computed, ref, onMounted, onUnmounted, provide, watch } from 'vue'
+import { reactive, computed, ref, onMounted, onUnmounted, provide, watch, useTemplateRef, nextTick } from 'vue'
 import { withBase } from 'vitepress'
 import MetricSection from './MetricSection.vue'
 import TrendChart from './TrendChart.vue'
 import { buildSeries, isFlat, fmt } from '../lib/series'
 import { columnGroups, columnLabel, collapseValues, boundaryFlags, columnNet, prColumnGroups } from '../lib/collapse'
 import { colorFor } from '../lib/colors'
-import { columnHref, prUrl, branchCommitsUrl, stripBranchRef } from '../lib/repo'
+import { columnHref, prUrl, branchCommitsUrl } from '../lib/repo'
 import { HOVER_KEY } from '../lib/hover'
 import { SAMPLE } from '../lib/sample'
 import type { MetricsData, Snapshot, IndexMap, SeriesRow, Series } from '../lib/types'
@@ -16,6 +16,7 @@ const props = defineProps<{ data?: MetricsData }>()
 const snapshots = ref<Snapshot[]>(props.data?.snapshots ?? [])
 const index = ref<IndexMap>(props.data?.index ?? {})
 const loading = ref(!props.data)
+const gridScroll = useTemplateRef('gridScroll')
 
 const selected = reactive(new Set<string>())
 const collapse = ref(true)
@@ -97,6 +98,10 @@ onMounted(async () => {
       loading.value = false
     }
   }
+
+  await nextTick();
+  // `?.scrollTo?.` — the element may lack scrollTo outside a real browser (jsdom).
+  gridScroll.value?.scrollTo?.({ left: gridScroll.value.scrollWidth, top: 0 })
 })
 onUnmounted(() => { ro?.disconnect(); ro = null })
 
@@ -128,16 +133,16 @@ const columns = computed(() =>
   }),
 )
 
-// Per-column grouping key: PR number if known, else the branch hint, else null.
-const perColumnKey = computed<(string | number | null)[]>(() =>
+// Per-column grouping key: the PR number, else null (ungrouped). Columns are
+// ordered by the grouped-mainline sequence (assemble()), so a PR's commits are
+// contiguous and prColumnGroups spans one header cell over the whole PR. We
+// deliberately DON'T fall back to the branch hint: on merged mainline history
+// every commit belongs to a PR, and grouping the stragglers by their name-rev
+// hint only produced noisy, fragmented non-PR cells.
+const perColumnKey = computed<(number | null)[]>(() =>
   colGroups.value.map((g) => {
     const last = snapshots.value[g[g.length - 1]]
-    const entry = index.value[last?.git_rev]
-    // `||`, not `??`: an empty-string branch is not a usable grouping key either.
-    // Normalize the name-rev hint (drop `remotes/origin/` + trailing `~N`/`^N`)
-    // so both the grouping key and the rendered link resolve to a real branch.
-    const branch = stripBranchRef(entry?.branch)
-    return entry?.pr || branch || null
+    return index.value[last?.git_rev]?.pr ?? null
   }),
 )
 const prGroups = computed(() => prColumnGroups(perColumnKey.value))
@@ -155,7 +160,7 @@ function groupLabel(g: { key: string | number | null }): string {
 function groupHref(g: { key: string | number | null }): string | undefined {
   return typeof g.key === 'number' ? prUrl(g.key)
     : typeof g.key === 'string' ? branchCommitsUrl(g.key)
-    : undefined
+      : undefined
 }
 
 // `changed`/`nets` intentionally derive from `allRows`/`colGroups` (the full column
@@ -178,8 +183,8 @@ function collapsedRowFlat(r: SeriesRow): boolean {
 const shownGroups = computed(() =>
   onlyChanged.value
     ? groups.value
-        .map((g) => ({ ...g, rows: g.rows.filter((r) => !collapsedRowFlat(r)) }))
-        .filter((g) => g.rows.length)
+      .map((g) => ({ ...g, rows: g.rows.filter((r) => !collapsedRowFlat(r)) }))
+      .filter((g) => g.rows.length)
     : groups.value,
 )
 
@@ -241,78 +246,45 @@ function valAt(s: Series): string {
       </div>
 
       <div class="wrap">
-        <div class="grid-scroll">
+        <div class="grid-scroll" ref="gridScroll">
           <table class="grid" ref="gridEl">
             <thead ref="headEl">
               <tr v-if="showPrRow" class="prgroups">
                 <th class="lbl"></th>
-                <th
-                  v-for="(g, gi) in prGroups"
-                  :key="gi"
-                  class="col"
-                  :colspan="g.span"
-                  :class="{ 'group-start': g.start > 0 }"
-                >
+                <th v-for="(g, gi) in prGroups" :key="gi" class="col" :colspan="g.span"
+                  :class="{ 'group-start': g.start > 0 }">
                   <a v-if="groupHref(g)" :href="groupHref(g)" target="_blank" rel="noreferrer">{{ groupLabel(g) }}</a>
                 </th>
               </tr>
               <tr class="cols">
                 <th class="lbl">metric</th>
-                <th
-                  v-for="(c, i) in columns"
-                  :key="c.label + i"
-                  class="col"
-                  :class="{ hov: hover === i, dim: !changed[i], 'group-start': groupStart[i] }"
-                  :title="c.title"
-                  @mouseenter="hover = i"
-                  @mouseleave="hover = null"
-                >
+                <th v-for="(c, i) in columns" :key="c.label + i" class="col"
+                  :class="{ hov: hover === i, dim: !changed[i], 'group-start': groupStart[i] }" :title="c.title"
+                  @mouseenter="hover = i" @mouseleave="hover = null">
                   <a :href="c.href" target="_blank" rel="noreferrer">{{ c.label }}</a>
                 </th>
               </tr>
               <tr class="overall">
                 <th class="lbl">Δ overall</th>
-                <th
-                  v-for="(net, i) in nets"
-                  :key="i"
-                  class="col"
+                <th v-for="(net, i) in nets" :key="i" class="col"
                   :class="{ hov: hover === i, dim: !changed[i], 'group-start': groupStart[i] }"
-                  :title="`${net.up} improved, ${net.down} regressed`"
-                  @mouseenter="hover = i"
-                  @mouseleave="hover = null"
-                >
+                  :title="`${net.up} improved, ${net.down} regressed`" @mouseenter="hover = i"
+                  @mouseleave="hover = null">
                   <span v-if="net.up > net.down" class="up">▲</span>
                   <span v-else-if="net.down > net.up" class="down">▼</span>
                   <span v-else class="muted">–</span>
                 </th>
               </tr>
             </thead>
-            <MetricSection
-              v-for="g in shownGroups"
-              :key="g.title"
-              :group="g"
-              :columns="columns"
-              :selected="selected"
-              :delta="delta"
-              :changed="changed"
-              :group-start="groupStart"
-              @toggle="toggle"
-            />
+            <MetricSection v-for="g in shownGroups" :key="g.title" :group="g" :columns="columns" :selected="selected"
+              :delta="delta" :changed="changed" :group-start="groupStart" @toggle="toggle" />
           </table>
         </div>
 
         <div class="side">
           <h2>trend (selected)</h2>
-          <TrendChart
-            v-if="selected.size"
-            :series="selectedSeries"
-            :n="columns.length"
-            :normalize="true"
-            :interactive="true"
-            :height="300"
-            :pad-x="24"
-            :pad-y="24"
-          />
+          <TrendChart v-if="selected.size" :series="selectedSeries" :n="columns.length" :normalize="true"
+            :interactive="true" :height="300" :pad-x="24" :pad-y="24" />
           <p v-else class="muted">select metric rows to overlay their trends</p>
           <div v-if="selected.size" class="legend">
             <p class="legend-head muted">
@@ -331,67 +303,217 @@ function valAt(s: Series): string {
 </template>
 
 <style scoped lang="scss">
-.metrics { margin-top: 1rem; --metric-col-w: 13rem; }
-.muted { color: var(--vp-c-text-3); }
-.intro { font-size: 13px; }
-.up { color: #2e9e4f; }
-.down { color: #d64545; }
-.controls { margin: 0.6rem 0 1rem; display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
-button {
-  font: inherit; cursor: pointer; border: 1px solid var(--vp-c-divider);
-  border-radius: 4px; background: var(--vp-c-bg-soft); padding: 0.15rem 0.5rem;
+.metrics {
+  margin-top: 1rem;
+  --metric-col-w: 13rem;
 }
-label { font-size: 12px; display: inline-flex; gap: 0.25rem; align-items: center; cursor: pointer; }
 
-.wrap { display: flex; gap: 1.5rem; align-items: flex-start; }
+.muted {
+  color: var(--vp-c-text-3);
+}
+
+.intro {
+  font-size: 13px;
+}
+
+.up {
+  color: var(--vp-c-success-1);
+}
+
+.down {
+  color: var(--vp-c-danger-1);
+}
+
+.controls {
+  margin: 0.6rem 0 1rem;
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 4px;
+  background: var(--vp-c-bg-soft);
+  padding: 0.15rem 0.5rem;
+}
+
+label {
+  font-size: 12px;
+  display: inline-flex;
+  gap: 0.25rem;
+  align-items: center;
+  cursor: pointer;
+}
+
+.wrap {
+  display: flex;
+  gap: 1.5rem;
+  align-items: stretch;
+  flex: 1 1 auto; // fill the viewport-height page column (desktop) so only the table scrolls
+  min-height: 0;
+}
 
 // Bounded scroll region: horizontal AND vertical scrolling happen HERE, so the
 // sticky header/first-column/captions stick relative to this box (a plain
 // overflow-x wrapper would also scroll vertically and break sticky-top).
-.grid-scroll { flex: 1 1 auto; min-width: 0; max-height: 80vh; overflow: auto; }
+.grid-scroll {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
 
 table.grid {
-  border-collapse: separate; border-spacing: 0; table-layout: fixed;
-  font-family: var(--vp-font-family-mono); font-size: 12px;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  font-family: var(--vp-font-family-mono);
+  font-size: 12px;
 }
+
 // The WHOLE thead sticks vertically as one block (all three header rows — PR
 // groups, commit hashes, Δ-overall — move together; more reliable than
 // per-th top offsets); border-collapse:separate is required so sticky cells
 // keep their borders.
-thead { position: sticky; top: 0; z-index: 3; }
+thead {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+
 thead th {
   background: var(--vp-c-bg);
   border-bottom: 1px solid var(--vp-c-divider);
   border-right: 1px solid var(--vp-c-divider);
-  padding: 0.2rem 0.5rem; text-align: right; white-space: nowrap;
-  width: 5.5rem; overflow: hidden; text-overflow: ellipsis;
+  padding: 0.2rem 0.5rem;
+  text-align: right;
+  white-space: nowrap;
+  width: 5.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+
 // first column also sticks horizontally (independent axis); z-index above the
 // other header cells so the corner wins where the two sticky regions overlap.
 thead th.lbl {
-  position: sticky; left: 0; z-index: 4; text-align: left;
-  width: var(--metric-col-w); min-width: var(--metric-col-w);
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  text-align: left;
+  width: var(--metric-col-w);
+  min-width: var(--metric-col-w);
 }
-thead th.col a { color: var(--vp-c-brand-1); text-decoration: none; }
-thead th.col a:hover { text-decoration: underline; }
-th.hov { background: var(--vp-c-bg-soft); }
-th.dim { opacity: 0.4; }
-thead tr.prgroups th.col { text-align: left; font-size: 11px; }
-thead tr.prgroups th.col a { color: var(--vp-c-brand-1); text-decoration: none; }
-thead tr.prgroups th.col a:hover { text-decoration: underline; }
-.group-start { border-left: 2px solid var(--vp-c-text-3); }
 
-.side { flex: 0 0 380px; position: sticky; top: 5rem; }
-h2 { font-size: 0.95rem; margin: 0 0 0.4rem; border: 0; padding: 0; }
-@media (max-width: 900px) {
-  .wrap { flex-direction: column; }
-  .side { position: static; flex-basis: auto; width: 100%; }
-  .grid-scroll { max-height: 70vh; }
+thead th.col a {
+  color: var(--vp-c-brand-1);
+  text-decoration: none;
 }
-.swatch { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 2px; margin-right: 0.35rem; vertical-align: middle; }
-.legend { margin-top: 0.5rem; font-size: 12px; }
-.legend-head { margin: 0 0 0.25rem; }
-.legend-item { display: flex; align-items: center; gap: 0.35rem; margin: 0.1rem 0; }
-.legend-label { flex: 1 1 auto; }
-.legend-val { font-family: var(--vp-font-family-mono); color: var(--vp-c-text-1); }
+
+thead th.col a:hover {
+  text-decoration: underline;
+}
+
+th.hov {
+  background: var(--vp-c-bg-soft);
+}
+
+// Dimmed commit-hash header cells are STICKY and overlap the rows scrolling
+// behind them. Fading the whole cell (opacity) made its background see-through,
+// so that row data bled through and muddied the hash. Instead keep a mostly
+// opaque theme-bg backing and frost whatever still shows (backdrop-filter),
+// fading only the cell's content — the hash stays legible, nothing bleeds.
+// (color-mix unsupported → declaration dropped → opaque `thead th` bg remains,
+// which still occludes; so the fallback is safe.)
+th.dim {
+  background: color-mix(in srgb, var(--vp-c-bg) 72%, transparent);
+  backdrop-filter: blur(6px) brightness(0.7);
+}
+th.dim :where(a, span) {
+  opacity: 0.5;
+}
+
+thead tr.prgroups th.col {
+  text-align: left;
+  font-size: 11px;
+}
+
+thead tr.prgroups th.col a {
+  color: var(--vp-c-brand-1);
+  text-decoration: none;
+}
+
+thead tr.prgroups th.col a:hover {
+  text-decoration: underline;
+}
+
+.group-start {
+  border-left: 2px solid var(--vp-c-text-3);
+}
+
+.side {
+  flex: 0 0 380px;
+  min-height: 0;
+  overflow-y: auto; // sidepanel fits the row height, scrolls internally if tall
+}
+
+h2 {
+  font-size: 0.95rem;
+  margin: 0 0 0.4rem;
+  border: 0;
+  padding: 0;
+}
+
+@media (max-width: 900px) {
+  .wrap {
+    flex-direction: column;
+  }
+
+  .side {
+    position: static;
+    flex-basis: auto;
+    width: 100%;
+  }
+
+  .grid-scroll {
+    max-height: 70vh;
+  }
+}
+
+.swatch {
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 2px;
+  margin-right: 0.35rem;
+  vertical-align: middle;
+}
+
+.legend {
+  margin-top: 0.5rem;
+  font-size: 12px;
+}
+
+.legend-head {
+  margin: 0 0 0.25rem;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.1rem 0;
+}
+
+.legend-label {
+  flex: 1 1 auto;
+}
+
+.legend-val {
+  font-family: var(--vp-font-family-mono);
+  color: var(--vp-c-text-1);
+}
 </style>

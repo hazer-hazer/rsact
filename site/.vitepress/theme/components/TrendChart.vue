@@ -118,15 +118,18 @@ const hoverX = computed(() =>
           class="series-line"
           fill="none"
           :stroke="line.color"
+          :style="{ color: line.color }"
           :points="poly.points"
         />
         <circle
           v-for="(d, di) in line.dots"
           :key="`d${di}`"
+          class="dot"
           :cx="d.x"
           :cy="d.y"
           r="1.4"
           :fill="line.color"
+          :style="{ color: line.color }"
         />
       </template>
       <line
@@ -149,6 +152,19 @@ const hoverX = computed(() =>
 // non-uniform viewBox stretch — otherwise wide charts render fat strokes.
 .axis, .series-line, .guide { vector-effect: non-scaling-stroke; }
 .axis { stroke: var(--vp-c-divider); stroke-width: 1; }
-.series-line { stroke-width: 1.25; }
+// Phosphor bloom: each shape binds `color` to its own series color (inline),
+// so the colorless drop-shadows glow in that color (currentColor). A CSS
+// filter — not an SVG <filter> — so the blur is in screen px and the non-uniform
+// viewBox stretch (preserveAspectRatio="none") can't smear it sideways.
+.series-line {
+  stroke-width: 1.25;
+  filter: drop-shadow(0 0 1.5px) drop-shadow(0 0 3px);
+}
+.dot { filter: drop-shadow(0 0 2px); }
 .guide { stroke: var(--vp-c-text-3); stroke-width: 1; stroke-dasharray: 3 3; }
+
+// Reduced-motion users often also prefer reduced visual noise; keep charts flat.
+@media (prefers-reduced-motion: reduce) {
+  .series-line, .dot { filter: none; }
+}
 </style>
