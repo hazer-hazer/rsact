@@ -1,8 +1,8 @@
 {
-  "670afe31d64b71067e1cb5cf437687d3b379b9d2": {
-    "date": 1784106564,
+  "f6e60e3573c4058adceedbb1a072adae08dcf711": {
+    "date": 1784107100,
     "parent": "",
-    "branch": "ws5.1-layout-off-graph",
-    "subject": "WS5.1: port the layout kernel to walk the arena (via LayoutTree)"
+    "branch": "master",
+    "subject": "Merge pull request #20 from hazer-hazer/ws5-incremental-layout"
   }
 }
