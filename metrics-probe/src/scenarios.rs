@@ -337,9 +337,17 @@ mod tests {
 
     // WS0.5 layout-counter baseline. Locks the whole-tree relayout cost of a
     // single leaf change: for the 10-label page every one of the 11 layout
-    // nodes is re-visited and text is re-measured 40× — the pre-WS5 pathology
-    // (incremental layout should cut both to O(changed path)). Runs only with
-    // `--features layout-counters`.
+    // nodes is still re-visited (WS5 incremental layout, stage 5.2, is what cuts
+    // `visits` to O(changed path)). Runs only with `--features layout-counters`.
+    //
+    // WS5.0 (2026-07-13): `measures` cut 40 → 30. `model_flex` used to run a
+    // second per-child `min_size(ctx)` subtree descent in its placement pass —
+    // re-measuring one text leaf per content node, and discarding the result
+    // for every non-fluid child. The sizing pass's `(size, min_size)` are now
+    // stashed on `FlexItem` and reused, so each of the 10 labels is measured 3×
+    // (sizing `min_size` + layout `content_sizing` + `height_for_width`) rather
+    // than 4×. `visits` is unchanged — 5.0 is a per-pass measure dedup, not the
+    // subtree-skipping that lowers visit count.
     //
     // (The roadmap cites ~180 visits / 60-120 measures for a *30-node* page;
     // the canonical scenarios here are 5/10 labels, so their absolute numbers
@@ -354,11 +362,13 @@ mod tests {
             ui10.layout.expect("layout counters present under feature");
         assert_eq!(
             layout.visits, 11,
-            "one leaf change relayouts the whole 11-node tree today"
+            "one leaf change still visits the whole 11-node tree (visits are \
+             WS5.2's target, not 5.0's)"
         );
         assert_eq!(
-            layout.measures, 40,
-            "one leaf change re-measures text 40× today"
+            layout.measures, 30,
+            "WS5.0: per-pass min_size reuse cut re-measures 40 → 30 \
+             (3× per label; was 4× with the placement-pass min_size descent)"
         );
     }
 }
