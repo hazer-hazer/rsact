@@ -1,8 +1,8 @@
 {
-  "3e7748a3198b311156a3d4cd0b5400c0330f0f8a": {
-    "date": 1783974252,
+  "670afe31d64b71067e1cb5cf437687d3b379b9d2": {
+    "date": 1784106564,
     "parent": "",
-    "branch": "ws5-incremental-layout",
-    "subject": "WS5.0: tick roadmap + reconcile stale charter with the dropped ValueId cache"
+    "branch": "ws5.1-layout-off-graph",
+    "subject": "WS5.1: port the layout kernel to walk the arena (via LayoutTree)"
   }
 }
