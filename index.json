@@ -1,8 +1,8 @@
 {
-  "b9dda8f3189af0203cc7a07f476cb9284c6f00a5": {
-    "date": 1784123883,
+  "7e5f70c3e2bdadb54df836481e30e3650789253b": {
+    "date": 1784125306,
     "parent": "",
     "branch": "ws5.1-off-graph-removal",
-    "subject": "WS5.1 A1: public LayoutData constructors (prerequisite for LayoutBuilder)"
+    "subject": "WS5.1 A1: LayoutBuilder<W> + BuildCtx::bind_layout (off-graph builder side)"
   }
 }
