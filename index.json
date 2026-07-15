@@ -1,8 +1,8 @@
 {
-  "7e5f70c3e2bdadb54df836481e30e3650789253b": {
-    "date": 1784125306,
+  "692fad91635c9f65162c6a74ee0378febff61f8c": {
+    "date": 1784145660,
     "parent": "",
     "branch": "ws5.1-off-graph-removal",
-    "subject": "WS5.1 A1: LayoutBuilder<W> + BuildCtx::bind_layout (off-graph builder side)"
+    "subject": "WS5.1 A1 (WIP, KNOWN-INCOMPLETE): kernel reads arena-owned LayoutData; child-collection deleted"
   }
 }
