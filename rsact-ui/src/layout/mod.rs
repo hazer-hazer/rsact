@@ -633,6 +633,12 @@ impl LayoutData {
         Self::new(LayoutKind::Edge, size)
     }
 
+    /// Set the `show` visibility memo (WS5.1: public so `LayoutBuilder<W>`,
+    /// outside the `layout` module, can set it — mirrors `Layout::show`).
+    pub fn set_show(&mut self, show: Memo<bool>) {
+        self.show = Some(show);
+    }
+
     pub fn expect_container_mut(&mut self) -> &mut ContainerLayout {
         match &mut self.kind {
             LayoutKind::Container(container) => container,
