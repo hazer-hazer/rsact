@@ -121,7 +121,14 @@ impl<W: WidgetCtx> Page<W> {
 
         let mut force_redraw = create_signal(false).name("Force redraw");
 
-        let root = BuildCtx::run(&mut root, arena);
+        // WS5.1: the page relayout trigger. Off-graph layout means the layout
+        // `Memo` no longer tracks a reactive `Layout` handle — instead the
+        // reactive layout-prop bindings (`BuildCtx::bind_layout`) and structure
+        // changes (`set_children`/`set_single_child`) fire this trigger, and the
+        // memo tracks it, so either kind of change re-runs a relayout.
+        let relayout = create_trigger();
+
+        let root = BuildCtx::run(&mut root, arena, relayout);
 
         // TODO: If we make fonts MaybeReactive, we can go fully MaybeReactive
         // LayoutModel here
@@ -133,13 +140,18 @@ impl<W: WidgetCtx> Page<W> {
             // layouts inside Fixed-sized container changed,
             // returning previous result
 
+            // WS5.1: the layout is walked off-graph from the arena, whose
+            // structure/prop writes are untracked, so the memo has no implicit
+            // per-node dependency to re-run on. The `relayout` trigger is the
+            // single explicit dependency: `bind_layout` (reactive props) and
+            // `set_children`/`set_single_child` (structure) fire it, and tracking
+            // it here re-runs relayout on either (until the dirty set replaces
+            // this whole memo in PR2).
+            relayout.track();
+
             let viewport = *viewport;
-            // WS5.1: walk the arena from the root, not a snapshotted root
-            // `Layout` handle. `with_untracked` avoids subscribing to the arena
-            // signal itself (its structure writes are untracked); the per-node
-            // layout-handle reads inside `model_layout` still track, so reactive
-            // prop/structure changes re-run this memo (until the dirty set
-            // replaces it in PR2).
+            // `with_untracked` avoids subscribing to the arena signal itself (its
+            // writes are untracked); the walk reads `LayoutData` by `ElId`.
             let layout = arena.with_untracked(|arena| {
                 model_layout(
                     &LayoutCtx {
@@ -743,8 +755,6 @@ mod tests {
         el::{El, arena::ElArena, ctx::*, view::View},
         font::FontCtx,
         prelude::*,
-        style::theme::Theme,
-        widget::Widget,
     };
     use alloc::string::String;
     use rsact_reactive::prelude::*;
@@ -2252,71 +2262,113 @@ mod tests {
             button::{Button, ButtonBuilder},
             flex::{Flex, FlexBuilder},
         };
-        assert_eq!(core::mem::size_of::<Button<NullWtf>>(), 48);
-        assert_eq!(core::mem::size_of::<ButtonBuilder<NullWtf>>(), 152);
-        assert_eq!(core::mem::size_of::<Flex<NullWtf>>(), 12);
-        assert_eq!(core::mem::size_of::<FlexBuilder<NullWtf>>(), 40);
+        // WS5.1: these grew sharply from the pre-off-graph lock (Button 48,
+        // ButtonBuilder 152, Flex 12, FlexBuilder 40). The retained widget and
+        // its builder now embed an owned `LayoutData`/`LayoutBuilder` inline
+        // instead of an 8-byte `Layout` (`ValueId`) handle into the reactive
+        // graph — that is the off-graph trade. (Follow-up: widgets whose
+        // `render` never reads `self.layout` could drop the retained copy and
+        // read the arena-owned `LayoutData`; tracked for the WS5.1 Commit-B
+        // cleanup — see the `field 'layout' is never read` warnings.)
+        assert_eq!(core::mem::size_of::<Button<NullWtf>>(), 144);
+        assert_eq!(core::mem::size_of::<ButtonBuilder<NullWtf>>(), 272);
+        assert_eq!(core::mem::size_of::<Flex<NullWtf>>(), 112);
+        assert_eq!(core::mem::size_of::<FlexBuilder<NullWtf>>(), 160);
     }
 
-    // Regression: a reactive source set through the trait-default setter
-    // (`SizedWidget::width` -> `self.layout_mut().setter(...)`) must persist
-    // the reactive-on-write upgrade in the widget's own `Layout`.
-    // Previously the upgrade landed on a discarded `self.layout()` copy,
-    // which disposed the inert id and panicked when the layout was later
-    // read.
+    // Regression (WS5.1, off-graph): a reactive source set through the
+    // trait-default setter (`SizedWidget::width` -> `LayoutBuilder::setter`)
+    // must, once the element is built, drive an off-graph relayout. The
+    // recorded binding writes the *arena-owned* `LayoutData` and fires the page
+    // `relayout` trigger on every source change. (Pre-WS5.1 this asserted a
+    // reactive `Layout` handle on the builder; that handle is gone, so the test
+    // now builds into an arena and observes the arena + trigger directly — this
+    // is the coverage that closes the WS5.1 A1 reactive-relayout gap.)
     #[test]
     fn reactive_width_setter_persists_and_reacts() {
-        use crate::{layout::length::Length, widget::edge::Edge};
+        use crate::{
+            el::build::BuildCtx, layout::length::Length, widget::edge::Edge,
+        };
 
         with_new_runtime(|_| {
             let mut w = create_signal(Length::fill());
-            let edge = Edge::<NullWtf>::new().width(w);
-            // WS13.4: `edge` is now an `EdgeBuilder` (Edge is split), which
-            // implements only `Build`, not `Widget` — so `.layout()` resolves
-            // unambiguously to `Build::layout` (no disambiguation needed).
-            let layout = edge.layout();
+            // `.width(w)` records a reactive binding on the builder's off-graph
+            // `LayoutBuilder`; `BuildCtx::run` drains it through `bind_layout`.
+            let mut root: El<NullWtf> =
+                Edge::<NullWtf>::new().width(w).into_el();
+            let arena = create_signal(ElArena::new());
+            let relayout = create_trigger();
+            let root_id = BuildCtx::run(&mut root, arena, relayout);
 
-            // Reading the layout must not panic (the disposed-id bug) and must
-            // be tracked so observers re-run on change.
+            // The binding wrote the signal's initial value into the arena.
+            assert_eq!(
+                arena
+                    .with_untracked(|a| a.layout(root_id).unwrap().size.width()),
+                Length::fill(),
+            );
+
+            // A relayout observer (stand-in for the page layout memo) must
+            // re-run when the source changes — this is the off-graph relayout.
             let mut runs = create_signal(0u32);
             create_effect(move |_| {
                 runs.update_untracked(|r| *r += 1);
-                layout.with(|l| {
-                    let _ = l.size.width();
-                });
+                relayout.track();
             });
             assert_eq!(runs.get_untracked(), 1);
 
             w.set(Length::Fixed(50));
+
+            // The binding re-ran: arena `LayoutData` updated AND relayout fired.
+            assert_eq!(
+                arena
+                    .with_untracked(|a| a.layout(root_id).unwrap().size.width()),
+                Length::Fixed(50),
+            );
             assert_eq!(runs.get_untracked(), 2);
         });
     }
 
     // Same guarantee for `FontSettingWidget::font_size` on a `Label` (whose
-    // Text layout owns `FontProps`). Font props are now plain data;
-    // reactivity flows through the `Layout` signal driven by the setter.
+    // Text layout owns `FontProps`): the binding writes the arena-owned
+    // `LayoutData`'s font props and fires the page relayout trigger.
     #[test]
     fn reactive_font_size_setter_persists_and_reacts() {
-        use crate::font::FontSize;
+        use crate::{el::build::BuildCtx, font::FontSize};
 
         with_new_runtime(|_| {
             let mut fs = create_signal(FontSize::Fixed(10));
-            let label = Label::<NullWtf>::new("x").font_size(fs);
-            // WS13.4: `label` is now a `LabelBuilder` (Label is split), which
-            // implements only `Build`, not `Widget` — so `.layout()` resolves
-            // unambiguously to `Build::layout` (no disambiguation needed).
-            let layout = label.layout();
+            let mut root: El<NullWtf> =
+                Label::<NullWtf>::new("x").font_size(fs).into_el();
+            let arena = create_signal(ElArena::new());
+            let relayout = create_trigger();
+            let root_id = BuildCtx::run(&mut root, arena, relayout);
+
+            assert_eq!(
+                arena.with_untracked(|a| a
+                    .layout(root_id)
+                    .unwrap()
+                    .font_props()
+                    .map(|fp| fp.font_size)),
+                Some(Some(FontSize::Fixed(10))),
+            );
 
             let mut runs = create_signal(0u32);
             create_effect(move |_| {
                 runs.update_untracked(|r| *r += 1);
-                layout.with(|l| {
-                    let _ = l.font_props().map(|fp| fp.font_size);
-                });
+                relayout.track();
             });
             assert_eq!(runs.get_untracked(), 1);
 
             fs.set(FontSize::Fixed(20));
+
+            assert_eq!(
+                arena.with_untracked(|a| a
+                    .layout(root_id)
+                    .unwrap()
+                    .font_props()
+                    .map(|fp| fp.font_size)),
+                Some(Some(FontSize::Fixed(20))),
+            );
             assert_eq!(runs.get_untracked(), 2);
         });
     }

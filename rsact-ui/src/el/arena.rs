@@ -1,11 +1,9 @@
 use crate::{
     el::{El, ElData, ElId, WidgetCtx, dirty::DirtySet},
     layout::LayoutData,
-    widget::Widget,
 };
 use alloc::vec::Vec;
 use log::error;
-use rsact_reactive::prelude::*;
 
 pub struct ElNode<W: WidgetCtx> {
     // TODO: Can eliminate Option by using UnsafeCell, but then we need to
@@ -293,15 +291,14 @@ impl<W: WidgetCtx> ElArena<W> {
     }
 
     pub fn add(&mut self, parent: Option<ElId>, el: &mut El<W>) -> ElId {
-        // WS5.1 (A0): snapshot the builder's layout data into the arena-owned
-        // store, keyed by the ElId minted below. Read untracked — this is a
-        // structural build step, not a reactive dependency. (A1 sources this
-        // from the builder directly and lets reactive bindings mutate it.)
-        let layout_data = el.layout().with_untracked(|data| data.clone());
+        // WS5.1 (A1): move the builder's OWNED layout data into the arena-owned
+        // store, keyed by the ElId minted below. No `Layout` handle, no
+        // `with_untracked` — the arena owns `LayoutData` directly. Reactive
+        // layout-prop bindings mutate it later via `BuildCtx::bind_layout`.
+        let layout_data = el.layout_data();
 
         let id = self.els.els.insert_with_key(|id| {
-            let layout = el.layout();
-            let el = core::mem::replace(el, El::Stored {id, layout});
+            let el = core::mem::replace(el, El::Stored {id});
 
             match el {
                 El::New(el_data) => {

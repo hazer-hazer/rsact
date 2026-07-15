@@ -1,10 +1,12 @@
 use crate::el::{WidgetCtx, arena::ElArena, *};
 use crate::{
-    layout::{LayoutData, LayoutKind, length::LengthSize, node::Layout},
+    layout::{LayoutData, LayoutKind, length::LengthSize},
+    render::prelude::Axis,
     widget::Widget,
 };
 use alloc::{boxed::Box, vec::Vec};
 use log::{error, warn};
+use rsact_reactive::prelude::Trigger;
 
 /// A transient **builder**: holds construction-only state and is consumed at
 /// build into its retained [`Widget`]. `build` is the type transform
@@ -19,9 +21,19 @@ pub trait Build<W: WidgetCtx>: core::any::Any {
         ctx: BuildCtx<W>,
     ) -> alloc::boxed::Box<dyn Widget<W>>;
 
-    /// Layout snapshot the parent stores in its `El::Stored { id, layout }`
-    /// husk (read by `arena.add` before build).
-    fn layout(&self) -> Layout;
+    /// WS5.1: the builder's owned initial [`LayoutData`], moved into the
+    /// arena-owned layout store by [`ElArena::add`] before build. Off the
+    /// reactive graph — no `Layout` handle, no `create_inert`. For a split
+    /// builder the derive returns `self.layout.data().clone()`; a delegate
+    /// builder returns a child's `layout_data()`.
+    fn layout_data(&self) -> LayoutData;
+
+    /// WS5.1: set the `show` visibility memo on this builder's layout, used by
+    /// `Show` to hide the wrapped child. Default no-op — a builder that owns no
+    /// settable layout (delegate/identity builders) can't carry `show`.
+    fn set_show(&mut self, show: Memo<bool>) {
+        let _ = show;
+    }
 
     fn flags(&self) -> WidgetFlags {
         WidgetFlags::default()
@@ -45,20 +57,35 @@ pub trait Build<W: WidgetCtx>: core::any::Any {
 pub struct BuildCtx<W: WidgetCtx> {
     arena: Signal<ElArena<W>>,
     id: ElId,
+    /// WS5.1: the page's relayout trigger. Reactive layout-prop bindings
+    /// ([`bind_layout`](Self::bind_layout)) and structure changes
+    /// (`set_children`/`set_single_child`) fire it after mutating the arena so
+    /// the page's layout `Memo` (which tracks it) re-runs a relayout. This is
+    /// the off-graph replacement for the memo tracking a reactive `Layout`
+    /// handle.
+    relayout: Trigger,
 }
 
 impl<W: WidgetCtx> Clone for BuildCtx<W> {
     fn clone(&self) -> Self {
-        Self { arena: self.arena.clone(), id: self.id.clone() }
+        Self {
+            arena: self.arena.clone(),
+            id: self.id.clone(),
+            relayout: self.relayout,
+        }
     }
 }
 impl<W: WidgetCtx> Copy for BuildCtx<W> {}
 
 impl<W: WidgetCtx> BuildCtx<W> {
-    pub fn run(root: &mut El<W>, mut arena: Signal<ElArena<W>>) -> ElId {
+    pub fn run(
+        root: &mut El<W>,
+        mut arena: Signal<ElArena<W>>,
+        relayout: Trigger,
+    ) -> ElId {
         let root = arena.update_untracked(|arena| arena.add(None, root));
 
-        let mut ctx = Self { id: root, arena };
+        let mut ctx = Self { id: root, arena, relayout };
 
         ctx.build_el(root);
 
@@ -88,6 +115,10 @@ impl<W: WidgetCtx> BuildCtx<W> {
             arena.set_children(self.id, children_ids);
         });
 
+        // WS5.1: a structure change relayouts the page (the layout `Memo`
+        // tracks this trigger). No-op before the memo exists (initial build).
+        self.relayout.notify();
+
         self
     }
 
@@ -98,6 +129,9 @@ impl<W: WidgetCtx> BuildCtx<W> {
         self.arena.update_untracked(|arena| {
             arena.set_single_child(self.id, child_id);
         });
+
+        // WS5.1: a structure change relayouts the page (see `set_children`).
+        self.relayout.notify();
 
         self
     }
@@ -115,6 +149,7 @@ impl<W: WidgetCtx> BuildCtx<W> {
     ) {
         let mut arena = self.arena;
         let id = self.id;
+        let relayout = self.relayout;
         create_effect(move |_| {
             source.with(|value| {
                 arena.update_untracked(|arena| {
@@ -123,6 +158,11 @@ impl<W: WidgetCtx> BuildCtx<W> {
                     }
                     arena.mark_dirty(id);
                 });
+                // WS5.1: a reactive prop change relayouts the page (the layout
+                // `Memo` tracks this trigger). The arena reads inside the memo
+                // are untracked, so this trigger is the only dependency that
+                // re-runs relayout on a prop change.
+                relayout.notify();
             });
         });
     }
@@ -182,7 +222,7 @@ impl<W: WidgetCtx> BuildCtx<W> {
     // }
 
     fn for_el(self, parent_id: ElId) -> Self {
-        Self { arena: self.arena, id: parent_id }
+        Self { arena: self.arena, id: parent_id, relayout: self.relayout }
     }
 
     fn add_inner(&mut self, el: &mut El<W>) -> ElId {
@@ -225,6 +265,12 @@ impl<W: WidgetCtx> LayoutBuilder<W> {
 
     pub fn edge(size: LengthSize) -> Self {
         Self::new(LayoutData::edge(size))
+    }
+
+    /// Base scrollable layout (main axis shrinks, cross fills). WS5.1: the
+    /// content child comes from the arena, so this carries no content handle.
+    pub fn scrollable(axis: Axis) -> Self {
+        Self::new(LayoutData::scrollable(axis))
     }
 
     /// The assembled static layout data (read by `arena.add` / `Build`).
@@ -304,7 +350,7 @@ mod tests {
         with_new_runtime(|_| {
             let mut root: El<NullWtf> = Unit.el();
             let arena = create_signal(ElArena::new());
-            let root_id = BuildCtx::run(&mut root, arena);
+            let root_id = BuildCtx::run(&mut root, arena, create_trigger());
 
             arena.with(|arena| {
                 let data = arena.expect(root_id).expect("root must exist");

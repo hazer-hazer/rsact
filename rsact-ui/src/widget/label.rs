@@ -27,14 +27,14 @@ pub struct LabelBuilder<W: WidgetCtx> {
     #[widget]
     content: MaybeReactive<String>,
     #[widget]
-    layout: Layout,
+    layout: LayoutBuilder<W>,
     #[widget]
     style: WidgetStyleFn<LabelStyle<W::Color>>,
 }
 
 pub struct Label<W: WidgetCtx> {
     content: MaybeReactive<String>,
-    layout: Layout,
+    layout: LayoutData,
     style: WidgetStyleFn<LabelStyle<W::Color>>,
 }
 
@@ -56,7 +56,7 @@ impl<W: WidgetCtx> Label<W> {
         // Memo handle (cheap); for a static label it clones the String once, at
         // build time. No runtime node is created either way (the double-*node*
         // is gone — `Inert::map` no longer allocates).
-        let layout = Layout::shrink(super::LayoutKind::Content(
+        let layout = LayoutBuilder::shrink(super::LayoutKind::Content(
             ContentLayout::text(content.clone()),
         ));
 
@@ -122,7 +122,7 @@ impl<W: WidgetCtx> LabelBuilder<W> {
 }
 
 impl<W: WidgetCtx> LayoutWidget<W> for LabelBuilder<W> {
-    fn layout_mut(&mut self) -> &mut Layout {
+    fn layout_mut(&mut self) -> &mut LayoutBuilder<W> {
         &mut self.layout
     }
 }
@@ -137,10 +137,6 @@ impl<W: WidgetCtx> Widget<W> for Label<W> {
     // `Build::debug_name` ("Label" from `#[builds(Label<W>)]`). `Label` never
     // overrode `flags` either, so no `#[flags(...)]` attr is needed on
     // `LabelBuilder`.
-    fn layout(&self) -> Layout {
-        self.layout
-    }
-
     #[track_caller]
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
         ctx.render_self(|mut ctx| {

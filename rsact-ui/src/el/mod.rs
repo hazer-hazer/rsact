@@ -1,3 +1,4 @@
+use crate::layout::LayoutData;
 use crate::widget::prelude::*;
 use alloc::boxed::Box;
 use core::fmt::Debug;
@@ -124,7 +125,9 @@ where
     W: WidgetCtx,
 {
     New(ElData<W>),
-    Stored { id: ElId, layout: Layout },
+    // WS5.1: the arena OWNS the `LayoutData` (keyed by `ElId`) now, so the
+    // stored husk no longer carries a `Layout` handle — it is pure identity.
+    Stored { id: ElId },
 }
 
 impl<W> El<W>
@@ -135,13 +138,37 @@ where
         Self::New(ElData::new(Box::new(builder)))
     }
 
-    pub(crate) fn layout(&self) -> Layout {
+    /// WS5.1: the element's owned initial [`LayoutData`], read by
+    /// [`ElArena::add`] before the node is stored (the arena then owns it,
+    /// keyed by `ElId`). Only meaningful on a `New` (pre-build) element — a
+    /// `Stored` husk no longer carries layout (the arena does), so it degrades
+    /// to a zero layout (unreachable: `add` reads this before storing).
+    pub(crate) fn layout_data(&self) -> LayoutData {
         match self {
             Self::New(data) => match &data.stage {
-                ElStage::Unbuilt(b) => b.layout(),
-                ElStage::Built(w) => w.layout(),
+                ElStage::Unbuilt(b) => b.layout_data(),
+                ElStage::Built(w) => w.layout_data(),
             },
-            Self::Stored { layout, .. } => *layout,
+            Self::Stored { .. } => {
+                log::error!("layout_data() on a Stored element — arena owns it");
+                LayoutData::zero()
+            },
+        }
+    }
+
+    /// WS5.1: set the `show` visibility memo on this (pre-build) element's
+    /// builder layout. Used by `Show` to hide its wrapped child off the graph.
+    pub(crate) fn set_layout_show(&mut self, show: Memo<bool>) {
+        match self {
+            Self::New(data) => match &mut data.stage {
+                ElStage::Unbuilt(b) => b.set_show(show),
+                ElStage::Built(_) => {
+                    log::error!("set_layout_show() on a built element");
+                },
+            },
+            Self::Stored { .. } => {
+                log::error!("set_layout_show() on a Stored element");
+            },
         }
     }
 

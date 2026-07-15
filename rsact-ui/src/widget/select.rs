@@ -128,7 +128,7 @@ impl<W: WidgetCtx, K: PartialEq> PartialEq for SelectOption<W, K> {
 #[flags(focusable)]
 pub struct SelectBuilder<W: WidgetCtx, K: PartialEq + 'static> {
     #[widget]
-    layout: Layout,
+    layout: LayoutBuilder<W>,
     #[widget]
     state: Signal<SelectState>,
     #[widget]
@@ -144,7 +144,7 @@ pub struct SelectBuilder<W: WidgetCtx, K: PartialEq + 'static> {
 }
 
 pub struct Select<W: WidgetCtx, K: PartialEq + 'static> {
-    layout: Layout,
+    layout: LayoutData,
     state: Signal<SelectState>,
     style: WidgetStyleFn<SelectStyle<W::Color>>,
     options: Rc<MaybeReactive<Vec<SelectOption<W, K>>>>,
@@ -215,8 +215,22 @@ where
         }))
         .signal();
 
-        // WS5.1: option children come from the arena; the flex layout no
-        // longer collects their layout handles.
+        // WS5.1 / GAP 2: the option `El`s are NOT arena children — each lives
+        // only inside the `options` `Rc<MaybeReactive<Vec<SelectOption>>>` and
+        // is iterated manually in `render`/`on_event`. Under the old handle
+        // layout tree they were sized via `FlexLayout.children`; that channel is
+        // gone (deleted in A1). Wiring them as real `ctx.set_children` children
+        // (the "preferred" fix) is blocked by the A18 storage entanglement:
+        // the options are `Rc`-shared with the `selected` setter effect and may
+        // be a reactive `Memo`, so their `El`s cannot be moved/`&mut`-borrowed
+        // out to hand to the arena without the A18 rework this task scopes out.
+        // Consequence (unchanged from the A1 WIP): `ctx.layout.children()` is
+        // empty for a `Select`, so `options_offset` yields `None` and the
+        // selected-option highlight box is not drawn — which is consistent with
+        // the option-text render itself still being `TODO(unimplemented)`
+        // (a no-op) below. Both `render` and `on_event` already degrade safely
+        // on an empty `children_layouts` (no panic). When A18 lands, the options
+        // become real arena children and both paths light up together.
 
         // WS4.5: only wire the `state.selected -> selected` feedback when
         // `selected` is a genuine reactive Signal. For an inert `selected` the
@@ -241,7 +255,7 @@ where
         }
 
         SelectBuilder {
-            layout: Layout::new(
+            layout: LayoutBuilder::new(LayoutData::new(
                 LayoutKind::Flex(
                     FlexLayout::base(axis)
                         .block_model(BlockModel::zero().padding(1u32))
@@ -253,7 +267,7 @@ where
                     Length::InfiniteWindow(Length::Shrink.try_into().unwrap()),
                     Length::Shrink,
                 ),
-            ),
+            )),
             state,
             style: None,
             options,
@@ -294,7 +308,7 @@ impl<W: WidgetCtx, K> LayoutWidget<W> for SelectBuilder<W, K>
 where
     K: PartialEq + Display + 'static,
 {
-    fn layout_mut(&mut self) -> &mut Layout {
+    fn layout_mut(&mut self) -> &mut LayoutBuilder<W> {
         &mut self.layout
     }
 }
@@ -321,12 +335,16 @@ impl<W: WidgetCtx, K: PartialEq + 'static> Widget<W> for Select<W, K> {
     // override here would be dead duplication of `SelectBuilder`'s derived
     // `Build::flags`/`Build::debug_name` ("Select" from
     // `#[builds(Select<W, K>)]`, `focusable` from `#[flags(focusable)]`).
-    fn layout(&self) -> Layout {
-        self.layout
-    }
-
     #[track_caller]
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
+        // WS5.1 GAP 2 (off-graph): `Select` never registers its options as
+        // arena children (they live only in the `options` `Rc`, see the NOTE on
+        // the struct), and the old per-option layout came from the now-deleted
+        // `FlexLayout.children`. So this collection is empty until the options
+        // are wired as real arena children — which means the selected-highlight
+        // box below (and the still-`TODO(unimplemented)` option text) do not
+        // render. Fixing it is the A18-backlogged option-storage rework, not
+        // this off-graph flip; tracked, deliberately deferred.
         let children_layouts = ctx.layout.children().collect::<Vec<_>>();
 
         ctx.render_self(|mut ctx| {

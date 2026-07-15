@@ -11,9 +11,9 @@ use core::marker::PhantomData;
 #[builds(Space<W>)]
 pub struct SpaceBuilder<W: WidgetCtx> {
     #[widget]
-    layout: Layout,
-    // Moved 1:1 by the derive into the retained `Space { layout, ctx }` (a
-    // ZST): `layout: Layout` alone doesn't use `W`, so `ctx: PhantomData<W>`
+    layout: LayoutBuilder<W>,
+    // Moved 1:1 by the derive into the retained `Space { layout, ctx }`:
+    // `layout: LayoutData` alone doesn't use `W`, so `ctx: PhantomData<W>`
     // carries it (flex.rs/show.rs precedent) — `Space` already carried this
     // exact field pre-split (the row's "already the PhantomData precedent").
     #[widget]
@@ -21,7 +21,7 @@ pub struct SpaceBuilder<W: WidgetCtx> {
 }
 
 pub struct Space<W: WidgetCtx> {
-    layout: Layout,
+    layout: LayoutData,
     // `W` is otherwise unused on the retained widget — kept only to satisfy
     // `Widget<W>`'s own `W` parameter, same as `flex.rs`/`show.rs`.
     ctx: PhantomData<W>,
@@ -66,7 +66,7 @@ impl<W: WidgetCtx> SpaceBuilder<W> {
 
     // TODO: Reactive length, MaybeReactive
     fn new(axis: Axis, length: impl Into<Length>) -> Self {
-        let layout = Layout::shrink(LayoutKind::Edge)
+        let layout = LayoutBuilder::shrink(LayoutKind::Edge)
             .size(axis.canon(length.into(), Length::fill()));
 
         Self { layout, ctx: PhantomData }
@@ -81,10 +81,6 @@ impl<W: WidgetCtx + 'static> Widget<W> for Space<W> {
     // `Build::debug_name` ("Space" from `#[builds(Space<W>)]`). `Space` never
     // overrode `flags` either, so no `#[flags(...)]` attr is needed on
     // `SpaceBuilder`.
-    fn layout(&self) -> Layout {
-        self.layout
-    }
-
     fn render(&self, _ctx: RenderCtx<'_, W>) -> RenderResult {
         Ok(())
     }

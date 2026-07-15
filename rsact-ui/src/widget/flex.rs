@@ -22,15 +22,15 @@ pub struct FlexBuilder<W: WidgetCtx> {
     #[children(reactive)]
     children: MaybeSignal<Vec<El<W>>>,
     #[widget]
-    layout: Layout,
-    // Moved 1:1 by the derive into the retained `Flex { layout, ctx }` (a ZST):
+    layout: LayoutBuilder<W>,
+    // Moved 1:1 by the derive into the retained `Flex { layout, ctx }`:
     // the by-name build transform declares every field the widget has.
     #[widget]
     ctx: PhantomData<W>,
 }
 
 pub struct Flex<W: WidgetCtx> {
-    layout: Layout,
+    layout: LayoutData,
     // `W` is otherwise unused on the retained widget (unlike `FlexBuilder`,
     // which threads it through `children: MaybeSignal<Vec<El<W>>>`) — kept
     // only to satisfy `Widget<W>`'s own `W` parameter, same as `space.rs`.
@@ -58,7 +58,9 @@ impl<W: WidgetCtx + 'static> FlexBuilder<W> {
         // the layout no longer collects child layout handles.
         Self {
             children,
-            layout: Layout::shrink(LayoutKind::Flex(FlexLayout::base(axis))),
+            layout: LayoutBuilder::shrink(LayoutKind::Flex(FlexLayout::base(
+                axis,
+            ))),
             ctx: PhantomData,
         }
     }
@@ -160,7 +162,7 @@ impl<W: WidgetCtx + 'static> FlexBuilder<W> {
 }
 
 impl<W: WidgetCtx + 'static> LayoutWidget<W> for FlexBuilder<W> {
-    fn layout_mut(&mut self) -> &mut Layout {
+    fn layout_mut(&mut self) -> &mut LayoutBuilder<W> {
         &mut self.layout
     }
 }
@@ -172,10 +174,6 @@ impl<W: WidgetCtx + 'static> Widget<W> for Flex<W> {
     // NOTE: no `debug_name`/`flags` override on the retained widget — read once
     // pre-build from `Build` (seeding `ElState`); post-build consumption is via
     // `ElState`. `Build::debug_name` on `FlexBuilder` returns "Flex".
-    fn layout(&self) -> Layout {
-        self.layout
-    }
-
     fn render(&self, _ctx: RenderCtx<'_, W>) -> crate::widget::RenderResult {
         Ok(())
     }

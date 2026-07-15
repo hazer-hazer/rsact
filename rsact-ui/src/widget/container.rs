@@ -18,7 +18,7 @@ declare_widget_style! {
 #[builds(Container<W>)]
 pub struct ContainerBuilder<W: WidgetCtx> {
     #[widget]
-    layout: Layout,
+    layout: LayoutBuilder<W>,
     #[child(single)]
     content: El<W>,
     #[widget]
@@ -26,7 +26,7 @@ pub struct ContainerBuilder<W: WidgetCtx> {
 }
 
 pub struct Container<W: WidgetCtx> {
-    layout: Layout,
+    layout: LayoutData,
     style: WidgetStyleFn<ContainerStyle<W::Color>>,
 }
 
@@ -34,8 +34,9 @@ impl<W: WidgetCtx + 'static> Container<W> {
     pub fn new(content: impl View<W>) -> ContainerBuilder<W> {
         let content = content.into_el();
 
-        let layout =
-            Layout::shrink(LayoutKind::Container(ContainerLayout::base()));
+        let layout = LayoutBuilder::shrink(LayoutKind::Container(
+            ContainerLayout::base(),
+        ));
 
         ContainerBuilder { layout, content, style: None }
     }
@@ -113,7 +114,7 @@ impl<W: WidgetCtx + 'static> ContainerBuilder<W> {
 }
 
 impl<W: WidgetCtx + 'static> LayoutWidget<W> for ContainerBuilder<W> {
-    fn layout_mut(&mut self) -> &mut Layout {
+    fn layout_mut(&mut self) -> &mut LayoutBuilder<W> {
         &mut self.layout
     }
 }
@@ -130,17 +131,15 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
     // derived `Build::debug_name` ("Container" from
     // `#[builds(Container<W>)]`). `Container` never overrode `flags` either,
     // so no `#[flags(...)]` attr is needed on `ContainerBuilder`.
-    fn layout(&self) -> Layout {
-        self.layout
-    }
-
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> crate::widget::RenderResult {
         ctx.render_self(|ctx| {
             let style = ctx.get_style(self.style.as_deref());
 
+            // WS5.1: `self.layout` is the owned build-time `LayoutData` (see the
+            // Button render TODO re: reactive block_model drift).
             Block::from_layout_style(
                 ctx.layout.outer,
-                self.layout.with(|layout| layout.block_model()),
+                self.layout.block_model(),
                 style.container,
             )
             .render(ctx.renderer)

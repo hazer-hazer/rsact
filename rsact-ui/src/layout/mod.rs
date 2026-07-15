@@ -9,7 +9,7 @@ use crate::{
     render::prelude::*,
     utils::DisplayTruncated,
 };
-use alloc::{string::String, vec::Vec};
+use alloc::string::String;
 use core::{
     fmt::{Debug, Display},
     u32,

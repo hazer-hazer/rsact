@@ -12,19 +12,22 @@ declare_widget_style! {
 #[builds(Edge<W>)]
 pub struct EdgeBuilder<W: WidgetCtx> {
     #[widget]
-    layout: Layout,
+    layout: LayoutBuilder<W>,
     #[widget]
     style: WidgetStyleFn<EdgeStyle<W::Color>>,
 }
 
 pub struct Edge<W: WidgetCtx> {
-    layout: Layout,
+    layout: LayoutData,
     style: WidgetStyleFn<EdgeStyle<W::Color>>,
 }
 
 impl<W: WidgetCtx + 'static> Edge<W> {
     pub fn new() -> EdgeBuilder<W> {
-        EdgeBuilder { layout: Layout::shrink(LayoutKind::Edge), style: None }
+        EdgeBuilder {
+            layout: LayoutBuilder::shrink(LayoutKind::Edge),
+            style: None,
+        }
     }
 }
 
@@ -36,7 +39,7 @@ impl<W: WidgetCtx + 'static> EdgeBuilder<W> {
 }
 
 impl<W: WidgetCtx + 'static> LayoutWidget<W> for EdgeBuilder<W> {
-    fn layout_mut(&mut self) -> &mut Layout {
+    fn layout_mut(&mut self) -> &mut LayoutBuilder<W> {
         &mut self.layout
     }
 }
@@ -51,10 +54,6 @@ impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
     // `Build::debug_name` ("Edge" from `#[builds(Edge<W>)]`). `Edge` never
     // overrode `flags` either, so no `#[flags(...)]` attr is needed on
     // `EdgeBuilder`.
-    fn layout(&self) -> Layout {
-        self.layout
-    }
-
     #[track_caller]
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
         ctx.render_self(|ctx| {
@@ -64,7 +63,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
 
             Block::from_layout_style(
                 ctx.layout.outer,
-                self.layout.with(|layout| layout.block_model()),
+                self.layout.block_model(),
                 style.container,
             )
             .render(ctx.renderer)

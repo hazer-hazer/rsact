@@ -15,7 +15,7 @@ declare_widget_style! {
 #[flags(hoverable, hoverable_from_children, clickable, focusable)]
 pub struct ButtonBuilder<W: WidgetCtx> {
     #[widget]
-    layout: Layout,
+    layout: LayoutBuilder<W>,
     #[child(single)]
     content: El<W>,
     #[widget]
@@ -25,7 +25,7 @@ pub struct ButtonBuilder<W: WidgetCtx> {
 }
 
 pub struct Button<W: WidgetCtx> {
-    layout: Layout,
+    layout: LayoutData,
     style: WidgetStyleFn<ButtonStyle<W::Color>>,
     on_click: Option<Box<dyn FnMut()>>,
 }
@@ -34,12 +34,13 @@ impl<W: WidgetCtx + 'static> Button<W> {
     pub fn new(content: impl View<W>) -> ButtonBuilder<W> {
         let content = content.into_el();
 
-        let layout = Layout::shrink(LayoutKind::Container(ContainerLayout {
-            block_model: BlockModel::zero().padding(5).border_width(1),
-            horizontal_align: Align::Center,
-            vertical_align: Align::Center,
-            font_props: Default::default(),
-        }));
+        let layout =
+            LayoutBuilder::shrink(LayoutKind::Container(ContainerLayout {
+                block_model: BlockModel::zero().padding(5).border_width(1),
+                horizontal_align: Align::Center,
+                vertical_align: Align::Center,
+                font_props: Default::default(),
+            }));
 
         ButtonBuilder { layout, content, style: None, on_click: None }
     }
@@ -71,7 +72,7 @@ impl<W: WidgetCtx + 'static> ButtonBuilder<W> {
 }
 
 impl<W: WidgetCtx + 'static> LayoutWidget<W> for ButtonBuilder<W> {
-    fn layout_mut(&mut self) -> &mut Layout {
+    fn layout_mut(&mut self) -> &mut LayoutBuilder<W> {
         &mut self.layout
     }
 }
@@ -84,18 +85,18 @@ impl<W: WidgetCtx + 'static> Widget<W> for Button<W> {
     // read exactly once, pre-build, from `Build` (seeding `ElState` at
     // `state.rs:72`); post-build all consumption is via `ElState`, so an
     // override here would be dead duplication of the builder's `Build::flags`.
-    fn layout(&self) -> Layout {
-        self.layout
-    }
-
     #[track_caller]
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
         ctx.render_self(|mut ctx| {
             let style = ctx.get_style(self.style.as_deref());
 
+            // WS5.1: `self.layout` is the owned `LayoutData` captured at build.
+            // TODO: a padding/border bound to a signal after build drifts here
+            // (the retained snapshot isn't the live arena value); accepted
+            // narrow limitation until render reads block_model off the arena.
             Block::from_layout_style(
                 ctx.layout.outer,
-                self.layout.with(|layout| layout.block_model()),
+                self.layout.block_model(),
                 style.container,
             )
             .render(ctx.renderer)?;

@@ -14,7 +14,6 @@ use crate::{
 };
 use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
-use rsact_reactive::prelude::*;
 
 /// Layout tree representation with real position in viewport
 pub struct LayoutModelNode<'a> {

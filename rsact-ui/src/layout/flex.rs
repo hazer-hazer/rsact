@@ -10,7 +10,6 @@ use crate::{
     render::prelude::*,
 };
 use alloc::vec::Vec;
-use rsact_reactive::prelude::*;
 
 // TODO: Wrap and gap are not taken into account
 // TODO: Move usage of this function into FlexLayout::base function accepting
@@ -476,6 +475,10 @@ mod tests {
         font::{FontCtx, FontProps},
         layout::{LayoutData, LayoutKind},
     };
+    // Test-only: `model_flex` no longer needs the reactive prelude off-graph,
+    // but the tests still build memos / a runtime (`create_memo`,
+    // `with_new_runtime`), so the glob lives here rather than at module scope.
+    use rsact_reactive::prelude::*;
     use slotmap::{KeyData, SecondaryMap};
 
     fn el_id(n: u64) -> ElId {
