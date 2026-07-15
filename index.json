@@ -1,8 +1,8 @@
 {
-  "05ba1947c410b55a498940009ca585679d0b43b3": {
-    "date": 1784116698,
+  "b9dda8f3189af0203cc7a07f476cb9284c6f00a5": {
+    "date": 1784123883,
     "parent": "",
-    "branch": "master",
-    "subject": "Merge pull request #22 from hazer-hazer/ws5-incremental-layout"
+    "branch": "ws5.1-off-graph-removal",
+    "subject": "WS5.1 A1: public LayoutData constructors (prerequisite for LayoutBuilder)"
   }
 }
