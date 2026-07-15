@@ -38,7 +38,6 @@ impl<W: WidgetCtx + 'static> Button<W> {
             block_model: BlockModel::zero().padding(5).border_width(1),
             horizontal_align: Align::Center,
             vertical_align: Align::Center,
-            content: content.layout(),
             font_props: Default::default(),
         }));
 

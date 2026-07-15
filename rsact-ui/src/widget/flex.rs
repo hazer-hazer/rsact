@@ -54,16 +54,11 @@ impl<W: WidgetCtx + 'static> FlexBuilder<W> {
     fn new(children: impl ViewSequence<W>, axis: Axis) -> Self {
         let children = children.into_children();
 
-        let layout_children = children.map(|children| {
-            children.iter().map(|child| child.layout()).collect()
-        });
-
+        // WS5.1: the flex's children come from the arena (via `set_children`);
+        // the layout no longer collects child layout handles.
         Self {
             children,
-            layout: Layout::shrink(LayoutKind::Flex(FlexLayout::base(
-                axis,
-                layout_children,
-            ))),
+            layout: Layout::shrink(LayoutKind::Flex(FlexLayout::base(axis))),
             ctx: PhantomData,
         }
     }

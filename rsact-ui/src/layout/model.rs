@@ -268,20 +268,21 @@ pub fn model_layout<T: LayoutTree + ?Sized>(
 ) -> LayoutModel {
     #[cfg(feature = "layout-counters")]
     crate::layout::counters::count_visit();
+    // WS5.1: `tree.layout(id)` is the arena-owned `&LayoutData` (no handle,
+    // no `.with`).
     let Some(layout) = tree.layout(id) else {
         return LayoutModel::zero();
     };
-    layout.with(|layout| {
-        if !layout.is_shown() {
-            // A hidden element resolves to a zero layout here; `model_flex`
-            // additionally filters hidden children out of its sizing/gap passes
-            // (via `LayoutData::is_shown`) so they leave no phantom gap.
-            return LayoutModel::zero();
-        }
+    if !layout.is_shown() {
+        // A hidden element resolves to a zero layout here; `model_flex`
+        // additionally filters hidden children out of its sizing/gap passes
+        // (via `LayoutData::is_shown`) so they leave no phantom gap.
+        return LayoutModel::zero();
+    }
 
-        let size = layout.size.in_parent(parent_size);
+    let size = layout.size.in_parent(parent_size);
 
-        match &layout.kind {
+    match &layout.kind {
             // TODO: Panic or not?
             LayoutKind::Zero => LayoutModel::zero(),
             LayoutKind::Edge => LayoutModel::new(
@@ -322,9 +323,6 @@ pub fn model_layout<T: LayoutTree + ?Sized>(
                     block_model,
                     horizontal_align,
                     vertical_align,
-                    // WS5.1: the content child comes from the arena, not this
-                    // handle field.
-                    content: _,
                     font_props: container_fp,
                 } = container_layout;
 
@@ -376,11 +374,8 @@ pub fn model_layout<T: LayoutTree + ?Sized>(
                 .with_font_props(container_fp.has_any().then_some(child_fp))
             },
             LayoutKind::Scrollable(scrollable_layout) => {
-                let ScrollableLayout {
-                    // WS5.1: content child comes from the arena.
-                    content: _,
-                    font_props: scrollable_fp,
-                } = scrollable_layout;
+                let ScrollableLayout { font_props: scrollable_fp } =
+                    scrollable_layout;
 
                 let child_fp = scrollable_fp.inherited(&ctx.font_props);
                 let child_ctx = LayoutCtx { font_props: child_fp, ..*ctx };
@@ -419,5 +414,4 @@ pub fn model_layout<T: LayoutTree + ?Sized>(
                 model_flex(ctx, tree, id, parent_limits, flex_layout, size)
             },
         }
-    })
 }

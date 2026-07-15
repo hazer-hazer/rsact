@@ -34,9 +34,8 @@ impl<W: WidgetCtx + 'static> Container<W> {
     pub fn new(content: impl View<W>) -> ContainerBuilder<W> {
         let content = content.into_el();
 
-        let layout = Layout::shrink(LayoutKind::Container(
-            ContainerLayout::base(content.layout()),
-        ));
+        let layout =
+            Layout::shrink(LayoutKind::Container(ContainerLayout::base()));
 
         ContainerBuilder { layout, content, style: None }
     }

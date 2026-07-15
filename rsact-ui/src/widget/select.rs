@@ -215,8 +215,8 @@ where
         }))
         .signal();
 
-        let options_layout = options
-            .map(|options| options.iter().map(|opt| opt.el.layout()).collect());
+        // WS5.1: option children come from the arena; the flex layout no
+        // longer collects their layout handles.
 
         // WS4.5: only wire the `state.selected -> selected` feedback when
         // `selected` is a genuine reactive Signal. For an inert `selected` the
@@ -243,7 +243,7 @@ where
         SelectBuilder {
             layout: Layout::new(
                 LayoutKind::Flex(
-                    FlexLayout::base(axis, options_layout)
+                    FlexLayout::base(axis)
                         .block_model(BlockModel::zero().padding(1u32))
                         .gap(axis.canon(5, 0))
                         .align_main(Align::Center)

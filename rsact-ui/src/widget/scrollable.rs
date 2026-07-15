@@ -141,7 +141,7 @@ impl<W: WidgetCtx> Scrollable<W> {
         let content = content.into_el();
         let state = create_signal(ScrollableState::none());
 
-        let layout = Layout::scrollable(axis, content.layout());
+        let layout = Layout::scrollable(axis);
 
         ScrollableBuilder {
             content,
