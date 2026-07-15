@@ -1,9 +1,11 @@
 use super::{FlexLayout, LayoutCtx, Limits, length::Length};
 use crate::{
+    el::ElId,
     layout::{
         Align,
         length::{DivFactors, LengthSize},
         model::{LayoutModel, model_layout},
+        tree::{LayoutTree, effective_children},
     },
     render::prelude::*,
 };
@@ -65,8 +67,10 @@ struct FlexLine {
     max_cross: u32,
 }
 
-pub fn model_flex(
+pub fn model_flex<T: LayoutTree + ?Sized>(
     ctx: &LayoutCtx,
+    tree: &T,
+    id: ElId,
     // TODO: Replace with parent max size as parent_limits.min is not used at
     // all.
     parent_limits: Limits,
@@ -92,10 +96,19 @@ pub fn model_flex(
     let child_ctx = LayoutCtx { font_props: child_fp, ..*ctx };
     let ctx = &child_ctx;
 
+    // Transitional (WS5.1): structure is sourced from the arena
+    // (`effective_children`) below, but the page memo still needs to invalidate
+    // on reactive *structure* change (children added/removed). Until the dirty
+    // set replaces the memo (PR2), track the reactive children handle so a
+    // change still re-runs the relayout memo; its value is otherwise unused.
+    children.track();
+
     let limits = parent_limits.child_limits(size).shrink(full_padding);
     let (max_possible_main, max_possible_cross) = limits.max().destruct(axis);
 
-    let children_count = children.with(Vec::len);
+    // WS5.1: children come from the arena, transparent nodes flattened.
+    let effective = effective_children(tree, id);
+    let children_count = effective.len();
 
     // Hidden children (`show == false`) take part in neither sizing nor gap
     // spacing — otherwise a hidden child would leave a phantom gap (and slot)
@@ -103,14 +116,16 @@ pub fn model_flex(
     // only; hidden slots in `children_layouts` stay `LayoutModel::zero()`,
     // preserving child order/count for rendering. Reading `is_shown` here tracks
     // each `show` memo so visibility changes re-run layout.
-    let visible: Vec<_> = children.with(|children| {
-        children
-            .iter()
-            .copied()
-            .enumerate()
-            .filter(|(_, child)| child.with(|child| child.is_shown()))
-            .collect()
-    });
+    let visible: Vec<(usize, ElId)> = effective
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|(_, cid)| {
+            tree.layout(*cid)
+                .map(|l| l.with(|c| c.is_shown()))
+                .unwrap_or(false)
+        })
+        .collect();
     let visible_count = visible.len();
 
     let const_new_line = FlexLine {
@@ -131,8 +146,10 @@ pub fn model_flex(
 
     let mut container_free_cross = max_possible_cross;
     for (item_index, &(orig_index, child)) in visible.iter().enumerate() {
-        let (child_size, child_min_size) =
-            child.with(|child| (child.size, child.min_size(ctx)));
+        let (child_size, child_min_size) = tree
+            .layout(child)
+            .map(|l| l.with(|c| (c.size, c.min_size(ctx, tree, child))))
+            .unwrap_or((LengthSize::fixed_zero(), Size::zero()));
 
         let min_item_size = child_size.max_fixed(child_min_size, limits.max());
 
@@ -179,6 +196,7 @@ pub fn model_flex(
         if child_div_factors.main(axis) == 0 {
             let child_layout = model_layout(
                 ctx,
+                tree,
                 child,
                 Limits::only_max(
                     // child_min_size,
@@ -368,6 +386,7 @@ pub fn model_flex(
 
             children_layouts[orig_index] = model_layout(
                 ctx,
+                tree,
                 child,
                 Limits::new(child_min_size, child_max_size),
                 size, // viewport,
@@ -466,6 +485,36 @@ mod tests {
         font::{FontCtx, FontProps},
         layout::{LayoutKind, node::Layout},
     };
+    use slotmap::{KeyData, SecondaryMap};
+
+    fn el_id(n: u64) -> ElId {
+        ElId::from(KeyData::from_ffi(n))
+    }
+
+    /// A minimal arena for the layout kernel: `ElId` → its layout handle +
+    /// children. No transparent nodes.
+    struct TestTree {
+        layouts: SecondaryMap<ElId, Layout>,
+        children: SecondaryMap<ElId, Vec<ElId>>,
+    }
+
+    impl TestTree {
+        fn new() -> Self {
+            Self { layouts: SecondaryMap::new(), children: SecondaryMap::new() }
+        }
+    }
+
+    impl LayoutTree for TestTree {
+        fn layout(&self, id: ElId) -> Option<Layout> {
+            self.layouts.get(id).copied()
+        }
+        fn children(&self, id: ElId) -> &[ElId] {
+            self.children.get(id).map(|v| v.as_slice()).unwrap_or(&[])
+        }
+        fn is_transparent(&self, _id: ElId) -> bool {
+            false
+        }
+    }
 
     fn fixed_child(w: u32, h: u32) -> Layout {
         Layout::edge(LengthSize::fixed_length(w, h))
@@ -478,6 +527,20 @@ mod tests {
             viewport: Size::new(1000, 1000),
             font_props: FontProps::default(),
         };
+        // Register each child + the flex in a mock arena keyed by ElId (the
+        // WS5.1 layout walk sources structure from the tree, not from the
+        // FlexLayout's own children vec).
+        let mut tree = TestTree::new();
+        let child_ids: Vec<ElId> = children
+            .iter()
+            .enumerate()
+            .map(|(i, child)| {
+                let cid = el_id(100 + i as u64);
+                tree.layouts.insert(cid, *child);
+                cid
+            })
+            .collect();
+        let flex_id = el_id(1);
         let flex = Layout::new(
             LayoutKind::Flex(
                 FlexLayout::base(Axis::X, MaybeReactive::new_inert(children))
@@ -485,9 +548,12 @@ mod tests {
             ),
             LengthSize::shrink(),
         );
+        tree.layouts.insert(flex_id, flex);
+        tree.children.insert(flex_id, child_ids);
         model_layout(
             &ctx,
-            flex,
+            &tree,
+            flex_id,
             Limits::unlimited(),
             LengthSize::fixed_length(1000, 1000),
         )
