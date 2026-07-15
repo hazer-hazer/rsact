@@ -1,6 +1,11 @@
 use crate::{
+    el::ElId,
     font::{FontCtx, FontProps, FontSize, TextOverflow},
-    layout::{length::LengthSize, node::Layout},
+    layout::{
+        length::LengthSize,
+        node::Layout,
+        tree::{LayoutTree, effective_single_child, for_each_effective_child},
+    },
     render::prelude::*,
     utils::DisplayTruncated,
 };
@@ -22,6 +27,7 @@ pub mod length;
 pub mod limits;
 pub mod model;
 pub mod node;
+pub mod tree;
 
 #[derive(Clone, Copy)]
 pub struct LayoutCtx<'a> {
@@ -235,11 +241,21 @@ impl ContainerLayout {
         self
     }
 
-    pub fn min_size(&self, ctx: &LayoutCtx) -> Size {
+    // WS5.1: children come from the arena (`tree`), not `self.content`. The
+    // content is this container's single effective child.
+    pub fn min_size<T: LayoutTree + ?Sized>(
+        &self,
+        ctx: &LayoutCtx,
+        tree: &T,
+        id: ElId,
+    ) -> Size {
         let fp = self.font_props.inherited(&ctx.font_props);
         let child_ctx = LayoutCtx { font_props: fp, ..*ctx };
-        self.content.with(|content| content.min_size(&child_ctx))
-            + self.block_model.full_padding()
+        let content = effective_single_child(tree, id)
+            .and_then(|cid| tree.layout(cid).map(|l| (cid, l)))
+            .map(|(cid, l)| l.with(|c| c.min_size(&child_ctx, tree, cid)))
+            .unwrap_or_else(Size::zero);
+        content + self.block_model.full_padding()
     }
 }
 
@@ -328,19 +344,31 @@ impl FlexLayout {
         }
     }
 
-    pub fn min_size(&self, ctx: &LayoutCtx) -> Size {
+    // WS5.1: children come from the arena (`tree`), folded via the effective
+    // children (transparent nodes flattened), not `self.children`.
+    pub fn min_size<T: LayoutTree + ?Sized>(
+        &self,
+        ctx: &LayoutCtx,
+        tree: &T,
+        id: ElId,
+    ) -> Size {
         let fp = self.font_props.inherited(&ctx.font_props);
         let child_ctx = LayoutCtx { font_props: fp, ..*ctx };
-        self.children.with(|children| {
-            children.iter().fold(Size::zero(), |min_size, child| {
-                self.axis.infix(
+        let axis = self.axis;
+        let mut min_size = Size::zero();
+        for_each_effective_child(tree, id, |cid| {
+            if let Some(child) = tree.layout(cid) {
+                let child_min =
+                    child.with(|c| c.min_size(&child_ctx, tree, cid));
+                min_size = axis.infix(
                     min_size,
-                    child.with(|child| child.min_size(&child_ctx)),
+                    child_min,
                     |lhs, rhs| SaturatingAdd::saturating_add(&lhs, &rhs),
                     core::cmp::max,
-                )
-            })
-        })
+                );
+            }
+        });
+        min_size
 
         // children.fold(Limits::unlimited(), |limits, child| {
         //     let child_limits = child.layout().with(|child|
@@ -373,10 +401,20 @@ impl ScrollableLayout {
         Self { content, font_props: Default::default() }
     }
 
-    pub fn min_size(&self, ctx: &LayoutCtx) -> Size {
+    // WS5.1: content comes from the arena (`tree`) — this scrollable's single
+    // effective child.
+    pub fn min_size<T: LayoutTree + ?Sized>(
+        &self,
+        ctx: &LayoutCtx,
+        tree: &T,
+        id: ElId,
+    ) -> Size {
         let fp = self.font_props.inherited(&ctx.font_props);
         let child_ctx = LayoutCtx { font_props: fp, ..*ctx };
-        self.content.with(|content| content.min_size(&child_ctx))
+        effective_single_child(tree, id)
+            .and_then(|cid| tree.layout(cid).map(|l| (cid, l)))
+            .map(|(cid, l)| l.with(|c| c.min_size(&child_ctx, tree, cid)))
+            .unwrap_or_else(Size::zero)
     }
 }
 
@@ -591,18 +629,28 @@ impl LayoutData {
         self.show.map(|show| show.get()).unwrap_or(true)
     }
 
-    pub fn min_size(&self, ctx: &LayoutCtx) -> Size {
+    // WS5.1: `tree`/`id` thread the arena walk down to the container/flex/
+    // scrollable arms, which recurse via the arena instead of the layout-handle
+    // sub-tree. `Content` is a leaf (no children) and ignores them.
+    pub fn min_size<T: LayoutTree + ?Sized>(
+        &self,
+        ctx: &LayoutCtx,
+        tree: &T,
+        id: ElId,
+    ) -> Size {
         match &self.kind {
             LayoutKind::Zero => Size::zero(),
             // TODO: Wrong? Edge can be fixed
             LayoutKind::Edge => Size::zero(),
             LayoutKind::Content(content_layout) => content_layout.min_size(ctx),
             LayoutKind::Container(container_layout) => {
-                container_layout.min_size(ctx)
+                container_layout.min_size(ctx, tree, id)
             },
-            LayoutKind::Flex(flex_layout) => flex_layout.min_size(ctx),
-            LayoutKind::Scrollable(content_layout) => {
-                content_layout.min_size(ctx)
+            LayoutKind::Flex(flex_layout) => {
+                flex_layout.min_size(ctx, tree, id)
+            },
+            LayoutKind::Scrollable(scrollable_layout) => {
+                scrollable_layout.min_size(ctx, tree, id)
             },
         }
     }

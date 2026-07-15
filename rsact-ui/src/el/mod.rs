@@ -5,6 +5,7 @@ use core::fmt::Debug;
 pub mod arena;
 pub mod build;
 pub mod ctx;
+pub mod dirty;
 pub mod event;
 pub mod flags;
 pub mod render;
