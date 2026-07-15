@@ -608,6 +608,31 @@ impl Debug for LayoutData {
 }
 
 impl LayoutData {
+    // WS5.1 (A1): public constructors so the off-graph builder side
+    // (`LayoutBuilder<W>`, outside the `layout` module) can build owned
+    // `LayoutData` without the runtime-node handle. `impl Layout` delegates
+    // here during the transition; `scrollable` stays on `Layout` for now (it
+    // takes a child `Layout` — the child-collection entanglement A1 removes).
+    pub fn new(kind: LayoutKind, size: LengthSize) -> Self {
+        Self { kind, size, show: None }
+    }
+
+    pub fn zero() -> Self {
+        Self::new(LayoutKind::Zero, LengthSize::fixed_zero())
+    }
+
+    pub fn shrink(kind: LayoutKind) -> Self {
+        Self::new(kind, LengthSize::shrink())
+    }
+
+    pub fn fill(kind: LayoutKind) -> Self {
+        Self::new(kind, LengthSize::fill())
+    }
+
+    pub fn edge(size: LengthSize) -> Self {
+        Self::new(LayoutKind::Edge, size)
+    }
+
     pub fn expect_container_mut(&mut self) -> &mut ContainerLayout {
         match &mut self.kind {
             LayoutKind::Container(container) => container,
@@ -740,23 +765,23 @@ impl LayoutData {
 
 impl Layout {
     pub fn new(kind: LayoutKind, size: LengthSize) -> Self {
-        Self::inert(LayoutData { kind, size, show: None })
+        Self::inert(LayoutData::new(kind, size))
     }
 
     pub fn zero() -> Self {
-        Self::new(LayoutKind::Zero, LengthSize::fixed_zero())
+        Self::inert(LayoutData::zero())
     }
 
     pub fn shrink(kind: LayoutKind) -> Self {
-        Self::new(kind, LengthSize::shrink())
+        Self::inert(LayoutData::shrink(kind))
     }
 
     pub fn fill(kind: LayoutKind) -> Self {
-        Self::new(kind, LengthSize::fill())
+        Self::inert(LayoutData::fill(kind))
     }
 
     pub fn edge(size: LengthSize) -> Self {
-        Self::new(LayoutKind::Edge, size)
+        Self::inert(LayoutData::edge(size))
     }
 
     /// Construct base scrollable layout where main axis will be shrinking and
