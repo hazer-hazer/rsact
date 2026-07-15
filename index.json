@@ -1,8 +1,8 @@
 {
-  "692fad91635c9f65162c6a74ee0378febff61f8c": {
-    "date": 1784145660,
+  "f54ef31bbf88e25bc3392ece8373dcd1414ad2a7": {
+    "date": 1784152940,
     "parent": "",
     "branch": "ws5.1-off-graph-removal",
-    "subject": "WS5.1 A1 (WIP, KNOWN-INCOMPLETE): kernel reads arena-owned LayoutData; child-collection deleted"
+    "subject": "WS5.1 A1: complete off-graph builder flip to green"
   }
 }
