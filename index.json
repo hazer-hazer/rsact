@@ -1,8 +1,8 @@
 {
-  "0a5053f0609b9a17e7af999e0f9dac18a4a4b53e": {
-    "date": 1784202950,
+  "8b10e7fa6b636fc37ba61084ee735d4fb71a74ee": {
+    "date": 1784235760,
     "parent": "",
     "branch": "ws5.1-off-graph-removal",
-    "subject": "WS5.1 B (part 1): delete the retired `Layout` node type"
+    "subject": "WS5.1 B (part 2b): dispatch by ElId, drop the arena↔layout positional zip"
   }
 }
