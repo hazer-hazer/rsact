@@ -1,8 +1,8 @@
 {
-  "f54ef31bbf88e25bc3392ece8373dcd1414ad2a7": {
-    "date": 1784152940,
+  "0a5053f0609b9a17e7af999e0f9dac18a4a4b53e": {
+    "date": 1784202950,
     "parent": "",
     "branch": "ws5.1-off-graph-removal",
-    "subject": "WS5.1 A1: complete off-graph builder flip to green"
+    "subject": "WS5.1 B (part 1): delete the retired `Layout` node type"
   }
 }
