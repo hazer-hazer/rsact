@@ -18,27 +18,28 @@ pub struct Dynamic<W: WidgetCtx> {
     // Child that always some after construction, option is needed to be set on
     // initialization TODO: MaybeUninit can be used for optimization.
     current: Signal<Option<El<W>>>,
-
     // TODO: Track previous element on change to dispose it from arena.
 
+    // WS5.1: no `layout` field — `Dynamic` is `transparent_layout`, so the arena
+    // walk skips its slot (its `LayoutData` stays the zero default) and lays out
+    // the wrapped child directly, which is what the note below asked for.
     // TODO: Need transparent layout node to nest dynamic child, otherwise
     // Layout needs to be stored separately to return it from
-    layout: Layout,
 }
 
 impl<W: WidgetCtx + 'static> Dynamic<W> {
     pub fn new<E: View<W>>(mut factory: impl FnMut() -> E + 'static) -> Self {
         let mut current = create_signal(None::<El<W>>);
 
-        let layout = create_effect(move |_| {
+        // WS5.1: the factory runs inside an effect so reactive reads rebuild the
+        // child; the child's layout lives in the arena now (keyed by `ElId`), so
+        // this no longer computes/stores a `Layout` — it only sets `current`.
+        create_effect(move |_| {
             let el = factory().into_el();
-            let layout = el.layout();
             current.set(Some(el));
-            layout
-        })
-        .with_last_value(|layout| *layout);
+        });
 
-        Self { current, layout }
+        Self { current }
     }
 }
 
@@ -61,10 +62,6 @@ impl<W: WidgetCtx + 'static> Widget<W> for Dynamic<W> {
                 );
             })
         });
-    }
-
-    fn layout(&self) -> Layout {
-        self.layout
     }
 
     #[track_caller]

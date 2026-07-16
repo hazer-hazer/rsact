@@ -14,7 +14,6 @@ use crate::{
 };
 use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
-use rsact_reactive::prelude::*;
 
 /// Layout tree representation with real position in viewport
 pub struct LayoutModelNode<'a> {
@@ -37,6 +36,13 @@ impl<'a> Debug for LayoutModelNode<'a> {
 }
 
 impl<'a> LayoutModelNode<'a> {
+    /// WS5.1: the `ElId` this layout node was computed for — the render/event
+    /// passes dispatch to the widget by this identity (walking the layout tree)
+    /// instead of positionally zipping arena children against layout children.
+    pub fn id(&self) -> ElId {
+        self.model.id
+    }
+
     pub fn font_props(&self) -> Option<FontProps> {
         self.model.font_props
     }
@@ -56,9 +62,10 @@ impl<'a> LayoutModelNode<'a> {
             .map(|child| child.node(self.inner))
     }
 
-    /// Number of layout children. Used by the event/render passes to detect
-    /// arena↔layout structural divergence before positionally zipping them
-    /// (WS3.5) — the parallelism is load-bearing but must degrade, not abort.
+    /// Number of layout children. WS5.1: the render/event passes no longer use
+    /// this — they dispatch by `ElId` from the layout tree, not by positionally
+    /// zipping arena children — but it stays as a small structural accessor
+    /// (e.g. asserting child counts in tests).
     pub fn children_len(&self) -> usize {
         self.model.children.len()
     }
@@ -85,6 +92,13 @@ impl<'a> LayoutModelNode<'a> {
 /// Layout tree representation with relative positions
 #[derive(Debug, PartialEq)]
 pub struct LayoutModel {
+    // WS5.1: the `ElId` this layout node was computed for. Set by `model_layout`
+    // (which is always called with the node's id) so the render/event passes can
+    // dispatch to the widget by identity — walking the layout tree directly —
+    // instead of positionally zipping arena children against layout children.
+    // Transparent nodes (`Dynamic`) are already resolved by `effective_children`
+    // at build, so every layout child carries the id of a real (rendered) widget.
+    id: ElId,
     outer: Rect,
     inner: Rect,
 
@@ -107,6 +121,10 @@ impl LayoutModel {
         #[cfg(feature = "debug-info")] dev: DevLayout,
     ) -> Self {
         Self {
+            // Defaulted here; `model_layout` stamps the real id via `with_id`
+            // (every model flows through it). The null default only lingers on a
+            // model no `model_layout` call ever tags, which never reaches a pass.
+            id: ElId::default(),
             outer: Rect::new(Point::zero(), inner_size),
             inner: Rect::new(Point::zero(), inner_size),
             children,
@@ -114,6 +132,13 @@ impl LayoutModel {
             #[cfg(feature = "debug-info")]
             dev,
         }
+    }
+
+    /// WS5.1: stamp the `ElId` this layout node was computed for (see the field
+    /// doc). Called by `model_layout` on every node it returns.
+    pub fn with_id(mut self, id: ElId) -> Self {
+        self.id = id;
+        self
     }
 
     pub fn with_font_props(mut self, fp: Option<FontProps>) -> Self {
@@ -146,6 +171,7 @@ impl LayoutModel {
 
     pub fn zero() -> Self {
         Self {
+            id: ElId::default(),
             outer: Rect::zero(),
             inner: Rect::zero(),
             children: vec![],
@@ -268,156 +294,167 @@ pub fn model_layout<T: LayoutTree + ?Sized>(
 ) -> LayoutModel {
     #[cfg(feature = "layout-counters")]
     crate::layout::counters::count_visit();
+
+    // WS5.1: a transparent node (e.g. `Dynamic`) has no layout of its own — it
+    // is flattened to its single effective child. As a *child* it is already
+    // skipped by `effective_children`/`effective_single_child`, so this only
+    // fires when a transparent node is the ROOT (e.g. a `Dynamic` page root),
+    // which nothing else flattens. The returned model carries the effective
+    // child's id, so the passes dispatch to the real widget, not the husk.
+    if tree.is_transparent(id) {
+        return effective_single_child(tree, id)
+            .map(|child| {
+                model_layout(ctx, tree, child, parent_limits, parent_size)
+            })
+            .unwrap_or_else(|| LayoutModel::zero().with_id(id));
+    }
+
+    // WS5.1: `tree.layout(id)` is the arena-owned `&LayoutData` (no handle,
+    // no `.with`).
     let Some(layout) = tree.layout(id) else {
-        return LayoutModel::zero();
+        return LayoutModel::zero().with_id(id);
     };
-    layout.with(|layout| {
-        if !layout.is_shown() {
-            // A hidden element resolves to a zero layout here; `model_flex`
-            // additionally filters hidden children out of its sizing/gap passes
-            // (via `LayoutData::is_shown`) so they leave no phantom gap.
-            return LayoutModel::zero();
-        }
+    if !layout.is_shown() {
+        // A hidden element resolves to a zero layout here; `model_flex`
+        // additionally filters hidden children out of its sizing/gap passes
+        // (via `LayoutData::is_shown`) so they leave no phantom gap.
+        return LayoutModel::zero().with_id(id);
+    }
 
-        let size = layout.size.in_parent(parent_size);
+    let size = layout.size.in_parent(parent_size);
 
-        match &layout.kind {
-            // TODO: Panic or not?
-            LayoutKind::Zero => LayoutModel::zero(),
-            LayoutKind::Edge => LayoutModel::new(
-                parent_limits.resolve_size(size, Size::zero(), None),
+    // WS5.1: every arm's model is stamped with `id` (see `LayoutModel::id`) so
+    // the render/event passes can dispatch to this widget by identity.
+    let model = match &layout.kind {
+        // TODO: Panic or not?
+        LayoutKind::Zero => LayoutModel::zero(),
+        LayoutKind::Edge => LayoutModel::new(
+            parent_limits.resolve_size(size, Size::zero(), None),
+            vec![],
+            #[cfg(feature = "debug-info")]
+            DevLayout::new(size, DevLayoutKind::Edge),
+        ),
+        LayoutKind::Content(content_layout) => {
+            let sizing = content_layout.content_sizing(ctx);
+            let layout_font_props = match content_layout {
+                ContentLayout::Text { font_props: text_fp, .. }
+                    if text_fp.has_any() =>
+                {
+                    let resolved = text_fp.inherited(&ctx.font_props);
+                    Some(resolved)
+                },
+                _ => None,
+            };
+
+            LayoutModel::new(
+                parent_limits.resolve_content_size(size, &sizing, |width| {
+                    content_layout.height_for_width(ctx, width)
+                }),
                 vec![],
                 #[cfg(feature = "debug-info")]
-                DevLayout::new(size, DevLayoutKind::Edge),
-            ),
-            LayoutKind::Content(content_layout) => {
-                let sizing = content_layout.content_sizing(ctx);
-                let layout_font_props = match content_layout {
-                    ContentLayout::Text { font_props: text_fp, .. }
-                        if text_fp.has_any() =>
-                    {
-                        let resolved = text_fp.inherited(&ctx.font_props);
-                        Some(resolved)
-                    },
-                    _ => None,
-                };
-
-                LayoutModel::new(
-                    parent_limits.resolve_content_size(
-                        size,
-                        &sizing,
-                        |width| content_layout.height_for_width(ctx, width),
-                    ),
-                    vec![],
-                    #[cfg(feature = "debug-info")]
-                    DevLayout::new(
-                        size,
-                        DevLayoutKind::Content(content_layout.clone()),
-                    ),
-                )
-                .with_font_props(layout_font_props)
-            },
-            LayoutKind::Container(container_layout) => {
-                let ContainerLayout {
-                    block_model,
-                    horizontal_align,
-                    vertical_align,
-                    // WS5.1: the content child comes from the arena, not this
-                    // handle field.
-                    content: _,
-                    font_props: container_fp,
-                } = container_layout;
-
-                // let min_content = content_size.get().min();
-
-                let full_padding = block_model.full_padding();
-
-                let child_fp = container_fp.inherited(&ctx.font_props);
-                let child_ctx = LayoutCtx { font_props: child_fp, ..*ctx };
-
-                let content_limits =
-                    parent_limits.child_limits(size).shrink(full_padding);
-                let content_layout = effective_single_child(tree, id)
-                    .map(|content_id| {
-                        model_layout(
-                            &child_ctx,
-                            tree,
-                            content_id,
-                            content_limits,
-                            size,
-                        )
-                    })
-                    .unwrap_or_else(LayoutModel::zero);
-
-                let content_size = content_layout.outer_size();
-                let real_size = parent_limits.resolve_size(
+                DevLayout::new(
                     size,
-                    content_size,
-                    Some(full_padding),
-                );
-                let content_layout = content_layout.aligned(
-                    *horizontal_align,
-                    *vertical_align,
-                    real_size - content_size,
-                );
+                    DevLayoutKind::Content(content_layout.clone()),
+                ),
+            )
+            .with_font_props(layout_font_props)
+        },
+        LayoutKind::Container(container_layout) => {
+            let ContainerLayout {
+                block_model,
+                horizontal_align,
+                vertical_align,
+                font_props: container_fp,
+            } = container_layout;
 
-                LayoutModel::new(
-                    // TODO: Generalize logic with real_size.expand/shrink and
-                    // full_padding
-                    real_size,
-                    vec![content_layout],
-                    #[cfg(feature = "debug-info")]
-                    DevLayout::new(
+            // let min_content = content_size.get().min();
+
+            let full_padding = block_model.full_padding();
+
+            let child_fp = container_fp.inherited(&ctx.font_props);
+            let child_ctx = LayoutCtx { font_props: child_fp, ..*ctx };
+
+            let content_limits =
+                parent_limits.child_limits(size).shrink(full_padding);
+            let content_layout = effective_single_child(tree, id)
+                .map(|content_id| {
+                    model_layout(
+                        &child_ctx,
+                        tree,
+                        content_id,
+                        content_limits,
                         size,
-                        DevLayoutKind::Container(container_layout.clone()),
-                    ),
-                )
-                .with_full_padding(full_padding)
-                .with_font_props(container_fp.has_any().then_some(child_fp))
-            },
-            LayoutKind::Scrollable(scrollable_layout) => {
-                let ScrollableLayout {
-                    // WS5.1: content child comes from the arena.
-                    content: _,
-                    font_props: scrollable_fp,
-                } = scrollable_layout;
+                    )
+                })
+                .unwrap_or_else(LayoutModel::zero);
 
-                let child_fp = scrollable_fp.inherited(&ctx.font_props);
-                let child_ctx = LayoutCtx { font_props: child_fp, ..*ctx };
+            let content_size = content_layout.outer_size();
+            let real_size = parent_limits.resolve_size(
+                size,
+                content_size,
+                Some(full_padding),
+            );
+            let content_layout = content_layout.aligned(
+                *horizontal_align,
+                *vertical_align,
+                real_size - content_size,
+            );
 
-                let content_limits = parent_limits.child_limits(size);
-                let content_layout = effective_single_child(tree, id)
-                    .map(|content_id| {
-                        model_layout(
-                            &child_ctx,
-                            tree,
-                            content_id,
-                            content_limits,
-                            size,
-                        )
-                    })
-                    .unwrap_or_else(LayoutModel::zero);
-
-                let real_size = parent_limits.resolve_size(
+            LayoutModel::new(
+                // TODO: Generalize logic with real_size.expand/shrink and
+                // full_padding
+                real_size,
+                vec![content_layout],
+                #[cfg(feature = "debug-info")]
+                DevLayout::new(
                     size,
-                    content_layout.outer_size(),
-                    None,
-                );
+                    DevLayoutKind::Container(container_layout.clone()),
+                ),
+            )
+            .with_full_padding(full_padding)
+            .with_font_props(container_fp.has_any().then_some(child_fp))
+        },
+        LayoutKind::Scrollable(scrollable_layout) => {
+            let ScrollableLayout { font_props: scrollable_fp } =
+                scrollable_layout;
 
-                LayoutModel::new(
-                    real_size,
-                    vec![content_layout],
-                    #[cfg(feature = "debug-info")]
-                    DevLayout::new(
+            let child_fp = scrollable_fp.inherited(&ctx.font_props);
+            let child_ctx = LayoutCtx { font_props: child_fp, ..*ctx };
+
+            let content_limits = parent_limits.child_limits(size);
+            let content_layout = effective_single_child(tree, id)
+                .map(|content_id| {
+                    model_layout(
+                        &child_ctx,
+                        tree,
+                        content_id,
+                        content_limits,
                         size,
-                        DevLayoutKind::Scrollable(scrollable_layout.clone()),
-                    ),
-                )
-                .with_font_props(scrollable_fp.has_any().then_some(child_fp))
-            },
-            LayoutKind::Flex(flex_layout) => {
-                model_flex(ctx, tree, id, parent_limits, flex_layout, size)
-            },
-        }
-    })
+                    )
+                })
+                .unwrap_or_else(LayoutModel::zero);
+
+            let real_size = parent_limits.resolve_size(
+                size,
+                content_layout.outer_size(),
+                None,
+            );
+
+            LayoutModel::new(
+                real_size,
+                vec![content_layout],
+                #[cfg(feature = "debug-info")]
+                DevLayout::new(
+                    size,
+                    DevLayoutKind::Scrollable(scrollable_layout.clone()),
+                ),
+            )
+            .with_font_props(scrollable_fp.has_any().then_some(child_fp))
+        },
+        LayoutKind::Flex(flex_layout) => {
+            model_flex(ctx, tree, id, parent_limits, flex_layout, size)
+        },
+    };
+
+    model.with_id(id)
 }

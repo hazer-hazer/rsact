@@ -1,6 +1,6 @@
 use crate::{
-    el::{El, ElData, ElId, WidgetCtx},
-    widget::Widget,
+    el::{El, ElData, ElId, WidgetCtx, dirty::DirtySet},
+    layout::LayoutData,
 };
 use alloc::vec::Vec;
 use log::error;
@@ -114,6 +114,16 @@ pub struct ElArena<W: WidgetCtx> {
     pub(crate) children: ArenaChildren,
     // TODO: Do we really need parent relation separately?
     pub(crate) parents: slotmap::SecondaryMap<ElId, ElId>,
+    /// WS5.1: the arena OWNS each element's `LayoutData`, keyed by `ElId` — the
+    /// off-graph layout store that replaces the `Layout` runtime-node handle.
+    /// (Commit A0: populated at `add`; the kernel read-path + reactive-prop
+    /// writers flip onto it in A1.)
+    pub(crate) layouts: slotmap::SecondaryMap<ElId, LayoutData>,
+    /// WS5.1 layout dirty set — the `ElId`s whose layout inputs changed since
+    /// the last relayout. Reactive layout-prop binding effects mark here (they
+    /// capture the arena `Signal`); relayout is pulled iff non-empty. Off the
+    /// reactive graph on purpose (no fake-inert node).
+    pub(crate) dirty: DirtySet,
 }
 
 impl<W: WidgetCtx> ElArena<W> {
@@ -122,7 +132,43 @@ impl<W: WidgetCtx> ElArena<W> {
             els: ArenaEls::new(),
             children: ArenaChildren::new(),
             parents: slotmap::SecondaryMap::new(),
+            layouts: slotmap::SecondaryMap::new(),
+            dirty: DirtySet::new(),
         }
+    }
+
+    /// The arena-owned `LayoutData` for `id` (WS5.1). `None` if absent (caller
+    /// degrades, never panics).
+    pub fn layout(&self, id: ElId) -> Option<&LayoutData> {
+        self.layouts.get(id)
+    }
+
+    /// Mutable access to `id`'s owned `LayoutData` (reactive-prop binding
+    /// effects write through this at build time).
+    pub fn layout_mut(&mut self, id: ElId) -> Option<&mut LayoutData> {
+        self.layouts.get_mut(id)
+    }
+
+    /// Mark `id`'s layout dirty (WS5.1). Called from reactive layout-prop
+    /// binding effects after they write `layout_mut(id)`.
+    pub fn mark_dirty(&mut self, id: ElId) {
+        self.dirty.mark(id);
+    }
+
+    /// Request a whole-tree relayout (fonts/viewport change, page enter).
+    pub fn mark_full_relayout(&mut self) {
+        self.dirty.mark_full();
+    }
+
+    /// Whether any layout is dirty — the WS5.1 relayout gate.
+    pub fn is_layout_dirty(&self) -> bool {
+        !self.dirty.is_empty()
+    }
+
+    /// Drain the dirty set (relayout consumes it; marks arriving mid-pass are
+    /// attributed to the next relayout).
+    pub fn take_dirty(&mut self) -> DirtySet {
+        self.dirty.take()
     }
 
     // pub fn traverse_result<E>(
@@ -245,9 +291,14 @@ impl<W: WidgetCtx> ElArena<W> {
     }
 
     pub fn add(&mut self, parent: Option<ElId>, el: &mut El<W>) -> ElId {
+        // WS5.1 (A1): move the builder's OWNED layout data into the arena-owned
+        // store, keyed by the ElId minted below. No `Layout` handle, no
+        // `with_untracked` — the arena owns `LayoutData` directly. Reactive
+        // layout-prop bindings mutate it later via `BuildCtx::bind_layout`.
+        let layout_data = el.layout_data();
+
         let id = self.els.els.insert_with_key(|id| {
-            let layout = el.layout();
-            let el = core::mem::replace(el, El::Stored {id, layout});
+            let el = core::mem::replace(el, El::Stored {id});
 
             match el {
                 El::New(el_data) => {
@@ -258,6 +309,8 @@ impl<W: WidgetCtx> ElArena<W> {
                 },
             }
         });
+
+        self.layouts.insert(id, layout_data);
 
         if let Some(parent) = parent {
             self.parents.insert(id, parent);

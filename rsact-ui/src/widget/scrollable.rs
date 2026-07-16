@@ -113,7 +113,7 @@ pub struct ScrollableBuilder<W: WidgetCtx> {
     #[child(single)]
     content: El<W>,
     #[widget]
-    layout: Layout,
+    layout: LayoutBuilder<W>,
     #[widget]
     mode: ScrollableMode,
     #[widget]
@@ -123,7 +123,7 @@ pub struct ScrollableBuilder<W: WidgetCtx> {
 pub struct Scrollable<W: WidgetCtx> {
     state: Signal<ScrollableState>,
     style: WidgetStyleFn<ScrollableStyle<W::Color>>,
-    layout: Layout,
+    layout: LayoutData,
     mode: ScrollableMode,
     axis: Axis,
 }
@@ -141,7 +141,7 @@ impl<W: WidgetCtx> Scrollable<W> {
         let content = content.into_el();
         let state = create_signal(ScrollableState::none());
 
-        let layout = Layout::scrollable(axis, content.layout());
+        let layout = LayoutBuilder::scrollable(axis);
 
         ScrollableBuilder {
             content,
@@ -239,7 +239,7 @@ impl<W: WidgetCtx> SizedWidget<W> for ScrollableBuilder<W> {
 }
 
 impl<W: WidgetCtx> LayoutWidget<W> for ScrollableBuilder<W> {
-    fn layout_mut(&mut self) -> &mut Layout {
+    fn layout_mut(&mut self) -> &mut LayoutBuilder<W> {
         &mut self.layout
     }
 }
@@ -253,10 +253,6 @@ impl<W: WidgetCtx> Widget<W> for Scrollable<W> {
     // override here would be dead duplication of `ScrollableBuilder`'s
     // derived `Build::flags`/`Build::debug_name` ("Scrollable" from
     // `#[builds(Scrollable<W>)]`).
-    fn layout(&self) -> Layout {
-        self.layout
-    }
-
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> crate::widget::RenderResult {
         // TODO: Shouldn't scrollbar be rendered after child to be above? Need
         // post_render method in Widget
@@ -266,9 +262,10 @@ impl<W: WidgetCtx> Widget<W> for Scrollable<W> {
 
             let style = ctx.get_style(self.style.as_deref());
 
+            // WS5.1: `self.layout` is the owned build-time `LayoutData`.
             Block::from_layout_style(
                 ctx.layout.outer,
-                self.layout.with(|layout| layout.block_model()),
+                self.layout.block_model(),
                 style.container,
             )
             .render(ctx.renderer)?;

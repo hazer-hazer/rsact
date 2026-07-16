@@ -10,7 +10,6 @@ use crate::{
     render::prelude::*,
 };
 use alloc::vec::Vec;
-use rsact_reactive::prelude::*;
 
 // TODO: Wrap and gap are not taken into account
 // TODO: Move usage of this function into FlexLayout::base function accepting
@@ -84,9 +83,6 @@ pub fn model_flex<T: LayoutTree + ?Sized>(
         gap,
         horizontal_align,
         vertical_align,
-        // WS4.1: `children` is `MaybeReactive<Vec<Layout>>`, no longer `Copy` —
-        // bind it by reference; the remaining fields stay `Copy` by-value.
-        ref children,
         font_props: flex_fp,
     } = flex_layout;
 
@@ -96,19 +92,14 @@ pub fn model_flex<T: LayoutTree + ?Sized>(
     let child_ctx = LayoutCtx { font_props: child_fp, ..*ctx };
     let ctx = &child_ctx;
 
-    // Transitional (WS5.1): structure is sourced from the arena
-    // (`effective_children`) below, but the page memo still needs to invalidate
-    // on reactive *structure* change (children added/removed). Until the dirty
-    // set replaces the memo (PR2), track the reactive children handle so a
-    // change still re-runs the relayout memo; its value is otherwise unused.
-    children.track();
-
+    // WS5.1: structure comes from the arena; relayout-on-structure-change is
+    // driven by the page relayout Trigger (`set_children` fires it), not by
+    // tracking a reactive children handle.
     let limits = parent_limits.child_limits(size).shrink(full_padding);
     let (max_possible_main, max_possible_cross) = limits.max().destruct(axis);
 
     // WS5.1: children come from the arena, transparent nodes flattened.
     let effective = effective_children(tree, id);
-    let children_count = effective.len();
 
     // Hidden children (`show == false`) take part in neither sizing nor gap
     // spacing — otherwise a hidden child would leave a phantom gap (and slot)
@@ -121,9 +112,7 @@ pub fn model_flex<T: LayoutTree + ?Sized>(
         .copied()
         .enumerate()
         .filter(|(_, cid)| {
-            tree.layout(*cid)
-                .map(|l| l.with(|c| c.is_shown()))
-                .unwrap_or(false)
+            tree.layout(*cid).map(|c| c.is_shown()).unwrap_or(false)
         })
         .collect();
     let visible_count = visible.len();
@@ -139,8 +128,15 @@ pub fn model_flex<T: LayoutTree + ?Sized>(
     let mut items: Vec<FlexItem> = Vec::with_capacity(visible_count);
     let mut lines = vec![const_new_line];
 
-    let mut children_layouts = Vec::with_capacity(children_count);
-    children_layouts.resize_with(children_count, || LayoutModel::zero());
+    // WS5.1: seed every slot (visible AND hidden) with its effective child id
+    // so the render/event passes can dispatch by identity. Visible children
+    // overwrite this with their real `model_layout` result (carrying the same
+    // id); hidden children keep a zero layout still tagged with their id, so
+    // they are skipped by geometry (zero rect), not by a lost identity.
+    let mut children_layouts: Vec<LayoutModel> = effective
+        .iter()
+        .map(|&cid| LayoutModel::zero().with_id(cid))
+        .collect();
 
     let (gap_main, gap_cross) = gap.destruct(axis);
 
@@ -148,7 +144,7 @@ pub fn model_flex<T: LayoutTree + ?Sized>(
     for (item_index, &(orig_index, child)) in visible.iter().enumerate() {
         let (child_size, child_min_size) = tree
             .layout(child)
-            .map(|l| l.with(|c| (c.size, c.min_size(ctx, tree, child))))
+            .map(|c| (c.size, c.min_size(ctx, tree, child)))
             .unwrap_or((LengthSize::fixed_zero(), Size::zero()));
 
         let min_item_size = child_size.max_fixed(child_min_size, limits.max());
@@ -483,8 +479,12 @@ mod tests {
     use super::*;
     use crate::{
         font::{FontCtx, FontProps},
-        layout::{LayoutKind, node::Layout},
+        layout::{LayoutData, LayoutKind},
     };
+    // Test-only: `model_flex` no longer needs the reactive prelude off-graph,
+    // but the tests still build memos / a runtime (`create_memo`,
+    // `with_new_runtime`), so the glob lives here rather than at module scope.
+    use rsact_reactive::prelude::*;
     use slotmap::{KeyData, SecondaryMap};
 
     fn el_id(n: u64) -> ElId {
@@ -494,7 +494,7 @@ mod tests {
     /// A minimal arena for the layout kernel: `ElId` → its layout handle +
     /// children. No transparent nodes.
     struct TestTree {
-        layouts: SecondaryMap<ElId, Layout>,
+        layouts: SecondaryMap<ElId, LayoutData>,
         children: SecondaryMap<ElId, Vec<ElId>>,
     }
 
@@ -505,8 +505,8 @@ mod tests {
     }
 
     impl LayoutTree for TestTree {
-        fn layout(&self, id: ElId) -> Option<Layout> {
-            self.layouts.get(id).copied()
+        fn layout(&self, id: ElId) -> Option<&LayoutData> {
+            self.layouts.get(id)
         }
         fn children(&self, id: ElId) -> &[ElId] {
             self.children.get(id).map(|v| v.as_slice()).unwrap_or(&[])
@@ -516,11 +516,11 @@ mod tests {
         }
     }
 
-    fn fixed_child(w: u32, h: u32) -> Layout {
-        Layout::edge(LengthSize::fixed_length(w, h))
+    fn fixed_child(w: u32, h: u32) -> LayoutData {
+        LayoutData::edge(LengthSize::fixed_length(w, h))
     }
 
-    fn row_size(children: Vec<Layout>, gap: u32) -> Size {
+    fn row_size(children: Vec<LayoutData>, gap: u32) -> Size {
         let fonts = FontCtx::new();
         let ctx = LayoutCtx {
             fonts: &fonts,
@@ -528,23 +528,21 @@ mod tests {
             font_props: FontProps::default(),
         };
         // Register each child + the flex in a mock arena keyed by ElId (the
-        // WS5.1 layout walk sources structure from the tree, not from the
-        // FlexLayout's own children vec).
+        // WS5.1 layout walk sources structure from the tree).
         let mut tree = TestTree::new();
         let child_ids: Vec<ElId> = children
-            .iter()
+            .into_iter()
             .enumerate()
             .map(|(i, child)| {
                 let cid = el_id(100 + i as u64);
-                tree.layouts.insert(cid, *child);
+                tree.layouts.insert(cid, child);
                 cid
             })
             .collect();
         let flex_id = el_id(1);
-        let flex = Layout::new(
+        let flex = LayoutData::new(
             LayoutKind::Flex(
-                FlexLayout::base(Axis::X, MaybeReactive::new_inert(children))
-                    .gap(Size::new_equal(gap)),
+                FlexLayout::base(Axis::X).gap(Size::new_equal(gap)),
             ),
             LengthSize::shrink(),
         );
@@ -576,7 +574,7 @@ mod tests {
             // resolve to the identical width (no phantom gap/slot).
             let hidden = create_memo(move || false);
             let mut mid = fixed_child(20, 10);
-            mid.show(hidden);
+            mid.set_show(hidden);
             let with_hidden = row_size(
                 alloc::vec![fixed_child(20, 10), mid, fixed_child(20, 10)],
                 gap,

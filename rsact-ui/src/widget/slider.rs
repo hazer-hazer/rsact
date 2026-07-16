@@ -92,7 +92,7 @@ pub struct SliderBuilder<W: WidgetCtx> {
     #[widget]
     state: SliderState,
     #[widget]
-    layout: Layout,
+    layout: LayoutBuilder<W>,
     #[widget]
     style: WidgetStyleFn<SliderStyle<W::Color>>,
     #[widget]
@@ -106,7 +106,7 @@ pub struct Slider<W: WidgetCtx> {
     range: MaybeReactive<RangeInclusive<f32>>,
     step: MaybeReactive<f32>,
     state: SliderState,
-    layout: Layout,
+    layout: LayoutData,
     style: WidgetStyleFn<SliderStyle<W::Color>>,
     axis: Axis,
 }
@@ -125,7 +125,9 @@ impl<W: WidgetCtx> Slider<W> {
             value: value.signal(),
             range,
             step,
-            layout: Layout::edge(axis.canon(Length::fill(), Length::Fixed(13))),
+            layout: LayoutBuilder::edge(
+                axis.canon(Length::fill(), Length::Fixed(13)),
+            ),
             style: None,
             axis,
         }
@@ -168,10 +170,6 @@ impl<W: WidgetCtx> Widget<W> for Slider<W> {
     // `state.rs:72`); post-build all consumption is via `ElState`, so an
     // override here would be dead duplication of `SliderBuilder`'s derived
     // `Build::flags`/`Build::debug_name` ("Slider" from `#[builds(Slider<W>)]`).
-    fn layout(&self) -> Layout {
-        self.layout
-    }
-
     #[track_caller]
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
         ctx.render_self(|mut ctx| {

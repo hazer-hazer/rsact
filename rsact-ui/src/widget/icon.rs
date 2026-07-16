@@ -48,7 +48,7 @@ pub struct IconBuilder<W: WidgetCtx, I: IconSet, R: ReactivityMarker> {
     #[widget]
     value: IconValue<I>,
     #[widget]
-    layout: Layout,
+    layout: LayoutBuilder<W>,
     #[widget]
     style: WidgetStyleFn<IconStyle<W::Color>>,
     #[widget]
@@ -58,7 +58,7 @@ pub struct IconBuilder<W: WidgetCtx, I: IconSet, R: ReactivityMarker> {
 
 pub struct Icon<W: WidgetCtx, I: IconSet> {
     value: IconValue<I>,
-    layout: Layout,
+    layout: LayoutData,
     style: WidgetStyleFn<IconStyle<W::Color>>,
     visible: MaybeReactive<bool>,
 }
@@ -72,9 +72,9 @@ impl<W: WidgetCtx, I: IconSet, R: ReactivityMarker> IconBuilder<W, I, R> {
 
 impl<W: WidgetCtx + 'static> Icon<W, EmptyIconSet> {
     pub fn inert(icon: IconRaw) -> IconBuilder<W, EmptyIconSet, IsInert> {
-        let layout = Layout::shrink(LayoutKind::Content(ContentLayout::fixed(
-            Size::new_equal(icon.size),
-        )));
+        let layout = LayoutBuilder::shrink(LayoutKind::Content(
+            ContentLayout::fixed(Size::new_equal(icon.size)),
+        ));
 
         IconBuilder {
             value: IconValue::Fixed(icon),
@@ -102,9 +102,9 @@ impl<W: WidgetCtx + 'static, I: IconSet + 'static> Icon<W, I> {
         let size = FontSize::Relative(1.0).signal();
         let value = IconValue::Relative(size, icon);
 
-        let layout = Layout::shrink(LayoutKind::Content(ContentLayout::Icon(
-            size.memo(),
-        )));
+        let layout = LayoutBuilder::shrink(LayoutKind::Content(
+            ContentLayout::Icon(size.memo()),
+        ));
 
         IconBuilder {
             value,
@@ -153,10 +153,6 @@ impl<W: WidgetCtx + 'static, I: IconSet + 'static> Widget<W> for Icon<W, I> {
     // read exactly once, pre-build, from `Build` (seeding `ElState`); a
     // retained override would be dead duplication (M7). `Build::debug_name`
     // on `IconBuilder` returns "Icon".
-    fn layout(&self) -> Layout {
-        self.layout
-    }
-
     #[track_caller]
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
         ctx.render_self(|ctx| {
