@@ -3,7 +3,6 @@ use crate::{
     font::{FontCtx, FontProps, FontSize, TextOverflow},
     layout::{
         length::LengthSize,
-        node::Layout,
         tree::{LayoutTree, effective_single_child, for_each_effective_child},
     },
     render::prelude::*,
@@ -26,7 +25,6 @@ pub mod grid;
 pub mod length;
 pub mod limits;
 pub mod model;
-pub mod node;
 pub mod tree;
 
 #[derive(Clone, Copy)]
@@ -608,6 +606,9 @@ impl LayoutData {
     }
 
     /// Base scrollable layout: main axis shrinks (InfiniteWindow), cross fills.
+    // TODO: The old grow-check (content main-axis must not grow) moved out with
+    // the content handle; re-add it in the scrollable builder against the
+    // child's declared size.
     pub fn scrollable(axis: Axis) -> Self {
         Self::new(
             LayoutKind::Scrollable(ScrollableLayout::new()),
@@ -619,7 +620,7 @@ impl LayoutData {
     }
 
     /// Set the `show` visibility memo (WS5.1: public so `LayoutBuilder<W>`,
-    /// outside the `layout` module, can set it — mirrors `Layout::show`).
+    /// outside the `layout` module, can set it).
     pub fn set_show(&mut self, show: Memo<bool>) {
         self.show = Some(show);
     }
@@ -751,47 +752,6 @@ impl LayoutData {
         {
             *current = overflow;
         }
-    }
-}
-
-impl Layout {
-    pub fn new(kind: LayoutKind, size: LengthSize) -> Self {
-        Self::inert(LayoutData::new(kind, size))
-    }
-
-    pub fn zero() -> Self {
-        Self::inert(LayoutData::zero())
-    }
-
-    pub fn shrink(kind: LayoutKind) -> Self {
-        Self::inert(LayoutData::shrink(kind))
-    }
-
-    pub fn fill(kind: LayoutKind) -> Self {
-        Self::inert(LayoutData::fill(kind))
-    }
-
-    pub fn edge(size: LengthSize) -> Self {
-        Self::inert(LayoutData::edge(size))
-    }
-
-    /// Construct base scrollable layout: main axis shrinks (InfiniteWindow),
-    /// cross axis fills. WS5.1: the content child comes from the arena, so this
-    /// no longer stores a content handle.
-    // TODO: The old grow-check (content main-axis must not grow) moved out with
-    // the content handle; re-add it in the scrollable builder against the
-    // child's declared size.
-    pub fn scrollable(axis: Axis) -> Self {
-        Self::inert(LayoutData::scrollable(axis))
-    }
-
-    pub fn show(&mut self, show: Memo<bool>) {
-        self.update_untracked(|l| l.show = Some(show));
-    }
-
-    pub fn size(mut self, size: LengthSize) -> Self {
-        self.update_untracked(|l| l.size = size);
-        self
     }
 }
 
