@@ -250,7 +250,9 @@ impl ContainerLayout {
         let fp = self.font_props.inherited(&ctx.font_props);
         let child_ctx = LayoutCtx { font_props: fp, ..*ctx };
         let content = effective_single_child(tree, id)
-            .and_then(|cid| tree.layout(cid).map(|l| l.min_size(&child_ctx, tree, cid)))
+            .and_then(|cid| {
+                tree.layout(cid).map(|l| l.min_size(&child_ctx, tree, cid))
+            })
             .unwrap_or_else(Size::zero);
         content + self.block_model.full_padding()
     }
@@ -390,7 +392,9 @@ impl ScrollableLayout {
         let fp = self.font_props.inherited(&ctx.font_props);
         let child_ctx = LayoutCtx { font_props: fp, ..*ctx };
         effective_single_child(tree, id)
-            .and_then(|cid| tree.layout(cid).map(|l| l.min_size(&child_ctx, tree, cid)))
+            .and_then(|cid| {
+                tree.layout(cid).map(|l| l.min_size(&child_ctx, tree, cid))
+            })
             .unwrap_or_else(Size::zero)
     }
 }

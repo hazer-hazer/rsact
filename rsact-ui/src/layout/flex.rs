@@ -100,7 +100,6 @@ pub fn model_flex<T: LayoutTree + ?Sized>(
 
     // WS5.1: children come from the arena, transparent nodes flattened.
     let effective = effective_children(tree, id);
-    let children_count = effective.len();
 
     // Hidden children (`show == false`) take part in neither sizing nor gap
     // spacing — otherwise a hidden child would leave a phantom gap (and slot)
@@ -129,8 +128,15 @@ pub fn model_flex<T: LayoutTree + ?Sized>(
     let mut items: Vec<FlexItem> = Vec::with_capacity(visible_count);
     let mut lines = vec![const_new_line];
 
-    let mut children_layouts = Vec::with_capacity(children_count);
-    children_layouts.resize_with(children_count, || LayoutModel::zero());
+    // WS5.1: seed every slot (visible AND hidden) with its effective child id
+    // so the render/event passes can dispatch by identity. Visible children
+    // overwrite this with their real `model_layout` result (carrying the same
+    // id); hidden children keep a zero layout still tagged with their id, so
+    // they are skipped by geometry (zero rect), not by a lost identity.
+    let mut children_layouts: Vec<LayoutModel> = effective
+        .iter()
+        .map(|&cid| LayoutModel::zero().with_id(cid))
+        .collect();
 
     let (gap_main, gap_cross) = gap.destruct(axis);
 

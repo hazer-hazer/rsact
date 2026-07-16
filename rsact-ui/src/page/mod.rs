@@ -359,7 +359,6 @@ impl<W: WidgetCtx> Page<W> {
         let res = self.layout.with(|layout| {
             let response = self.arena.update_untracked(|arena| {
                 EventPass::run(
-                    self.root,
                     arena,
                     event,
                     &mut self.state,
@@ -393,7 +392,6 @@ impl<W: WidgetCtx> Page<W> {
             self.arena.update_untracked(|arena| {
                 EventPass::run_to(
                     target,
-                    self.root,
                     arena,
                     event,
                     &mut self.state,
@@ -699,7 +697,6 @@ impl<W: WidgetCtx> Page<W> {
                                 },
                             )
                             .render(
-                                self.root,
                                 &layout.tree_root(),
                                 RenderVisual {
                                     tree_style: TreeStyle::base(),
@@ -2430,8 +2427,11 @@ mod tests {
 
             // The binding wrote the signal's initial value into the arena.
             assert_eq!(
-                arena
-                    .with_untracked(|a| a.layout(root_id).unwrap().size.width()),
+                arena.with_untracked(|a| a
+                    .layout(root_id)
+                    .unwrap()
+                    .size
+                    .width()),
                 Length::fill(),
             );
 
@@ -2448,8 +2448,11 @@ mod tests {
 
             // The binding re-ran: arena `LayoutData` updated AND relayout fired.
             assert_eq!(
-                arena
-                    .with_untracked(|a| a.layout(root_id).unwrap().size.width()),
+                arena.with_untracked(|a| a
+                    .layout(root_id)
+                    .unwrap()
+                    .size
+                    .width()),
                 Length::Fixed(50),
             );
             assert_eq!(runs.get_untracked(), 2);

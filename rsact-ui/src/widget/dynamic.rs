@@ -18,7 +18,6 @@ pub struct Dynamic<W: WidgetCtx> {
     // Child that always some after construction, option is needed to be set on
     // initialization TODO: MaybeUninit can be used for optimization.
     current: Signal<Option<El<W>>>,
-
     // TODO: Track previous element on change to dispose it from arena.
 
     // WS5.1: no `layout` field — `Dynamic` is `transparent_layout`, so the arena
