@@ -763,6 +763,16 @@ mod tests {
     type NullWtf = Wtf<NullRenderer, (), (), ()>;
 
     fn create_null_page(root: impl View<NullWtf>) -> Page<NullWtf> {
+        create_null_page_sized(Size::new_equal(1), root)
+    }
+
+    /// Like [`create_null_page`] but with an explicit viewport. The default is
+    /// `1x1`, which clamps every fixed-size child to a pixel — layout-geometry
+    /// tests need room for the per-slot advance to be observable.
+    fn create_null_page_sized(
+        viewport: Size,
+        root: impl View<NullWtf>,
+    ) -> Page<NullWtf> {
         // Mirror `UI::load_page` (WS3.1): the arena is created outside the page
         // scope (it keeps its explicit WS2 disposal), then the page is built
         // with a fresh scope current so every build-time reactive node the page
@@ -776,7 +786,7 @@ mod tests {
             (),
             root,
             arena,
-            Size::new_equal(1).maybe_reactive(),
+            viewport.maybe_reactive(),
             ().inert(),
             DevTools::default().signal(),
             NullRenderer::default().signal(),
@@ -1130,6 +1140,124 @@ mod tests {
             let _ = page.handle_events(core::iter::once(Event::Mouse(
                 MouseEvent::MouseMove(pt),
             )));
+        });
+    }
+
+    // WS5.1 identity lock (render/layout side): a transparent `Dynamic` in the
+    // middle of a flex must be flattened by `effective_children` into a real
+    // layout slot — the flex lays out THREE children (a, b-via-Dynamic, c) at
+    // distinct, increasing y, not a collapsed/zero middle. Locks the
+    // arena-walk ↔ `LayoutModel` correspondence the render/event passes consume
+    // (guards the positional-zip → ElId-dispatch refactor).
+    #[test]
+    fn dynamic_child_is_laid_out_as_a_real_flex_slot() {
+        use crate::widget::{dynamic::dynamic, edge::Edge, flex::Flex};
+        use rsact_reactive::runtime::with_new_runtime;
+
+        // Fixed-size children (not zero-height null-font text) so the flex main
+        // axis advances a definite amount per slot and the y-positions are
+        // unambiguous even in the 1x1 null viewport.
+        fn boxed() -> impl View<NullWtf> {
+            Edge::<NullWtf>::new().width(10u32).height(10u32)
+        }
+
+        with_new_runtime(|_| {
+            let page = create_null_page_sized(
+                Size::new_equal(100),
+                Flex::col(alloc::vec![
+                    boxed().into_el(),
+                    dynamic(|| boxed()).into_el(),
+                    boxed().into_el(),
+                ])
+                .into_el(),
+            );
+
+            let ys = page.layout.with(|m| {
+                let root = m.tree_root();
+                assert_eq!(
+                    root.children_len(),
+                    3,
+                    "flex must lay out 3 effective children through the Dynamic"
+                );
+                root.children()
+                    .map(|c| c.outer.top_left.y)
+                    .collect::<Vec<_>>()
+            });
+            assert!(
+                ys[0] < ys[1] && ys[1] < ys[2],
+                "the Dynamic's child must occupy a real middle slot, got y={ys:?}"
+            );
+        });
+    }
+
+    // WS5.1 identity lock (event side): a focused widget nested inside a
+    // transparent `Dynamic` must still receive events. `EventPass::run` walks
+    // the whole tree (`run_`), descending through the Dynamic's
+    // transparent-layout branch to reach the checkbox; a click toggles it, which
+    // redraws exactly that widget. A broken transparent traversal would never
+    // dispatch to it, leaving the page quiescent (redraw 0). Guards the
+    // positional-zip → ElId-dispatch refactor on the event pass.
+    #[test]
+    fn focused_event_reaches_child_through_dynamic() {
+        use crate::event::{Event, PressEvent};
+        use crate::widget::{checkbox::Checkbox, dynamic::dynamic, flex::Flex};
+        use rsact_reactive::runtime::with_new_runtime;
+
+        with_new_runtime(|_| {
+            let mut page = create_null_page(
+                Flex::col(alloc::vec![
+                    Checkbox::new(false).into_el(),
+                    dynamic(|| Checkbox::new(false)).into_el(),
+                    Checkbox::new(false).into_el(),
+                ])
+                .into_el(),
+            );
+
+            // Settle layout/style, then confirm quiescent.
+            for _ in 0..4 {
+                page.use_renderer(|_| {});
+            }
+            page.take_draw_calls();
+            page.use_renderer(|_| {});
+            assert_eq!(
+                page.take_draw_calls(),
+                0,
+                "page must be quiescent before the click"
+            );
+
+            // The middle flex child is the transparent Dynamic; its single arena
+            // child is the checkbox we target.
+            let root = page.root;
+            let flex_kids = page
+                .arena
+                .with(|a| a.children(root).map(|c| c.to_vec()))
+                .unwrap_or_default();
+            assert_eq!(flex_kids.len(), 3, "flex should have 3 children");
+            let dynamic_id = flex_kids[1];
+            let cb_id = page
+                .arena
+                .with(|a| a.children(dynamic_id).map(|c| c.to_vec()))
+                .unwrap_or_default();
+            assert_eq!(cb_id.len(), 1, "Dynamic should wrap exactly one child");
+            let cb_id = cb_id[0];
+
+            // Focus the Dynamic-wrapped checkbox and click it (press + release).
+            page.state.focused = Some((cb_id, 0));
+            let _ = page.handle_events(
+                [
+                    Event::Press(PressEvent::Press),
+                    Event::Press(PressEvent::Release),
+                ]
+                .into_iter(),
+            );
+
+            // Reaching it through the Dynamic => it toggled => it redrew.
+            page.use_renderer(|_| {});
+            assert_eq!(
+                page.take_draw_calls(),
+                1,
+                "focused click must reach the checkbox through the Dynamic"
+            );
         });
     }
 
