@@ -1,8 +1,8 @@
 {
-  "8b10e7fa6b636fc37ba61084ee735d4fb71a74ee": {
-    "date": 1784235760,
+  "41b5e1578b4bdc1939aaba1dc01e549910105774": {
+    "date": 1785011576,
     "parent": "",
-    "branch": "ws5.1-off-graph-removal",
-    "subject": "WS5.1 B (part 2b): dispatch by ElId, drop the arena↔layout positional zip"
+    "branch": "ws5.2-incremental-relayout",
+    "subject": "WS5.2 Stage 3: wire incremental relayout into the page + resolve min_size"
   }
 }
