@@ -67,6 +67,14 @@ default = ["libm"]
 libm = ["rsact-render/libm"]
 micromath = ["rsact-render/micromath"]
 
+# WS5.2: incremental relayout — splice clean subtrees out of the previous
+# LayoutModel and recompute only the arena's dirty set, stopping upward where a
+# node's (outer_size, min_size) are both stable. Off by default (full relayout
+# is the compiled default); each node retains its `last_inputs`+`min_size`
+# (≤64 B, compiled out under default features) so it can be recomputed in
+# isolation. Gated until the differential fuzz test has soaked.
+incremental-layout = []
+
 debug-info = ["rsact-reactive/debug-info"]
 defmt = [
     "dep:defmt",

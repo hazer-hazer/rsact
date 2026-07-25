@@ -89,8 +89,21 @@ impl<'a> LayoutModelNode<'a> {
     }
 }
 
+/// WS5.2: per-node state retained (only under `incremental-layout`) so a dirty
+/// node can be recomputed in isolation — the exact inputs `model_layout` was
+/// called with for this node — plus `min_size`, the second half of the
+/// `(outer_size, min_size)` stop-rule key. ≤64 B; compiled out by default.
+#[cfg(feature = "incremental-layout")]
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Retained {
+    pub parent_limits: Limits,
+    pub parent_size: LengthSize,
+    pub input_font_props: FontProps,
+    pub min_size: Size,
+}
+
 /// Layout tree representation with relative positions
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct LayoutModel {
     // WS5.1: the `ElId` this layout node was computed for. Set by `model_layout`
     // (which is always called with the node's id) so the render/event passes can
@@ -106,12 +119,32 @@ pub struct LayoutModel {
 
     children: Vec<LayoutModel>,
 
+    // WS5.2: retained recompute-inputs + min_size (see `Retained`). `None` until
+    // stamped by `model_layout`; a `None` node forces a full recompute of its
+    // subtree on the incremental path (conservative, always correct).
+    #[cfg(feature = "incremental-layout")]
+    retained: Option<Retained>,
+
     // Note: `dev` goes before `children` which is intentional to make more
     // readable pretty-printed debug
     // TODO: Make debug_assertions-only
     #[cfg(feature = "debug-info")]
     dev: DevLayout,
     // TODO: Tinyvec
+}
+
+// WS5.2: geometry-only equality. The memo's change-detection (and the
+// differential fuzz test) compare what is VISIBLE — id + rects + font_props +
+// children — never the retained recompute-metadata or the debug `dev`, both of
+// which are derived and would otherwise spuriously invalidate the memo.
+impl PartialEq for LayoutModel {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.outer == other.outer
+            && self.inner == other.inner
+            && self.font_props == other.font_props
+            && self.children == other.children
+    }
 }
 
 impl LayoutModel {
@@ -129,6 +162,8 @@ impl LayoutModel {
             inner: Rect::new(Point::zero(), inner_size),
             children,
             font_props: None,
+            #[cfg(feature = "incremental-layout")]
+            retained: None,
             #[cfg(feature = "debug-info")]
             dev,
         }
@@ -138,6 +173,15 @@ impl LayoutModel {
     /// doc). Called by `model_layout` on every node it returns.
     pub fn with_id(mut self, id: ElId) -> Self {
         self.id = id;
+        self
+    }
+
+    /// WS5.2: stamp the recompute-inputs + min_size (see [`Retained`]). Called by
+    /// `model_layout` under `incremental-layout` so a dirty node can later be
+    /// recomputed in isolation and its size compared against `min_size`.
+    #[cfg(feature = "incremental-layout")]
+    pub(crate) fn with_retained(mut self, retained: Retained) -> Self {
+        self.retained = Some(retained);
         self
     }
 
@@ -176,6 +220,8 @@ impl LayoutModel {
             inner: Rect::zero(),
             children: vec![],
             font_props: None,
+            #[cfg(feature = "incremental-layout")]
+            retained: None,
             #[cfg(feature = "debug-info")]
             dev: DevLayout::zero(),
         }
@@ -456,5 +502,20 @@ pub fn model_layout<T: LayoutTree + ?Sized>(
         },
     };
 
-    model.with_id(id)
+    let model = model.with_id(id);
+
+    // WS5.2: retain this node's recompute-inputs + min_size so the incremental
+    // path can recompute it in isolation and apply the (outer_size, min_size)
+    // stop rule. `min_size` here is a full subtree descent (O(subtree)) — fine
+    // for the rare full relayout that produces `prev`; a bottom-up single-pass
+    // min_size is a follow-up optimisation. Compiled out by default.
+    #[cfg(feature = "incremental-layout")]
+    let model = model.with_retained(Retained {
+        parent_limits,
+        parent_size,
+        input_font_props: ctx.font_props,
+        min_size: layout.min_size(ctx, tree, id),
+    });
+
+    model
 }
