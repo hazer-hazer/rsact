@@ -516,7 +516,16 @@ pub fn model_layout<T: LayoutTree + ?Sized>(
         parent_limits,
         parent_size,
         input_font_props: ctx.font_props,
-        min_size: layout.min_size(ctx, tree, id),
+        // WS5.2: retain the RESOLVED min — exactly what a flex parent uses for
+        // this child (`child_size.max_fixed(min, limits.max())`, see `model_flex`)
+        // — not the raw content-min. For a fixed dimension this is the fixed
+        // value, so a Fixed×Fixed node's stop-rule key is stable across content
+        // changes (the "1 visit" acceptance); a shrink dimension still tracks the
+        // content min, so it correctly propagates. No flex-behaviour change: the
+        // flex already computes this resolved value itself.
+        min_size: layout
+            .size
+            .max_fixed(layout.min_size(ctx, tree, id), parent_limits.max()),
     });
 
     model
@@ -698,10 +707,12 @@ mod incremental_fuzz {
         ElId::from(KeyData::from_ffi(n))
     }
 
-    /// A minimal mutable arena for the kernel (no transparent nodes).
+    /// A minimal mutable arena for the kernel, including transparent
+    /// (`Dynamic`-like) single-child pass-through nodes.
     struct TestTree {
         layouts: SecondaryMap<ElId, LayoutData>,
         children: SecondaryMap<ElId, Vec<ElId>>,
+        transparent: SecondaryMap<ElId, ()>,
     }
     impl LayoutTree for TestTree {
         fn layout(&self, id: ElId) -> Option<&LayoutData> {
@@ -710,8 +721,17 @@ mod incremental_fuzz {
         fn children(&self, id: ElId) -> &[ElId] {
             self.children.get(id).map(|v| v.as_slice()).unwrap_or(&[])
         }
-        fn is_transparent(&self, _id: ElId) -> bool {
-            false
+        fn is_transparent(&self, id: ElId) -> bool {
+            self.transparent.contains_key(id)
+        }
+    }
+    impl TestTree {
+        fn new() -> Self {
+            Self {
+                layouts: SecondaryMap::new(),
+                children: SecondaryMap::new(),
+                transparent: SecondaryMap::new(),
+            }
         }
     }
 
@@ -751,6 +771,14 @@ mod incremental_fuzz {
         if depth == 0 || rng.range(3) == 0 {
             tree.layouts.insert(id, rand_edge(rng));
             leaves.push(id);
+        } else if rng.range(4) == 0 {
+            // Transparent single-child pass-through (like `Dynamic`): flattened
+            // by `effective_children`, so absent from the layout tree — the
+            // incremental walk must skip it via layout-tree `parent_id`.
+            tree.transparent.insert(id, ());
+            tree.layouts.insert(id, LayoutData::zero());
+            let child = build(rng, tree, next, depth - 1, leaves);
+            tree.children.insert(id, alloc::vec![child]);
         } else {
             let n = 1 + rng.range(3);
             let kids: Vec<ElId> = (0..n)
@@ -795,10 +823,7 @@ mod incremental_fuzz {
 
         for seed in 0u64..500 {
             let mut rng = Rng(seed.wrapping_mul(0x9e3779b97f4a7c15).wrapping_add(1));
-            let mut tree = TestTree {
-                layouts: SecondaryMap::new(),
-                children: SecondaryMap::new(),
-            };
+            let mut tree = TestTree::new();
             let mut next = 1u64;
             let mut leaves = Vec::new();
             let root = build(&mut rng, &mut tree, &mut next, 4, &mut leaves);
@@ -834,5 +859,87 @@ mod incremental_fuzz {
                 "seed {seed}: incremental != full recompute (target {target:?})"
             );
         }
+    }
+
+    /// WS5.2 acceptance (D3): a content change to a Fixed×Fixed leaf visits
+    /// exactly ONE node. The leaf's `(outer_size, resolved min_size)` are both
+    /// the fixed box (the resolved min clamps content-min to the fixed dim), so
+    /// the stop rule halts at the leaf — the whole point of the retained
+    /// `min_size` resolution. Needs `layout-counters` for the visit count.
+    #[cfg(feature = "layout-counters")]
+    #[test]
+    fn fixed_content_change_is_one_visit() {
+        use crate::font::Font;
+        use crate::layout::{ContentLayout, counters};
+        use alloc::{string::ToString, vec};
+        use rsact_reactive::prelude::MaybeReactive;
+
+        let fonts = FontCtx::new();
+        let viewport = Size::new(300, 300);
+        let ctx = LayoutCtx {
+            fonts: &fonts,
+            viewport,
+            // Match the page memo: an inheritable auto font, so text nodes have a
+            // font to measure with (`FontProps::default()` has `font: None`).
+            font_props: FontProps {
+                font: Some(Font::Auto),
+                font_size: None,
+                font_style: None,
+            },
+        };
+
+        // A Fixed×Fixed text box (short text fits, so the resolved min is the
+        // fixed size regardless of the exact content).
+        fn text_leaf(s: &str) -> LayoutData {
+            LayoutData::new(
+                LayoutKind::Content(ContentLayout::text(
+                    MaybeReactive::new_inert(s.to_string()),
+                )),
+                LengthSize::fixed_length(200, 40),
+            )
+        }
+
+        let (root, leaf) = (el_id(1), el_id(2));
+        let mut tree = TestTree::new();
+        tree.layouts.insert(
+            root,
+            LayoutData::new(
+                LayoutKind::Flex(FlexLayout::base(Axis::Y)),
+                LengthSize::shrink(),
+            ),
+        );
+        tree.layouts.insert(leaf, text_leaf("hello"));
+        tree.children.insert(root, vec![leaf]);
+
+        let prev = model_layout(
+            &ctx,
+            &tree,
+            root,
+            Limits::only_max(viewport),
+            viewport.into(),
+        );
+
+        // Update the text, keeping the fixed box — only the leaf is dirty.
+        tree.layouts[leaf] = text_leaf("world");
+
+        counters::reset();
+        let incremental =
+            relayout_incremental(&prev, &[leaf], &fonts, viewport, &tree);
+        let (visits, _measures) = counters::snapshot();
+
+        assert_eq!(
+            visits, 1,
+            "a Fixed×Fixed content change must visit exactly one node, got {visits}"
+        );
+
+        // …and still equal a full recompute.
+        let full = model_layout(
+            &ctx,
+            &tree,
+            root,
+            Limits::only_max(viewport),
+            viewport.into(),
+        );
+        assert_eq!(incremental, full);
     }
 }
