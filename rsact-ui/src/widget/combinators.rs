@@ -195,10 +195,6 @@ impl<W: WidgetCtx> Widget<W> for Unit {
         let _ = ctx;
     }
 
-    fn layout(&self) -> Layout {
-        Layout::zero()
-    }
-
     #[track_caller]
     fn render(&self, ctx: super::RenderCtx<'_, W>) -> super::RenderResult {
         let _ = ctx;
@@ -219,8 +215,8 @@ impl<W: WidgetCtx> crate::el::build::Build<W> for Unit {
     // `Unit: Widget<W>` for *every* `W`, so these need `W` pinned explicitly
     // (the derived identity `Build` on `Foo<W>` doesn't, as it implements
     // `Widget<W>` only for its own `W`).
-    fn layout(&self) -> Layout {
-        <Self as Widget<W>>::layout(self)
+    fn layout_data(&self) -> LayoutData {
+        <Self as Widget<W>>::layout_data(self)
     }
     fn flags(&self) -> WidgetFlags {
         <Self as Widget<W>>::flags(self)

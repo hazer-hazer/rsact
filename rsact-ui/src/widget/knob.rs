@@ -61,7 +61,7 @@ impl<C: Color> KnobStyle<C> {
 #[flags(focusable)]
 pub struct KnobBuilder<W: WidgetCtx, V: RangeValue> {
     #[widget]
-    layout: Layout,
+    layout: LayoutBuilder<W>,
     #[widget]
     value: Signal<V>,
     // WS4.5: plain field, not a Signal — read/written only in
@@ -73,7 +73,7 @@ pub struct KnobBuilder<W: WidgetCtx, V: RangeValue> {
 }
 
 pub struct Knob<W: WidgetCtx, V: RangeValue> {
-    layout: Layout,
+    layout: LayoutData,
     value: Signal<V>,
     state: KnobState,
     style: WidgetStyleFn<KnobStyle<W::Color>>,
@@ -82,7 +82,9 @@ pub struct Knob<W: WidgetCtx, V: RangeValue> {
 impl<W: WidgetCtx, V: RangeValue + 'static> Knob<W, V> {
     pub fn new(value: Signal<V>) -> KnobBuilder<W, V> {
         KnobBuilder {
-            layout: Layout::edge(LengthSize::new_equal(Length::Fixed(25))),
+            layout: LayoutBuilder::edge(LengthSize::new_equal(Length::Fixed(
+                25,
+            ))),
             value,
             state: KnobState::none(),
             style: None,
@@ -112,10 +114,6 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Widget<W> for Knob<W, V> {
     // `state.rs:72`); post-build all consumption is via `ElState`, so an
     // override here would be dead duplication of `KnobBuilder`'s derived
     // `Build::flags`/`Build::debug_name` ("Knob" from `#[builds(Knob<W, V>)]`).
-    fn layout(&self) -> Layout {
-        self.layout
-    }
-
     #[track_caller]
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
         ctx.render_self(|mut ctx| {

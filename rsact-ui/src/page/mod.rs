@@ -121,7 +121,14 @@ impl<W: WidgetCtx> Page<W> {
 
         let mut force_redraw = create_signal(false).name("Force redraw");
 
-        let root = BuildCtx::run(&mut root, arena);
+        // WS5.1: the page relayout trigger. Off-graph layout means the layout
+        // `Memo` no longer tracks a reactive `Layout` handle — instead the
+        // reactive layout-prop bindings (`BuildCtx::bind_layout`) and structure
+        // changes (`set_children`/`set_single_child`) fire this trigger, and the
+        // memo tracks it, so either kind of change re-runs a relayout.
+        let relayout = create_trigger();
+
+        let root = BuildCtx::run(&mut root, arena, relayout);
 
         // TODO: If we make fonts MaybeReactive, we can go fully MaybeReactive
         // LayoutModel here
@@ -133,13 +140,18 @@ impl<W: WidgetCtx> Page<W> {
             // layouts inside Fixed-sized container changed,
             // returning previous result
 
+            // WS5.1: the layout is walked off-graph from the arena, whose
+            // structure/prop writes are untracked, so the memo has no implicit
+            // per-node dependency to re-run on. The `relayout` trigger is the
+            // single explicit dependency: `bind_layout` (reactive props) and
+            // `set_children`/`set_single_child` (structure) fire it, and tracking
+            // it here re-runs relayout on either (until the dirty set replaces
+            // this whole memo in PR2).
+            relayout.track();
+
             let viewport = *viewport;
-            // WS5.1: walk the arena from the root, not a snapshotted root
-            // `Layout` handle. `with_untracked` avoids subscribing to the arena
-            // signal itself (its structure writes are untracked); the per-node
-            // layout-handle reads inside `model_layout` still track, so reactive
-            // prop/structure changes re-run this memo (until the dirty set
-            // replaces it in PR2).
+            // `with_untracked` avoids subscribing to the arena signal itself (its
+            // writes are untracked); the walk reads `LayoutData` by `ElId`.
             let layout = arena.with_untracked(|arena| {
                 model_layout(
                     &LayoutCtx {
@@ -347,7 +359,6 @@ impl<W: WidgetCtx> Page<W> {
         let res = self.layout.with(|layout| {
             let response = self.arena.update_untracked(|arena| {
                 EventPass::run(
-                    self.root,
                     arena,
                     event,
                     &mut self.state,
@@ -381,7 +392,6 @@ impl<W: WidgetCtx> Page<W> {
             self.arena.update_untracked(|arena| {
                 EventPass::run_to(
                     target,
-                    self.root,
                     arena,
                     event,
                     &mut self.state,
@@ -687,7 +697,6 @@ impl<W: WidgetCtx> Page<W> {
                                 },
                             )
                             .render(
-                                self.root,
                                 &layout.tree_root(),
                                 RenderVisual {
                                     tree_style: TreeStyle::base(),
@@ -743,8 +752,6 @@ mod tests {
         el::{El, arena::ElArena, ctx::*, view::View},
         font::FontCtx,
         prelude::*,
-        style::theme::Theme,
-        widget::Widget,
     };
     use alloc::string::String;
     use rsact_reactive::prelude::*;
@@ -753,6 +760,16 @@ mod tests {
     type NullWtf = Wtf<NullRenderer, (), (), ()>;
 
     fn create_null_page(root: impl View<NullWtf>) -> Page<NullWtf> {
+        create_null_page_sized(Size::new_equal(1), root)
+    }
+
+    /// Like [`create_null_page`] but with an explicit viewport. The default is
+    /// `1x1`, which clamps every fixed-size child to a pixel — layout-geometry
+    /// tests need room for the per-slot advance to be observable.
+    fn create_null_page_sized(
+        viewport: Size,
+        root: impl View<NullWtf>,
+    ) -> Page<NullWtf> {
         // Mirror `UI::load_page` (WS3.1): the arena is created outside the page
         // scope (it keeps its explicit WS2 disposal), then the page is built
         // with a fresh scope current so every build-time reactive node the page
@@ -766,7 +783,7 @@ mod tests {
             (),
             root,
             arena,
-            Size::new_equal(1).maybe_reactive(),
+            viewport.maybe_reactive(),
             ().inert(),
             DevTools::default().signal(),
             NullRenderer::default().signal(),
@@ -1120,6 +1137,124 @@ mod tests {
             let _ = page.handle_events(core::iter::once(Event::Mouse(
                 MouseEvent::MouseMove(pt),
             )));
+        });
+    }
+
+    // WS5.1 identity lock (render/layout side): a transparent `Dynamic` in the
+    // middle of a flex must be flattened by `effective_children` into a real
+    // layout slot — the flex lays out THREE children (a, b-via-Dynamic, c) at
+    // distinct, increasing y, not a collapsed/zero middle. Locks the
+    // arena-walk ↔ `LayoutModel` correspondence the render/event passes consume
+    // (guards the positional-zip → ElId-dispatch refactor).
+    #[test]
+    fn dynamic_child_is_laid_out_as_a_real_flex_slot() {
+        use crate::widget::{dynamic::dynamic, edge::Edge, flex::Flex};
+        use rsact_reactive::runtime::with_new_runtime;
+
+        // Fixed-size children (not zero-height null-font text) so the flex main
+        // axis advances a definite amount per slot and the y-positions are
+        // unambiguous even in the 1x1 null viewport.
+        fn boxed() -> impl View<NullWtf> {
+            Edge::<NullWtf>::new().width(10u32).height(10u32)
+        }
+
+        with_new_runtime(|_| {
+            let page = create_null_page_sized(
+                Size::new_equal(100),
+                Flex::col(alloc::vec![
+                    boxed().into_el(),
+                    dynamic(|| boxed()).into_el(),
+                    boxed().into_el(),
+                ])
+                .into_el(),
+            );
+
+            let ys = page.layout.with(|m| {
+                let root = m.tree_root();
+                assert_eq!(
+                    root.children_len(),
+                    3,
+                    "flex must lay out 3 effective children through the Dynamic"
+                );
+                root.children()
+                    .map(|c| c.outer.top_left.y)
+                    .collect::<Vec<_>>()
+            });
+            assert!(
+                ys[0] < ys[1] && ys[1] < ys[2],
+                "the Dynamic's child must occupy a real middle slot, got y={ys:?}"
+            );
+        });
+    }
+
+    // WS5.1 identity lock (event side): a focused widget nested inside a
+    // transparent `Dynamic` must still receive events. `EventPass::run` walks
+    // the whole tree (`run_`), descending through the Dynamic's
+    // transparent-layout branch to reach the checkbox; a click toggles it, which
+    // redraws exactly that widget. A broken transparent traversal would never
+    // dispatch to it, leaving the page quiescent (redraw 0). Guards the
+    // positional-zip → ElId-dispatch refactor on the event pass.
+    #[test]
+    fn focused_event_reaches_child_through_dynamic() {
+        use crate::event::{Event, PressEvent};
+        use crate::widget::{checkbox::Checkbox, dynamic::dynamic, flex::Flex};
+        use rsact_reactive::runtime::with_new_runtime;
+
+        with_new_runtime(|_| {
+            let mut page = create_null_page(
+                Flex::col(alloc::vec![
+                    Checkbox::new(false).into_el(),
+                    dynamic(|| Checkbox::new(false)).into_el(),
+                    Checkbox::new(false).into_el(),
+                ])
+                .into_el(),
+            );
+
+            // Settle layout/style, then confirm quiescent.
+            for _ in 0..4 {
+                page.use_renderer(|_| {});
+            }
+            page.take_draw_calls();
+            page.use_renderer(|_| {});
+            assert_eq!(
+                page.take_draw_calls(),
+                0,
+                "page must be quiescent before the click"
+            );
+
+            // The middle flex child is the transparent Dynamic; its single arena
+            // child is the checkbox we target.
+            let root = page.root;
+            let flex_kids = page
+                .arena
+                .with(|a| a.children(root).map(|c| c.to_vec()))
+                .unwrap_or_default();
+            assert_eq!(flex_kids.len(), 3, "flex should have 3 children");
+            let dynamic_id = flex_kids[1];
+            let cb_id = page
+                .arena
+                .with(|a| a.children(dynamic_id).map(|c| c.to_vec()))
+                .unwrap_or_default();
+            assert_eq!(cb_id.len(), 1, "Dynamic should wrap exactly one child");
+            let cb_id = cb_id[0];
+
+            // Focus the Dynamic-wrapped checkbox and click it (press + release).
+            page.state.focused = Some((cb_id, 0));
+            let _ = page.handle_events(
+                [
+                    Event::Press(PressEvent::Press),
+                    Event::Press(PressEvent::Release),
+                ]
+                .into_iter(),
+            );
+
+            // Reaching it through the Dynamic => it toggled => it redrew.
+            page.use_renderer(|_| {});
+            assert_eq!(
+                page.take_draw_calls(),
+                1,
+                "focused click must reach the checkbox through the Dynamic"
+            );
         });
     }
 
@@ -2252,71 +2387,119 @@ mod tests {
             button::{Button, ButtonBuilder},
             flex::{Flex, FlexBuilder},
         };
-        assert_eq!(core::mem::size_of::<Button<NullWtf>>(), 48);
-        assert_eq!(core::mem::size_of::<ButtonBuilder<NullWtf>>(), 152);
-        assert_eq!(core::mem::size_of::<Flex<NullWtf>>(), 12);
-        assert_eq!(core::mem::size_of::<FlexBuilder<NullWtf>>(), 40);
+        // WS5.1: these grew sharply from the pre-off-graph lock (Button 48,
+        // ButtonBuilder 152, Flex 12, FlexBuilder 40). The retained widget and
+        // its builder now embed an owned `LayoutData`/`LayoutBuilder` inline
+        // instead of an 8-byte `Layout` (`ValueId`) handle into the reactive
+        // graph — that is the off-graph trade. (Follow-up: widgets whose
+        // `render` never reads `self.layout` could drop the retained copy and
+        // read the arena-owned `LayoutData`; tracked for the WS5.1 Commit-B
+        // cleanup — see the `field 'layout' is never read` warnings.)
+        assert_eq!(core::mem::size_of::<Button<NullWtf>>(), 144);
+        assert_eq!(core::mem::size_of::<ButtonBuilder<NullWtf>>(), 272);
+        assert_eq!(core::mem::size_of::<Flex<NullWtf>>(), 112);
+        assert_eq!(core::mem::size_of::<FlexBuilder<NullWtf>>(), 160);
     }
 
-    // Regression: a reactive source set through the trait-default setter
-    // (`SizedWidget::width` -> `self.layout_mut().setter(...)`) must persist
-    // the reactive-on-write upgrade in the widget's own `Layout`.
-    // Previously the upgrade landed on a discarded `self.layout()` copy,
-    // which disposed the inert id and panicked when the layout was later
-    // read.
+    // Regression (WS5.1, off-graph): a reactive source set through the
+    // trait-default setter (`SizedWidget::width` -> `LayoutBuilder::setter`)
+    // must, once the element is built, drive an off-graph relayout. The
+    // recorded binding writes the *arena-owned* `LayoutData` and fires the page
+    // `relayout` trigger on every source change. (Pre-WS5.1 this asserted a
+    // reactive `Layout` handle on the builder; that handle is gone, so the test
+    // now builds into an arena and observes the arena + trigger directly — this
+    // is the coverage that closes the WS5.1 A1 reactive-relayout gap.)
     #[test]
     fn reactive_width_setter_persists_and_reacts() {
-        use crate::{layout::length::Length, widget::edge::Edge};
+        use crate::{
+            el::build::BuildCtx, layout::length::Length, widget::edge::Edge,
+        };
 
         with_new_runtime(|_| {
             let mut w = create_signal(Length::fill());
-            let edge = Edge::<NullWtf>::new().width(w);
-            // WS13.4: `edge` is now an `EdgeBuilder` (Edge is split), which
-            // implements only `Build`, not `Widget` — so `.layout()` resolves
-            // unambiguously to `Build::layout` (no disambiguation needed).
-            let layout = edge.layout();
+            // `.width(w)` records a reactive binding on the builder's off-graph
+            // `LayoutBuilder`; `BuildCtx::run` drains it through `bind_layout`.
+            let mut root: El<NullWtf> =
+                Edge::<NullWtf>::new().width(w).into_el();
+            let arena = create_signal(ElArena::new());
+            let relayout = create_trigger();
+            let root_id = BuildCtx::run(&mut root, arena, relayout);
 
-            // Reading the layout must not panic (the disposed-id bug) and must
-            // be tracked so observers re-run on change.
+            // The binding wrote the signal's initial value into the arena.
+            assert_eq!(
+                arena.with_untracked(|a| a
+                    .layout(root_id)
+                    .unwrap()
+                    .size
+                    .width()),
+                Length::fill(),
+            );
+
+            // A relayout observer (stand-in for the page layout memo) must
+            // re-run when the source changes — this is the off-graph relayout.
             let mut runs = create_signal(0u32);
             create_effect(move |_| {
                 runs.update_untracked(|r| *r += 1);
-                layout.with(|l| {
-                    let _ = l.size.width();
-                });
+                relayout.track();
             });
             assert_eq!(runs.get_untracked(), 1);
 
             w.set(Length::Fixed(50));
+
+            // The binding re-ran: arena `LayoutData` updated AND relayout fired.
+            assert_eq!(
+                arena.with_untracked(|a| a
+                    .layout(root_id)
+                    .unwrap()
+                    .size
+                    .width()),
+                Length::Fixed(50),
+            );
             assert_eq!(runs.get_untracked(), 2);
         });
     }
 
     // Same guarantee for `FontSettingWidget::font_size` on a `Label` (whose
-    // Text layout owns `FontProps`). Font props are now plain data;
-    // reactivity flows through the `Layout` signal driven by the setter.
+    // Text layout owns `FontProps`): the binding writes the arena-owned
+    // `LayoutData`'s font props and fires the page relayout trigger.
     #[test]
     fn reactive_font_size_setter_persists_and_reacts() {
-        use crate::font::FontSize;
+        use crate::{el::build::BuildCtx, font::FontSize};
 
         with_new_runtime(|_| {
             let mut fs = create_signal(FontSize::Fixed(10));
-            let label = Label::<NullWtf>::new("x").font_size(fs);
-            // WS13.4: `label` is now a `LabelBuilder` (Label is split), which
-            // implements only `Build`, not `Widget` — so `.layout()` resolves
-            // unambiguously to `Build::layout` (no disambiguation needed).
-            let layout = label.layout();
+            let mut root: El<NullWtf> =
+                Label::<NullWtf>::new("x").font_size(fs).into_el();
+            let arena = create_signal(ElArena::new());
+            let relayout = create_trigger();
+            let root_id = BuildCtx::run(&mut root, arena, relayout);
+
+            assert_eq!(
+                arena.with_untracked(|a| a
+                    .layout(root_id)
+                    .unwrap()
+                    .font_props()
+                    .map(|fp| fp.font_size)),
+                Some(Some(FontSize::Fixed(10))),
+            );
 
             let mut runs = create_signal(0u32);
             create_effect(move |_| {
                 runs.update_untracked(|r| *r += 1);
-                layout.with(|l| {
-                    let _ = l.font_props().map(|fp| fp.font_size);
-                });
+                relayout.track();
             });
             assert_eq!(runs.get_untracked(), 1);
 
             fs.set(FontSize::Fixed(20));
+
+            assert_eq!(
+                arena.with_untracked(|a| a
+                    .layout(root_id)
+                    .unwrap()
+                    .font_props()
+                    .map(|fp| fp.font_size)),
+                Some(Some(FontSize::Fixed(20))),
+            );
             assert_eq!(runs.get_untracked(), 2);
         });
     }

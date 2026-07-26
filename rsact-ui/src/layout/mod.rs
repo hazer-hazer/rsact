@@ -3,13 +3,12 @@ use crate::{
     font::{FontCtx, FontProps, FontSize, TextOverflow},
     layout::{
         length::LengthSize,
-        node::Layout,
         tree::{LayoutTree, effective_single_child, for_each_effective_child},
     },
     render::prelude::*,
     utils::DisplayTruncated,
 };
-use alloc::{string::String, vec::Vec};
+use alloc::string::String;
 use core::{
     fmt::{Debug, Display},
     u32,
@@ -26,7 +25,6 @@ pub mod grid;
 pub mod length;
 pub mod limits;
 pub mod model;
-pub mod node;
 pub mod tree;
 
 #[derive(Clone, Copy)]
@@ -216,22 +214,22 @@ impl ContentLayout {
     }
 }
 
+// WS5.1: `content` (the child layout handle) is gone — the container's child
+// comes from the arena (kernel walks `tree.children(id)`).
 #[derive(Clone, Debug, Copy, PartialEq)]
 pub struct ContainerLayout {
     pub block_model: BlockModel,
     pub horizontal_align: Align,
     pub vertical_align: Align,
-    pub content: Layout,
     pub font_props: FontProps,
 }
 
 impl ContainerLayout {
-    pub fn base(content: Layout) -> Self {
+    pub fn base() -> Self {
         Self {
             block_model: BlockModel::zero(),
             horizontal_align: Align::Start,
             vertical_align: Align::Start,
-            content,
             font_props: Default::default(),
         }
     }
@@ -252,15 +250,18 @@ impl ContainerLayout {
         let fp = self.font_props.inherited(&ctx.font_props);
         let child_ctx = LayoutCtx { font_props: fp, ..*ctx };
         let content = effective_single_child(tree, id)
-            .and_then(|cid| tree.layout(cid).map(|l| (cid, l)))
-            .map(|(cid, l)| l.with(|c| c.min_size(&child_ctx, tree, cid)))
+            .and_then(|cid| {
+                tree.layout(cid).map(|l| l.min_size(&child_ctx, tree, cid))
+            })
             .unwrap_or_else(Size::zero);
         content + self.block_model.full_padding()
     }
 }
 
-// WS4.1: `children: MaybeReactive<Vec<Layout>>` is inline now → not `Copy`.
-#[derive(Clone, PartialEq)]
+// WS5.1: `children` (the child layout handles) is gone — the flex's children
+// come from the arena (kernel walks `tree.children(id)`). All remaining fields
+// are `Copy`, so `FlexLayout` is `Copy` + derives `Debug` again.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FlexLayout {
     pub wrap: bool,
     pub block_model: BlockModel,
@@ -269,30 +270,12 @@ pub struct FlexLayout {
     pub gap: Size,
     pub horizontal_align: Align,
     pub vertical_align: Align,
-    pub children: MaybeReactive<Vec<Layout>>,
     pub font_props: FontProps,
-}
-
-// Manual Debug: `children` is a reactive handle that no longer implements Debug
-// (WS1.4); reading it here would subscribe the formatting observer. Elide it.
-impl Debug for FlexLayout {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("FlexLayout")
-            .field("wrap", &self.wrap)
-            .field("block_model", &self.block_model)
-            .field("axis", &self.axis)
-            .field("gap", &self.gap)
-            .field("horizontal_align", &self.horizontal_align)
-            .field("vertical_align", &self.vertical_align)
-            .field("children", &"<reactive>")
-            .field("font_props", &self.font_props)
-            .finish()
-    }
 }
 
 impl FlexLayout {
     /// Default but with specific axis
-    pub fn base(axis: Axis, children: MaybeReactive<Vec<Layout>>) -> Self {
+    pub fn base(axis: Axis) -> Self {
         Self {
             wrap: false,
             block_model: BlockModel::zero(),
@@ -300,7 +283,6 @@ impl FlexLayout {
             gap: Size::zero(),
             horizontal_align: Align::Start,
             vertical_align: Align::Start,
-            children,
             font_props: Default::default(),
         }
     }
@@ -358,8 +340,7 @@ impl FlexLayout {
         let mut min_size = Size::zero();
         for_each_effective_child(tree, id, |cid| {
             if let Some(child) = tree.layout(cid) {
-                let child_min =
-                    child.with(|c| c.min_size(&child_ctx, tree, cid));
+                let child_min = child.min_size(&child_ctx, tree, cid);
                 min_size = axis.infix(
                     min_size,
                     child_min,
@@ -392,13 +373,12 @@ impl FlexLayout {
 
 #[derive(Clone, Debug, Copy, PartialEq)]
 pub struct ScrollableLayout {
-    pub content: Layout,
     pub font_props: FontProps,
 }
 
 impl ScrollableLayout {
-    pub fn new(content: Layout) -> Self {
-        Self { content, font_props: Default::default() }
+    pub fn new() -> Self {
+        Self { font_props: Default::default() }
     }
 
     // WS5.1: content comes from the arena (`tree`) — this scrollable's single
@@ -412,8 +392,9 @@ impl ScrollableLayout {
         let fp = self.font_props.inherited(&ctx.font_props);
         let child_ctx = LayoutCtx { font_props: fp, ..*ctx };
         effective_single_child(tree, id)
-            .and_then(|cid| tree.layout(cid).map(|l| (cid, l)))
-            .map(|(cid, l)| l.with(|c| c.min_size(&child_ctx, tree, cid)))
+            .and_then(|cid| {
+                tree.layout(cid).map(|l| l.min_size(&child_ctx, tree, cid))
+            })
             .unwrap_or_else(Size::zero)
     }
 }
@@ -488,7 +469,6 @@ impl Display for DevLayoutKind {
                 horizontal_align,
                 vertical_align,
                 block_model: _,
-                content: _,
                 font_props: _,
             }) => write!(
                 f,
@@ -505,7 +485,6 @@ impl Display for DevLayoutKind {
                         gap,
                         horizontal_align,
                         vertical_align,
-                        children: _,
                         font_props: _,
                     },
                 // lines: _,
@@ -527,10 +506,7 @@ impl Display for DevLayoutKind {
                     vertical_align.display_code(Axis::Y)
                 )
             },
-            DevLayoutKind::Scrollable(ScrollableLayout {
-                content: _,
-                font_props: _,
-            }) => {
+            DevLayoutKind::Scrollable(ScrollableLayout { font_props: _ }) => {
                 write!(f, "Scrollable content")
             },
         }
@@ -608,6 +584,51 @@ impl Debug for LayoutData {
 }
 
 impl LayoutData {
+    // WS5.1 (A1): public constructors so the off-graph builder side
+    // (`LayoutBuilder<W>`, outside the `layout` module) can build owned
+    // `LayoutData` without the runtime-node handle. `impl Layout` delegates
+    // here during the transition; `scrollable` stays on `Layout` for now (it
+    // takes a child `Layout` — the child-collection entanglement A1 removes).
+    pub fn new(kind: LayoutKind, size: LengthSize) -> Self {
+        Self { kind, size, show: None }
+    }
+
+    pub fn zero() -> Self {
+        Self::new(LayoutKind::Zero, LengthSize::fixed_zero())
+    }
+
+    pub fn shrink(kind: LayoutKind) -> Self {
+        Self::new(kind, LengthSize::shrink())
+    }
+
+    pub fn fill(kind: LayoutKind) -> Self {
+        Self::new(kind, LengthSize::fill())
+    }
+
+    pub fn edge(size: LengthSize) -> Self {
+        Self::new(LayoutKind::Edge, size)
+    }
+
+    /// Base scrollable layout: main axis shrinks (InfiniteWindow), cross fills.
+    // TODO: The old grow-check (content main-axis must not grow) moved out with
+    // the content handle; re-add it in the scrollable builder against the
+    // child's declared size.
+    pub fn scrollable(axis: Axis) -> Self {
+        Self::new(
+            LayoutKind::Scrollable(ScrollableLayout::new()),
+            axis.canon(
+                Length::InfiniteWindow(Length::Shrink.try_into().unwrap()),
+                Length::fill(),
+            ),
+        )
+    }
+
+    /// Set the `show` visibility memo (WS5.1: public so `LayoutBuilder<W>`,
+    /// outside the `layout` module, can set it).
+    pub fn set_show(&mut self, show: Memo<bool>) {
+        self.show = Some(show);
+    }
+
     pub fn expect_container_mut(&mut self) -> &mut ContainerLayout {
         match &mut self.kind {
             LayoutKind::Container(container) => container,
@@ -735,65 +756,6 @@ impl LayoutData {
         {
             *current = overflow;
         }
-    }
-}
-
-impl Layout {
-    pub fn new(kind: LayoutKind, size: LengthSize) -> Self {
-        Self::inert(LayoutData { kind, size, show: None })
-    }
-
-    pub fn zero() -> Self {
-        Self::new(LayoutKind::Zero, LengthSize::fixed_zero())
-    }
-
-    pub fn shrink(kind: LayoutKind) -> Self {
-        Self::new(kind, LengthSize::shrink())
-    }
-
-    pub fn fill(kind: LayoutKind) -> Self {
-        Self::new(kind, LengthSize::fill())
-    }
-
-    pub fn edge(size: LengthSize) -> Self {
-        Self::new(LayoutKind::Edge, size)
-    }
-
-    /// Construct base scrollable layout where main axis will be shrinking and
-    /// cross axis will fill. Also checks if content layout is with growing
-    /// length on main axis which is disallowed.
-    pub fn scrollable(axis: Axis, content: Layout) -> Self {
-        let content_layout_length =
-            content.with(|layout| layout.size.main(axis));
-
-        if content_layout_length.is_grow() {
-            panic!(
-                "Don't use growing Length (Div/fill) for content {} inside {} Scrollable!",
-                axis.length_name(),
-                axis.dir_name()
-            );
-        }
-
-        Self::inert(LayoutData {
-            kind: LayoutKind::Scrollable(ScrollableLayout {
-                content,
-                font_props: Default::default(),
-            }),
-            size: axis.canon(
-                Length::InfiniteWindow(Length::Shrink.try_into().unwrap()),
-                Length::fill(),
-            ),
-            show: None,
-        })
-    }
-
-    pub fn show(&mut self, show: Memo<bool>) {
-        self.update_untracked(|l| l.show = Some(show));
-    }
-
-    pub fn size(mut self, size: LengthSize) -> Self {
-        self.update_untracked(|l| l.size = size);
-        self
     }
 }
 

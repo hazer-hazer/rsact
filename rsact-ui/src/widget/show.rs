@@ -6,24 +6,24 @@ use core::marker::PhantomData;
 /// - Has zero layout
 /// - Isn't drawn
 /// - Ignores events
-// M2's consumer (WS13.4/5.1): `#[layout(delegate = "el")]` — same handle as
-// `layout`; exercises the delegate path (M2). `layout` and `el`'s layout are
-// the same `ValueId` (see `Show::new`), so the default `self.layout` would
-// also work here; the delegate is used deliberately as its end-to-end
-// consumer.
+// WS5.1: `Show` owns its own `LayoutBuilder` now (there is no shared `Layout`
+// `ValueId` to delegate to off the graph). At `new` it clones the wrapped
+// child's initial `LayoutData` and stamps the `show` memo onto it, so when
+// `show` is false `Show`'s arena layout resolves to zero and the child subtree
+// is not laid out or drawn. (The macro `#[layout(delegate)]` path stays covered
+// by the derive's unit tests; `Show` no longer uses it.)
 #[derive(Builder)]
 #[builds(Show<W>)]
-#[layout(delegate = "el")]
 pub struct ShowBuilder<W: WidgetCtx> {
     // TODO: Do we need MaybeReactive overhead if user rarely needs element to
     // always be hidden or shown?
     #[child(single)]
     el: El<W>,
     #[widget]
-    layout: Layout,
-    // Moved 1:1 by the derive into the retained `Show { layout, ctx }` (a ZST):
-    // `layout: Layout` alone doesn't use `W`, so `ctx: PhantomData<W>` carries
-    // it (flex.rs precedent).
+    layout: LayoutBuilder<W>,
+    // Moved 1:1 by the derive into the retained `Show { layout, ctx }`:
+    // `layout: LayoutData` alone doesn't use `W`, so `ctx: PhantomData<W>`
+    // carries it (flex.rs precedent).
     #[widget]
     ctx: PhantomData<W>,
     // TODO: Cannot do fallback because layout returns Signal but I don't know
@@ -38,22 +38,17 @@ impl<W: WidgetCtx + 'static> Show<W> {
         // fallback: Option<El<W>>,
     ) -> ShowBuilder<W> {
         let show = show.memo();
-        el.layout().show(show);
-        // TODO: This is a logic for `IfWidget` or so
-        // fallback.layout().update(|layout| {
-        //     layout.set_show(show.map(|show| !*show));
-        // });
-        // WS13.4: `show` is dead past this point — its only use is wiring
-        // `el`'s layout above — so it is a `new()` local rather than a stored
-        // builder field (deviation from the row's literal wording, which
-        // listed `show` as a builder field; see the task report).
-        let layout = el.layout();
+        // WS5.1: clone the wrapped child's initial layout and gate it by `show`.
+        // The child stays a real arena node; `Show`'s own layout mirrors it and
+        // carries the visibility memo (off the graph, no shared `ValueId`).
+        let mut layout = LayoutBuilder::new(el.layout_data());
+        layout.show(show);
         ShowBuilder { el, layout, ctx: PhantomData }
     }
 }
 
 pub struct Show<W: WidgetCtx> {
-    layout: Layout,
+    layout: LayoutData,
     // `W` is otherwise unused on the retained widget (unlike `ShowBuilder`,
     // which threads it through `el: El<W>`) — kept only to satisfy
     // `Widget<W>`'s own `W` parameter, same as `space.rs`/`flex.rs`.
@@ -67,10 +62,6 @@ impl<W: WidgetCtx + 'static> Widget<W> for Show<W> {
     // be dead duplication of `ShowBuilder`'s derived `Build::debug_name`
     // ("Show" from `#[builds(Show<W>)]`). `Show` never overrode `flags`
     // either, so no `#[flags(...)]` attr is needed on `ShowBuilder`.
-    fn layout(&self) -> Layout {
-        self.layout
-    }
-
     #[track_caller]
     fn render(&self, _ctx: RenderCtx<'_, W>) -> RenderResult {
         // TODO: To render or not should be controlled via ElData property
@@ -84,9 +75,10 @@ impl<W: WidgetCtx + 'static> Widget<W> for Show<W> {
         //
         // Until then: `Show` owns no visual of its own — the child `el` is a
         // real arena node rendered by the tree walker, and visibility is driven
-        // by `el.layout().show(show)` (see `Show::new`), which resolves a hidden
-        // element to a zero layout. So a no-op render here is correct-enough and
-        // must not `todo!()` (that would abort the device on every frame).
+        // by `Show`'s own layout carrying the `show` memo (see `Show::new`),
+        // which resolves a hidden element to a zero layout. So a no-op render
+        // here is correct-enough and must not `todo!()` (that would abort the
+        // device on every frame).
         Ok(())
     }
 

@@ -16,16 +16,17 @@
 
 use crate::{
     el::{ElId, WidgetCtx, arena::ElArena},
-    layout::node::Layout,
+    layout::LayoutData,
 };
 use alloc::vec::Vec;
 
 /// Read access to the element tree for the layout pass. Implemented by
 /// `ElArena`; a mock implements it in tests.
 pub trait LayoutTree {
-    /// The node's live layout handle (its current `LayoutData`), or `None` if
-    /// the node is missing / not yet built (caller degrades, never panics).
-    fn layout(&self, id: ElId) -> Option<Layout>;
+    /// The node's arena-owned `LayoutData` (WS5.1: off the graph, keyed by
+    /// `ElId`), or `None` if the node is missing (caller degrades, never
+    /// panics).
+    fn layout(&self, id: ElId) -> Option<&LayoutData>;
 
     /// The node's arena children in order (empty if none).
     fn children(&self, id: ElId) -> &[ElId];
@@ -35,10 +36,10 @@ pub trait LayoutTree {
 }
 
 impl<W: WidgetCtx> LayoutTree for ElArena<W> {
-    fn layout(&self, id: ElId) -> Option<Layout> {
-        self.expect(id)
-            .and_then(|d| d.stage.built())
-            .map(|w| w.layout())
+    fn layout(&self, id: ElId) -> Option<&LayoutData> {
+        // The arena OWNS the LayoutData (WS5.1). Inherent `ElArena::layout`
+        // wins over this trait method — no recursion.
+        ElArena::layout(self, id)
     }
 
     fn children(&self, id: ElId) -> &[ElId] {
@@ -155,7 +156,7 @@ mod tests {
     }
 
     impl LayoutTree for MockTree {
-        fn layout(&self, _id: ElId) -> Option<Layout> {
+        fn layout(&self, _id: ElId) -> Option<&crate::layout::LayoutData> {
             None
         }
         fn children(&self, id: ElId) -> &[ElId] {

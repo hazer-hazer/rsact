@@ -20,9 +20,12 @@ pub mod slider;
 pub mod space;
 
 use crate::{
-    el::{build::BuildCtx, update::UpdateCtx},
-    font::{Font, FontProps, FontSize, FontStyle},
-    layout::length::LengthSize,
+    el::{
+        build::{BuildCtx, LayoutBuilder},
+        update::UpdateCtx,
+    },
+    font::{Font, FontSize, FontStyle},
+    layout::{LayoutData, length::LengthSize},
 };
 use core::any::Any;
 use prelude::*;
@@ -66,7 +69,16 @@ where
     // TODO: Can rewrite so that meta is called once?
     // fn meta(&self, id: ElId) -> MetaTree;
 
-    fn layout(&self) -> Layout;
+    /// WS5.1: the widget's owned initial [`LayoutData`]. Only consumed for the
+    /// *identity-`Build`* unsplit widgets (`Dynamic`/`Unit`) whose derive-`View`
+    /// `Build` forwards here; split widgets get their `Build::layout_data` from
+    /// the builder, so their retained `Widget::layout_data` is never read and
+    /// the zero default stands. `Dynamic` is `transparent_layout` (its slot is
+    /// skipped by the arena walk) and `Unit` is genuinely zero, so the default
+    /// is correct for every current widget — no override needed.
+    fn layout_data(&self) -> LayoutData {
+        LayoutData::zero()
+    }
 
     // Hot-loop called functions //
     // TODO: Reactive event context? Is it possible?
@@ -88,7 +100,7 @@ where
 /// `Widget<W>`; dropping the supertrait unblocks the split. Nothing generic is
 /// bounded on `LayoutWidget: Widget`, so removing it is capability-widening.
 pub trait LayoutWidget<W: WidgetCtx> {
-    fn layout_mut(&mut self) -> &mut Layout;
+    fn layout_mut(&mut self) -> &mut LayoutBuilder<W>;
 }
 
 /// Not implementing [`SizedWidget`] and [`BlockModelWidget`] does not mean that
@@ -212,15 +224,9 @@ pub trait BlockModelWidget<W: WidgetCtx>: LayoutWidget<W> {
 pub trait FontSettingWidget<W: WidgetCtx>:
     LayoutWidget<W> + Sized + 'static
 {
-    // `Self: Widget<W>` here (not on the trait) because this default body reads
-    // `self.layout()`, a `Widget` method. Widgets satisfy it; split builders
-    // (not `Widget`) simply can't call `font_props()` — harmless, nothing does.
-    fn font_props(&self) -> FontProps
-    where
-        Self: Widget<W>,
-    {
-        self.layout().with(|layout| layout.font_props().unwrap())
-    }
+    // WS5.1: the old `font_props(&self)` default read the now-removed
+    // `Widget::layout()` handle and was uncalled anywhere — dropped. Font props
+    // are read off the arena-owned `LayoutData` in the layout kernel now.
 
     // Constructors //
     fn font_size<S: Into<FontSize> + Clone + PartialEq + 'static>(
@@ -278,9 +284,9 @@ pub mod prelude {
             FontProps, FontSize, FontStyle,
         },
         layout::{
-            self, Align, ContainerLayout, FlexLayout, LayoutKind, Limits,
+            self, Align, ContainerLayout, FlexLayout, LayoutData, LayoutKind,
+            Limits,
             length::{Length, LengthSize},
-            node::Layout,
         },
         render::prelude::*,
         style::{

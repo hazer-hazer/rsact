@@ -101,8 +101,8 @@ pub fn view(input: TokenStream) -> TokenStream {
                 rsact_ui::widget::Widget::build(&mut *self, ctx);
                 self
             }
-            fn layout(&self) -> rsact_ui::layout::node::Layout {
-                rsact_ui::widget::Widget::layout(self)
+            fn layout_data(&self) -> rsact_ui::layout::LayoutData {
+                rsact_ui::widget::Widget::layout_data(self)
             }
             fn flags(&self) -> rsact_ui::el::WidgetFlags {
                 rsact_ui::widget::Widget::flags(self)
@@ -221,11 +221,15 @@ fn impl_builder(input: &mut DeriveInput) -> Result<proc_macro2::TokenStream> {
     };
 
     // --- M2: #[layout(delegate = "field")] on the struct (optional). ---
-    // Default: return the builder's own `layout` field. Delegate: return a
-    // child field's layout (`Show`-style wrappers own no layout, spec §5.4).
+    // Default: return the builder's own `layout` field's owned `LayoutData`
+    // (WS5.1: the builder's `layout` is a `LayoutBuilder`, `.data()` is its
+    // owned `LayoutData`). Delegate: return a child field's `layout_data()`
+    // (`Show`-style wrappers, spec §5.4).
+    let mut is_delegate = false;
     let layout_body =
         match input.attrs.iter().find(|a| a.path().is_ident("layout")) {
             Some(attr) => {
+                is_delegate = true;
                 let nv: syn::MetaNameValue = attr.parse_args()?;
                 if !nv.path.is_ident("delegate") {
                     return Err(syn::Error::new_spanned(
@@ -256,7 +260,7 @@ fn impl_builder(input: &mut DeriveInput) -> Result<proc_macro2::TokenStream> {
                         ),
                     ));
                 }
-                quote! { self.#field_ident.layout() }
+                quote! { self.#field_ident.layout_data() }
             },
             None => {
                 if !fields
@@ -270,7 +274,7 @@ fn impl_builder(input: &mut DeriveInput) -> Result<proc_macro2::TokenStream> {
                      layout",
                     ));
                 }
-                quote! { self.layout }
+                quote! { self.layout.data().clone() }
             },
         };
 
@@ -304,7 +308,17 @@ fn impl_builder(input: &mut DeriveInput) -> Result<proc_macro2::TokenStream> {
         }
 
         if has_widget {
-            widget_ctor_fields.push(quote! { #ident: this.#ident });
+            // WS5.1: the builder's `layout` field is a `LayoutBuilder`; the
+            // retained widget holds an owned `LayoutData`, so convert it via
+            // `.into_data()` (AFTER its reactive bindings are drained below).
+            // Delegate builders own no `layout` `LayoutBuilder` field, so their
+            // `#[widget]` fields (if any) move by name unchanged.
+            if !is_delegate && ident == "layout" {
+                widget_ctor_fields
+                    .push(quote! { #ident: this.#ident.into_data() });
+            } else {
+                widget_ctor_fields.push(quote! { #ident: this.#ident });
+            }
         }
 
         if let Some(attr) = child_attr {
@@ -348,19 +362,46 @@ fn impl_builder(input: &mut DeriveInput) -> Result<proc_macro2::TokenStream> {
     let name = &input.ident;
     let (impl_gen, type_gen, where_clause) = input.generics.split_for_impl();
 
-    // With no child wiring, `this`/`ctx` would go unused — bind them so the
-    // (currently two-widget) prototype and any wiring-free future builder both
-    // stay warning-clean.
+    // WS5.1: a non-delegate builder owns a `layout: LayoutBuilder` whose
+    // reactive-prop bindings must be drained + wired through `ctx` at build
+    // (`bind_layout`), so `this`/`ctx` are always used there. A delegate
+    // builder has no layout bindings, so it needs them only if it has child
+    // wiring. Bind `mut`/`_` accordingly so both stay warning-clean.
     let has_wiring = !child_wiring.is_empty();
-    let this_binding = if has_wiring {
+    let drains_layout = !is_delegate;
+    let uses_ctx = has_wiring || drains_layout;
+    let this_binding = if uses_ctx {
         quote! { let mut this = *self; }
     } else {
         quote! { let this = *self; }
     };
-    let ctx_arg = if has_wiring {
+    let ctx_arg = if uses_ctx {
         quote! { mut ctx: rsact_ui::el::build::BuildCtx<#wctx> }
     } else {
         quote! { _ctx: rsact_ui::el::build::BuildCtx<#wctx> }
+    };
+    // Drain the builder's reactive layout-prop bindings and wire each through
+    // `ctx.bind_layout` (it has `ctx.id`). Empty for a fully-static layout.
+    let layout_drain = if drains_layout {
+        quote! {
+            for __binding in this.layout.take_bindings() {
+                __binding(&mut ctx);
+            }
+        }
+    } else {
+        quote! {}
+    };
+    // Non-delegate builders own a settable `layout` `LayoutBuilder`, so
+    // `set_show` writes its `show`. Delegate/identity builders use the trait
+    // default no-op.
+    let set_show_method = if drains_layout {
+        quote! {
+            fn set_show(&mut self, show: rsact_reactive::prelude::Memo<bool>) {
+                self.layout.show(show);
+            }
+        }
+    } else {
+        quote! {}
     };
 
     Ok(quote! {
@@ -378,15 +419,18 @@ fn impl_builder(input: &mut DeriveInput) -> Result<proc_macro2::TokenStream> {
                 #ctx_arg,
             ) -> ::alloc::boxed::Box<dyn rsact_ui::widget::Widget<#wctx>> {
                 #this_binding
+                #layout_drain
                 #( #child_wiring )*
                 ::alloc::boxed::Box::new(#widget_ident {
                     #( #widget_ctor_fields ),*
                 })
             }
 
-            fn layout(&self) -> rsact_ui::layout::node::Layout {
+            fn layout_data(&self) -> rsact_ui::layout::LayoutData {
                 #layout_body
             }
+
+            #set_show_method
 
             #flags_method
 
@@ -470,7 +514,10 @@ mod tests {
         })
         .unwrap();
         let flat = ts.to_string().replace(' ', "");
-        assert!(flat.contains("self.el.layout()"), "delegate body: {flat}");
+        assert!(
+            flat.contains("self.el.layout_data()"),
+            "delegate body: {flat}"
+        );
     }
 
     #[test]

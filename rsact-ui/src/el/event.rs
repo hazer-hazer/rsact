@@ -1,6 +1,6 @@
 use crate::{
     el::{
-        arena::{ArenaChildren, ArenaEls, ElArena},
+        arena::{ArenaEls, ElArena},
         state::ElState,
     },
     event::*,
@@ -13,26 +13,19 @@ use log::{debug, error};
 
 pub struct EventPass<'a, W: WidgetCtx> {
     arena: &'a mut ArenaEls<W>,
-    children: &'a ArenaChildren,
     event: &'a Event<W::CustomEvent>,
     page_state: &'a mut PageState<W>,
 }
 
 impl<'a, W: WidgetCtx> EventPass<'a, W> {
     pub fn run(
-        root: ElId,
         arena: &'a mut ElArena<W>,
         event: &'a Event<W::CustomEvent>,
         page_state: &'a mut PageState<W>,
         layout: &'a LayoutModelNode<'a>,
     ) -> EventResponse {
-        let mut this = Self {
-            arena: &mut arena.els,
-            children: &arena.children,
-            event,
-            page_state,
-        };
-        this.run_(root, layout)
+        let mut this = Self { arena: &mut arena.els, event, page_state };
+        this.run_(layout)
     }
 
     /// Dispatch the event to a single `target` widget only (used for pointer
@@ -41,106 +34,49 @@ impl<'a, W: WidgetCtx> EventPass<'a, W> {
     /// other widget sees the event, so hit-testing and hover are bypassed.
     pub fn run_to(
         target: ElId,
-        root: ElId,
         arena: &'a mut ElArena<W>,
         event: &'a Event<W::CustomEvent>,
         page_state: &'a mut PageState<W>,
         layout: &'a LayoutModelNode<'a>,
     ) -> EventResponse {
-        let mut this = Self {
-            arena: &mut arena.els,
-            children: &arena.children,
-            event,
-            page_state,
-        };
-        this.run_to_(root, layout, target)
+        let mut this = Self { arena: &mut arena.els, event, page_state };
+        this.run_to_(layout, target)
             .unwrap_or(EventResponse::Continue(()))
     }
 
     /// Returns `Some(response)` once `target` is found and dispatched to,
-    /// `None` while searching. Mirrors [`run_`]'s transparent-layout / children
-    /// descent so the target's layout node is resolved correctly.
+    /// `None` while searching. Walks the layout tree (each node carries its
+    /// `ElId`), so the target's layout node is resolved by identity.
     fn run_to_(
         &mut self,
-        id: ElId,
         layout: &LayoutModelNode,
         target: ElId,
     ) -> Option<EventResponse> {
-        if id == target {
-            return Some(self.run_el(id, layout));
+        if layout.id() == target {
+            return Some(self.run_el(layout.id(), layout));
         }
 
-        // Extract the flag before recursing so the arena borrow ends.
-        let transparent = match self.arena.expect(id) {
-            Some(data) => data.state.flags.is_transparent_layout(),
-            None => return None,
-        };
-
-        if transparent {
-            if let Some(children_ids) = self.children.get(id)
-                && children_ids.len() == 1
-            {
-                return self.run_to_(children_ids[0], layout, target);
+        // WS5.1: search children by identity from the layout tree — the source
+        // of truth for both geometry and identity. Transparent nodes are already
+        // flattened, so there is no transparent-layout branch and no positional
+        // zip against arena children.
+        for child_layout in layout.children() {
+            if let Some(response) = self.run_to_(&child_layout, target) {
+                return Some(response);
             }
-            None
-        } else if let Some(children_ids) = self.children.get(id) {
-            crate::el::check_children_parallel(
-                "event(run_to)",
-                id,
-                children_ids.len(),
-                layout.children_len(),
-            );
-            for (child, child_layout) in
-                children_ids.iter().zip(layout.children())
-            {
-                if let Some(response) =
-                    self.run_to_(*child, &child_layout, target)
-                {
-                    return Some(response);
-                }
-            }
-            None
-        } else {
-            None
         }
+        None
     }
 
-    fn run_(&mut self, id: ElId, layout: &LayoutModelNode) -> EventResponse {
-        // TODO: Is it possible to avoid double-get from arena? The problem is
-        // with mutable arena borrowing because event is processed for children
-        // first and then for the parent, while we need parent data to know its
-        // flags.
-        let Some(data) = self.arena.expect(id) else {
-            return EventResponse::Continue(());
-        };
-
-        // TODO: Generalize/Take out this logic for EventCtx and RenderCtx
-        if data.state.flags.is_transparent_layout() {
-            if let Some(children_ids) = self.children.get(id)
-                && children_ids.len() == 1
-            {
-                let child_id = children_ids[0];
-                self.run_(child_id, layout)?;
-            } else {
-                error!(
-                    "Transparent widget with id {id:?} should have exactly one child"
-                );
-            }
-        } else if let Some(children_ids) = self.children.get(id) {
-            crate::el::check_children_parallel(
-                "event(run)",
-                id,
-                children_ids.len(),
-                layout.children_len(),
-            );
-            for (child, child_layout) in
-                children_ids.iter().zip(layout.children())
-            {
-                self.run_(*child, &child_layout)?;
-            }
+    fn run_(&mut self, layout: &LayoutModelNode) -> EventResponse {
+        // WS5.1: visit children by identity from the layout tree (each node
+        // carries its ElId; transparent nodes already flattened). Children
+        // first, then this node, preserving the bottom-up dispatch order.
+        for child_layout in layout.children() {
+            self.run_(&child_layout)?;
         }
 
-        self.run_el(id, layout)
+        self.run_el(layout.id(), layout)
     }
 
     fn run_el(&mut self, id: ElId, layout: &LayoutModelNode) -> EventResponse {

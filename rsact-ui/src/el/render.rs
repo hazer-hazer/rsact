@@ -1,7 +1,7 @@
 use crate::{
     el::{
         ClipPath, ElId, RedrawReason,
-        arena::{ArenaChildren, ArenaEls, ElArena},
+        arena::{ArenaEls, ElArena},
         ctx::{PageState, WidgetCtx},
     },
     font::{Font, FontCtx, FontProps, ResolvedFontProps},
@@ -13,7 +13,7 @@ use crate::{
     },
 };
 use core::marker::PhantomData;
-use log::{debug, error};
+use log::debug;
 use rsact_reactive::{prelude::*, signal::marker::ReadOnly};
 use tinyvec::TinyVec;
 
@@ -398,17 +398,14 @@ impl<'a, W: WidgetCtx> RenderPass<'a, W> {
 
     pub fn render(
         &mut self,
-        root: ElId,
         layout: &LayoutModelNode<'_>,
         visual: RenderVisual<W>,
         frame: RenderFrame,
     ) -> RenderResult {
         render_subtree(
             &mut self.arena.els,
-            &self.arena.children,
             self.renderer,
             self.shared,
-            root,
             layout,
             visual,
             frame,
@@ -418,15 +415,18 @@ impl<'a, W: WidgetCtx> RenderPass<'a, W> {
 
 fn render_subtree<W: WidgetCtx>(
     els: &mut ArenaEls<W>,
-    children: &ArenaChildren,
     renderer: &mut W::Renderer,
     shared: RenderShared<'_, W>,
-    id: ElId,
     layout: &LayoutModelNode<'_>,
     visual: RenderVisual<W>,
     frame: RenderFrame,
 ) -> RenderResult {
     debug!("{:indent$}->", "", indent = frame.nesting_level);
+
+    // WS5.1: dispatch by the layout node's own id — the layout tree is the
+    // source of truth for identity (transparent roots are flattened by
+    // `model_layout`, so `layout.id()` is always a real widget).
+    let id = layout.id();
 
     // TODO: Get rid of double element access
     let (clip_path,) = {
@@ -444,10 +444,8 @@ fn render_subtree<W: WidgetCtx>(
     match clip_path {
         None => render_subtree_body(
             els,
-            children,
             renderer,
             shared,
-            id,
             layout,
             visual,
             child_frame,
@@ -456,10 +454,8 @@ fn render_subtree<W: WidgetCtx>(
             renderer.clipped(layout.inner, |renderer| {
                 render_subtree_body(
                     els,
-                    children,
                     renderer,
                     shared,
-                    id,
                     layout,
                     visual,
                     child_frame,
@@ -471,14 +467,15 @@ fn render_subtree<W: WidgetCtx>(
 
 fn render_subtree_body<W: WidgetCtx>(
     els: &mut ArenaEls<W>,
-    children: &ArenaChildren,
     renderer: &mut W::Renderer,
     shared: RenderShared<'_, W>,
-    id: ElId,
     layout: &LayoutModelNode<'_>,
     visual: RenderVisual<W>,
     frame: RenderFrame,
 ) -> RenderResult {
+    // WS5.1: this widget's id is the layout node's id (see `render_subtree`).
+    let id = layout.id();
+
     // Pre-extract the mutable per-element render state so the widget can be
     // rendered through a *shared* borrow of its `ElData` (`Widget::render`
     // takes `&self`): `needs_redraw` is taken as before, and the element's
@@ -533,67 +530,29 @@ fn render_subtree_body<W: WidgetCtx>(
         ..frame
     };
 
-    if data.state.flags.is_transparent_layout() {
-        // Transparent widget: child inherits the parent's layout rect.
-        // Must have exactly one child.
-        let children_ids = children.get(id).map(|c| c.to_vec());
-        if let Some(children_ids) = children_ids {
-            if children_ids.len() == 1 {
-                let child_id = children_ids[0];
-                render_subtree(
-                    els,
-                    children,
-                    renderer,
-                    shared,
-                    child_id,
-                    // transparent widget child reuses layout
-                    layout,
-                    visual,
-                    children_frame,
-                )?;
-            } else {
-                error!(
-                    "Transparent widget with id {id:?} should have exactly one child"
-                );
-            }
-        }
-    } else {
-        if let Some(children_ids) = children.get(id) {
-            debug!(
-                "{:indent$}Children [{}]:",
-                "",
-                children_ids.len(),
-                indent = frame.nesting_level
-            );
-            crate::el::check_children_parallel(
-                "render",
-                id,
-                children_ids.len(),
-                layout.children_len(),
-            );
-            for (child_id, child_layout) in
-                children_ids.iter().zip(layout.children())
-            {
-                let child_font_props =
-                    child_layout.font_props().unwrap_or(visual.font_props);
+    // WS5.1: dispatch to children by identity. `model_layout` walks the arena's
+    // `effective_children` (transparent nodes like `Dynamic` already flattened)
+    // and tags each `LayoutModel` child with its `ElId`, so we render each child
+    // widget directly by that id — no positional zip against the raw arena child
+    // list, and no separate transparent-layout branch (a transparent wrapper is
+    // simply absent from the layout tree; its real child sits in its place, with
+    // its own layout).
+    for child_layout in layout.children() {
+        let child_font_props =
+            child_layout.font_props().unwrap_or(visual.font_props);
+        let child_visual = RenderVisual {
+            font_props: child_font_props,
+            tree_style: visual.tree_style,
+        };
 
-                let child_visual = RenderVisual {
-                    font_props: child_font_props,
-                    tree_style: visual.tree_style,
-                };
-
-                render_subtree(
-                    els,
-                    children,
-                    renderer,
-                    shared,
-                    *child_id,
-                    &child_layout,
-                    child_visual,
-                    children_frame,
-                )?;
-            }
-        }
+        render_subtree(
+            els,
+            renderer,
+            shared,
+            &child_layout,
+            child_visual,
+            children_frame,
+        )?;
     }
 
     // // TODO: Remove/hide debug only

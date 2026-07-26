@@ -30,7 +30,7 @@ declare_widget_style! {
 #[flags(hoverable, clickable, focusable)]
 pub struct CheckboxBuilder<W: WidgetCtx> {
     #[widget]
-    layout: Layout,
+    layout: LayoutBuilder<W>,
     #[widget]
     value: Signal<bool>,
     #[widget]
@@ -38,7 +38,7 @@ pub struct CheckboxBuilder<W: WidgetCtx> {
 }
 
 pub struct Checkbox<W: WidgetCtx> {
-    layout: Layout,
+    layout: LayoutData,
     value: Signal<bool>,
     style: WidgetStyleFn<CheckboxStyle<W::Color>>,
 }
@@ -48,7 +48,7 @@ impl<W: WidgetCtx> Checkbox<W> {
         CheckboxBuilder {
             // TODO: Maybe ContentLayout::Icon should be used as a single
             // char-sized square layout?
-            layout: Layout::edge(Size::new_equal(16).into()),
+            layout: LayoutBuilder::edge(Size::new_equal(16).into()),
             // Promote to a real `Signal` so the checked state is tracked on
             // read in `render` and notified on write in `on_event`. A plain
             // value (`Checkbox::new(true)`) becomes an owned signal; a passed
@@ -60,7 +60,7 @@ impl<W: WidgetCtx> Checkbox<W> {
 }
 
 impl<W: WidgetCtx> LayoutWidget<W> for CheckboxBuilder<W> {
-    fn layout_mut(&mut self) -> &mut Layout {
+    fn layout_mut(&mut self) -> &mut LayoutBuilder<W> {
         &mut self.layout
     }
 }
@@ -72,10 +72,6 @@ impl<W: WidgetCtx> Widget<W> for Checkbox<W> {
     // override here would be dead duplication of `CheckboxBuilder`'s derived
     // `Build::flags`/`Build::debug_name` ("Checkbox" from
     // `#[builds(Checkbox<W>)]`).
-    fn layout(&self) -> Layout {
-        self.layout
-    }
-
     fn render(
         &self,
         mut ctx: crate::widget::RenderCtx<'_, W>,
@@ -83,9 +79,10 @@ impl<W: WidgetCtx> Widget<W> for Checkbox<W> {
         ctx.render_self(|mut ctx| {
             let style = ctx.get_style(self.style.as_deref());
 
+            // WS5.1: `self.layout` is the owned build-time `LayoutData`.
             Block::from_layout_style(
                 ctx.layout.outer,
-                self.layout.with(|layout| layout.block_model()),
+                self.layout.block_model(),
                 style.container,
             )
             .render(ctx.renderer)?;

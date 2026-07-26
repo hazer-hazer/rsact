@@ -51,12 +51,12 @@ pub struct CanvasBuilder<W: WidgetCtx> {
     #[widget]
     draw: Box<dyn Fn(&mut W::Renderer) -> RenderResult>,
     #[widget]
-    layout: Layout,
+    layout: LayoutBuilder<W>,
 }
 
 pub struct Canvas<W: WidgetCtx> {
     draw: Box<dyn Fn(&mut W::Renderer) -> RenderResult>,
-    layout: Layout,
+    layout: LayoutData,
 }
 
 impl<W: WidgetCtx> Canvas<W> {
@@ -67,13 +67,13 @@ impl<W: WidgetCtx> Canvas<W> {
     ) -> CanvasBuilder<W> {
         CanvasBuilder {
             draw: Box::new(draw),
-            layout: Layout::edge(LengthSize::new_equal(Length::fill())),
+            layout: LayoutBuilder::edge(LengthSize::new_equal(Length::fill())),
         }
     }
 }
 
 impl<W: WidgetCtx> LayoutWidget<W> for CanvasBuilder<W> {
-    fn layout_mut(&mut self) -> &mut Layout {
+    fn layout_mut(&mut self) -> &mut LayoutBuilder<W> {
         &mut self.layout
     }
 }
@@ -88,10 +88,6 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
     // `Build::debug_name` ("Canvas" from `#[builds(Canvas<W>)]`). `Canvas`
     // never overrode `flags` either, so no `#[flags(...)]` attr is needed on
     // `CanvasBuilder`.
-    fn layout(&self) -> Layout {
-        self.layout
-    }
-
     #[track_caller]
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
         // `render_self` gates the redraw (tracking whatever reactivity the

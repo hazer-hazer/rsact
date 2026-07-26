@@ -44,7 +44,7 @@ pub struct BarBuilder<W: WidgetCtx, V: RangeValue> {
     #[widget]
     value: MaybeReactive<V>,
     #[widget]
-    layout: Layout,
+    layout: LayoutBuilder<W>,
     #[widget]
     style: WidgetStyleFn<BarStyle<W::Color>>,
     #[widget]
@@ -53,7 +53,7 @@ pub struct BarBuilder<W: WidgetCtx, V: RangeValue> {
 
 pub struct Bar<W: WidgetCtx, V: RangeValue> {
     value: MaybeReactive<V>,
-    layout: Layout,
+    layout: LayoutData,
     style: WidgetStyleFn<BarStyle<W::Color>>,
     axis: Axis,
 }
@@ -73,7 +73,9 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Bar<W, V> {
     ) -> BarBuilder<W, V> {
         BarBuilder {
             value: value.maybe_reactive(),
-            layout: Layout::edge(axis.canon(Length::fill(), Length::Fixed(10))),
+            layout: LayoutBuilder::edge(
+                axis.canon(Length::fill(), Length::Fixed(10)),
+            ),
             style: None,
             axis,
         }
@@ -88,10 +90,6 @@ impl<W: WidgetCtx + 'static, V: RangeValue + 'static> Widget<W> for Bar<W, V> {
     // `Build::debug_name` ("Bar" from `#[builds(Bar<W, V>)]`). `Bar` never
     // overrode `flags` either, so no `#[flags(...)]` attr is needed on
     // `BarBuilder`.
-    fn layout(&self) -> Layout {
-        self.layout
-    }
-
     #[track_caller]
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
         ctx.render_self(|ctx| {
@@ -107,7 +105,7 @@ impl<W: WidgetCtx + 'static, V: RangeValue + 'static> Widget<W> for Bar<W, V> {
 
             // let bar_width = ctx.layout.area.size.cross(Dir::AXIS);
 
-            let block_model = self.layout.with(|layout| layout.block_model());
+            let block_model = self.layout.block_model();
             Block::from_layout_style(
                 ctx.layout.outer,
                 block_model,

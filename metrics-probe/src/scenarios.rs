@@ -280,14 +280,16 @@ mod tests {
     // allocation-free. If a change moves these, it is either a real regression
     // or an intended shift that should be re-locked here in the same commit.
     //
-    // Re-baselined by WS4.1 (2026-07-09): inlining `Inert` removed the
-    // builder-literal / prop `Inert` nodes (3 per UI scenario), so the UI
-    // totals dropped 32->29 (5 labels) and 52->49 (10 labels). The remaining
-    // `stored` nodes are all `Layout::Static` (one per widget: N labels + the
-    // flex container) — WS5.1's off-graph layout handle owns those, not WS4.
-    // The reactive-only scenario has no `Inert`, so it is unchanged at 33.
-    // (Pre-WS4 values, measured 2026-07-07 / WS0.3b: reactive 33, ui5 32,
-    // ui10 52.)
+    // Re-baselined by WS5.1 (2026-07-15): layout moved off the reactive graph.
+    // The `stored` nodes used to be `Layout::Static` handles (one per widget:
+    // N labels + the flex container); WS5.1 owns each widget's `LayoutData` in
+    // the arena (keyed by `ElId`), off-graph, so `stored` drops to 0. Each page
+    // instead mints exactly one `relayout` `Trigger`, so the UI totals fall by
+    // N, not N+1: ui5 29->24, ui10 49->39. The reactive-only scenario has no
+    // layout, so it is unchanged at 33.
+    // (History: WS4.1 2026-07-09 inlined `Inert`, removing builder-literal/prop
+    // nodes, -3 per UI scenario (32->29 / 52->49); pre-WS4 2026-07-07 / WS0.3b:
+    // reactive 33, ui5 32, ui10 52.)
     #[test]
     fn node_count_regression() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -305,11 +307,11 @@ mod tests {
         );
 
         let ui5 = ui_labels(5);
-        assert_eq!(ui5.counts.total, 29, "ui_labels_5 node total moved");
+        assert_eq!(ui5.counts.total, 24, "ui_labels_5 node total moved");
         assert_eq!(
-            ui5.counts.stored, 6,
-            "ui_labels_5 stored = 6 Layout::Static nodes (5 labels + flex); \
-             WS4.1 removed the builder-literal Inert nodes, WS5.1 owns these"
+            ui5.counts.stored, 0,
+            "ui_labels_5 stored = 0: WS5.1 moved every widget's LayoutData \
+             off-graph into the arena, so no `Layout::Static` nodes remain"
         );
         assert_eq!(
             ui5.idle_frame_allocs,
@@ -318,15 +320,15 @@ mod tests {
         );
 
         let ui10 = ui_labels(10);
-        assert_eq!(ui10.counts.total, 49, "ui_labels_10 node total moved");
+        assert_eq!(ui10.counts.total, 39, "ui_labels_10 node total moved");
         assert_eq!(
             ui10.counts.observers, 11,
             "one render observer per label + page"
         );
         assert_eq!(
-            ui10.counts.stored, 11,
-            "ui_labels_10 stored = 11 Layout::Static nodes (10 labels + flex); \
-             WS4.1 removed the builder-literal Inert nodes, WS5.1 owns these"
+            ui10.counts.stored, 0,
+            "ui_labels_10 stored = 0: WS5.1 moved every widget's LayoutData \
+             off-graph into the arena (see ui_labels_5)"
         );
         assert_eq!(
             ui10.idle_frame_allocs,
