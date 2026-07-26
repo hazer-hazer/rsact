@@ -89,8 +89,23 @@ impl<'a> LayoutModelNode<'a> {
     }
 }
 
+/// WS5.2: per-node state retained (only under `incremental-layout`) so a dirty
+/// node can be recomputed in isolation — the exact inputs `model_layout` was
+/// called with for this node — plus `min_size`, the second half of the
+/// `(outer_size, min_size)` stop-rule key. ≤64 B; compiled out by default.
+#[cfg(feature = "incremental-layout")]
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Retained {
+    pub parent_limits: Limits,
+    pub parent_size: LengthSize,
+    pub input_font_props: FontProps,
+    pub min_size: Size,
+}
+
 /// Layout tree representation with relative positions
-#[derive(Debug, PartialEq)]
+// WS5.2: `Clone` so the incremental path can splice a copy of the previous tree
+// (`relayout_incremental`). Only exercised under `incremental-layout`.
+#[derive(Debug, Clone)]
 pub struct LayoutModel {
     // WS5.1: the `ElId` this layout node was computed for. Set by `model_layout`
     // (which is always called with the node's id) so the render/event passes can
@@ -106,12 +121,32 @@ pub struct LayoutModel {
 
     children: Vec<LayoutModel>,
 
+    // WS5.2: retained recompute-inputs + min_size (see `Retained`). `None` until
+    // stamped by `model_layout`; a `None` node forces a full recompute of its
+    // subtree on the incremental path (conservative, always correct).
+    #[cfg(feature = "incremental-layout")]
+    retained: Option<Retained>,
+
     // Note: `dev` goes before `children` which is intentional to make more
     // readable pretty-printed debug
     // TODO: Make debug_assertions-only
     #[cfg(feature = "debug-info")]
     dev: DevLayout,
     // TODO: Tinyvec
+}
+
+// WS5.2: geometry-only equality. The memo's change-detection (and the
+// differential fuzz test) compare what is VISIBLE — id + rects + font_props +
+// children — never the retained recompute-metadata or the debug `dev`, both of
+// which are derived and would otherwise spuriously invalidate the memo.
+impl PartialEq for LayoutModel {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.outer == other.outer
+            && self.inner == other.inner
+            && self.font_props == other.font_props
+            && self.children == other.children
+    }
 }
 
 impl LayoutModel {
@@ -129,6 +164,8 @@ impl LayoutModel {
             inner: Rect::new(Point::zero(), inner_size),
             children,
             font_props: None,
+            #[cfg(feature = "incremental-layout")]
+            retained: None,
             #[cfg(feature = "debug-info")]
             dev,
         }
@@ -138,6 +175,15 @@ impl LayoutModel {
     /// doc). Called by `model_layout` on every node it returns.
     pub fn with_id(mut self, id: ElId) -> Self {
         self.id = id;
+        self
+    }
+
+    /// WS5.2: stamp the recompute-inputs + min_size (see [`Retained`]). Called by
+    /// `model_layout` under `incremental-layout` so a dirty node can later be
+    /// recomputed in isolation and its size compared against `min_size`.
+    #[cfg(feature = "incremental-layout")]
+    pub(crate) fn with_retained(mut self, retained: Retained) -> Self {
+        self.retained = Some(retained);
         self
     }
 
@@ -176,6 +222,8 @@ impl LayoutModel {
             inner: Rect::zero(),
             children: vec![],
             font_props: None,
+            #[cfg(feature = "incremental-layout")]
+            retained: None,
             #[cfg(feature = "debug-info")]
             dev: DevLayout::zero(),
         }
@@ -456,5 +504,442 @@ pub fn model_layout<T: LayoutTree + ?Sized>(
         },
     };
 
-    model.with_id(id)
+    let model = model.with_id(id);
+
+    // WS5.2: retain this node's recompute-inputs + min_size so the incremental
+    // path can recompute it in isolation and apply the (outer_size, min_size)
+    // stop rule. `min_size` here is a full subtree descent (O(subtree)) — fine
+    // for the rare full relayout that produces `prev`; a bottom-up single-pass
+    // min_size is a follow-up optimisation. Compiled out by default.
+    #[cfg(feature = "incremental-layout")]
+    let model = model.with_retained(Retained {
+        parent_limits,
+        parent_size,
+        input_font_props: ctx.font_props,
+        // WS5.2: retain the RESOLVED min — exactly what a flex parent uses for
+        // this child (`child_size.max_fixed(min, limits.max())`, see `model_flex`)
+        // — not the raw content-min. For a fixed dimension this is the fixed
+        // value, so a Fixed×Fixed node's stop-rule key is stable across content
+        // changes (the "1 visit" acceptance); a shrink dimension still tracks the
+        // content min, so it correctly propagates. No flex-behaviour change: the
+        // flex already computes this resolved value itself.
+        min_size: layout
+            .size
+            .max_fixed(layout.min_size(ctx, tree, id), parent_limits.max()),
+    });
+
+    model
+}
+
+// ─── WS5.2: incremental relayout ─────────────────────────────────────────────
+
+/// Incremental relayout: splice the previous `LayoutModel` (`prev`), recomputing
+/// only the `dirty` nodes and propagating upward until a node's
+/// `(outer_size, min_size)` are both unchanged (the stop rule). The result is
+/// equal, rect-for-rect, to a full `model_layout` over the mutated arena — the
+/// differential fuzz test (`incremental_equals_full_recompute`) is the
+/// guarantee. Feature-gated; the caller falls back to a full relayout for a
+/// whole-tree (`full`) dirty set or a missing `prev`.
+#[cfg(feature = "incremental-layout")]
+pub fn relayout_incremental<T: LayoutTree + ?Sized>(
+    prev: &LayoutModel,
+    dirty: &[ElId],
+    fonts: &crate::font::FontCtx,
+    viewport: Size,
+    tree: &T,
+) -> LayoutModel {
+    let mut result = prev.clone();
+    for &id in dirty {
+        recompute_upward(&mut result, id, fonts, viewport, tree);
+    }
+    result
+}
+
+/// Recompute `target`'s subtree in isolation from its retained inputs; if its
+/// `(outer_size, min_size)` are unchanged, splice it back at its previous offset
+/// and stop, otherwise recompute its parent (which re-places its children,
+/// `target` included) and repeat upward — stopping at the nearest size-stable
+/// ancestor, or the root.
+#[cfg(feature = "incremental-layout")]
+fn recompute_upward<T: LayoutTree + ?Sized>(
+    result: &mut LayoutModel,
+    target: ElId,
+    fonts: &crate::font::FontCtx,
+    viewport: Size,
+    tree: &T,
+) {
+    let mut target = target;
+    loop {
+        let Some(node) = find_node(result, target) else { return };
+        // Copy the retained inputs + old size/offset out so `node`'s borrow of
+        // `result` ends before the mutable splice below.
+        let (Some(retained), old_size, old_offset) =
+            (node.retained, node.outer.size, node.outer.top_left)
+        else {
+            // A node with no retained inputs (a hidden/zero slot that a `show`
+            // toggle may now reveal) — conservatively rebuild the whole tree.
+            rebuild_root(result, fonts, viewport, tree);
+            return;
+        };
+        let old_min = retained.min_size;
+
+        let ctx = LayoutCtx {
+            fonts,
+            viewport,
+            font_props: retained.input_font_props,
+        };
+        let mut new_sub = model_layout(
+            &ctx,
+            tree,
+            target,
+            retained.parent_limits,
+            retained.parent_size,
+        );
+        let new_min = new_sub.retained.map_or(old_min, |r| r.min_size);
+
+        if new_sub.outer.size == old_size && new_min == old_min {
+            // Size stable ⇒ the parent places `target` at the same offset (or,
+            // if `target` is the root, its recomputed subtree IS the new tree —
+            // the root sits at the viewport origin, so no re-offset).
+            match parent_id(result, target) {
+                Some(_) => {
+                    new_sub.translate_mut(old_offset);
+                    splice_node(result, target, new_sub);
+                },
+                None => *result = new_sub,
+            }
+            return;
+        }
+
+        // Size changed ⇒ the parent must re-place its children.
+        match parent_id(result, target) {
+            Some(pid) => target = pid,
+            None => {
+                // `target` is the root: its recomputed subtree IS the new tree.
+                *result = new_sub;
+                return;
+            },
+        }
+    }
+}
+
+/// Rebuild the whole tree from `result`'s root using the root's retained inputs
+/// (the conservative fallback when a dirty node lost its retained state).
+#[cfg(feature = "incremental-layout")]
+fn rebuild_root<T: LayoutTree + ?Sized>(
+    result: &mut LayoutModel,
+    fonts: &crate::font::FontCtx,
+    viewport: Size,
+    tree: &T,
+) {
+    if let Some(r) = result.retained {
+        let ctx = LayoutCtx {
+            fonts,
+            viewport,
+            font_props: r.input_font_props,
+        };
+        *result =
+            model_layout(&ctx, tree, result.id, r.parent_limits, r.parent_size);
+    }
+}
+
+#[cfg(feature = "incremental-layout")]
+fn find_node(node: &LayoutModel, id: ElId) -> Option<&LayoutModel> {
+    if node.id == id {
+        return Some(node);
+    }
+    node.children.iter().find_map(|c| find_node(c, id))
+}
+
+#[cfg(feature = "incremental-layout")]
+fn parent_id(node: &LayoutModel, id: ElId) -> Option<ElId> {
+    if node.children.iter().any(|c| c.id == id) {
+        return Some(node.id);
+    }
+    node.children.iter().find_map(|c| parent_id(c, id))
+}
+
+#[cfg(feature = "incremental-layout")]
+fn find_node_mut(
+    node: &mut LayoutModel,
+    id: ElId,
+) -> Option<&mut LayoutModel> {
+    if node.id == id {
+        return Some(node);
+    }
+    // Locate the child subtree containing `id` immutably, then recurse mutably
+    // into just that one (sidesteps the borrow-checker's return-in-loop limit).
+    let idx = node.children.iter().position(|c| find_node(c, id).is_some())?;
+    find_node_mut(&mut node.children[idx], id)
+}
+
+/// Replace the (non-root) node `id` with `new_node`, in place in its parent's
+/// child list.
+#[cfg(feature = "incremental-layout")]
+fn splice_node(root: &mut LayoutModel, id: ElId, new_node: LayoutModel) {
+    let Some(pid) = parent_id(root, id) else { return };
+    if let Some(parent) = find_node_mut(root, pid) {
+        for child in parent.children.iter_mut() {
+            if child.id == id {
+                *child = new_node;
+                return;
+            }
+        }
+    }
+}
+
+#[cfg(all(test, feature = "incremental-layout"))]
+mod incremental_fuzz {
+    use super::{LayoutModel, model_layout, relayout_incremental};
+    use crate::{
+        el::ElId,
+        font::{FontCtx, FontProps},
+        layout::{
+            FlexLayout, LayoutCtx, LayoutData, LayoutKind, Limits,
+            length::LengthSize, tree::LayoutTree,
+        },
+        render::prelude::*,
+    };
+    use alloc::vec::Vec;
+    use slotmap::{KeyData, SecondaryMap};
+
+    fn el_id(n: u64) -> ElId {
+        ElId::from(KeyData::from_ffi(n))
+    }
+
+    /// A minimal mutable arena for the kernel, including transparent
+    /// (`Dynamic`-like) single-child pass-through nodes.
+    struct TestTree {
+        layouts: SecondaryMap<ElId, LayoutData>,
+        children: SecondaryMap<ElId, Vec<ElId>>,
+        transparent: SecondaryMap<ElId, ()>,
+    }
+    impl LayoutTree for TestTree {
+        fn layout(&self, id: ElId) -> Option<&LayoutData> {
+            self.layouts.get(id)
+        }
+        fn children(&self, id: ElId) -> &[ElId] {
+            self.children.get(id).map(|v| v.as_slice()).unwrap_or(&[])
+        }
+        fn is_transparent(&self, id: ElId) -> bool {
+            self.transparent.contains_key(id)
+        }
+    }
+    impl TestTree {
+        fn new() -> Self {
+            Self {
+                layouts: SecondaryMap::new(),
+                children: SecondaryMap::new(),
+                transparent: SecondaryMap::new(),
+            }
+        }
+    }
+
+    /// Deterministic SplitMix64 so any failure reproduces from its seed.
+    struct Rng(u64);
+    impl Rng {
+        fn u(&mut self) -> u64 {
+            self.0 = self.0.wrapping_add(0x9e3779b97f4a7c15);
+            let mut z = self.0;
+            z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+            z ^ (z >> 31)
+        }
+        fn range(&mut self, n: u32) -> u32 {
+            (self.u() % n as u64) as u32
+        }
+    }
+
+    fn rand_edge(rng: &mut Rng) -> LayoutData {
+        LayoutData::edge(LengthSize::fixed_length(
+            5 + rng.range(40),
+            5 + rng.range(40),
+        ))
+    }
+
+    /// Build a random tree of flex containers + fixed-size edge leaves. Collects
+    /// every leaf id (the mutation targets).
+    fn build(
+        rng: &mut Rng,
+        tree: &mut TestTree,
+        next: &mut u64,
+        depth: u32,
+        leaves: &mut Vec<ElId>,
+    ) -> ElId {
+        let id = el_id(*next);
+        *next += 1;
+        if depth == 0 || rng.range(3) == 0 {
+            tree.layouts.insert(id, rand_edge(rng));
+            leaves.push(id);
+        } else if rng.range(4) == 0 {
+            // Transparent single-child pass-through (like `Dynamic`): flattened
+            // by `effective_children`, so absent from the layout tree — the
+            // incremental walk must skip it via layout-tree `parent_id`.
+            tree.transparent.insert(id, ());
+            tree.layouts.insert(id, LayoutData::zero());
+            let child = build(rng, tree, next, depth - 1, leaves);
+            tree.children.insert(id, alloc::vec![child]);
+        } else {
+            let n = 1 + rng.range(3);
+            let kids: Vec<ElId> = (0..n)
+                .map(|_| build(rng, tree, next, depth - 1, leaves))
+                .collect();
+            let axis = if rng.range(2) == 0 { Axis::X } else { Axis::Y };
+            // Mix shrink (size flows up on any child change) with fixed
+            // (size-stable ⇒ the stop rule halts at this flex) containers so both
+            // stop-rule branches are exercised.
+            let size = if rng.range(2) == 0 {
+                LengthSize::shrink()
+            } else {
+                LengthSize::fixed_length(80 + rng.range(80), 80 + rng.range(80))
+            };
+            tree.layouts.insert(
+                id,
+                LayoutData::new(
+                    LayoutKind::Flex(
+                        FlexLayout::base(axis).gap(Size::new_equal(rng.range(6))),
+                    ),
+                    size,
+                ),
+            );
+            tree.children.insert(id, kids);
+        }
+        id
+    }
+
+    /// WS5.2 differential fuzz: for many random trees + a random single leaf-size
+    /// mutation, incremental relayout must equal a full recompute rect-for-rect
+    /// (geometry-only `LayoutModel` equality). Covers the stop-at-leaf path (same
+    /// size), upward propagation (shrink chains), and halting at a fixed ancestor.
+    #[test]
+    fn incremental_equals_full_recompute() {
+        let fonts = FontCtx::new();
+        let viewport = Size::new(200, 200);
+        let ctx = LayoutCtx {
+            fonts: &fonts,
+            viewport,
+            font_props: FontProps::default(),
+        };
+
+        for seed in 0u64..500 {
+            let mut rng = Rng(seed.wrapping_mul(0x9e3779b97f4a7c15).wrapping_add(1));
+            let mut tree = TestTree::new();
+            let mut next = 1u64;
+            let mut leaves = Vec::new();
+            let root = build(&mut rng, &mut tree, &mut next, 4, &mut leaves);
+            if leaves.is_empty() {
+                continue;
+            }
+
+            let prev = model_layout(
+                &ctx,
+                &tree,
+                root,
+                Limits::only_max(viewport),
+                viewport.into(),
+            );
+
+            // Mutate one random leaf's size — may be the same (stop at the leaf)
+            // or different (propagate upward).
+            let target = leaves[rng.range(leaves.len() as u32) as usize];
+            tree.layouts[target] = rand_edge(&mut rng);
+
+            let incremental =
+                relayout_incremental(&prev, &[target], &fonts, viewport, &tree);
+            let full = model_layout(
+                &ctx,
+                &tree,
+                root,
+                Limits::only_max(viewport),
+                viewport.into(),
+            );
+
+            assert_eq!(
+                incremental, full,
+                "seed {seed}: incremental != full recompute (target {target:?})"
+            );
+        }
+    }
+
+    /// WS5.2 acceptance (D3): a content change to a Fixed×Fixed leaf visits
+    /// exactly ONE node. The leaf's `(outer_size, resolved min_size)` are both
+    /// the fixed box (the resolved min clamps content-min to the fixed dim), so
+    /// the stop rule halts at the leaf — the whole point of the retained
+    /// `min_size` resolution. Needs `layout-counters` for the visit count.
+    #[cfg(feature = "layout-counters")]
+    #[test]
+    fn fixed_content_change_is_one_visit() {
+        use crate::font::Font;
+        use crate::layout::{ContentLayout, counters};
+        use alloc::{string::ToString, vec};
+        use rsact_reactive::prelude::MaybeReactive;
+
+        let fonts = FontCtx::new();
+        let viewport = Size::new(300, 300);
+        let ctx = LayoutCtx {
+            fonts: &fonts,
+            viewport,
+            // Match the page memo: an inheritable auto font, so text nodes have a
+            // font to measure with (`FontProps::default()` has `font: None`).
+            font_props: FontProps {
+                font: Some(Font::Auto),
+                font_size: None,
+                font_style: None,
+            },
+        };
+
+        // A Fixed×Fixed text box (short text fits, so the resolved min is the
+        // fixed size regardless of the exact content).
+        fn text_leaf(s: &str) -> LayoutData {
+            LayoutData::new(
+                LayoutKind::Content(ContentLayout::text(
+                    MaybeReactive::new_inert(s.to_string()),
+                )),
+                LengthSize::fixed_length(200, 40),
+            )
+        }
+
+        let (root, leaf) = (el_id(1), el_id(2));
+        let mut tree = TestTree::new();
+        tree.layouts.insert(
+            root,
+            LayoutData::new(
+                LayoutKind::Flex(FlexLayout::base(Axis::Y)),
+                LengthSize::shrink(),
+            ),
+        );
+        tree.layouts.insert(leaf, text_leaf("hello"));
+        tree.children.insert(root, vec![leaf]);
+
+        let prev = model_layout(
+            &ctx,
+            &tree,
+            root,
+            Limits::only_max(viewport),
+            viewport.into(),
+        );
+
+        // Update the text, keeping the fixed box — only the leaf is dirty.
+        tree.layouts[leaf] = text_leaf("world");
+
+        counters::reset();
+        let incremental =
+            relayout_incremental(&prev, &[leaf], &fonts, viewport, &tree);
+        let (visits, _measures) = counters::snapshot();
+
+        assert_eq!(
+            visits, 1,
+            "a Fixed×Fixed content change must visit exactly one node, got {visits}"
+        );
+
+        // …and still equal a full recompute.
+        let full = model_layout(
+            &ctx,
+            &tree,
+            root,
+            Limits::only_max(viewport),
+            viewport.into(),
+        );
+        assert_eq!(incremental, full);
+    }
 }

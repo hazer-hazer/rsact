@@ -113,6 +113,12 @@ impl<W: WidgetCtx> BuildCtx<W> {
 
         self.arena.update_untracked(|arena| {
             arena.set_children(self.id, children_ids);
+            // WS5.2: a structure change is not a single-node prop tweak, so the
+            // incremental relayout can't scope it — mark the whole tree dirty so
+            // the dirty-gated relayout falls back to a full recompute
+            // (conservative; incremental still handles the common reactive-prop
+            // case). No effect under default features beyond draining the set.
+            arena.mark_full_relayout();
         });
 
         // WS5.1: a structure change relayouts the page (the layout `Memo`
@@ -128,6 +134,8 @@ impl<W: WidgetCtx> BuildCtx<W> {
 
         self.arena.update_untracked(|arena| {
             arena.set_single_child(self.id, child_id);
+            // WS5.2: structure change ⇒ full relayout (see `set_children`).
+            arena.mark_full_relayout();
         });
 
         // WS5.1: a structure change relayouts the page (see `set_children`).
