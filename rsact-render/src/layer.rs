@@ -39,8 +39,7 @@ impl<T: Surface> Layering<T> {
 
     pub fn surface_mut(&mut self) -> &mut T {
         let idx = self.layer_index();
-        let pos =
-            self.layers.binary_search_by_key(&idx, |(k, _)| *k).unwrap();
+        let pos = self.layers.binary_search_by_key(&idx, |(k, _)| *k).unwrap();
         &mut self.layers[pos].1.surface
     }
 

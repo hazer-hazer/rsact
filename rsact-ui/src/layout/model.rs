@@ -633,11 +633,7 @@ fn rebuild_root<T: LayoutTree + ?Sized>(
     tree: &T,
 ) {
     if let Some(r) = result.retained {
-        let ctx = LayoutCtx {
-            fonts,
-            viewport,
-            font_props: r.input_font_props,
-        };
+        let ctx = LayoutCtx { fonts, viewport, font_props: r.input_font_props };
         *result =
             model_layout(&ctx, tree, result.id, r.parent_limits, r.parent_size);
     }
@@ -660,16 +656,16 @@ fn parent_id(node: &LayoutModel, id: ElId) -> Option<ElId> {
 }
 
 #[cfg(feature = "incremental-layout")]
-fn find_node_mut(
-    node: &mut LayoutModel,
-    id: ElId,
-) -> Option<&mut LayoutModel> {
+fn find_node_mut(node: &mut LayoutModel, id: ElId) -> Option<&mut LayoutModel> {
     if node.id == id {
         return Some(node);
     }
     // Locate the child subtree containing `id` immutably, then recurse mutably
     // into just that one (sidesteps the borrow-checker's return-in-loop limit).
-    let idx = node.children.iter().position(|c| find_node(c, id).is_some())?;
+    let idx = node
+        .children
+        .iter()
+        .position(|c| find_node(c, id).is_some())?;
     find_node_mut(&mut node.children[idx], id)
 }
 
@@ -861,7 +857,8 @@ mod incremental_fuzz {
                 id,
                 LayoutData::new(
                     LayoutKind::Flex(
-                        FlexLayout::base(axis).gap(Size::new_equal(rng.range(6))),
+                        FlexLayout::base(axis)
+                            .gap(Size::new_equal(rng.range(6))),
                     ),
                     size,
                 ),
@@ -886,7 +883,8 @@ mod incremental_fuzz {
         };
 
         for seed in 0u64..500 {
-            let mut rng = Rng(seed.wrapping_mul(0x9e3779b97f4a7c15).wrapping_add(1));
+            let mut rng =
+                Rng(seed.wrapping_mul(0x9e3779b97f4a7c15).wrapping_add(1));
             let mut tree = TestTree::new();
             let mut next = 1u64;
             let mut leaves = Vec::new();
