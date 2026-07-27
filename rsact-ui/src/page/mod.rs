@@ -131,30 +131,37 @@ impl<W: WidgetCtx> Page<W> {
         let root = BuildCtx::run(&mut root, arena, relayout);
 
         // TODO: If we make fonts MaybeReactive, we can go fully MaybeReactive
-        // LayoutModel here
-        let layout_model = map!(move |fonts, viewport| {
+        // LayoutModel here.
+        //
+        // WS5.2: a `create_memo(|prev| …)` (the SingleParam form) so the callback
+        // gets the PREVIOUS `LayoutModel`. Under `incremental-layout` a non-full
+        // dirty set is relayed out incrementally by splicing `prev`; otherwise
+        // (default features, a `full` mark, an empty set, or first build) it is a
+        // full recompute.
+        let layout_model = create_memo(move |prev: Option<&LayoutModel>| {
             info!("Relayout page {:?}", id);
 
-            // TODO: Possible optimization is to use previous memo result.
-            // [ ] Pass it to model_layout as tree and don't relayout parents if
-            // layouts inside Fixed-sized container changed,
-            // returning previous result
+            // `prev` is only consumed by the incremental path.
+            #[cfg(not(feature = "incremental-layout"))]
+            let _ = prev;
 
             // WS5.1: the layout is walked off-graph from the arena, whose
             // structure/prop writes are untracked, so the memo has no implicit
-            // per-node dependency to re-run on. The `relayout` trigger is the
-            // single explicit dependency: `bind_layout` (reactive props) and
-            // `set_children`/`set_single_child` (structure) fire it, and tracking
-            // it here re-runs relayout on either (until the dirty set replaces
-            // this whole memo in PR2).
+            // per-node dependency to re-run on. `relayout` (fired by
+            // `bind_layout` for reactive props and by `set_children`/
+            // `set_single_child` for structure), plus `fonts`/`viewport`, are the
+            // explicit dependencies tracked here.
             relayout.track();
 
-            let viewport = *viewport;
-            // `with_untracked` avoids subscribing to the arena signal itself (its
-            // writes are untracked); the walk reads `LayoutData` by `ElId`.
-            let layout = arena.with_untracked(|arena| {
-                model_layout(
-                    &LayoutCtx {
+            let viewport = viewport.with(|v| *v);
+            // `fonts.with` tracks the font context (a change ⇒ whole-tree
+            // relayout — fonts feed every text node's measure).
+            let layout = fonts.with(|fonts| {
+                // `take_dirty` mutates the arena, so `update_untracked` (needs
+                // `&mut` on the Copy signal handle) rather than `with_untracked`.
+                let mut arena = arena;
+                arena.update_untracked(|arena| {
+                    let ctx = LayoutCtx {
                         fonts,
                         viewport,
                         font_props: FontProps {
@@ -162,12 +169,39 @@ impl<W: WidgetCtx> Page<W> {
                             font_size: None,
                             font_style: None,
                         },
-                    },
-                    arena,
-                    root,
-                    Limits::only_max(viewport),
-                    viewport.into(),
-                )
+                    };
+
+                    // Drain the dirty set every pass so marks are attributed to
+                    // the relayout that handles them (also stops it accumulating
+                    // under default features, which never read it).
+                    let _dirty = arena.take_dirty();
+
+                    // Incremental only for a non-empty, non-`full` dirty set with
+                    // a previous tree. A `full` mark (structure change / fonts),
+                    // an empty set (viewport change / first build), or no `prev`
+                    // ⇒ full recompute.
+                    #[cfg(feature = "incremental-layout")]
+                    if let Some(prev) = prev
+                        && !_dirty.is_empty()
+                        && !_dirty.is_full()
+                    {
+                        return crate::layout::model::relayout_incremental(
+                            prev,
+                            _dirty.nodes(),
+                            fonts,
+                            viewport,
+                            arena,
+                        );
+                    }
+
+                    model_layout(
+                        &ctx,
+                        arena,
+                        root,
+                        Limits::only_max(viewport),
+                        viewport.into(),
+                    )
+                })
             });
 
             // TODO: Do we need full page redraw on layout change?
