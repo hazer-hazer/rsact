@@ -87,6 +87,31 @@ impl Rect {
             && point.y < self.top_left.y + self.size.height as i32
     }
 
+    /// The smallest rectangle containing both `self` and `other` — the "damage"
+    /// of a box that moved (erase where it was, paint where it is). A
+    /// zero-sized rect has no area, so it contributes nothing: `union` with it
+    /// returns the other rect (this is what makes a box appearing/disappearing
+    /// damage exactly its non-zero rect).
+    pub fn union(&self, other: &Self) -> Self {
+        if self.is_zero_sized() {
+            return *other;
+        }
+        if other.is_zero_sized() {
+            return *self;
+        }
+        let x1 = self.top_left.x.min(other.top_left.x);
+        let y1 = self.top_left.y.min(other.top_left.y);
+        // Bottom-right edges are exclusive (`top_left + size`).
+        let x2 = (self.top_left.x + self.size.width as i32)
+            .max(other.top_left.x + other.size.width as i32);
+        let y2 = (self.top_left.y + self.size.height as i32)
+            .max(other.top_left.y + other.size.height as i32);
+        Self::new(
+            Point::new(x1, y1),
+            Size::new((x2 - x1) as u32, (y2 - y1) as u32),
+        )
+    }
+
     pub fn intersection(&self, other: &Self) -> Self {
         let x1 = self.top_left.x.max(other.top_left.x);
         let y1 = self.top_left.y.max(other.top_left.y);
@@ -272,5 +297,41 @@ impl Sided<u32> for Rect {
             Side::Top | Side::Bottom => self.size.width,
             Side::Left | Side::Right => self.size.height,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Rect;
+    use crate::geometry::{point::Point, size::Size};
+
+    fn r(x: i32, y: i32, w: u32, h: u32) -> Rect {
+        Rect::new(Point::new(x, y), Size::new(w, h))
+    }
+
+    #[test]
+    fn union_of_disjoint_rects_is_their_bounding_box() {
+        // Two 10x10 boxes, one at origin, one at (20,20): the bounding box spans
+        // (0,0)..(30,30).
+        assert_eq!(r(0, 0, 10, 10).union(&r(20, 20, 10, 10)), r(0, 0, 30, 30));
+    }
+
+    #[test]
+    fn union_is_commutative_and_covers_a_shift() {
+        // A box that moved right by 5: damage = old ∪ new = (0,0)..(15,10).
+        let old = r(0, 0, 10, 10);
+        let new = r(5, 0, 10, 10);
+        assert_eq!(old.union(&new), r(0, 0, 15, 10));
+        assert_eq!(new.union(&old), r(0, 0, 15, 10));
+    }
+
+    #[test]
+    fn union_with_zero_sized_contributes_nothing() {
+        let sized = r(3, 4, 10, 10);
+        // A box appearing (was zero) or disappearing (now zero) damages exactly
+        // its non-zero rect, not a huge box back to the origin.
+        assert_eq!(Rect::zero().union(&sized), sized);
+        assert_eq!(sized.union(&Rect::zero()), sized);
+        assert_eq!(Rect::zero().union(&Rect::zero()), Rect::zero());
     }
 }

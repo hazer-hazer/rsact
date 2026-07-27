@@ -688,6 +688,70 @@ fn splice_node(root: &mut LayoutModel, id: ElId, new_node: LayoutModel) {
     }
 }
 
+/// WS5.3: the layout **changed-set** — the geometry damage a relayout produced.
+/// Diffs the previous and new `LayoutModel` trees and returns, for every node
+/// whose **absolute** rect changed, the union of its old and new rect (erase
+/// where it was, paint where it is). This is the *geometry* damage channel WS6
+/// consumes.
+///
+/// Note the boundary: a same-size **content** change (e.g. a Fixed×Fixed label's
+/// text) moves nothing, so it produces NO entry here — that widget repaints via
+/// its render probe (the independent *paint-dirty* channel). WS6's total damage
+/// is this set ∪ the paint-dirty widget rects.
+///
+/// `prev`/`new` share structure — incremental relayout never changes it (a
+/// structure change falls back to a full relayout) — so nodes are matched by
+/// `ElId`; the appeared/disappeared arms are defensive for a general diff.
+#[cfg(feature = "incremental-layout")]
+pub fn layout_changed_set(prev: &LayoutModel, new: &LayoutModel) -> Vec<Rect> {
+    let mut damage = Vec::new();
+    diff_changed(prev, Point::zero(), new, Point::zero(), &mut damage);
+    damage
+}
+
+/// Recurse `prev`/`new` in lockstep. `*_off` is the parent's absolute inner
+/// top-left — the origin its children are placed against (mirrors
+/// [`LayoutModel::node`]) — so `node.outer.translate(off)` is the node's
+/// absolute rect.
+#[cfg(feature = "incremental-layout")]
+fn diff_changed(
+    prev: &LayoutModel,
+    prev_off: Point,
+    new: &LayoutModel,
+    new_off: Point,
+    damage: &mut Vec<Rect>,
+) {
+    let prev_abs = prev.outer.translate(prev_off);
+    let new_abs = new.outer.translate(new_off);
+    if prev_abs != new_abs {
+        damage.push(prev_abs.union(&new_abs));
+    }
+
+    // Children are placed against each node's absolute inner origin.
+    let prev_child_off = prev.inner.translate(prev_off).top_left;
+    let new_child_off = new.inner.translate(new_off).top_left;
+
+    for new_child in &new.children {
+        match prev.children.iter().find(|c| c.id == new_child.id) {
+            Some(prev_child) => diff_changed(
+                prev_child,
+                prev_child_off,
+                new_child,
+                new_child_off,
+                damage,
+            ),
+            // Appeared (structure change): its outer rect covers the new subtree.
+            None => damage.push(new_child.outer.translate(new_child_off)),
+        }
+    }
+    // Disappeared: present in `prev`, gone from `new`.
+    for prev_child in &prev.children {
+        if !new.children.iter().any(|c| c.id == prev_child.id) {
+            damage.push(prev_child.outer.translate(prev_child_off));
+        }
+    }
+}
+
 #[cfg(all(test, feature = "incremental-layout"))]
 mod incremental_fuzz {
     use super::{LayoutModel, model_layout, relayout_incremental};
@@ -941,5 +1005,157 @@ mod incremental_fuzz {
             viewport.into(),
         );
         assert_eq!(incremental, full);
+    }
+
+    /// WS5.3: two identical relayouts produce no geometry damage.
+    #[test]
+    fn changed_set_empty_when_layout_unchanged() {
+        use super::layout_changed_set;
+        let fonts = FontCtx::new();
+        let viewport = Size::new(200, 200);
+        let ctx = LayoutCtx {
+            fonts: &fonts,
+            viewport,
+            font_props: FontProps::default(),
+        };
+        let mut rng = Rng(12345);
+        let mut tree = TestTree::new();
+        let mut next = 1u64;
+        let mut leaves = Vec::new();
+        let root = build(&mut rng, &mut tree, &mut next, 4, &mut leaves);
+        let a =
+            model_layout(&ctx, &tree, root, Limits::only_max(viewport), viewport.into());
+        let b =
+            model_layout(&ctx, &tree, root, Limits::only_max(viewport), viewport.into());
+        assert!(
+            layout_changed_set(&a, &b).is_empty(),
+            "no mutation ⇒ no geometry damage"
+        );
+    }
+
+    /// WS5.3: a leaf that grows damages itself AND the sibling it pushes down
+    /// (and their shrink-sized ancestor).
+    #[test]
+    fn changed_set_nonempty_when_a_leaf_resizes() {
+        use super::layout_changed_set;
+        use alloc::vec;
+        let fonts = FontCtx::new();
+        let viewport = Size::new(200, 200);
+        let ctx = LayoutCtx {
+            fonts: &fonts,
+            viewport,
+            font_props: FontProps::default(),
+        };
+        let (root, a, b) = (el_id(1), el_id(2), el_id(3));
+        let mut tree = TestTree::new();
+        tree.layouts
+            .insert(a, LayoutData::edge(LengthSize::fixed_length(10, 10)));
+        tree.layouts
+            .insert(b, LayoutData::edge(LengthSize::fixed_length(10, 10)));
+        tree.layouts.insert(
+            root,
+            LayoutData::new(
+                LayoutKind::Flex(FlexLayout::base(Axis::Y)),
+                LengthSize::shrink(),
+            ),
+        );
+        tree.children.insert(root, vec![a, b]);
+
+        let prev =
+            model_layout(&ctx, &tree, root, Limits::only_max(viewport), viewport.into());
+        // Grow leaf `a` taller: it resizes and pushes `b` down.
+        tree.layouts[a] = LayoutData::edge(LengthSize::fixed_length(10, 30));
+        let new =
+            model_layout(&ctx, &tree, root, Limits::only_max(viewport), viewport.into());
+
+        let damage = layout_changed_set(&prev, &new);
+        assert!(
+            damage.len() >= 2,
+            "resized leaf + shifted sibling must both be damaged, got {damage:?}"
+        );
+    }
+
+    /// WS5.3: `layout_changed_set` equals a brute-force diff of every node's
+    /// ABSOLUTE rect computed via the independent `LayoutModelNode` walker (the
+    /// one render/event trust) — across the same 500 random trees + a single
+    /// mutation as the WS5.2 fuzz. This cross-checks the changed-set's own
+    /// offset accumulation against production's.
+    #[test]
+    fn changed_set_matches_brute_force_diff() {
+        use super::{LayoutModelNode, layout_changed_set};
+
+        // Every node's absolute outer rect, via the trusted walker.
+        fn flatten(node: &LayoutModelNode, out: &mut Vec<(ElId, Rect)>) {
+            out.push((node.id(), node.outer));
+            for c in node.children() {
+                flatten(&c, out);
+            }
+        }
+        fn key(r: &Rect) -> (i32, i32, u32, u32) {
+            (r.top_left.x, r.top_left.y, r.size.width, r.size.height)
+        }
+
+        let fonts = FontCtx::new();
+        let viewport = Size::new(200, 200);
+        let ctx = LayoutCtx {
+            fonts: &fonts,
+            viewport,
+            font_props: FontProps::default(),
+        };
+
+        for seed in 0u64..500 {
+            let mut rng =
+                Rng(seed.wrapping_mul(0x9e3779b97f4a7c15).wrapping_add(1));
+            let mut tree = TestTree::new();
+            let mut next = 1u64;
+            let mut leaves = Vec::new();
+            let root = build(&mut rng, &mut tree, &mut next, 4, &mut leaves);
+            if leaves.is_empty() {
+                continue;
+            }
+
+            let prev = model_layout(
+                &ctx,
+                &tree,
+                root,
+                Limits::only_max(viewport),
+                viewport.into(),
+            );
+            let target = leaves[rng.range(leaves.len() as u32) as usize];
+            tree.layouts[target] = rand_edge(&mut rng);
+            let new = model_layout(
+                &ctx,
+                &tree,
+                root,
+                Limits::only_max(viewport),
+                viewport.into(),
+            );
+
+            // Brute-force expected damage: diff every node's absolute rect. The
+            // node set is identical (leaf-size mutation preserves structure).
+            let mut pv = Vec::new();
+            flatten(&prev.tree_root(), &mut pv);
+            let mut nv = Vec::new();
+            flatten(&new.tree_root(), &mut nv);
+            let mut expected = Vec::new();
+            for (id, prect) in &pv {
+                let nrect = nv
+                    .iter()
+                    .find(|(nid, _)| nid == id)
+                    .map(|(_, r)| *r)
+                    .expect("same node set");
+                if *prect != nrect {
+                    expected.push(prect.union(&nrect));
+                }
+            }
+
+            let mut got = layout_changed_set(&prev, &new);
+            got.sort_by_key(key);
+            expected.sort_by_key(key);
+            assert_eq!(
+                got, expected,
+                "seed {seed}: changed-set != brute-force diff (target {target:?})"
+            );
+        }
     }
 }
