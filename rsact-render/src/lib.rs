@@ -37,16 +37,27 @@ impl FloatExt for f64 {}
 
 pub mod color;
 pub mod geometry;
+// `golden` is a std-only test-support module (file I/O for the WS6.9 golden
+// harness). It is reusable across crates — hence a real `#[cfg(feature="std")]`
+// module, not `#[cfg(test)]` (downstream crates' tests can't see test code).
+#[cfg(feature = "std")]
+pub mod golden;
 pub mod image;
 pub mod layer;
 pub mod output;
 pub mod path;
 pub mod primitives;
+pub mod record;
 pub mod renderer;
 pub mod style;
 
 #[macro_use]
 extern crate alloc;
+
+// `#![no_std]` drops `std` from the extern prelude; the golden harness's file
+// I/O needs it, so bring it back on std builds only.
+#[cfg(feature = "std")]
+extern crate std;
 
 #[cfg(feature = "embedded-graphics")]
 pub mod eg;

@@ -126,7 +126,16 @@ unsafe-single-thread = ["rsact-reactive/unsafe-single-thread"]
 # `tiny-skia?/png-format` (note the `?`): png encoding only when tiny-skia is
 # already enabled — without the `?` this force-pulled the optional tiny-skia
 # into every std build (the WS0.6 leak).
-std = ["log/std", "rsact-reactive/std", "tiny-skia?/png-format"]
+# `rsact-render/std` forwards to `rsact-reactive/std` + `log/std` (already on
+# here) and enables rsact-render's std-only `golden` harness module (WS6.9), so
+# rsact-ui's host tests can assert page-render goldens. Not a dep leak — unlike
+# `tiny-skia?/png-format` above, rsact-render is already a non-optional dep.
+std = [
+    "log/std",
+    "rsact-reactive/std",
+    "rsact-render/std",
+    "tiny-skia?/png-format",
+]
 # Layout-pass work counters (WS0.5): visit/measure counts feeding the metrics
 # snapshot + a baseline-locking test. Host/dev-only, no runtime cost when off.
 layout-counters = []
