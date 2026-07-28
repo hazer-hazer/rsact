@@ -1,8 +1,8 @@
 {
-  "5379fdc937fafde297d524060c923e282af36ee5": {
-    "date": 1785275856,
+  "4b3e716793558bff38ce868aeab6e21ded43d0e6": {
+    "date": 1785277686,
     "parent": "",
-    "branch": "master",
-    "subject": "Merge pull request #28 from hazer-hazer/ws6.1-damage-pipeline"
+    "branch": "ws6.1-targeted-invalidation",
+    "subject": "Roadmap: 6.1 PR number (#29)"
   }
 }
