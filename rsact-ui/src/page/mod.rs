@@ -13,6 +13,7 @@ use crate::{
     style::TreeStyle,
 };
 use alloc::vec::Vec;
+use core::cell::RefCell;
 use dev::{DevHoveredEl, DevTools};
 use log::{debug, info};
 use rsact_reactive::prelude::*;
@@ -61,6 +62,10 @@ pub struct Page<W: WidgetCtx> {
     stylist: Inert<W::Stylist>,
     dev_tools: Signal<DevTools>,
     force_redraw: Signal<bool>,
+    /// WS6.2: non-reactive "flush the whole viewport this frame" flag (see its
+    /// creation in `Page::new`). Set alongside `force_redraw`; drained in
+    /// `use_renderer` to expand the damage set to the full viewport.
+    full_flush: Signal<bool>,
     render_calls: usize,
     fonts: Signal<FontCtx>,
     /// The page's render gate (WS2). One probe, polled once per frame in
@@ -68,6 +73,14 @@ pub struct Page<W: WidgetCtx> {
     /// when a tracked dependency changed or a redraw is forced. Owned by the
     /// page — disposed in `Drop` alongside the arena.
     render_probe: Probe,
+    /// WS6.2: the damage accumulator. The render pass pushes the absolute outer
+    /// rect of every part that actually repainted *and was not covered by a
+    /// parent redraw* (a "redraw root") here; [`render`](Self::render) then
+    /// flushes only those rects via `finish_frame_regions`. `RefCell` because
+    /// the pass writes through a shared `RenderShared` borrow (which is `Copy`),
+    /// while `render` reads it back afterwards. Cleared at the start of each
+    /// pass, so an idle frame leaves it empty (flush nothing).
+    damage: RefCell<Vec<Rect>>,
     /// The page's reactive scope (WS3.1). Everything the page built —
     /// `init_page()`'s widgets (run before `Page::new` while this scope is
     /// current) and `Page::new`'s per-page nodes (`force_redraw`, the layout
@@ -120,6 +133,17 @@ impl<W: WidgetCtx> Page<W> {
         let state = PageState::new();
 
         let mut force_redraw = create_signal(false).name("Force redraw");
+
+        // WS6.2: a NON-reactive "flush the whole viewport next frame" flag,
+        // parallel to `force_redraw`. It exists because `force_redraw` cannot be
+        // *read* after the pass to make the flush decision: the layout memo
+        // `set`s force_redraw (a notifying write), and any value-read of it
+        // triggers `maybe_update`, propagating that pending dirtiness to the
+        // render probe → a spurious re-render next frame. `full_flush` is only
+        // ever `set_untracked`/`get_untracked` and has NO subscribers, so
+        // reading it perturbs nothing. Set wherever force_redraw is set (the
+        // layout memo below + `force_redraw()`); drained in `use_renderer`.
+        let mut full_flush = create_signal(false).name("Full flush");
 
         // WS5.1: the page relayout trigger. Off-graph layout means the layout
         // `Memo` no longer tracks a reactive `Layout` handle — instead the
@@ -208,6 +232,12 @@ impl<W: WidgetCtx> Page<W> {
             // [ ] No, we need smart bottom-up propagation to the nearest fixed
             // parent layout.
             force_redraw.set(true);
+            // WS6.2: the memo re-ran ⇒ layout changed (or first build) ⇒ the
+            // whole viewport must flush this frame (the page background outside
+            // widgets is not painted per-frame). `set_untracked` so this write
+            // never notifies (no subscribers anyway). WS6.1 will replace both
+            // this and `force_redraw` with targeted, changed-set-driven damage.
+            full_flush.set_untracked(true);
 
             debug!("{}", PPLayoutModel::root(&layout));
 
@@ -240,9 +270,11 @@ impl<W: WidgetCtx> Page<W> {
             stylist,
             dev_tools,
             force_redraw,
+            full_flush,
             render_calls: 0,
             fonts,
             render_probe,
+            damage: RefCell::new(Vec::new()),
             scope,
         }
     }
@@ -254,6 +286,8 @@ impl<W: WidgetCtx> Page<W> {
     pub(crate) fn force_redraw(&mut self) -> &mut Self {
         info!("Force redraw page {:?}", self.id);
         self.force_redraw.set(true);
+        // WS6.2: a forced redraw flushes the whole viewport (see `full_flush`).
+        self.full_flush.set_untracked(true);
         self
     }
 
@@ -642,13 +676,28 @@ impl<W: WidgetCtx> Page<W> {
     where
         W::Renderer: FinishRender<T::Color>,
     {
-        self.use_renderer(|renderer| {
-            renderer.finish_frame(target);
-        })
+        // Run the render pass (fills `self.damage` with the repainted rects),
+        // then flush ONLY those rects (WS6.2 + WS6.3). A backend that doesn't
+        // implement region flushing falls back to a full `finish_frame`
+        // (default trait method), so this is safe for every renderer.
+        let drawn = self.use_renderer(|_| {});
+        if drawn {
+            let mut renderer = self.renderer;
+            let damage = self.damage.borrow();
+            renderer.update_untracked(|renderer| {
+                renderer.finish_frame_regions(target, &damage);
+            });
+        }
+        drawn
     }
 
     pub fn use_renderer(&mut self, f: impl FnOnce(&mut W::Renderer)) -> bool {
         let mut renderer = self.renderer;
+
+        // WS6.2: start a fresh damage set for this frame. Cleared here (not at
+        // the end) so a pass that the probe SKIPS leaves it empty — an idle
+        // frame flushes nothing — while `render` reads it back after the pass.
+        self.damage.borrow_mut().clear();
 
         // (Removed the debug-only `("page_force_redraw", id)` observer here: it
         // only logged force-redraw changes and its `force_redraw` dependency is
@@ -728,6 +777,7 @@ impl<W: WidgetCtx> Page<W> {
                                     fonts,
                                     stylist,
                                     force_redraw: self.force_redraw,
+                                    damage: &self.damage,
                                 },
                             )
                             .render(
@@ -764,9 +814,37 @@ impl<W: WidgetCtx> Page<W> {
                 });
         });
 
-        //
+        // WS6.2 full-invalidate escape hatch: a `force_redraw` frame (page
+        // enter / layout change — the layout memo sets it, and it is set on
+        // first build) must flush the WHOLE viewport, not just the redraw-root
+        // rects the pass recorded. The page background outside the root widget
+        // is never painted per-frame (the page-clear is disabled above), so an
+        // incremental flush would leave it stale on a fresh screen. Reading it
+        // AFTER the pass captures the value the layout memo set while pulling
+        // `self.layout`. (Until Stage 6.1 makes layout invalidation targeted,
+        // any layout change is conservatively a full flush — never a
+        // regression.)
         self.force_redraw.set_untracked(false);
         self.needs_redraw = false;
+
+        // WS6.2 full-invalidate escape hatch: a full-redraw frame (page enter /
+        // layout change — the layout memo sets `full_flush`; `force_redraw()`
+        // sets it too) must flush the WHOLE viewport, not just the redraw-root
+        // rects the pass recorded. The page background outside the root widget
+        // is not painted per-frame (the page-clear is disabled above), so an
+        // incremental flush would leave it stale on a fresh screen. Read via the
+        // non-reactive `full_flush` (NOT `force_redraw`, whose value-read would
+        // spuriously re-dirty the render probe — see `full_flush`'s doc). Until
+        // WS6.1 makes layout invalidation targeted, any layout change is
+        // conservatively a full flush — never a regression.
+        let full_flush = self.full_flush.get_untracked();
+        self.full_flush.set_untracked(false);
+        if full_flush {
+            let viewport = self.viewport.get_untracked();
+            let mut damage = self.damage.borrow_mut();
+            damage.clear();
+            damage.push(Rect::new(Point::zero(), viewport));
+        }
 
         // TODO: Can be put directly into the observe
         if drawn.is_some() {
@@ -2044,6 +2122,110 @@ mod tests {
                 );
             });
         }
+    }
+
+    // WS6.2: a paint-only change (checkbox toggle — same size, no relayout)
+    // repaints only that widget, so the page's damage set is exactly its rect,
+    // NOT the whole viewport. This is the "one change flushes only its region"
+    // win: `render` passes this set to `finish_frame_regions`. An idle frame
+    // (nothing changed) damages nothing.
+    #[test]
+    fn paint_change_damages_only_the_widget_not_the_viewport() {
+        use crate::event::{Event, PressEvent};
+        use crate::widget::checkbox::Checkbox;
+        use rsact_reactive::runtime::with_new_runtime;
+
+        with_new_runtime(|_| {
+            let viewport = Size::new_equal(64);
+            let mut page =
+                create_null_page_sized(viewport, Checkbox::new(false));
+
+            // Settle the initial render(s).
+            for _ in 0..4 {
+                page.use_renderer(|_| {});
+            }
+
+            // Idle frame: the probe skips, nothing repaints → no damage.
+            page.use_renderer(|_| {});
+            assert!(
+                page.damage.borrow().is_empty(),
+                "an idle frame must produce no damage, got {:?}",
+                page.damage.borrow()
+            );
+
+            // Toggle the checkbox: focus it, then press+release.
+            page.state.focused = Some((page.root, 0));
+            let _ = page.handle_events(
+                [
+                    Event::Press(PressEvent::Press),
+                    Event::Press(PressEvent::Release),
+                ]
+                .into_iter(),
+            );
+
+            // The pass that repaints the toggled checkbox.
+            page.use_renderer(|_| {});
+
+            let damage = page.damage.borrow();
+            assert_eq!(
+                damage.len(),
+                1,
+                "a single paint change is one damage rect, got {damage:?}"
+            );
+            // The checkbox is 16x16 at the origin (see the render goldens) — a
+            // strict subset of the 64x64 viewport, so the flush touches 1/16th
+            // of the screen instead of all of it.
+            assert_eq!(
+                damage[0],
+                Rect::new(Point::zero(), Size::new_equal(16)),
+                "damage must be exactly the checkbox rect"
+            );
+            assert!(
+                damage[0].size.width < viewport.width
+                    && damage[0].size.height < viewport.height,
+                "damage {:?} must be strictly smaller than the {viewport:?} \
+                 viewport",
+                damage[0]
+            );
+        });
+    }
+
+    // WS6.2 escape hatch: a full invalidate (first render / `force_redraw` /
+    // layout change) flushes the WHOLE viewport, not just the redraw-root rects
+    // — the page background outside the root widget is never painted per-frame,
+    // so an incremental flush would leave it stale on a fresh screen.
+    #[test]
+    fn force_redraw_damages_the_whole_viewport() {
+        use crate::widget::checkbox::Checkbox;
+        use rsact_reactive::runtime::with_new_runtime;
+
+        with_new_runtime(|_| {
+            let viewport = Size::new_equal(64);
+            let full = Rect::new(Point::zero(), viewport);
+            let mut page =
+                create_null_page_sized(viewport, Checkbox::new(false));
+
+            // The very first render is a full invalidate (the layout memo sets
+            // force_redraw on the first build).
+            page.use_renderer(|_| {});
+            {
+                let d = page.damage.borrow();
+                assert_eq!(d.len(), 1);
+                assert_eq!(d[0], full, "first render must flush the viewport");
+            }
+
+            // Settle (force_redraw clears), then request an explicit full redraw.
+            for _ in 0..4 {
+                page.use_renderer(|_| {});
+            }
+            page.force_redraw();
+            page.use_renderer(|_| {});
+            {
+                let d = page.damage.borrow();
+                assert_eq!(d.len(), 1);
+                assert_eq!(d[0], full, "force_redraw must flush the viewport");
+            }
+        });
     }
 
     // The `View` migration: `row!`/`col!` and `impl View<W>` APIs accept bare
