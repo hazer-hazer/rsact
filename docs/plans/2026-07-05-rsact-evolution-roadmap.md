@@ -72,7 +72,7 @@
             └───────────────────────────────────────────────────────────────┘
 ```
 
-**Suggested execution order:** WS0 ✓ ∥ WS1 ✓ ∥ WS1b ✓ → WS2 ✓ → (WS3 ✓ ∥ WS4 ✓ ∥ WS9a ✓) → **WS13′ ✓ COMPLETE** (13.1–13.4 all merged; fleet split via PR #19, 2026-07-13) → WS5 → WS6 → WSi → WS7 (remainder 7.1/7.3/7.4/7.5) → (WS8 ∥ WS10 ∥ WS9b) → WS11 → WS12 → (WS14 ∥ WS15 ∥ WS16 ∥ WS18) _(WS13 pulled early — see 2026-07-09 decision)_. WS17 may start any time after WS6 — ideally before WS11.7 needs its README numbers. **WS19 ✓ v1 SHIPPED** (19.1–19.5 + 19.7 + 19.8 A/B live at hazer-hazer.github.io/rsact, site brand applied via PR #16; only the "later" 19.6 items — blog/custom domain/og-cards — remain, any time). **Now actionable (2026-07-13): WS5 — the layout workstream is UNBLOCKED** (WS13′ fully merged via PR #19: fleet split, icon repaired, `tiny-icons` compiles again; suites 77/0 ui · 76/0 reactive · zero known-fails). Launch order per the WS5 section: **5.0 quick wins may run first or parallel** (independent since WS0.5); **5.1 layout-off-graph is the core session** — consumes WS4.0's Layout analysis + the fresh `Build<W>` transform protocol (reactive-layout bindings defer to build time; the builder is their transient home), **+ the relocated 4.3 singleton de-greed rides here**. Re-verify the WS5 section's pre-resequencing assumptions against current master before executing (its items were written before WS13′ landed). **PR #6 (WS9b design, DRAFT) is UNBLOCKED by events:** WS4 merged (PR #11) = Decision 1's recommended option (a) satisfied; before 9b code, answer **Decision 2** (9b.1 read-path fork — re-evaluate the hybrid-iii recommendation against post-WS4 storage, where inert values no longer flow through reads) and have the returning session re-verify the design doc + rebase onto current master. Its execution slot is unchanged (own branch; both WS2+WS4 dependencies are now merged — may run early if the maintainer chooses). Parallel sessions need separate worktrees.
+**Suggested execution order:** WS0 ✓ ∥ WS1 ✓ ∥ WS1b ✓ → WS2 ✓ → (WS3 ✓ ∥ WS4 ✓ ∥ WS9a ✓) → **WS13′ ✓ COMPLETE** (13.1–13.4 all merged; fleet split via PR #19, 2026-07-13) → WS5 → WS6 → WSi → WS7 (remainder 7.1/7.3/7.4/7.5) → (WS8 ∥ WS10 ∥ WS9b) → WS11 → WS12 → (WS14 ∥ WS15 ∥ WS16 ∥ WS18) _(WS13 pulled early — see 2026-07-09 decision)_. WS17 may start any time after WS6 — ideally before WS11.7 needs its README numbers. **WS19 ✓ v1 SHIPPED** (19.1–19.5 + 19.7 + 19.8 A/B live at hazer-hazer.github.io/rsact, site brand applied via PR #16; only the "later" 19.6 items — blog/custom domain/og-cards — remain, any time). **Now actionable (2026-07-13): WS5 — the layout workstream is UNBLOCKED** (WS13′ fully merged via PR #19: fleet split, icon repaired, `tiny-icons` compiles again; suites 77/0 ui · 76/0 reactive · zero known-fails). Launch order per the WS5 section: **5.0 quick wins may run first or parallel** (independent since WS0.5); **5.1 layout-off-graph is the core session** — consumes WS4.0's Layout analysis + the fresh `Build<W>` transform protocol (reactive-layout bindings defer to build time; the builder is their transient home), **+ the relocated 4.3 singleton de-greed rides here**. Re-verify the WS5 section's pre-resequencing assumptions against current master before executing (its items were written before WS13′ landed). **PR #6 (WS9b design, DRAFT) is UNBLOCKED by events:** WS4 merged (PR #11) = Decision 1's recommended option (a) satisfied; before 9b code, answer **Decision 2** (9b.1 read-path fork — re-evaluate the hybrid-iii recommendation against post-WS4 storage, where inert values no longer flow through reads) and have the returning session re-verify the design doc + rebase onto current master. Its execution slot is unchanged (own branch; both WS2+WS4 dependencies are now merged — may run early if the maintainer chooses). Parallel sessions need separate worktrees. **WS20 (reactive node-storage AoS — fold `subscribers`/`sources`/`owned` into the `Value` node) is a new expansion-layer item gated "do after WS5"** — it must re-baseline against WS5's node/edge-count changes and coordinate with WS9b's read-path fork (Decision 2) so the storage read path is not churned twice.
 WS7's _decisions_ are locked at Gate time (now); only its _execution_ is late. 7.2's cheap `Dir`/`V` de-genericization may ride along with WS2/WS4 if convenient — it's zero-user-impact. (7.1 no longer qualifies: G5 keeps `Event::Custom`, and its remaining scope carries a breaking rename plus a G4-dependent default.)
 
 ---
@@ -530,7 +530,7 @@ Re-baseline the WS0 regression numbers and record old→new in the roadmap.
 
 ### WS5 — Layout: off the graph, then incremental
 
-**Sessions:** 2–3 · **Risk:** medium-high · **Directions:** D3 + D7(P2) merged · **Depends on:** WS4 (MaybeReactive/Layout field ripples), G8, **WS13 (builder/widget split — resequenced before WS5, 2026-07-09; gates the clean node-free/`Rc`-free/`ElId`-identified 5.1)** · **Feeds:** WS6.
+**Sessions:** 2–3 · **Risk:** medium-high · **Directions:** D3 + D7(P2) merged · **Depends on:** WS4 (MaybeReactive/Layout field ripples), G8, **WS13 (builder/widget split — resequenced before WS5, 2026-07-09; gates the clean node-free/`Rc`-free/`ElId`-identified 5.1)** · **Feeds:** WS6, **WS20** (reactive node-storage AoS rework — "do after WS5": WS5 changes the node/edge counts and how layout subscribes, so WS20 must re-baseline against WS5's post-off-graph graph).
 
 **Sequencing note (2026-07-09):** WS5.1's off-graph Layout was going to reach for `Rc<RefCell<LayoutData>>` (design sketch below + WS4.0 §100-107). The maintainer chose the cleaner destination — arena-owned, `ElId`-identified, node-free layouts — which requires the builder/widget split first (WS13, now resequenced ahead; see its decision block + `docs/plans/2026-07-09-ws13-views-as-builders-analysis.md`). Consequence: the earlier 5.0 quick-win _per-pass measure cache keyed by `ValueId`_ is **dropped** — it would key on the fake-inert being removed; the ElId-identified incremental relayout (5.2) supersedes it. The 5.0 `force_redraw` purification folds into 5.0b/5.1's off-graph dirty-set. Independent 5.0b bits (`renderer`/`dev_tools` → `Rc<RefCell>`) remain free-standing.
 
@@ -540,9 +540,9 @@ Stages:
 
 - [x] **5.0 Quick wins (independent, can run any time after WS0.5):** per-pass `min_size`/`ContentSizing` reuse in `model_flex`/`model_layout` (kills O(N·D) → O(N), zero retained RAM); move `force_redraw.set(true)` out of the memo (`page/mod.rs:134`), fire only when the model actually changed (e.g. `Keyed` generation instead of O(N) `PartialEq`) — WS4.3 did **not** land the `force_redraw` demotion (relocated here, see 5.0b), so this stage owns making it an imperative flag. Expected: 3–10× on deep pages, repaint-on-no-change gone. **DONE 2026-07-13 (`7153934`, branch `ws5-incremental-layout`) — but narrower than the pre-resequencing charter above; re-verified per the "Now actionable" instruction.** What landed: the within-`model_flex` per-pass `min_size`/`size` reuse — the placement pass reran `child.min_size(ctx)` (a full subtree descent, one text measure per content leaf) and discarded it for every non-fluid child; now the sizing pass stashes `(size, min_size)` on `FlexItem` and the placement pass reuses them. Locked baseline `ui_labels(10)` single-leaf change: **measures 40 → 30** (−25%; each label 3× not 4×), **visits unchanged at 11**. Zero retained RAM, no `model_layout` signature change (survives 5.1). **Reconciliation of the stale charter (report, per EVOLUTION protocol):** (1) the **"3–10× on deep pages" / "kills O(N·D)→O(N)"** promise assumed the _per-pass measure cache keyed by `ValueId`_ that the 2026-07-09 sequencing note **dropped**; the deep-page O(N·D) descent (the repeated full-subtree `min_size` at `flex.rs:127`) is now owned by **5.2** (ElId-identified incremental relayout skips clean subtrees — strictly better than a per-pass cache), so 5.0's realistic acceptance is "per-pass measure dedup," not "3–10× deep." (2) The `model_layout`-side `ContentSizing` dedup (the sizing `min_size` vs the layout `content_sizing` for the same leaf — measures 30 → ~20) needs a `model_layout` signature/param change, which 5.1 reworks anyway, so it is **deferred into 5.1's kernel rework** rather than churned twice. (3) **`force_redraw` was NOT touched here** — per the sequencing note it folds into 5.0b/5.1's off-graph dirty set; that remains open.
 - [ ] **5.0b Singleton de-greed (absorbed from WS4.3, 2026-07-09).** Execute the demotions WS4.3 mapped (site map in the WS4 STATUS block): `renderer` → `Rc<RefCell>` (its own `ui.rs` TODO), `dev_tools` → `Rc<RefCell>` (simulator-gated), `page_style` → `MaybeSignal` (never written), `fonts` → plain data + an explicit "fonts changed → relayout" call, `force_redraw` → imperative flag through the existing `force` path (removes the page-wide per-part fan-out edge). `fonts`/`force_redraw`/`page_style` thread the `Copy` `RenderShared` and entangle with the `LayoutModel` memo — do them **with** the 5.1 off-graph rework; `renderer`/`dev_tools` are independent `Signal→Rc<RefCell>` swaps in the render poll closure. `viewport` stays inert. Re-baseline the 0.4 node counts (ui_labels signal counts drop) in the same commit.
-- [ ] **5.1 Layout off-graph:** `Layout` → shared `LayoutData` handle outside the graph + binding-effects + page dirty set; node identity = `ElId` recorded at build (also makes the arena↔layout `zip_eq` invariant explicit); `transparent_layout` maps to parent. Consumes WS4.0's Layout analysis (`Widget::layout` returning `&Layout`, `Clone`/`Copy` removal from `Layout` for mutation safety).
-- [ ] **5.2 Retained tree + boundary stop rule:** per-node `(last_inputs, outer_size, min_size, flags)` ≤ 64 B/node (feature-gated `incremental-layout`); skip-and-splice clean subtrees; recompute dirty via the unchanged `model_layout` kernel; stop upward when `(outer_size, min_size)` unchanged (tight limits / Fixed×Fixed / `InfiniteWindow` scrollables are natural boundaries). **Differential fuzz test**: random trees + random single mutations, incremental result `==` full recompute.
-- [ ] **5.3 Changed-set output:** relayout returns the list of nodes whose absolute rect changed (old∪new rects) — the damage channel WS6 consumes.
+- [x] **5.1 Layout off-graph:** **DONE — PRs #21/#23/#25 (branch `ws5.1-off-graph-removal`), merged → master.** Arena owns `LayoutData` by `ElId`, the retired `Layout` node type is deleted, and passes dispatch by `layout.id()` (arena↔layout positional zip gone). `Layout` → shared `LayoutData` handle outside the graph + binding-effects + page dirty set; node identity = `ElId` recorded at build (also makes the arena↔layout `zip_eq` invariant explicit); `transparent_layout` maps to parent. Consumes WS4.0's Layout analysis (`Widget::layout` returning `&Layout`, `Clone`/`Copy` removal from `Layout` for mutation safety).
+- [x] **5.2 Retained tree + boundary stop rule:** **DONE — PR #24 (branch `ws5.2-incremental-relayout`), merged → master.** Off-by-default `incremental-layout` feature; page memo splices the prev `LayoutModel` + recomputes only dirty subtrees with the `(outer_size, min_size)` stop rule; 500-seed differential fuzz (incremental == full) + a Fixed×Fixed 1-visit acceptance. per-node `(last_inputs, outer_size, min_size, flags)` ≤ 64 B/node (feature-gated `incremental-layout`); skip-and-splice clean subtrees; recompute dirty via the unchanged `model_layout` kernel; stop upward when `(outer_size, min_size)` unchanged (tight limits / Fixed×Fixed / `InfiniteWindow` scrollables are natural boundaries). **Differential fuzz test**: random trees + random single mutations, incremental result `==` full recompute.
+- [x] **5.3 Changed-set output:** **DONE — PR #26 (branch `ws5.3-changed-set`), merged → master 28ec8b8.** `Rect::union` (rsact-render) + `layout_changed_set(prev, new) -> Vec<Rect>` (feature-gated); geometry channel only (same-size content change moves nothing → repaints via its render probe); 500-seed brute-force fuzz cross-check. relayout returns the list of nodes whose absolute rect changed (old∪new rects) — the damage channel WS6 consumes.
 - [ ] **5.x Inherited from WS1.3b (deferred hand-off):** the "self-sufficient pull" hardening (commit path enqueues effects via `mark_node`) was implemented and **reverted** in WS1 — it doubled effect-rerun allocations because the write-time push already queues everything (see WS1's execution notes). WS5 owns the lazier marking that breaks that invariant, so WS5 must (re)introduce pull-side effect enqueueing **together with** its dirty-set marking, without the redundant re-enqueue cost — and re-run `benches/allocations.rs` as the gate.
 - [ ] **5.4 Persistent text-measure cache (A7, after 5.0's per-pass reuse):** small feature-gated cache _across_ passes, strict RAM budget (e.g. 16 entries, fixed-size, no text storage). Key design decided in-session with a bench: 64-bit hash of (font id, text, width constraint) — collision ⇒ silently wrong size, astronomically unlikely but deterministic-per-build, so either document it or exact-compare texts ≤ N bytes inline. Invalidated by 4.3's explicit "fonts changed" call. Guard: hash cost must stay well below measure cost (add to the 0.3 snapshot).
 
@@ -1127,6 +1127,74 @@ still work after the Pages source switch) → 19.3 metrics section → 19.4 cont
 mark WS17-dependent claims as placeholders. Amend WS11.9's item text (mdBook → site
 docs section) when done. Node stays inside site/; do not add Node steps to ci.yml —
 site.yml owns the web build. Mark items done with commit hashes.
+```
+
+---
+
+### WS20 — Reactive node storage: fold the edge maps into the node (AoS)
+
+**Sessions:** 1–2 · **Risk:** medium (touches every graph-walk hot path) · **Directions:** D1 reactive core + D6 footprint · **Depends on:** **WS5 — do after** (WS5 changes how many nodes/edges exist and how layout subscribes; folding the edge maps _before_ WS5's off-graph rework lands means doing it twice) · **Relates to:** WS9b (engine surgery — coordinate so the read path is not churned twice, Decision 2) · **Feeds:** **WS18** (co-locating edges on the node is the shape WS18.2's heapless per-node edge lists want — `FixedStorage` becomes `[Node; N]` with no parallel `SecondaryMap`s).
+
+**Origin:** maintainer question, 2026-07-29 (session on `runtime.rs`/`storage.rs`). "What if `subscribers`/`sources`/`owned` were stored directly inside `Value`, avoiding sparse `SecondaryMap` usage — better for runtime and memory, and is it even possible given overlapping borrows?" Analysis below.
+
+Why: today the graph is **struct-of-arrays** — `Storage.values: RefCell<SlotMap<ValueId, Value>>` plus three parallel `RefCell<SecondaryMap<ValueId, IdVec>>` (`subscribers`/`sources`/`owned` in `runtime.rs`). Each `SecondaryMap` is a dense `Vec` sized to the high-water-mark index, so every live node costs an `IdVec` slot **in all three** whether or not it has edges, plus a redundant per-map version word. Graph traversal is the hot path and it touches several fields of _one_ node together (read a node's subscriber list, flip a neighbour's state) — the textbook case where **array-of-structs** (edges on the node) wins on cache locality. The prize is a constant-factor-per-node reduction (≈15–25% of graph bookkeeping + better locality), **not** a change to the O(N) shape — N itself is WS5's lever; WS20 shrinks the cost of the nodes that remain. That is _why it is sequenced after WS5, not before_.
+
+**Why the naive field-move is impossible (borrow-liveness).** The split of `values` / `subscribers` / `sources` into _distinct_ `RefCell`s is load-bearing: a graph walk holds a shared borrow of one edge map while mutating `values` (node state) or another node's edge set. Collapse them into one `RefCell<SlotMap<Value>>` and four hot sites become `borrow`-vs-`borrow_mut` panics:
+
+- `update` commit path (`runtime.rs:1073`) — holds `subscribers.borrow()` for `id`, calls `storage.mark(*sub, Dirty)` (`values.borrow_mut()`) per subscriber.
+- `mark_check_closure` (`runtime.rs:1169`) — holds `subscribers.borrow()` for the **whole** transitive walk while marking each node (the comment at `runtime.rs:1167` documents the invariant it depends on).
+- `clear_sources` (`runtime.rs:1434`) / `dispose` (`runtime.rs:775`) — read one node's list while `get_mut`-ing every neighbour's list (cross-node `get_mut` on one `SlotMap` — not safely expressible).
+
+**Design that works (a lock-granularity change, not just a layout change):**
+
+```rust
+pub struct Value {
+    pub value: Rc<RefCell<dyn Any>>,
+    pub kind: ValueKind,
+    state:  Cell<ValueState>,     // Copy → mutate through &Value (no borrow_mut)
+    height: Cell<u32>,            // Copy → mutate through &Value
+    subscribers: RefCell<IdVec>,  // per-NODE lock, not one lock over all nodes
+    sources:     RefCell<IdVec>,
+    owned:       RefCell<IdVec>,
+}
+```
+
+- `state`/`height` are `Copy`, so `Cell::set` mutates through `&Value` — `mark_check_closure` runs the whole walk under a single `values.borrow()` and flips `child.state.set(Dirty)` with no contention.
+- Edges become **per-node** `RefCell<IdVec>`, so the cross-node ops read `id.sources.borrow()` while doing `source.subscribers.borrow_mut()` — different `RefCell`s (self-subscription is already rejected at `runtime.rs:882`, so `id ≠ source`).
+- Net: `SlotMap::borrow_mut` shrinks to **only** `add_value` and `dispose`'s final `remove` — a _stronger_ invariant than today's many `borrow_mut` windows.
+
+Stages:
+
+- [ ] **20.1 `owned` first (lowest risk):** `owned` is mostly single-node access (`runtime.rs:1463`, `:544`) — migrate it into `Value` as a proof the AoS + per-node-`RefCell` scheme compiles and holds the single-shared-borrow invariant, before touching the coupled pair.
+- [ ] **20.2 `state`/`height` → `Cell`:** convert the two `Copy` scalars; rewrite `storage.mark`/`set_height` to take `&Value` + `Cell::set`; confirm `values.borrow_mut()` disappears from every walk.
+- [ ] **20.3 `subscribers`/`sources` → per-node `RefCell<IdVec>` in `Value`:** migrate the coupled pair together; rewrite `update`/`mark_check_closure`/`clear_sources`/`dispose`/`subscribe`/`update_height`; delete the three `SecondaryMap`s from `Runtime`.
+- [ ] **20.4 Cold-path clone audit:** `Storage::get` (`storage.rs:457`) now clones three `IdVec`s — confirm no _hot_ caller regressed (hot paths already use `state_of`/`kind_of`/`value_rc`/`get_height`, which are unaffected).
+
+**Design sketch (borrow flow, after):**
+
+```text
+mark_check_closure:  values.borrow()  held for the whole walk
+                       read  node.subscribers.borrow()        (per-node shared)
+                       write child.state.set(Dirty)           (Cell, through &Value)
+clear_sources:       values.borrow()  throughout
+                       read  id.sources.borrow()
+                       write source.subscribers.borrow_mut()  (id ≠ source → distinct cells)
+add_value / dispose: the ONLY values.borrow_mut() sites (structural insert/remove)
+```
+
+Acceptance: `benches/allocations.rs` shows **no** alloc-count/bytes regression (the gate — the harness resolves single allocations, cf. the `2/112 → 4/224 B` note at `runtime.rs:1081`) and `benches/reactivity` shows a traversal win from locality; `SlotMap::borrow_mut` appears only in `add_value`/`dispose`; **no** per-visit heap allocation is introduced (i.e. no neighbour-list snapshotting — that "solution" would trade the locality win for allocations and is explicitly rejected); full reactive + UI suites green (serial, per CLAUDE.md).
+
+**Session prompt:**
+
+```text
+Read docs/plans/2026-07-05-rsact-evolution-roadmap.md — WS20. VERIFY WS5 landed first
+(this is a "do after WS5" item — re-baseline against WS5's post-off-graph node/edge counts;
+WS5's layout bindings changed how subscribe/sources are populated). Do NOT do a naive
+field-move: state/height become Cell, subscribers/sources/owned become per-node
+RefCell<IdVec>, so the SlotMap only needs borrow_mut at insert/remove. Land 20.1 (owned)
+as a standalone proof, then 20.2, then the coupled 20.3. Gate every stage on
+benches/allocations.rs (no regression) + benches/reactivity. Coordinate with WS9b
+(Decision 2) so the read path is not churned twice.
 ```
 
 ---
