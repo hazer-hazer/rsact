@@ -547,6 +547,26 @@ fn render_subtree_body<W: WidgetCtx>(
         None => return Ok(()),
     }
 
+    // WS6.1: a TRANSPARENT widget (no-op render — Flex / most containers) that
+    // is a targeted repaint root (`LayoutChange`, from `layout_repaint_roots`)
+    // never called `render_part`, so it neither cleared its area nor recorded
+    // damage — yet it IS the stable ancestor whose clear must erase its moved
+    // children's OLD positions. Do both here, then propagate `parent_dirty` so
+    // the subtree redraws over the cleared area. A widget that actually drew
+    // (`dirten`) already handled this in `render_part`, so skip it — no double
+    // clear. Scoped to `LayoutChange` (only set under `incremental-layout`), so
+    // the default blanket path is unaffected.
+    if !dirten
+        && !frame.parent_dirty
+        && matches!(needs_redraw, Some(RedrawReason::LayoutChange))
+    {
+        if let Some(bg) = shared.page_style.with(|s| s.background_color) {
+            renderer.fill_solid(layout.outer, bg)?;
+        }
+        shared.damage.borrow_mut().push(layout.outer);
+        dirten = true;
+    }
+
     let children_frame = RenderFrame {
         parent_dirty: dirten || frame.parent_dirty,
         nesting_level: frame.nesting_level + 1,

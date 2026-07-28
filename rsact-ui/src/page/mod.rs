@@ -178,6 +178,14 @@ impl<W: WidgetCtx> Page<W> {
             relayout.track();
 
             let viewport = viewport.with(|v| *v);
+
+            // WS6.1: set true by the incremental path below when it does a
+            // TARGETED repaint (marked specific stable ancestors), so the
+            // blanket `force_redraw`/`full_flush` is skipped. Only exists under
+            // the feature — the default path is always blanket (see `blanket`).
+            #[cfg(feature = "incremental-layout")]
+            let mut targeted = false;
+
             // `fonts.with` tracks the font context (a change ⇒ whole-tree
             // relayout — fonts feed every text node's measure).
             let layout = fonts.with(|fonts| {
@@ -209,13 +217,33 @@ impl<W: WidgetCtx> Page<W> {
                         && !_dirty.is_empty()
                         && !_dirty.is_full()
                     {
-                        return crate::layout::model::relayout_incremental(
+                        let new = crate::layout::model::relayout_incremental(
                             prev,
                             _dirty.nodes(),
                             fonts,
                             viewport,
                             arena,
                         );
+
+                        // WS6.1: TARGETED invalidation. Instead of the blanket
+                        // `force_redraw`/`full_flush` below, repaint only the
+                        // nearest size-stable ancestor of each moved node (its
+                        // clear covers the old + new child positions — no
+                        // ghosting). Those ancestors' `outer` rects become the
+                        // damage the render pass records + flushes (WS6.2). If a
+                        // change reached the ROOT (`full`), no stable ancestor
+                        // exists ⇒ fall through to the blanket path.
+                        let roots = crate::layout::model::layout_repaint_roots(
+                            prev, &new,
+                        );
+                        if !roots.full {
+                            for id in roots.roots {
+                                arena.mark_needs_redraw(id);
+                            }
+                            targeted = true;
+                        }
+
+                        return new;
                     }
 
                     model_layout(
@@ -228,16 +256,24 @@ impl<W: WidgetCtx> Page<W> {
                 })
             });
 
-            // TODO: Do we need full page redraw on layout change?
-            // [ ] No, we need smart bottom-up propagation to the nearest fixed
-            // parent layout.
-            force_redraw.set(true);
-            // WS6.2: the memo re-ran ⇒ layout changed (or first build) ⇒ the
-            // whole viewport must flush this frame (the page background outside
-            // widgets is not painted per-frame). `set_untracked` so this write
-            // never notifies (no subscribers anyway). WS6.1 will replace both
-            // this and `force_redraw` with targeted, changed-set-driven damage.
-            full_flush.set_untracked(true);
+            // Blanket full repaint + whole-viewport flush, UNLESS the
+            // incremental path already did a targeted repaint above (WS6.1). The
+            // default (non-incremental) build has no targeted path, so it is
+            // always blanket — the historical behaviour.
+            #[cfg(feature = "incremental-layout")]
+            let blanket = !targeted;
+            #[cfg(not(feature = "incremental-layout"))]
+            let blanket = true;
+
+            if blanket {
+                // force_redraw re-runs every part's probe; full_flush (WS6.2, a
+                // NON-reactive flag — see its doc) flushes the whole viewport,
+                // since the page background outside widgets is not painted
+                // per-frame. Used for first build, fonts/viewport change,
+                // structure change, and any relayout that reached the root.
+                force_redraw.set(true);
+                full_flush.set_untracked(true);
+            }
 
             debug!("{}", PPLayoutModel::root(&layout));
 
@@ -2225,6 +2261,57 @@ mod tests {
                 assert_eq!(d.len(), 1);
                 assert_eq!(d[0], full, "force_redraw must flush the viewport");
             }
+        });
+    }
+
+    /// WS6.1 (end-to-end): a TARGETED (incremental) layout change repaints only
+    /// the nearest size-stable ancestor, so the damage is that ancestor's rect —
+    /// NOT the whole viewport. This proves the blanket `force_redraw`/`full_flush`
+    /// is skipped for incremental relayouts (a child resizes inside a fixed
+    /// parent; the parent is the repaint root). Only meaningful under the feature
+    /// (the default build has no targeted path — every layout change is blanket).
+    #[cfg(feature = "incremental-layout")]
+    #[test]
+    fn incremental_layout_change_damages_only_the_stable_parent() {
+        use crate::widget::{SizedWidget, flex::Flex};
+        use rsact_reactive::runtime::with_new_runtime;
+
+        with_new_runtime(|_| {
+            let viewport = Size::new_equal(64);
+            let mut height = create_signal(10u32);
+            // A FIXED 40x40 parent (stays stable when the child grows) holding a
+            // child whose height is a reactive signal.
+            let child = Flex::<NullWtf>::col(["x"]).width(10u32).height(height);
+            let root = Flex::col([child]).width(40u32).height(40u32);
+            let mut page = create_null_page_sized(viewport, root);
+
+            // Settle (the first frame is a full invalidate).
+            for _ in 0..4 {
+                page.use_renderer(|_| {});
+            }
+
+            // Grow the child: an incremental relayout (child resizes inside the
+            // fixed parent → the parent is the stable repaint root).
+            height.set(20);
+            page.use_renderer(|_| {});
+
+            let damage = page.damage.borrow();
+            assert_eq!(
+                damage.len(),
+                1,
+                "one repaint root (the stable 40x40 parent), got {damage:?}"
+            );
+            // The 40x40 fixed parent — NOT the 64x64 viewport.
+            assert_eq!(
+                damage[0].size,
+                Size::new_equal(40),
+                "damage {:?} must be the stable parent, not the viewport",
+                damage[0]
+            );
+            assert!(
+                damage[0].size.width < viewport.width,
+                "targeted damage must be strictly smaller than the viewport"
+            );
         });
     }
 
