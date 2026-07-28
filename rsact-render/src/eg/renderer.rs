@@ -215,6 +215,23 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> EGRenderer<C, AA> {
             .for_each(|(_, layer)| layer.canvas.output(target))
     }
 
+    /// WS6.3: flush only `regions` (each clamped to the viewport) across all
+    /// layers. Layer order is preserved (a region is streamed layer-by-layer,
+    /// same as the full flush), so overlapping upper layers still land last.
+    fn renderer_output_regions<TC>(
+        &self,
+        target: &mut impl RenderTarget<Color = TC>,
+        regions: &[Rect],
+    ) where
+        C: MapColor<TC>,
+    {
+        self.layers.iter().for_each(|(_, layer)| {
+            for &region in regions {
+                layer.canvas.output_region(target, region)
+            }
+        })
+    }
+
     fn renderer_clipped(
         &mut self,
         area: Rect,
@@ -285,6 +302,14 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> FinishRender<C>
 {
     fn finish_frame(&mut self, target: &mut impl RenderTarget<Color = C>) {
         self.renderer_output(target);
+    }
+
+    fn finish_frame_regions(
+        &mut self,
+        target: &mut impl RenderTarget<Color = C>,
+        regions: &[Rect],
+    ) {
+        self.renderer_output_regions(target, regions);
     }
 }
 

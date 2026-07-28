@@ -12,7 +12,8 @@ use crate::{
         Style, StylePseudoClass, StyleSelector, TreeStyle, stylist::Stylist,
     },
 };
-use core::marker::PhantomData;
+use alloc::vec::Vec;
+use core::{cell::RefCell, marker::PhantomData};
 use log::debug;
 use rsact_reactive::{prelude::*, signal::marker::ReadOnly};
 use tinyvec::TinyVec;
@@ -32,6 +33,12 @@ pub struct RenderShared<'a, W: WidgetCtx> {
     pub stylist: &'a W::Stylist,
     /// Page-level flag that triggers a full redraw (e.g. after layout change).
     pub force_redraw: Signal<bool>,
+    /// WS6.2: the page's damage accumulator. `render_part` pushes the absolute
+    /// outer rect of each **redraw root** (a part that repainted without a
+    /// parent already clearing its area) here; the page flushes only these rects
+    /// via `finish_frame_regions`. A shared `&RefCell` so it rides `Copy`
+    /// `RenderShared` and every sibling in the walk appends to the one list.
+    pub damage: &'a RefCell<Vec<Rect>>,
 }
 
 impl<'a, W: WidgetCtx> Clone for RenderShared<'a, W> {
@@ -248,6 +255,14 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
         // dependency changed in the probe.
         let redraw = self.frame.parent_dirty || self.needs_redraw.is_some();
 
+        // WS6.2: is this part the *root* of a repainted region? It is if no
+        // parent already cleared its area (`!parent_dirty`) — then its own
+        // `clear_outer` runs and it + its subtree repaint into `layout.outer`,
+        // making that rect the exact damage. A part that repaints only because
+        // its parent did (`parent_dirty`) is already inside the parent's damage
+        // rect, so recording it would just add a redundant sub-rect.
+        let is_redraw_root = !self.frame.parent_dirty;
+
         // Look up (or lazily create) this element's probe for `hash_source`.
         // Linear scan with CONTENT comparison: `&'static str` pointer identity
         // is not guaranteed equal across codegen units, so keys must be
@@ -325,6 +340,14 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
         });
 
         if result.is_some() {
+            // Record the damage rect for the flush (WS6.2) — but only for a
+            // redraw root, whose `outer` covers everything that repainted below
+            // it. `outer` is absolute (the `LayoutModelNode` walk accumulated
+            // parent offsets), which is exactly what `finish_frame_regions`
+            // wants.
+            if is_redraw_root {
+                self.shared.damage.borrow_mut().push(self.layout.outer);
+            }
             self.frame.parent_dirty = true;
             *self.dirten = true;
         }
