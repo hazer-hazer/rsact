@@ -149,9 +149,27 @@ pub trait Framebuf<C: Color + PackedColor> {
         T: RenderTarget,
         C: MapColor<T::Color>,
     {
-        // TODO: Is this optimal?
-        let pixels = self
-            .viewport()
+        // The whole-frame flush is just the region flush over the full viewport
+        // — one code path (WS6.3).
+        self.output_region(target, self.viewport());
+    }
+
+    /// WS6.3: stream only the pixels inside `region` (clamped to the viewport)
+    /// to `target`, instead of the whole framebuffer. This is the per-pixel
+    /// replacement the damage-driven flush needs — a one-label change flushes a
+    /// handful of rows, not the full screen.
+    ///
+    /// TODO (6.3b): still pixel-at-a-time. `PackedFramebuf` implements only
+    /// `draw_iter`, so this fans out to one `set_pixel` per point on the target.
+    /// A `fill_contiguous`/row-run path (whole-byte writes for mono, `slice::fill`
+    /// for RGB) is the render-side win, distinct from this flush-side scoping.
+    fn output_region<T>(&self, target: &mut T, region: Rect)
+    where
+        T: RenderTarget,
+        C: MapColor<T::Color>,
+    {
+        let region = region.intersection(&self.viewport());
+        let pixels = region
             .points()
             .map(|point| {
                 self.pixel(point)
@@ -315,11 +333,28 @@ impl<C: Color + PackedColor> PackedFramebuf<C> {
 #[cfg(test)]
 mod tests {
     use super::{Framebuf, PackedFramebuf};
-    use crate::geometry::{Point, Size};
+    use crate::{
+        geometry::{Point, Rect, Size},
+        output::{RenderTarget, pixel::Pixel},
+    };
+    use alloc::vec::Vec;
     use embedded_graphics::{
         pixelcolor::{BinaryColor, Rgb888},
         prelude::RgbColor,
     };
+
+    /// A [`RenderTarget`] that records the points it was asked to draw — lets a
+    /// test assert *which* pixels a flush streamed (WS6.3 region flush).
+    struct RecordTarget {
+        points: Vec<Point>,
+    }
+
+    impl RenderTarget for RecordTarget {
+        type Color = Rgb888;
+        fn draw(&mut self, pixels: impl Iterator<Item = Pixel<Self::Color>>) {
+            self.points.extend(pixels.map(|p| p.0));
+        }
+    }
 
     #[test]
     fn rgb_framebuf_indexing() {
@@ -370,5 +405,64 @@ mod tests {
                 framebuf.set_pixel(Point::new(x, y), BinaryColor::On);
             }
         }
+    }
+
+    /// WS6.3: `output_region` streams exactly the region's pixels (in draw
+    /// order), NOT the whole framebuffer — the flush-side scoping the damage
+    /// pipeline needs.
+    #[test]
+    fn output_region_streams_only_the_region() {
+        const W: u32 = 20;
+        const H: u32 = 16;
+        let framebuf = PackedFramebuf::new(Size::new(W, H), Rgb888::BLACK);
+
+        let region = Rect::new(Point::new(5, 4), Size::new(6, 3));
+        let mut target = RecordTarget { points: Vec::new() };
+        framebuf.output_region(&mut target, region);
+
+        // Exactly the region's points, in the same order.
+        let expected: Vec<Point> = region.points().collect();
+        assert_eq!(target.points, expected);
+        assert_eq!(target.points.len(), (6 * 3) as usize);
+        // Emphatically not the whole 20x16 framebuffer.
+        assert!(target.points.len() < (W * H) as usize);
+    }
+
+    /// A region reaching past the framebuffer edge is clamped to the viewport —
+    /// no out-of-bounds points are streamed (and, with indexed backends, none
+    /// would index out of the buffer).
+    #[test]
+    fn output_region_clamps_to_viewport() {
+        const W: u32 = 10;
+        const H: u32 = 10;
+        let framebuf = PackedFramebuf::new(Size::new(W, H), Rgb888::BLACK);
+
+        // Overlaps the bottom-right corner and extends beyond → clamps to the
+        // 2x2 square at (8,8).
+        let region = Rect::new(Point::new(8, 8), Size::new(5, 5));
+        let mut target = RecordTarget { points: Vec::new() };
+        framebuf.output_region(&mut target, region);
+
+        let expected: Vec<Point> = Rect::new(Point::new(8, 8), Size::new(2, 2))
+            .points()
+            .collect();
+        assert_eq!(target.points, expected);
+    }
+
+    /// The whole-frame `output` is the region flush over the full viewport, so
+    /// it streams every pixel — the region path did not change full-flush
+    /// behaviour.
+    #[test]
+    fn output_covers_the_whole_framebuffer() {
+        const W: u32 = 8;
+        const H: u32 = 6;
+        let framebuf = PackedFramebuf::new(Size::new(W, H), Rgb888::BLACK);
+
+        let mut target = RecordTarget { points: Vec::new() };
+        framebuf.output(&mut target);
+
+        assert_eq!(target.points.len(), (W * H) as usize);
+        let expected: Vec<Point> = framebuf.viewport().points().collect();
+        assert_eq!(target.points, expected);
     }
 }

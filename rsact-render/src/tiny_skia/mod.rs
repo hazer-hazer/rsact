@@ -107,6 +107,20 @@ where
     PremultipliedColorU8: MapColor<C>,
 {
     fn finish_frame(&mut self, target: &mut impl RenderTarget<Color = C>) {
+        // Whole-frame flush = region flush over the full viewport (WS6.3).
+        let full = Rect::new(Point::zero(), self.size);
+        self.finish_frame_regions(target, &[full]);
+    }
+
+    fn finish_frame_regions(
+        &mut self,
+        target: &mut impl RenderTarget<Color = C>,
+        regions: &[Rect],
+    ) {
+        // Composite the layer stack once into the base pixmap, then stream only
+        // the requested regions. Unlike the whole-frame path (which zipped the
+        // full point sequence with the full colour buffer), a sub-rect must
+        // INDEX the composited buffer per point — `y * width + x`.
         let result = self
             .layers
             .layers_mut()
@@ -125,19 +139,18 @@ where
             })
             .unwrap();
 
+        let width = result.width();
+        let bounds =
+            Rect::new(Point::zero(), Size::new(width, result.height()));
         let colors = result.pixels();
-        let points = Rect::new(
-            Point::zero(),
-            Size::new(result.width(), result.height()),
-        )
-        .points();
 
-        target.draw(
-            points
-                .into_iter()
-                .zip(colors.into_iter())
-                .map(|(point, color)| Pixel(point, color.map_color())),
-        );
+        for region in regions {
+            let region = region.intersection(&bounds);
+            target.draw(region.points().map(|point| {
+                let idx = point.y as usize * width as usize + point.x as usize;
+                Pixel(point, colors[idx].map_color())
+            }));
+        }
     }
 }
 
