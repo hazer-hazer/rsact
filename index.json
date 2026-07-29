@@ -1,8 +1,8 @@
 {
-  "4b3e716793558bff38ce868aeab6e21ded43d0e6": {
-    "date": 1785277686,
+  "ad361fd17ec331e62bed0ce7a9a81f1e3e32e76d": {
+    "date": 1785319113,
     "parent": "",
-    "branch": "ws6.1-targeted-invalidation",
-    "subject": "Roadmap: 6.1 PR number (#29)"
+    "branch": "master",
+    "subject": "Roadmap: add WS20 (node-storage AoS) + tick merged WS5.1/5.2/5.3"
   }
 }
