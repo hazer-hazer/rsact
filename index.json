@@ -1,8 +1,8 @@
 {
-  "ad361fd17ec331e62bed0ce7a9a81f1e3e32e76d": {
-    "date": 1785319113,
+  "8e024a0f316f473019e11cedf8eb1d45ee2f241b": {
+    "date": 1785409060,
     "parent": "",
     "branch": "master",
-    "subject": "Roadmap: add WS20 (node-storage AoS) + tick merged WS5.1/5.2/5.3"
+    "subject": "Merge pull request #29 from hazer-hazer/ws6.1-targeted-invalidation"
   }
 }
