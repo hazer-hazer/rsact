@@ -160,6 +160,18 @@ impl<W: WidgetCtx> ElArena<W> {
         self.dirty.mark_full();
     }
 
+    /// WS6.1: mark `id` for a targeted repaint (a `LayoutChange` redraw). Called
+    /// on the stable-ancestor repaint roots a targeted relayout produced
+    /// (`layout::model::layout_repaint_roots`), instead of the blanket
+    /// `force_redraw`. No-op if `id` left the tree.
+    #[cfg(feature = "incremental-layout")]
+    pub fn mark_needs_redraw(&mut self, id: ElId) {
+        if let Some(data) = self.expect_mut(id) {
+            data.state
+                .set_needs_redraw(crate::el::RedrawReason::LayoutChange);
+        }
+    }
+
     /// Whether any layout is dirty — the WS5.1 relayout gate.
     pub fn is_layout_dirty(&self) -> bool {
         !self.dirty.is_empty()

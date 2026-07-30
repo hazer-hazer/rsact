@@ -748,6 +748,103 @@ fn diff_changed(
     }
 }
 
+/// WS6.1: the **repaint roots** a targeted relayout must redraw to realize `new`
+/// from `prev` without ghosting — the render/invalidation counterpart of
+/// [`layout_changed_set`]'s flush rects.
+///
+/// When a node *moves* (its absolute rect changes), repainting it at its new
+/// position leaves a stale copy at the old one. The fix is to repaint the
+/// **nearest size-stable ancestor** of each moved node: its own rect is
+/// unchanged and its inner area contains *both* the old and new child positions,
+/// so re-clearing + redrawing it erases the ghost and paints the new layout in
+/// one bounded op. That ancestor is the parent of the *top* of each changed
+/// subtree (the shallowest node whose absolute rect changed — its parent's did
+/// not). The whole changed subtree below it is covered by the ancestor's
+/// repaint, so we do not descend into it.
+///
+/// `full` is set when the ROOT itself changed: no stable ancestor exists, so the
+/// caller must fall back to a whole-viewport repaint.
+#[cfg(feature = "incremental-layout")]
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct RepaintRoots {
+    pub roots: Vec<ElId>,
+    pub full: bool,
+}
+
+#[cfg(feature = "incremental-layout")]
+impl RepaintRoots {
+    fn mark(&mut self, id: ElId) {
+        if !self.roots.contains(&id) {
+            self.roots.push(id);
+        }
+    }
+}
+
+/// See [`RepaintRoots`]. Pure function of `(prev, new)`; matches nodes by `ElId`
+/// (incremental relayout never changes structure).
+#[cfg(feature = "incremental-layout")]
+pub fn layout_repaint_roots(
+    prev: &LayoutModel,
+    new: &LayoutModel,
+) -> RepaintRoots {
+    let mut out = RepaintRoots::default();
+    diff_repaint_roots(prev, Point::zero(), new, Point::zero(), None, &mut out);
+    out
+}
+
+/// Recurse `prev`/`new` in lockstep (mirrors [`diff_changed`]), carrying the
+/// current node's *parent* id. A node whose absolute rect changed is the top of
+/// a changed subtree (its parent recursed here only because the parent was
+/// stable): mark the parent as the repaint root and stop — the parent's repaint
+/// covers the entire subtree. A stable node recurses into its children.
+#[cfg(feature = "incremental-layout")]
+fn diff_repaint_roots(
+    prev: &LayoutModel,
+    prev_off: Point,
+    new: &LayoutModel,
+    new_off: Point,
+    parent_id: Option<ElId>,
+    out: &mut RepaintRoots,
+) {
+    let prev_abs = prev.outer.translate(prev_off);
+    let new_abs = new.outer.translate(new_off);
+    if prev_abs != new_abs {
+        match parent_id {
+            // The parent is stable and contains both old and new positions.
+            Some(pid) => out.mark(pid),
+            // The root moved/resized — no stable ancestor, repaint everything.
+            None => out.full = true,
+        }
+        return;
+    }
+
+    // Stable node: its children are placed against its absolute inner origin.
+    let prev_child_off = prev.inner.translate(prev_off).top_left;
+    let new_child_off = new.inner.translate(new_off).top_left;
+    for new_child in &new.children {
+        match prev.children.iter().find(|c| c.id == new_child.id) {
+            Some(prev_child) => diff_repaint_roots(
+                prev_child,
+                prev_child_off,
+                new_child,
+                new_child_off,
+                Some(new.id),
+                out,
+            ),
+            // Appeared child (structure change — defensive; incremental relayout
+            // falls back to full for those): repaint this stable parent so the
+            // new subtree is drawn.
+            None => out.mark(new.id),
+        }
+    }
+    // Disappeared child: repaint this parent to clear where it was.
+    for prev_child in &prev.children {
+        if !new.children.iter().any(|c| c.id == prev_child.id) {
+            out.mark(new.id);
+        }
+    }
+}
+
 #[cfg(all(test, feature = "incremental-layout"))]
 mod incremental_fuzz {
     use super::{LayoutModel, model_layout, relayout_incremental};
@@ -1021,10 +1118,20 @@ mod incremental_fuzz {
         let mut next = 1u64;
         let mut leaves = Vec::new();
         let root = build(&mut rng, &mut tree, &mut next, 4, &mut leaves);
-        let a =
-            model_layout(&ctx, &tree, root, Limits::only_max(viewport), viewport.into());
-        let b =
-            model_layout(&ctx, &tree, root, Limits::only_max(viewport), viewport.into());
+        let a = model_layout(
+            &ctx,
+            &tree,
+            root,
+            Limits::only_max(viewport),
+            viewport.into(),
+        );
+        let b = model_layout(
+            &ctx,
+            &tree,
+            root,
+            Limits::only_max(viewport),
+            viewport.into(),
+        );
         assert!(
             layout_changed_set(&a, &b).is_empty(),
             "no mutation ⇒ no geometry damage"
@@ -1059,12 +1166,22 @@ mod incremental_fuzz {
         );
         tree.children.insert(root, vec![a, b]);
 
-        let prev =
-            model_layout(&ctx, &tree, root, Limits::only_max(viewport), viewport.into());
+        let prev = model_layout(
+            &ctx,
+            &tree,
+            root,
+            Limits::only_max(viewport),
+            viewport.into(),
+        );
         // Grow leaf `a` taller: it resizes and pushes `b` down.
         tree.layouts[a] = LayoutData::edge(LengthSize::fixed_length(10, 30));
-        let new =
-            model_layout(&ctx, &tree, root, Limits::only_max(viewport), viewport.into());
+        let new = model_layout(
+            &ctx,
+            &tree,
+            root,
+            Limits::only_max(viewport),
+            viewport.into(),
+        );
 
         let damage = layout_changed_set(&prev, &new);
         assert!(
@@ -1154,6 +1271,251 @@ mod incremental_fuzz {
                 got, expected,
                 "seed {seed}: changed-set != brute-force diff (target {target:?})"
             );
+        }
+    }
+
+    /// WS6.1: identical relayouts have no repaint roots and are not full.
+    #[test]
+    fn repaint_roots_empty_when_unchanged() {
+        use super::layout_repaint_roots;
+        let fonts = FontCtx::new();
+        let viewport = Size::new(200, 200);
+        let ctx = LayoutCtx {
+            fonts: &fonts,
+            viewport,
+            font_props: FontProps::default(),
+        };
+        let mut rng = Rng(999);
+        let mut tree = TestTree::new();
+        let mut next = 1u64;
+        let mut leaves = Vec::new();
+        let root = build(&mut rng, &mut tree, &mut next, 4, &mut leaves);
+        let a = model_layout(
+            &ctx,
+            &tree,
+            root,
+            Limits::only_max(viewport),
+            viewport.into(),
+        );
+        let b = model_layout(
+            &ctx,
+            &tree,
+            root,
+            Limits::only_max(viewport),
+            viewport.into(),
+        );
+        assert_eq!(layout_repaint_roots(&a, &b), Default::default());
+    }
+
+    /// WS6.1: a leaf moving inside a FIXED-size parent marks that parent (its
+    /// rect is stable, so it is the repaint root), NOT the moved leaves — one
+    /// clear of the parent erases the old positions and redraws the new ones.
+    #[test]
+    fn repaint_roots_marks_stable_parent_when_leaf_moves() {
+        use super::layout_repaint_roots;
+        use alloc::vec;
+        let fonts = FontCtx::new();
+        let viewport = Size::new(200, 200);
+        let ctx = LayoutCtx {
+            fonts: &fonts,
+            viewport,
+            font_props: FontProps::default(),
+        };
+        let (root, a, b) = (el_id(1), el_id(2), el_id(3));
+        let mut tree = TestTree::new();
+        tree.layouts
+            .insert(a, LayoutData::edge(LengthSize::fixed_length(10, 10)));
+        tree.layouts
+            .insert(b, LayoutData::edge(LengthSize::fixed_length(10, 10)));
+        // FIXED root: it does NOT resize when a child grows, so it stays the
+        // stable ancestor (unlike the shrink root in the next test).
+        tree.layouts.insert(
+            root,
+            LayoutData::new(
+                LayoutKind::Flex(FlexLayout::base(Axis::Y)),
+                LengthSize::fixed_length(100, 100),
+            ),
+        );
+        tree.children.insert(root, vec![a, b]);
+
+        let prev = model_layout(
+            &ctx,
+            &tree,
+            root,
+            Limits::only_max(viewport),
+            viewport.into(),
+        );
+        // Grow `a`: it resizes and pushes `b` down, both inside the fixed root.
+        tree.layouts[a] = LayoutData::edge(LengthSize::fixed_length(10, 30));
+        let new = model_layout(
+            &ctx,
+            &tree,
+            root,
+            Limits::only_max(viewport),
+            viewport.into(),
+        );
+
+        let roots = layout_repaint_roots(&prev, &new);
+        assert!(!roots.full, "a fixed root does not resize ⇒ not full");
+        assert_eq!(
+            roots.roots,
+            alloc::vec![root],
+            "the stable parent is the single repaint root"
+        );
+    }
+
+    /// WS6.1: when the change resizes the ROOT (a shrink-sized root grows with
+    /// its content), there is no stable ancestor ⇒ `full` (whole-viewport
+    /// repaint fallback).
+    #[test]
+    fn repaint_roots_full_when_shrink_root_grows() {
+        use super::layout_repaint_roots;
+        use alloc::vec;
+        let fonts = FontCtx::new();
+        let viewport = Size::new(200, 200);
+        let ctx = LayoutCtx {
+            fonts: &fonts,
+            viewport,
+            font_props: FontProps::default(),
+        };
+        let (root, a) = (el_id(1), el_id(2));
+        let mut tree = TestTree::new();
+        tree.layouts
+            .insert(a, LayoutData::edge(LengthSize::fixed_length(10, 10)));
+        tree.layouts.insert(
+            root,
+            LayoutData::new(
+                LayoutKind::Flex(FlexLayout::base(Axis::Y)),
+                LengthSize::shrink(),
+            ),
+        );
+        tree.children.insert(root, vec![a]);
+
+        let prev = model_layout(
+            &ctx,
+            &tree,
+            root,
+            Limits::only_max(viewport),
+            viewport.into(),
+        );
+        tree.layouts[a] = LayoutData::edge(LengthSize::fixed_length(10, 40));
+        let new = model_layout(
+            &ctx,
+            &tree,
+            root,
+            Limits::only_max(viewport),
+            viewport.into(),
+        );
+
+        let roots = layout_repaint_roots(&prev, &new);
+        assert!(roots.full, "shrink root grew ⇒ full-viewport repaint");
+    }
+
+    /// WS6.1 correctness (no ghosting): the repaint roots' absolute outer rects
+    /// must COVER every changed node's OLD and NEW absolute rect — otherwise a
+    /// moved widget's stale pixels are never cleared. Cross-checked against the
+    /// brute-force per-node absolute-rect diff over the same 500 random trees +
+    /// single mutation as the changed-set fuzz.
+    #[test]
+    fn repaint_roots_cover_all_damage() {
+        use super::{LayoutModelNode, layout_repaint_roots};
+
+        fn flatten(node: &LayoutModelNode, out: &mut Vec<(ElId, Rect)>) {
+            out.push((node.id(), node.outer));
+            for c in node.children() {
+                flatten(&c, out);
+            }
+        }
+        // `inner ⊆ outer`, treating rects as half-open [tl, tl+size).
+        fn covers(outer: &Rect, inner: &Rect) -> bool {
+            inner.is_zero_sized()
+                || (inner.top_left.x >= outer.top_left.x
+                    && inner.top_left.y >= outer.top_left.y
+                    && inner.top_left.x + inner.size.width as i32
+                        <= outer.top_left.x + outer.size.width as i32
+                    && inner.top_left.y + inner.size.height as i32
+                        <= outer.top_left.y + outer.size.height as i32)
+        }
+
+        let fonts = FontCtx::new();
+        let viewport = Size::new(200, 200);
+        let ctx = LayoutCtx {
+            fonts: &fonts,
+            viewport,
+            font_props: FontProps::default(),
+        };
+
+        for seed in 0u64..500 {
+            let mut rng =
+                Rng(seed.wrapping_mul(0x9e3779b97f4a7c15).wrapping_add(1));
+            let mut tree = TestTree::new();
+            let mut next = 1u64;
+            let mut leaves = Vec::new();
+            let root = build(&mut rng, &mut tree, &mut next, 4, &mut leaves);
+            if leaves.is_empty() {
+                continue;
+            }
+
+            let prev = model_layout(
+                &ctx,
+                &tree,
+                root,
+                Limits::only_max(viewport),
+                viewport.into(),
+            );
+            let target = leaves[rng.range(leaves.len() as u32) as usize];
+            tree.layouts[target] = rand_edge(&mut rng);
+            let new = model_layout(
+                &ctx,
+                &tree,
+                root,
+                Limits::only_max(viewport),
+                viewport.into(),
+            );
+
+            let roots = layout_repaint_roots(&prev, &new);
+            // `full` trivially repaints everything.
+            if roots.full {
+                continue;
+            }
+
+            // Absolute rects (new frame) keyed by id, for the root lookup.
+            let mut nv = Vec::new();
+            flatten(&new.tree_root(), &mut nv);
+            let root_outers: Vec<Rect> = roots
+                .roots
+                .iter()
+                .map(|id| {
+                    nv.iter()
+                        .find(|(nid, _)| nid == id)
+                        .map(|(_, r)| *r)
+                        .expect("repaint root is a live node in `new`")
+                })
+                .collect();
+
+            // Every node whose absolute rect changed, old AND new, must be
+            // covered by some repaint root's outer.
+            let mut pv = Vec::new();
+            flatten(&prev.tree_root(), &mut pv);
+            for (id, prect) in &pv {
+                let nrect = nv
+                    .iter()
+                    .find(|(nid, _)| nid == id)
+                    .map(|(_, r)| *r)
+                    .expect("same node set");
+                if *prect == nrect {
+                    continue;
+                }
+                for rect in [prect, &nrect] {
+                    assert!(
+                        root_outers.iter().any(|o| covers(o, rect)),
+                        "seed {seed}: changed rect {rect:?} of {id:?} not \
+                         covered by any repaint root {root_outers:?} \
+                         (roots {:?}, target {target:?})",
+                        roots.roots
+                    );
+                }
+            }
         }
     }
 }

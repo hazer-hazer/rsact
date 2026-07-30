@@ -16,6 +16,10 @@ pub enum ClipPath {
 pub enum RedrawReason {
     PseudoclassChange,
     ChildDirty,
+    /// WS6.1: a targeted relayout moved this element's children, so it is the
+    /// stable ancestor whose repaint clears their old positions and draws the
+    /// new ones (see `layout::model::layout_repaint_roots`).
+    LayoutChange,
 }
 
 impl Display for RedrawReason {
@@ -23,6 +27,7 @@ impl Display for RedrawReason {
         match self {
             RedrawReason::PseudoclassChange => write!(f, "PseudoclassChange"),
             RedrawReason::ChildDirty => write!(f, "ChildDirty"),
+            RedrawReason::LayoutChange => write!(f, "LayoutChange"),
         }
     }
 }
