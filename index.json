@@ -1,8 +1,8 @@
 {
-  "b1dafa1882b6a6a0c4ca081eaa5ae6ec2866d748": {
-    "date": 1785591680,
+  "ab0ba3de15cbdef246d46d853037ee59cc63ca01": {
+    "date": 1785619762,
     "parent": "",
-    "branch": "master",
-    "subject": "Roadmap: WS6.4 reframed to damage tiles (6.4a–d) + 6.7 decided, 6.3c split out"
+    "branch": "render-a-delete-layers",
+    "subject": "render: delete the layer dimension (single surface + clip stack)"
   }
 }
