@@ -283,6 +283,35 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> DrawTarget
     {
         self.draw_pixels(pixels.into_iter().map(|p| Pixel(p.0.into(), p.1)))
     }
+
+    /// WS6.3b: route a solid rect fill to the framebuffer's fast `fill_solid`
+    /// (whole-word writes) instead of the default fan-out to per-pixel
+    /// `draw_iter`. Without this, `EGRenderer::fill_solid` → styled `Rectangle` →
+    /// this DrawTarget's default `fill_solid` → `draw_iter`, and the framebuffer
+    /// fast path is never reached. Mirrors `draw_pixels`' viewport dispatch; the
+    /// eg `clipped`/`cropped` adapters forward `fill_solid` to the canvas (with
+    /// clip / translation), so those paths stay correct and also get the speedup.
+    fn fill_solid(
+        &mut self,
+        area: &embedded_graphics::primitives::Rectangle,
+        color: Self::Color,
+    ) -> Result<(), Self::Error> {
+        let viewport = self.current_viewport();
+        let pos = self
+            .layers
+            .binary_search_by_key(&viewport.layer, |(k, _)| *k)
+            .unwrap();
+        let canvas = &mut self.layers[pos].1.canvas;
+        match viewport.kind {
+            ViewportKind::Fullscreen => canvas.fill_solid(area, color),
+            ViewportKind::Clipped(clip) => {
+                canvas.clipped(&clip.into()).fill_solid(area, color)
+            },
+            ViewportKind::Cropped(crop) => {
+                canvas.cropped(&crop.into()).fill_solid(area, color)
+            },
+        }
+    }
 }
 
 impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> Dimensions
@@ -633,5 +662,41 @@ impl<C: Color + PackedColor + PixelColor> Renderer
 
     fn image<'a>(&mut self, image: DrawImage<'a, Self::Color>) -> RenderResult {
         self.renderer_image(image)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        geometry::{Point, Rect, Size},
+        renderer::Renderer,
+    };
+    use embedded_graphics::pixelcolor::Rgb888;
+
+    /// WS6.3b: EGRenderer's fast `fill_solid` (routing to the framebuffer's
+    /// whole-word writes) must land the SAME pixels as the per-pixel path —
+    /// proving the DrawTarget override + viewport dispatch forward correctly,
+    /// not just the framebuffer method in isolation.
+    #[test]
+    fn eg_renderer_fill_solid_matches_per_pixel() {
+        let size = Size::new(20, 16);
+        let rect = Rect::new(Point::new(3, 2), Size::new(9, 7));
+        let color = Rgb888::new(10, 200, 30);
+
+        let mut fast = EGRenderer::<Rgb888, AntiAliasingDisabled>::new(size);
+        Renderer::fill_solid(&mut fast, rect, color).unwrap();
+
+        // Reference: fill the same rect one pixel at a time (the draw_iter path).
+        let mut slow = EGRenderer::<Rgb888, AntiAliasingDisabled>::new(size);
+        for p in rect.points() {
+            Renderer::pixel(&mut slow, p, color).unwrap();
+        }
+
+        fast.draw_buffer(|f| {
+            slow.draw_buffer(|s| {
+                assert_eq!(f, s, "EGRenderer fill_solid != per-pixel fill");
+            })
+        });
     }
 }

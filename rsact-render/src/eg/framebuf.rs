@@ -26,6 +26,13 @@ pub trait PackedColor {
 
     fn as_color(packed: &Self::Storage, offset: usize) -> Self;
     fn set_color(packed: &mut Self::Storage, offset: usize, color: Self);
+
+    /// WS6.3b: the storage word holding `pps` copies of `color` — a whole word
+    /// entirely of that colour. Used by the fast `fill_solid` to `slice::fill`
+    /// the run of storage words fully inside a rect (mono: `0x00`/`0xFF`; RGB
+    /// where `pps == 1`: just the pixel word). Partial edge words still go
+    /// through `set_color`, so this need only cover full words.
+    fn solid_storage(color: Self) -> Self::Storage;
 }
 
 /// Rgb colors are not packed
@@ -56,6 +63,11 @@ macro_rules! rgb_packed_color_impl {
                 let _ = offset;
                 *packed =
                     Into::<<Self as embedded_graphics::pixelcolor::PixelColor>::Raw>::into(color).into_inner();
+            }
+
+            // pps == 1: a full word IS one pixel.
+            fn solid_storage(color: Self) -> Self::Storage {
+                color.into_storage()
             }
         })*
     };
@@ -117,6 +129,14 @@ impl PackedColor for BinaryColor {
             BinaryColor::On => *packed |= mask,
         }
     }
+
+    // 8 pixels/byte, 1 bit each: a full word is all-on or all-off.
+    fn solid_storage(color: Self) -> u8 {
+        match color {
+            BinaryColor::On => 0xff,
+            BinaryColor::Off => 0x00,
+        }
+    }
 }
 
 pub trait Framebuf<C: Color + PackedColor> {
@@ -159,10 +179,11 @@ pub trait Framebuf<C: Color + PackedColor> {
     /// replacement the damage-driven flush needs — a one-label change flushes a
     /// handful of rows, not the full screen.
     ///
-    /// TODO (6.3b): still pixel-at-a-time. `PackedFramebuf` implements only
-    /// `draw_iter`, so this fans out to one `set_pixel` per point on the target.
-    /// A `fill_contiguous`/row-run path (whole-byte writes for mono, `slice::fill`
-    /// for RGB) is the render-side win, distinct from this flush-side scoping.
+    /// TODO: this FLUSH side is still pixel-at-a-time — it streams one `Pixel`
+    /// per point to the target. The DRAW side (filling INTO the framebuffer) is
+    /// now fast (`fill_solid`, WS6.3b); batching contiguous scanline RUNS to the
+    /// display driver here (vs per-pixel) is the remaining flush-side win, and
+    /// belongs with the strip/regions output work (6.3/6.4).
     fn output_region<T>(&self, target: &mut T, region: Rect)
     where
         T: RenderTarget,
@@ -226,6 +247,67 @@ impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor> DrawTarget
                 self.set_pixel(point.into(), color);
             },
         );
+
+        Ok(())
+    }
+
+    /// WS6.3b: fill a rectangle with a single colour without the per-pixel
+    /// bit-twiddling `draw_iter` fans out to (the default `fill_solid` bounces
+    /// through `fill_contiguous` → `draw_iter`). Every row's pixel range is split
+    /// into a partial head word, a run of WHOLE storage words, and a partial tail
+    /// word: the whole words are `slice::fill`ed (mono: whole-byte 0x00/0xFF
+    /// writes — the 8–32× win; RGB: a `slice::fill` run), and only the two edge
+    /// words go through `set_color`. Whole words are entirely inside the row, so
+    /// filling them can't corrupt a neighbouring row that shares an edge byte
+    /// (mono rows straddle bytes) — those shared bytes are always partial, hence
+    /// bit-precise. This is the render-side counterpart to WS6.3a's flush-side
+    /// region scoping; every clear/background/block fill uses it.
+    fn fill_solid(
+        &mut self,
+        area: &embedded_graphics::primitives::Rectangle,
+        color: Self::Color,
+    ) -> Result<(), Self::Error> {
+        let bounds = embedded_graphics::primitives::Rectangle::new(
+            embedded_graphics::prelude::Point::zero(),
+            OriginDimensions::size(self),
+        );
+        let area = area.intersection(&bounds);
+        if area.size.width == 0 || area.size.height == 0 {
+            return Ok(());
+        }
+
+        let width = self.size.width as usize;
+        let pps = C::pps();
+        let solid = C::solid_storage(color);
+        let x0 = area.top_left.x as usize;
+        let y0 = area.top_left.y as usize;
+        let w = area.size.width as usize;
+        let h = area.size.height as usize;
+
+        for y in y0..y0 + h {
+            // Flat index space (`y*width + x`), same as `point_to_subpart`.
+            let start = y * width + x0;
+            let end = start + w;
+            // Round the pixel range INWARD to whole storage-word boundaries.
+            let head_end = start.div_ceil(pps) * pps;
+            let tail_start = (end / pps) * pps;
+
+            if head_end >= tail_start {
+                // The row spans fewer than one whole word — all per-pixel.
+                for i in start..end {
+                    C::set_color(&mut self.pixels[i / pps], i % pps, color);
+                }
+            } else {
+                for i in start..head_end {
+                    C::set_color(&mut self.pixels[i / pps], i % pps, color);
+                }
+                self.pixels[head_end / pps..tail_start / pps]
+                    .fill(solid.clone());
+                for i in tail_start..end {
+                    C::set_color(&mut self.pixels[i / pps], i % pps, color);
+                }
+            }
+        }
 
         Ok(())
     }
@@ -464,5 +546,93 @@ mod tests {
         assert_eq!(target.points.len(), (W * H) as usize);
         let expected: Vec<Point> = framebuf.viewport().points().collect();
         assert_eq!(target.points, expected);
+    }
+
+    // A tiny LCG for the fill fuzz (no `rand` dep; deterministic per seed).
+    struct Rng(u64);
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 = self.0.wrapping_mul(0x9e3779b97f4a7c15).wrapping_add(1);
+            self.0
+        }
+        fn range(&mut self, n: u32) -> u32 {
+            (self.next() % n as u64) as u32
+        }
+    }
+
+    /// WS6.3b: the fast `fill_solid` (whole-word `slice::fill` + bit-precise edge
+    /// words) must produce a BYTE-IDENTICAL framebuffer to the per-pixel
+    /// `draw_iter` path — for RGB (`pps == 1`) and, critically, for packed mono
+    /// (`pps == 8`, where partial edge bytes are shared with neighbouring rows).
+    /// 300 random rects each (many with negative / oversized coords, so clipping
+    /// and sub-word edges are exercised).
+    #[test]
+    fn fill_solid_matches_draw_iter_fuzz() {
+        use embedded_graphics::{
+            Pixel as EgPixel,
+            prelude::{DrawTarget, Point as EgPoint, Size as EgSize},
+            primitives::{PointsIter, Rectangle as EgRect},
+        };
+
+        // RGB: 20x16 (pps == 1, any area is valid).
+        for seed in 0..300u64 {
+            let mut rng =
+                Rng(seed.wrapping_mul(0x9e3779b97f4a7c15).wrapping_add(1));
+            let size = Size::new(20, 16);
+            let area = EgRect::new(
+                EgPoint::new(
+                    rng.range(24) as i32 - 2,
+                    rng.range(20) as i32 - 2,
+                ),
+                EgSize::new(rng.range(24), rng.range(20)),
+            );
+            let color = Rgb888::new(
+                rng.next() as u8,
+                rng.next() as u8,
+                rng.next() as u8,
+            );
+
+            let mut fast = PackedFramebuf::new(size, Rgb888::BLACK);
+            let mut slow = PackedFramebuf::new(size, Rgb888::BLACK);
+            fast.fill_solid(&area, color).unwrap();
+            slow.draw_iter(area.points().map(|p| EgPixel(p, color)))
+                .unwrap();
+            assert_eq!(
+                fast.data(),
+                slow.data(),
+                "rgb seed {seed}: fill_solid != draw_iter for {area:?}"
+            );
+        }
+
+        // Mono: 24x16 (area 384 divisible by 8). `width % 8 != 0` in some rows so
+        // rows straddle bytes — the partial-edge-byte correctness case.
+        for seed in 0..300u64 {
+            let mut rng =
+                Rng(seed.wrapping_mul(0x9e3779b97f4a7c15).wrapping_add(0xabc));
+            let size = Size::new(24, 16);
+            let area = EgRect::new(
+                EgPoint::new(
+                    rng.range(28) as i32 - 2,
+                    rng.range(20) as i32 - 2,
+                ),
+                EgSize::new(rng.range(28), rng.range(20)),
+            );
+            let color = if rng.next() & 1 == 0 {
+                BinaryColor::On
+            } else {
+                BinaryColor::Off
+            };
+
+            let mut fast = PackedFramebuf::new(size, BinaryColor::Off);
+            let mut slow = PackedFramebuf::new(size, BinaryColor::Off);
+            fast.fill_solid(&area, color).unwrap();
+            slow.draw_iter(area.points().map(|p| EgPixel(p, color)))
+                .unwrap();
+            assert_eq!(
+                fast.data(),
+                slow.data(),
+                "mono seed {seed}: fill_solid != draw_iter for {area:?}"
+            );
+        }
     }
 }
