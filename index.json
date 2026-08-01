@@ -1,8 +1,8 @@
 {
-  "f3e00df700f6823ac1af490a7f564d6304c16d18": {
-    "date": 1785410028,
+  "b1dafa1882b6a6a0c4ca081eaa5ae6ec2866d748": {
+    "date": 1785591680,
     "parent": "",
-    "branch": "ws6.3b-framebuf-fills",
-    "subject": "Roadmap: 6.3b PR number (#30)"
+    "branch": "master",
+    "subject": "Roadmap: WS6.4 reframed to damage tiles (6.4a–d) + 6.7 decided, 6.3c split out"
   }
 }
