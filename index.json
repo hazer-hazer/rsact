@@ -1,8 +1,8 @@
 {
-  "ab0ba3de15cbdef246d46d853037ee59cc63ca01": {
-    "date": 1785619762,
+  "10e182ef866e4f944e3da08204b1858b6c457ddd": {
+    "date": 1785700122,
     "parent": "",
-    "branch": "render-a-delete-layers",
-    "subject": "render: delete the layer dimension (single surface + clip stack)"
+    "branch": "ws5.0b-renderer-single-owner",
+    "subject": "WS5.0b: renderer as a single-owner UI field (drop Signal<W::Renderer>)"
   }
 }
