@@ -63,11 +63,17 @@ pub struct UI<W: WidgetCtx, P: HasPages> {
     // TODO: Get rid of Inert wrapper, it is at most RefCell
     stylist: Inert<W::Stylist>,
     dev_tools: Signal<DevTools>,
-    // TODO: Inert renderer. I don't think it is hardly needed to have reactive
-    // renderer options (this is the only reactive dependency). The problem
-    // is that Inert is a readonly value, while we need a mutable reference to
-    // the renderer
-    renderer: Signal<W::Renderer>,
+    /// The renderer. WS5.0b: a plain single-owner field.
+    ///
+    /// It was a `Signal<W::Renderer>` copied into every page — not for
+    /// reactivity (it never had a subscriber; every access went through
+    /// `update_untracked`) but because `Inert` is read-only and `Signal` was the
+    /// only `Copy` handle yielding `&mut`. Pages now borrow it for the duration
+    /// of a render call (see [`Self::current_page_and_renderer`]), which drops a
+    /// reactive node, removes the last `update_untracked` on the render path,
+    /// and keeps the renderer's size out of any move — relevant once WS6.4d's
+    /// `TiledOutput<C, const MAX>` holds its buffer inline.
+    renderer: W::Renderer,
     message_queue: Option<UiQueue<W>>,
     options: UiOptions,
     has_pages: PhantomData<P>,
@@ -102,7 +108,7 @@ where
             on_exit: None,
             stylist: stylist.inert(),
             dev_tools,
-            renderer: renderer.signal(),
+            renderer,
             message_queue: None,
             options: Default::default(),
             has_pages: PhantomData,
@@ -252,7 +258,21 @@ impl<W: WidgetCtx> UI<W, WithPages> {
     where
         W::Renderer: FinishRender<T::Color>,
     {
-        self.current_page().render(target)
+        let (page, renderer) = self.current_page_and_renderer();
+        page.render(renderer, target)
+    }
+
+    /// Poll the current page's render gate **without** flushing to a display —
+    /// the headless equivalent of [`Self::render`], used by the benches, the
+    /// metrics probe and the size probe to drive a frame.
+    ///
+    /// WS5.0b: every one of those callers previously wrote
+    /// `ui.current_page().use_renderer(…)`; with the renderer owned by `UI`
+    /// they would each have to split the page/renderer borrow by hand, so the
+    /// split lives here once instead.
+    pub fn use_renderer(&mut self, f: impl FnOnce(&mut W::Renderer)) -> bool {
+        let (page, renderer) = self.current_page_and_renderer();
+        page.use_renderer(renderer, f)
     }
 
     /// The id of the page on top of the navigation history.
@@ -296,7 +316,6 @@ impl<W: WidgetCtx> UI<W, WithPages> {
             // per-app config into the page (all stylists are Clone/Copy).
             self.stylist.clone(),
             self.dev_tools,
-            self.renderer,
             self.fonts,
             scope,
         )
@@ -309,6 +328,18 @@ impl<W: WidgetCtx> UI<W, WithPages> {
     /// Assigning the freshly built page drops the previous one, disposing its
     /// arena.
     pub fn current_page(&mut self) -> &mut Page<W> {
+        self.current_page_and_renderer().0
+    }
+
+    /// The current page **and** the renderer, as two disjoint mutable borrows.
+    ///
+    /// WS5.0b: rendering needs both at once, and `current_page` alone borrows
+    /// all of `self`. Splitting the borrow here (rather than at each call site)
+    /// keeps the lazy page-build in one place; borrowck accepts it because the
+    /// two are distinct fields.
+    pub fn current_page_and_renderer(
+        &mut self,
+    ) -> (&mut Page<W>, &mut W::Renderer) {
         let current_id = self.current_page_id();
 
         let needs_load = self
@@ -321,9 +352,12 @@ impl<W: WidgetCtx> UI<W, WithPages> {
             self.active_page = Some(page);
         }
 
-        self.active_page
-            .as_mut()
-            .expect("Active page must be initialized")
+        (
+            self.active_page
+                .as_mut()
+                .expect("Active page must be initialized"),
+            &mut self.renderer,
+        )
     }
 
     // TODO: Unused
@@ -336,7 +370,8 @@ impl<W: WidgetCtx> UI<W, WithPages> {
     /// [`Self::current_page`], which is invoked here.
     fn on_page_change(&mut self) {
         info!("UI: Page changed to {:?}", self.current_page_id());
-        self.current_page().clear().force_redraw();
+        let (page, renderer) = self.current_page_and_renderer();
+        page.clear(renderer).force_redraw();
 
         // TODO
         // if self.options.auto_focus {

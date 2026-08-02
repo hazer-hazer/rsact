@@ -4,7 +4,8 @@
 //! numbers stay comparable. Not part of the public API.
 
 use crate::{
-    el::ctx::Wtf,
+    el::ctx::{WidgetCtx, Wtf},
+    page::Page,
     prelude::*,
     ui::{UI, WithPages},
 };
@@ -79,4 +80,51 @@ pub fn nested_flex_page(
         });
     let _ = ui.current_page();
     (ui, labels)
+}
+
+/// A [`Page`] bundled with the renderer it draws into (WS5.0b).
+///
+/// The renderer is owned by [`UI`] now, not by the page, so a page-level test —
+/// which builds a bare `Page` without a `UI` — has to own one itself and lend it
+/// to every render call. This wrapper keeps that plumbing in one place instead
+/// of threading a `&mut renderer` argument through every assertion.
+///
+/// It `Deref`s to the page, so all non-rendering methods (`handle_events`,
+/// `take_draw_calls`, `force_redraw`, …) work unchanged; the inherent
+/// [`use_renderer`](Self::use_renderer) and [`clear`](Self::clear) shadow the
+/// page's, supplying the renderer automatically (inherent methods win over
+/// `Deref`).
+pub struct TestPage<W: WidgetCtx> {
+    pub page: Page<W>,
+    pub renderer: W::Renderer,
+}
+
+impl<W: WidgetCtx> TestPage<W> {
+    pub fn new(page: Page<W>, renderer: W::Renderer) -> Self {
+        Self { page, renderer }
+    }
+
+    /// Poll the page's render gate, lending it the owned renderer.
+    pub fn use_renderer(&mut self, f: impl FnOnce(&mut W::Renderer)) -> bool {
+        self.page.use_renderer(&mut self.renderer, f)
+    }
+
+    /// Clear the page background, lending it the owned renderer.
+    pub fn clear(&mut self) -> &mut Page<W> {
+        self.page.clear(&mut self.renderer)
+    }
+}
+
+impl<W: WidgetCtx> core::ops::Deref for TestPage<W> {
+    type Target = Page<W>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.page
+    }
+}
+
+impl<W: WidgetCtx> core::ops::DerefMut for TestPage<W> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.page
+    }
 }

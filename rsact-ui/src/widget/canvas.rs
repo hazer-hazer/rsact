@@ -110,6 +110,7 @@ mod tests {
         el::{arena::ElArena, ctx::Wtf, view::View},
         font::FontCtx,
         page::{Page, dev::DevTools},
+        test_support::TestPage,
     };
     use alloc::rc::Rc;
     use core::cell::Cell;
@@ -118,19 +119,21 @@ mod tests {
 
     type NullWtf = Wtf<NullRenderer, (), (), ()>;
 
-    fn null_page(root: impl View<NullWtf>) -> Page<NullWtf> {
+    fn null_page(root: impl View<NullWtf>) -> TestPage<NullWtf> {
         let arena = create_signal(ElArena::new());
         let scope = new_scope();
-        Page::new(
-            (),
-            root,
-            arena,
-            Size::new_equal(64).maybe_reactive(),
-            ().inert(),
-            DevTools::default().signal(),
-            NullRenderer::default().signal(),
-            FontCtx::new().signal(),
-            scope,
+        TestPage::new(
+            Page::new(
+                (),
+                root,
+                arena,
+                Size::new_equal(64).maybe_reactive(),
+                ().inert(),
+                DevTools::default().signal(),
+                FontCtx::new().signal(),
+                scope,
+            ),
+            NullRenderer::default(),
         )
     }
 

@@ -154,7 +154,7 @@ fn ui_scenario(
         // panic for some widgets, so guard it and degrade to "not measured"
         // rather than aborting the whole probe.
         let painted = guarded_frame(&mut ui, |ui| {
-            ui.current_page().use_renderer(|_| {});
+            ui.use_renderer(|_| {});
         })
         .is_some();
 
@@ -169,7 +169,7 @@ fn ui_scenario(
         let idle = painted
             .then(|| {
                 guarded_frame(&mut ui, |ui| {
-                    ui.current_page().use_renderer(|_| {});
+                    ui.use_renderer(|_| {});
                 })
             })
             .flatten();
@@ -183,7 +183,7 @@ fn ui_scenario(
         let change = painted
             .then(|| {
                 guarded_frame(&mut ui, |ui| {
-                    ui.current_page().use_renderer(|_| {});
+                    ui.use_renderer(|_| {});
                 })
             })
             .flatten();
@@ -291,6 +291,11 @@ mod tests {
     // non-reactive `full_flush` flag (the damage-flush full-invalidate gate), so
     // the UI totals rise by one page's worth: ui5 24->25, ui10 39->40. Reactive-
     // only has no page, so unchanged at 33.
+    // Re-baselined by WS5.0b (2026-08-02): the renderer is a plain single-owner
+    // field on `UI` instead of a `Signal<W::Renderer>`, so each UI sheds exactly
+    // one node (the signal was created once in `UI::new` and only *copied* into
+    // pages): ui5 25->24, ui10 40->39. Reactive-only has no renderer, so it is
+    // unchanged at 33.
     // (History: WS4.1 2026-07-09 inlined `Inert`, removing builder-literal/prop
     // nodes, -3 per UI scenario (32->29 / 52->49); pre-WS4 2026-07-07 / WS0.3b:
     // reactive 33, ui5 32, ui10 52.)
@@ -311,7 +316,7 @@ mod tests {
         );
 
         let ui5 = ui_labels(5);
-        assert_eq!(ui5.counts.total, 25, "ui_labels_5 node total moved");
+        assert_eq!(ui5.counts.total, 24, "ui_labels_5 node total moved");
         assert_eq!(
             ui5.counts.stored, 0,
             "ui_labels_5 stored = 0: WS5.1 moved every widget's LayoutData \
@@ -324,7 +329,7 @@ mod tests {
         );
 
         let ui10 = ui_labels(10);
-        assert_eq!(ui10.counts.total, 40, "ui_labels_10 node total moved");
+        assert_eq!(ui10.counts.total, 39, "ui_labels_10 node total moved");
         assert_eq!(
             ui10.counts.observers, 11,
             "one render observer per label + page"
