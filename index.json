@@ -1,8 +1,8 @@
 {
-  "27115cceb92157469a0db7cb68d1278424a575e6": {
-    "date": 1785748240,
+  "54ca9ea4c7bcbbe37b396944144f58ce9be481e0": {
+    "date": 1785799361,
     "parent": "",
-    "branch": "master",
-    "subject": "Merge pull request #32 from hazer-hazer/ws5.0b-renderer-single-owner"
+    "branch": "ws6.4.0-render-prep",
+    "subject": "WS6.4.0(iii): compile-time tile-capacity chain"
   }
 }
