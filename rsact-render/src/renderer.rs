@@ -84,6 +84,44 @@ pub trait Renderer {
 
     fn size(&self) -> Size;
 
+    /// rsact is about to paint `region` (absolute screen coordinates).
+    ///
+    /// WS6.4.0(ii-3). What a backend does with it is its own business: a tile
+    /// framebuffer sets its origin offset so absolute coordinates land in a
+    /// surface smaller than the frame; a GPU sets a scissor rect; a renderer
+    /// whose surface already covers the whole frame ignores it.
+    ///
+    /// **The default is _correct_, not merely permissive** — a full-frame
+    /// surface receives absolute coordinates and needs no transform at all, so
+    /// [`NullRenderer`], [`RecordingRenderer`](crate::record::RecordingRenderer)
+    /// and a full-frame `EGRenderer` are already right with no code.
+    ///
+    /// Deliberately part of `Renderer` rather than a separate `TileAware` trait:
+    /// it states _where_ you are drawing, the same category as [`size`] and
+    /// [`push_clip`], so no `where` clause leaks into the render entry point.
+    /// Equally deliberately it says nothing about *tiles* — the number and shape
+    /// of regions is the frame policy's business (roadmap 6.4d), and this trait
+    /// stays "how to draw a primitive".
+    ///
+    /// No caller yet: the multi-region driver is 6.4d. Landed with the rest of
+    /// the trait shape so 6.4d adds a strategy rather than reopening the trait.
+    ///
+    /// [`size`]: Renderer::size
+    /// [`push_clip`]: Renderer::push_clip
+    fn begin_region(&mut self, region: Rect) -> RenderResult {
+        let _ = region;
+        Ok(())
+    }
+
+    /// Finish the region opened by [`begin_region`]. A framebuffer backend has
+    /// nothing to do (the caller takes the buffer back through its own inherent
+    /// API — the surface never enters rsact); a GPU may end a render pass.
+    ///
+    /// [`begin_region`]: Renderer::begin_region
+    fn end_region(&mut self) -> RenderResult {
+        Ok(())
+    }
+
     /// Restrict subsequent drawing to `area` until the matching [`pop_clip`].
     ///
     /// WS6.4.0(ii-1): a **stack** rather than the previous
