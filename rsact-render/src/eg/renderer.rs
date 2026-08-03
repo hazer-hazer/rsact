@@ -271,16 +271,17 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> EGRenderer<C, AA> {
         })
     }
 
-    fn renderer_clipped(
-        &mut self,
-        area: Rect,
-        f: impl FnOnce(&mut Self) -> RenderResult,
-    ) -> RenderResult {
+    fn renderer_push_clip(&mut self, area: Rect) {
         self.viewport_stack
             .push(self.sub_viewport(ViewportKind::Clipped(area)));
-        let result = f(self);
-        self.viewport_stack.pop();
-        result
+    }
+
+    // Never pops the root viewport: an unbalanced `pop_clip` must degrade, not
+    // leave the renderer with no viewport at all (`current_viewport` unwraps).
+    fn renderer_pop_clip(&mut self) {
+        if self.viewport_stack.len() > 1 {
+            self.viewport_stack.pop();
+        }
     }
 
     fn renderer_image<'a>(&mut self, image: DrawImage<'a, C>) -> RenderResult {
@@ -395,12 +396,12 @@ impl<C: Color + PackedColor + PixelColor> Renderer
         self.main_viewport
     }
 
-    fn clipped(
-        &mut self,
-        area: Rect,
-        f: impl FnOnce(&mut Self) -> RenderResult,
-    ) -> RenderResult {
-        self.renderer_clipped(area, f)
+    fn push_clip(&mut self, area: Rect) {
+        self.renderer_push_clip(area)
+    }
+
+    fn pop_clip(&mut self) {
+        self.renderer_pop_clip()
     }
 
     fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult {
@@ -555,12 +556,12 @@ impl<C: Color + PackedColor + PixelColor> Renderer
         self.main_viewport
     }
 
-    fn clipped(
-        &mut self,
-        area: Rect,
-        f: impl FnOnce(&mut Self) -> RenderResult,
-    ) -> RenderResult {
-        self.renderer_clipped(area, f)
+    fn push_clip(&mut self, area: Rect) {
+        self.renderer_push_clip(area)
+    }
+
+    fn pop_clip(&mut self) {
+        self.renderer_pop_clip()
     }
 
     fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult {
@@ -737,6 +738,35 @@ mod tests {
                 assert_eq!(f, s, "EGRenderer fill_solid != per-pixel fill");
             })
         });
+    }
+
+    /// WS6.4.0(ii-1): the clip stack must balance, and an unmatched `pop_clip`
+    /// must degrade rather than pop the root viewport — `current_viewport()`
+    /// unwraps the top of the stack, so emptying it would turn a caller's
+    /// bookkeeping slip into a panic on the render path (WS1.8: the UI logs and
+    /// degrades, it does not abort).
+    #[test]
+    fn clip_stack_balances_and_never_pops_the_root() {
+        let mut r =
+            EGRenderer::<Rgb888, AntiAliasingDisabled>::new(Size::new(20, 16));
+        let root = r.viewport_stack.len();
+        assert_eq!(root, 1, "a fresh renderer holds exactly the root viewport");
+
+        r.push_clip(Rect::new(Point::new(2, 2), Size::new(8, 8)));
+        assert_eq!(r.viewport_stack.len(), root + 1);
+        r.push_clip(Rect::new(Point::new(3, 3), Size::new(4, 4)));
+        assert_eq!(r.viewport_stack.len(), root + 2);
+
+        r.pop_clip();
+        r.pop_clip();
+        assert_eq!(r.viewport_stack.len(), root, "push/pop must balance");
+
+        // Unmatched pop: no panic, no lost root.
+        r.pop_clip();
+        r.pop_clip();
+        assert_eq!(r.viewport_stack.len(), root, "root viewport must survive");
+        // Still usable afterwards — the real point of not emptying the stack.
+        Renderer::pixel(&mut r, Point::new(1, 1), Rgb888::WHITE).unwrap();
     }
 
     /// WS6.4.0(i-1): `pixel_alpha` must read the destination through the SAME

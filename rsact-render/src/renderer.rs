@@ -75,11 +75,28 @@ pub trait Renderer {
 
     fn size(&self) -> Size;
 
-    fn clipped(
-        &mut self,
-        area: Rect,
-        f: impl FnOnce(&mut Self) -> RenderResult,
-    ) -> RenderResult;
+    /// Restrict subsequent drawing to `area` until the matching [`pop_clip`].
+    ///
+    /// WS6.4.0(ii-1): a **stack** rather than the previous
+    /// `clipped(area, impl FnOnce(&mut Self))` closure form. Every backend
+    /// already kept a stack internally and merely wrapped it in a closure, so
+    /// this exposes what was already there. Two reasons to prefer it: a
+    /// multi-pass (tiled) renderer re-establishes clips once per pass, which
+    /// closure nesting fights; and the closure form takes `Self` by value in a
+    /// generic parameter, so it is the one method keeping this trait
+    /// dyn-incompatible. Closure sugar survives where it reads better — see
+    /// `RenderCtx::clip_inner` in rsact-ui, which pairs push/pop for its caller.
+    ///
+    /// Calls must be balanced. An unmatched [`pop_clip`] is a no-op, never a
+    /// panic (WS1.8: the UI logs and degrades, it does not abort).
+    ///
+    /// [`pop_clip`]: Renderer::pop_clip
+    fn push_clip(&mut self, area: Rect);
+
+    /// Undo the innermost [`push_clip`]. No-op if the stack is empty.
+    ///
+    /// [`push_clip`]: Renderer::push_clip
+    fn pop_clip(&mut self);
 
     fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult;
 
@@ -227,13 +244,9 @@ impl Renderer for NullRenderer {
         Size::zero()
     }
 
-    fn clipped(
-        &mut self,
-        _area: Rect,
-        f: impl FnOnce(&mut Self) -> RenderResult,
-    ) -> RenderResult {
-        f(self)
-    }
+    fn push_clip(&mut self, _area: Rect) {}
+
+    fn pop_clip(&mut self) {}
 
     fn fill_solid(&mut self, _rect: Rect, _color: Self::Color) -> RenderResult {
         Ok(())

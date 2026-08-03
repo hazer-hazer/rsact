@@ -164,15 +164,12 @@ impl Renderer for TinySkiaRenderer<tiny_skia::Color> {
         self.size
     }
 
-    fn clipped(
-        &mut self,
-        area: Rect,
-        f: impl FnOnce(&mut Self) -> RenderResult,
-    ) -> RenderResult {
+    fn push_clip(&mut self, area: Rect) {
         self.layers.enter_viewport(ViewportKind::Clipped(area));
-        let result = f(self);
+    }
+
+    fn pop_clip(&mut self) {
         self.layers.exit_viewport();
-        result
     }
 
     fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult {

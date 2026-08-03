@@ -211,31 +211,39 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
 
     /// Clip subsequent drawing operations to the layout's inner rect.
     ///
-    /// Only `renderer` changes (to the clipped sub-renderer); every other
-    /// field is `Copy` so construction is a single struct-update expression.
+    /// This is the scoped sugar over the renderer's clip **stack**
+    /// (WS6.4.0(ii-1)): push, run `f`, pop — the pop happens on the error path
+    /// too, so an early `Err` from a widget cannot leave the stack unbalanced
+    /// and silently clip everything drawn afterwards. Widgets keep the
+    /// closure-shaped API they had; only the renderer trait changed.
+    ///
+    /// Every field but `renderer` is `Copy`, so the child ctx is still a single
+    /// struct expression; `renderer` is reborrowed for the call rather than
+    /// handed over by a sub-renderer.
     #[must_use]
     pub fn clip_inner(
         &mut self,
         f: impl FnOnce(RenderCtx<'_, W, CtxReady>) -> RenderResult,
     ) -> RenderResult {
         let inner = self.layout.inner;
-        self.renderer.clipped(inner, |renderer| {
-            f(RenderCtx {
-                id: self.id,
-                debug_name: self.debug_name,
-                dirten: self.dirten,
-                needs_redraw: self.needs_redraw,
-                hovered: self.hovered,
-                pressed: self.pressed,
-                part_probes: self.part_probes,
-                renderer,
-                layout: self.layout,
-                visual: self.visual,
-                frame: self.frame,
-                shared: self.shared,
-                _marker: PhantomData,
-            })
-        })
+        self.renderer.push_clip(inner);
+        let result = f(RenderCtx {
+            id: self.id,
+            debug_name: self.debug_name,
+            dirten: self.dirten,
+            needs_redraw: self.needs_redraw,
+            hovered: self.hovered,
+            pressed: self.pressed,
+            part_probes: self.part_probes,
+            renderer: self.renderer,
+            layout: self.layout,
+            visual: self.visual,
+            frame: self.frame,
+            shared: self.shared,
+            _marker: PhantomData,
+        });
+        self.renderer.pop_clip();
+        result
     }
 }
 
@@ -474,16 +482,20 @@ fn render_subtree<W: WidgetCtx>(
             child_frame,
         ),
         Some(ClipPath::InnerRect) => {
-            renderer.clipped(layout.inner, |renderer| {
-                render_subtree_body(
-                    els,
-                    renderer,
-                    shared,
-                    layout,
-                    visual,
-                    child_frame,
-                )
-            })
+            // WS6.4.0(ii-1): push/pop around the subtree. `pop_clip` runs on the
+            // error path too — an `Err` escaping here with the clip still pushed
+            // would clip every later sibling to this subtree's rect.
+            renderer.push_clip(layout.inner);
+            let result = render_subtree_body(
+                els,
+                renderer,
+                shared,
+                layout,
+                visual,
+                child_frame,
+            );
+            renderer.pop_clip();
+            result
         },
     }
 }
