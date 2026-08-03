@@ -34,7 +34,7 @@ fn main() -> ! {
             .into_el()
         });
     let _ = ui.current_page();
-    ui.current_page().use_renderer(|_| {});
+    ui.use_renderer(|_| {});
 
     black_box(&ui);
     loop {}

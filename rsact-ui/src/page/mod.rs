@@ -56,8 +56,11 @@ pub struct Page<W: WidgetCtx> {
     layout: Memo<LayoutModel>,
     state: PageState<W>,
     style: Signal<PageStyle<W::Color>>,
-    // TODO: Just use Rc<RefCell<R>> because we don't need to track renderer.
-    renderer: Signal<W::Renderer>,
+    // WS5.0b: the renderer is NOT stored here. It is a single-owner value living
+    // in `UI` and handed to `render`/`use_renderer` as `&mut` for the duration of
+    // the call. It was a `Signal` only because `Inert` is read-only and `Signal`
+    // was the one `Copy` handle giving `&mut` access — it never had a subscriber
+    // (every access was `update_untracked`), so it was pure graph freight.
     viewport: MaybeReactive<Size>,
     stylist: Inert<W::Stylist>,
     dev_tools: Signal<DevTools>,
@@ -121,7 +124,6 @@ impl<W: WidgetCtx> Page<W> {
         viewport: MaybeReactive<Size>,
         stylist: Inert<W::Stylist>,
         dev_tools: Signal<DevTools>,
-        renderer: Signal<W::Renderer>,
         fonts: Signal<FontCtx>,
         // The page scope (WS3.1, G11). The caller creates it with `new_scope()`
         // *before* evaluating `root`/`init_page()` so it is current for the
@@ -301,7 +303,6 @@ impl<W: WidgetCtx> Page<W> {
             state,
             style,
             // TODO: Signal viewport in Renderer? Windows can change size.
-            renderer,
             viewport: viewport.name("Viewport"),
             stylist,
             dev_tools,
@@ -340,22 +341,27 @@ impl<W: WidgetCtx> Page<W> {
     //     self
     // }
 
-    pub fn clear(&mut self) -> &mut Self {
+    /// WS5.0b: takes the renderer as a borrow (it is owned by `UI`, not the
+    /// page).
+    pub fn clear(&mut self, renderer: &mut W::Renderer) -> &mut Self {
         let viewport = self.viewport.get();
         self.style.with(|style| {
             // TODO: Will not work without background, must always have a
             // background
             if let Some(bg) = style.background_color {
-                self.renderer
-                    .update_untracked(|r| {
-                        Renderer::fill_solid(
-                            r,
-                            Rect::new(Point::zero(), viewport),
-                            bg,
-                        )
-                    })
-                    .ok()
-                    .unwrap();
+                // NOTE (WS5.0b): behaviour preserved verbatim, including this
+                // `.ok().unwrap()`. It is a panic site on a UI path and so
+                // violates WS1.8 ("the UI must log and degrade, never panic") —
+                // left as-is to keep this refactor behaviour-identical rather
+                // than smuggling in a semantic change. Belongs to WSi.2's
+                // unwrap burn-down.
+                Renderer::fill_solid(
+                    renderer,
+                    Rect::new(Point::zero(), viewport),
+                    bg,
+                )
+                .ok()
+                .unwrap();
             }
         });
         self
@@ -708,7 +714,17 @@ impl<W: WidgetCtx> Page<W> {
         unhandled
     }
 
-    pub fn render<T: RenderTarget>(&mut self, target: &mut T) -> bool
+    /// Render this page into `renderer`, then flush it to `target`.
+    ///
+    /// WS5.0b: the renderer is borrowed for the call, not owned by the page —
+    /// `UI` is its single owner (see [`UI::current_page_and_renderer`]).
+    ///
+    /// [`UI::current_page_and_renderer`]: crate::ui::UI::current_page_and_renderer
+    pub fn render<T: RenderTarget>(
+        &mut self,
+        renderer: &mut W::Renderer,
+        target: &mut T,
+    ) -> bool
     where
         W::Renderer: FinishRender<T::Color>,
     {
@@ -716,20 +732,103 @@ impl<W: WidgetCtx> Page<W> {
         // then flush ONLY those rects (WS6.2 + WS6.3). A backend that doesn't
         // implement region flushing falls back to a full `finish_frame`
         // (default trait method), so this is safe for every renderer.
-        let drawn = self.use_renderer(|_| {});
+        let drawn = self.use_renderer(renderer, |_| {});
         if drawn {
-            let mut renderer = self.renderer;
             let damage = self.damage.borrow();
-            renderer.update_untracked(|renderer| {
-                renderer.finish_frame_regions(target, &damage);
-            });
+            renderer.finish_frame_regions(target, &damage);
         }
         drawn
     }
 
-    pub fn use_renderer(&mut self, f: impl FnOnce(&mut W::Renderer)) -> bool {
-        let mut renderer = self.renderer;
+    /// The render pass proper: walk the tree into `renderer`, then draw the
+    /// dev-tools overlay. Split out of [`Self::use_renderer`] (WS5.0b) so the
+    /// `?`s below have a function boundary to return to now that the body is
+    /// no longer wrapped in a `Signal::update_untracked` closure.
+    fn render_pass(&mut self, renderer: &mut W::Renderer) -> RenderResult {
+        // self.style
+        //     .with(|style| {
+        //         if let Some(background_color) =
+        //             style.background_color
+        //         {
+        //             debug!(
+        //                 "Clear page {:?} with color {:?}",
+        //                 self.id, background_color
+        //             );
+        //             let viewport = self.viewport.get();
+        //             Renderer::fill_solid(
+        //                 renderer,
+        //                 Rect::new(Point::zero(), viewport),
+        //                 background_color,
+        //             )
+        //         } else {
+        //             Ok(())
+        //         }
+        //     })
+        //     .ok()
+        //     .unwrap();
 
+        let fonts = self.fonts.read_only();
+        let layout = self.layout;
+        // WS4.1: borrow (don't move) — `Inert<W::Stylist>` is inline
+        // now and no longer `Copy`; the `with!` below only reads it.
+        let stylist = &self.stylist;
+
+        with!(|layout, stylist| {
+            debug!("Force redraw: {}", self.force_redraw.get());
+            self.arena.update_untracked(|arena| {
+                RenderPass::new(
+                    arena,
+                    renderer,
+                    RenderShared {
+                        page_state: &self.state,
+                        page_style: self.style.read_only(),
+                        viewport: self.viewport,
+                        fonts,
+                        stylist,
+                        force_redraw: self.force_redraw,
+                        damage: &self.damage,
+                    },
+                )
+                .render(
+                    &layout.tree_root(),
+                    RenderVisual {
+                        tree_style: TreeStyle::base(),
+                        font_props: FontProps {
+                            font: Some(Font::Auto),
+                            font_size: None,
+                            font_style: None,
+                        },
+                    },
+                    RenderFrame::root(self.render_calls),
+                )
+            })
+        })?;
+
+        self.dev_tools.with(|dev_tools| {
+            if dev_tools.enabled {
+                if let Some(hovered) = &dev_tools.hovered {
+                    return hovered.draw::<W>(
+                        renderer,
+                        fonts,
+                        self.viewport.get(),
+                    );
+                }
+            }
+            Ok(())
+        })
+    }
+
+    /// Poll the page's render probe and, if it ran, hand `renderer` to `f`.
+    ///
+    /// WS5.0b: `renderer` is a borrow for the duration of the call. It used to
+    /// be a `Signal<W::Renderer>` field, unwrapped here with `update_untracked`
+    /// — a reactive node with no subscribers, kept only because `Signal` was the
+    /// one `Copy` handle that yielded `&mut`.
+    pub fn use_renderer(
+        &mut self,
+        renderer: &mut W::Renderer,
+        f: impl FnOnce(&mut W::Renderer),
+    ) -> bool {
         // WS6.2: start a fresh damage set for this frame. Cleared here (not at
         // the end) so a pass that the probe SKIPS leaves it empty — an idle
         // frame flushes nothing — while `render` reads it back after the pass.
@@ -770,81 +869,16 @@ impl<W: WidgetCtx> Page<W> {
 
             self.render_calls += 1;
 
-            renderer
-                .update_untracked(|renderer| {
-                    // self.style
-                    //     .with(|style| {
-                    //         if let Some(background_color) =
-                    //             style.background_color
-                    //         {
-                    //             debug!(
-                    //                 "Clear page {:?} with color {:?}",
-                    //                 self.id, background_color
-                    //             );
-                    //             let viewport = self.viewport.get();
-                    //             Renderer::fill_solid(
-                    //                 renderer,
-                    //                 Rect::new(Point::zero(), viewport),
-                    //                 background_color,
-                    //             )
-                    //         } else {
-                    //             Ok(())
-                    //         }
-                    //     })
-                    //     .ok()
-                    //     .unwrap();
-
-                    let fonts = self.fonts.read_only();
-                    let layout = self.layout;
-                    // WS4.1: borrow (don't move) — `Inert<W::Stylist>` is inline
-                    // now and no longer `Copy`; the `with!` below only reads it.
-                    let stylist = &self.stylist;
-
-                    with!(|layout, stylist| {
-                        debug!("Force redraw: {}", self.force_redraw.get());
-                        self.arena.update_untracked(|arena| {
-                            RenderPass::new(
-                                arena,
-                                renderer,
-                                RenderShared {
-                                    page_state: &self.state,
-                                    page_style: self.style.read_only(),
-                                    viewport: self.viewport,
-                                    fonts,
-                                    stylist,
-                                    force_redraw: self.force_redraw,
-                                    damage: &self.damage,
-                                },
-                            )
-                            .render(
-                                &layout.tree_root(),
-                                RenderVisual {
-                                    tree_style: TreeStyle::base(),
-                                    font_props: FontProps {
-                                        font: Some(Font::Auto),
-                                        font_size: None,
-                                        font_style: None,
-                                    },
-                                },
-                                RenderFrame::root(self.render_calls),
-                            )
-                        })
-                    })?;
-
-                    self.dev_tools.with(|dev_tools| {
-                        if dev_tools.enabled {
-                            if let Some(hovered) = &dev_tools.hovered {
-                                return hovered
-                                    .draw::<W>(renderer,
-                                        fonts,self.viewport.get());
-                            }
-                        }
-                        Ok(())
-                    })
-                })
-                // A render error must not abort the device: log and continue.
-                // A dropped frame is recoverable; a panic in the render loop
-                // (which runs every frame) is not.
+            // WS5.0b: the pass body moved into `render_pass` (below). It
+            // used to sit here inside `renderer.update_untracked(|renderer|
+            // …)` — an untracked unwrap of a subscriber-less signal. A
+            // method, rather than an inline closure, gives the `?`
+            // operator inside it somewhere to return to.
+            self
+                .render_pass(renderer)
+                // A render error must not abort the device: log and
+                // continue. A dropped frame is recoverable; a panic in the
+                // render loop (which runs every frame) is not.
                 .unwrap_or_else(|_| {
                     log::error!("page render failed; skipping this frame");
                 });
@@ -884,7 +918,7 @@ impl<W: WidgetCtx> Page<W> {
 
         // TODO: Can be put directly into the observe
         if drawn.is_some() {
-            self.renderer.update_untracked(|renderer| f(renderer));
+            f(renderer);
 
             true
         } else {
@@ -900,6 +934,7 @@ mod tests {
         el::{El, arena::ElArena, ctx::*, view::View},
         font::FontCtx,
         prelude::*,
+        test_support::TestPage,
     };
     use alloc::string::String;
     use rsact_reactive::prelude::*;
@@ -907,7 +942,7 @@ mod tests {
 
     type NullWtf = Wtf<NullRenderer, (), (), ()>;
 
-    fn create_null_page(root: impl View<NullWtf>) -> Page<NullWtf> {
+    fn create_null_page(root: impl View<NullWtf>) -> TestPage<NullWtf> {
         create_null_page_sized(Size::new_equal(1), root)
     }
 
@@ -917,7 +952,7 @@ mod tests {
     fn create_null_page_sized(
         viewport: Size,
         root: impl View<NullWtf>,
-    ) -> Page<NullWtf> {
+    ) -> TestPage<NullWtf> {
         // Mirror `UI::load_page` (WS3.1): the arena is created outside the page
         // scope (it keeps its explicit WS2 disposal), then the page is built
         // with a fresh scope current so every build-time reactive node the page
@@ -927,16 +962,18 @@ mod tests {
         let arena = create_signal(ElArena::new()).name("Page arena");
 
         let scope = new_scope();
-        Page::new(
-            (),
-            root,
-            arena,
-            viewport.maybe_reactive(),
-            ().inert(),
-            DevTools::default().signal(),
-            NullRenderer::default().signal(),
-            FontCtx::new().signal(),
-            scope,
+        TestPage::new(
+            Page::new(
+                (),
+                root,
+                arena,
+                viewport.maybe_reactive(),
+                ().inert(),
+                DevTools::default().signal(),
+                FontCtx::new().signal(),
+                scope,
+            ),
+            NullRenderer::default(),
         )
     }
 
@@ -1933,16 +1970,18 @@ mod tests {
             let paths = renderer.paths.clone();
             let arena = create_signal(ElArena::new()).name("Page arena");
             let scope = new_scope();
-            let mut page: Page<RecWtf> = Page::new(
-                (),
-                Checkbox::<RecWtf>::new(false),
-                arena,
-                Size::new_equal(64).maybe_reactive(),
-                ().inert(),
-                DevTools::default().signal(),
-                renderer.signal(),
-                FontCtx::new().signal(),
-                scope,
+            let mut page: TestPage<RecWtf> = TestPage::new(
+                Page::new(
+                    (),
+                    Checkbox::<RecWtf>::new(false),
+                    arena,
+                    Size::new_equal(64).maybe_reactive(),
+                    ().inert(),
+                    DevTools::default().signal(),
+                    FontCtx::new().signal(),
+                    scope,
+                ),
+                renderer,
             );
 
             // Settle; value is false, so no icon is drawn yet.
@@ -2003,16 +2042,18 @@ mod tests {
             let paths = renderer.paths.clone();
             let arena = create_signal(ElArena::new()).name("Page arena");
             let scope = new_scope();
-            let mut page: Page<RecWtf> = Page::new(
-                (),
-                dynamic(|| Checkbox::<RecWtf>::new(false)),
-                arena,
-                Size::new_equal(64).maybe_reactive(),
-                ().inert(),
-                DevTools::default().signal(),
-                renderer.signal(),
-                FontCtx::new().signal(),
-                scope,
+            let mut page: TestPage<RecWtf> = TestPage::new(
+                Page::new(
+                    (),
+                    dynamic(|| Checkbox::<RecWtf>::new(false)),
+                    arena,
+                    Size::new_equal(64).maybe_reactive(),
+                    ().inert(),
+                    DevTools::default().signal(),
+                    FontCtx::new().signal(),
+                    scope,
+                ),
+                renderer,
             );
 
             for _ in 0..4 {
@@ -2083,16 +2124,18 @@ mod tests {
             let recorder = renderer.clone(); // shares the op log via Rc
             let arena = create_signal(ElArena::new()).name("Page arena");
             let scope = new_scope();
-            let mut page: Page<RecWtf> = Page::new(
-                (),
-                root,
-                arena,
-                Size::new_equal(64).maybe_reactive(),
-                ().inert(),
-                DevTools::default().signal(),
-                renderer.signal(),
-                FontCtx::new().signal(),
-                scope,
+            let mut page: TestPage<RecWtf> = TestPage::new(
+                Page::new(
+                    (),
+                    root,
+                    arena,
+                    Size::new_equal(64).maybe_reactive(),
+                    ().inert(),
+                    DevTools::default().signal(),
+                    FontCtx::new().signal(),
+                    scope,
+                ),
+                renderer,
             );
 
             // Settle: the first frames may run the render observer a few times

@@ -30,7 +30,7 @@ fn build_and_layout_full(c: &mut Criterion) {
             with_new_runtime(|_| {
                 let (mut ui, _labels) = build_ui(LABELS);
                 // First paint lays out the whole tree.
-                ui.current_page().use_renderer(|_| {});
+                ui.use_renderer(|_| {});
                 black_box(&mut ui);
             })
         })
@@ -48,14 +48,14 @@ fn layout_only(c: &mut Criterion) {
         b.iter_custom(|iters| {
             with_new_runtime(|_| {
                 let (mut ui, labels) = build_ui(LABELS);
-                ui.current_page().use_renderer(|_| {});
+                ui.use_renderer(|_| {});
                 let start = Instant::now();
                 for i in 0..iters {
                     let v = if i % 2 == 0 { "a" } else { "b" };
                     for mut label in labels.iter().copied() {
                         label.set(v.into());
                     }
-                    ui.current_page().use_renderer(|_| {});
+                    ui.use_renderer(|_| {});
                 }
                 start.elapsed()
             })
@@ -70,7 +70,7 @@ fn layout_leaf_change(c: &mut Criterion) {
         b.iter_custom(|iters| {
             with_new_runtime(|_| {
                 let (mut ui, labels) = build_ui(LABELS);
-                ui.current_page().use_renderer(|_| {});
+                ui.use_renderer(|_| {});
                 let mut driver = labels[0];
                 let start = Instant::now();
                 for i in 0..iters {
@@ -80,7 +80,7 @@ fn layout_leaf_change(c: &mut Criterion) {
                     } else {
                         "b".into()
                     });
-                    ui.current_page().use_renderer(|_| {});
+                    ui.use_renderer(|_| {});
                 }
                 start.elapsed()
             })
