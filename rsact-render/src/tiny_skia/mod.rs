@@ -156,9 +156,6 @@ where
 
 impl Renderer for TinySkiaRenderer<tiny_skia::Color> {
     type Color = tiny_skia::Color;
-    type Options = ();
-
-    fn set_options(&mut self, _options: Self::Options) {}
 
     fn size(&self) -> Size {
         self.size

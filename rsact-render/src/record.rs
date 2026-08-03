@@ -206,9 +206,6 @@ impl<C, D> FinishRender<D> for RecordingRenderer<C> {
 
 impl<C: Color> Renderer for RecordingRenderer<C> {
     type Color = C;
-    type Options = ();
-
-    fn set_options(&mut self, _options: Self::Options) {}
 
     fn size(&self) -> Size {
         self.size

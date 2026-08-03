@@ -388,9 +388,6 @@ impl<C: Color + PackedColor + PixelColor> Renderer
     for EGRenderer<C, AntiAliasingDisabled>
 {
     type Color = C;
-    type Options = ();
-
-    fn set_options(&mut self, _options: Self::Options) {}
 
     fn size(&self) -> Size {
         self.main_viewport
@@ -548,9 +545,6 @@ impl<C: Color + PackedColor + PixelColor> Renderer
     for EGRenderer<C, AntiAliasingEnabled>
 {
     type Color = C;
-    type Options = ();
-
-    fn set_options(&mut self, _options: Self::Options) {}
 
     fn size(&self) -> Size {
         self.main_viewport

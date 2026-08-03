@@ -1845,9 +1845,6 @@ mod tests {
 
         impl Renderer for RecordingRenderer {
             type Color = NullColor;
-            type Options = ();
-
-            fn set_options(&mut self, _options: Self::Options) {}
             fn size(&self) -> Size {
                 Size::new_equal(64)
             }

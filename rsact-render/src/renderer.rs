@@ -69,9 +69,18 @@ impl Viewport {
 /// embedded_graphics.
 pub trait Renderer {
     type Color: Color;
-    type Options;
 
-    fn set_options(&mut self, options: Self::Options);
+    // NOTE (WS6.4.0(ii-2)): `type Options` + `fn set_options` lived here and
+    // were removed as dead — all seven implementors were `type Options = ()`
+    // with an empty body, and nothing ever called the setter. The associated
+    // type also had to be named in any `dyn Renderer<Color = _, Options = _>`,
+    // so it cost something despite carrying nothing.
+    //
+    // The design it was a placeholder for is NOT dropped: see the commented-out
+    // `RendererOptions` / `AntiAliasing` block at the top of this file, which is
+    // still the sketch for runtime renderer options. Reintroduce the hook there
+    // when something actually configures a renderer at runtime — by then the
+    // shape will be known, instead of an empty slot guessing at it.
 
     fn size(&self) -> Size;
 
@@ -236,9 +245,6 @@ impl<C> FinishRender<C> for NullRenderer {
 
 impl Renderer for NullRenderer {
     type Color = NullColor;
-    type Options = ();
-
-    fn set_options(&mut self, _options: Self::Options) {}
 
     fn size(&self) -> Size {
         Size::zero()
