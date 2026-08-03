@@ -7,6 +7,8 @@ use crate::{
     style::DrawStyle,
 };
 
+use core::marker::PhantomData;
+
 pub type RenderResult = Result<(), ()>;
 
 // #[derive(PartialEq, Clone)]
@@ -261,12 +263,32 @@ impl Color for NullColor {
     }
 }
 
-/// Stub renderer for tests.
-#[derive(Default)]
-pub struct NullRenderer;
+/// A renderer that draws nothing, generic over the colour it accepts.
+///
+/// Two jobs. It is the stub every headless test and size/metrics probe builds a
+/// `Wtf` around — hence `C = NullColor` by default, so `Wtf<NullRenderer, ..>`
+/// and `&mut NullRenderer` keep working unannotated. And (WS6.4.0(ii-4)) it is
+/// what 6.4c's **collect pass** runs widget bodies against: that pass must
+/// genuinely execute each body so reactive dependencies re-track and damage
+/// rects are pushed, but must not rasterise, and it has to satisfy
+/// `Renderer<Color = W::Color>` for the *application's* colour — which the
+/// previous `type Color = NullColor` hard-wiring could not express.
+///
+/// It carries no state, so `NullRenderer::<C>::default()` is free.
+pub struct NullRenderer<C = NullColor> {
+    _color: PhantomData<C>,
+}
 
-impl RenderTarget for NullRenderer {
-    type Color = NullColor;
+// Hand-written rather than derived: `#[derive(Default)]` would demand
+// `C: Default`, which no colour needs to satisfy for an empty struct.
+impl<C> Default for NullRenderer<C> {
+    fn default() -> Self {
+        Self { _color: PhantomData }
+    }
+}
+
+impl<C: Color> RenderTarget for NullRenderer<C> {
+    type Color = C;
 
     fn draw(
         &mut self,
@@ -275,14 +297,14 @@ impl RenderTarget for NullRenderer {
     }
 }
 
-impl<C> FinishRender<C> for NullRenderer {
+impl<C, D> FinishRender<C> for NullRenderer<D> {
     fn finish_frame(&mut self, target: &mut impl RenderTarget<Color = C>) {
         let _ = target;
     }
 }
 
-impl Renderer for NullRenderer {
-    type Color = NullColor;
+impl<C: Color> Renderer for NullRenderer<C> {
+    type Color = C;
 
     fn size(&self) -> Size {
         Size::zero()

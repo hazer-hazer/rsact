@@ -25,7 +25,7 @@ fn main() -> ! {
     let init = labels.clone();
 
     let mut ui: UI<NullWtf, _> =
-        UI::new((), NullRenderer).with_page((), move || {
+        UI::new((), NullRenderer::default()).with_page((), move || {
             Flex::col(
                 init.iter()
                     .map(|s| Label::new(*s).into_el())

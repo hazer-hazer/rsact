@@ -704,7 +704,7 @@ mod tests {
     use super::*;
     use crate::{
         geometry::{Point, Rect, Size},
-        renderer::Renderer,
+        renderer::{NullColor, NullRenderer, Renderer},
     };
     use embedded_graphics::pixelcolor::Rgb888;
 
@@ -732,6 +732,39 @@ mod tests {
                 assert_eq!(f, s, "EGRenderer fill_solid != per-pixel fill");
             })
         });
+    }
+
+    /// WS6.4.0(ii-4): `NullRenderer` must be a no-op renderer for the
+    /// *application's* colour, not only for `NullColor`.
+    ///
+    /// This is what 6.4c's collect pass runs widget bodies against: it has to
+    /// satisfy `Renderer<Color = W::Color>` while rasterising nothing, which the
+    /// old `type Color = NullColor` hard-wiring could not express. Lives in this
+    /// module because a second real `Color` impl (`Rgb888`) is in scope here.
+    #[test]
+    fn null_renderer_is_generic_over_colour() {
+        fn accepts_renderer_for<C: Color, R: Renderer<Color = C>>(
+            r: &mut R,
+            c: C,
+        ) {
+            // Every primitive is a no-op that still reports success, so a
+            // collect pass never sees a spurious `Err` from the null backend.
+            Renderer::pixel(r, Point::zero(), c).unwrap();
+            r.push_clip(Rect::new(Point::zero(), Size::new_equal(4)));
+            r.pop_clip();
+            // Defaulted in ii-3; correct as a no-op for a full-frame surface.
+            r.begin_region(Rect::new(Point::zero(), Size::new_equal(4)))
+                .unwrap();
+            r.end_region().unwrap();
+        }
+
+        let mut app = NullRenderer::<Rgb888>::default();
+        accepts_renderer_for(&mut app, Rgb888::WHITE);
+
+        // The `C = NullColor` default keeps every existing `Wtf<NullRenderer, ..>`
+        // and `&mut NullRenderer` spelling compiling unannotated.
+        let mut legacy = NullRenderer::default();
+        accepts_renderer_for(&mut legacy, NullColor);
     }
 
     /// WS6.4.0(ii-1): the clip stack must balance, and an unmatched `pop_clip`

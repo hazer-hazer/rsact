@@ -223,7 +223,7 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
 /// // e-paper: compose the screen, flush it once, reclaim all the RAM.
 /// let drew = render_once(
 ///     || {
-///         UI::new((), NullRenderer)
+///         UI::new((), NullRenderer::default())
 ///             .no_events()
 ///             .with_page((), || Label::new("Hello e-paper".inert()).into_el())
 ///     },
@@ -535,10 +535,13 @@ mod tests {
         with_new_runtime(|_| {
             let snap = leak_snapshot();
 
-            let mut target = NullRenderer;
+            // Explicit colour: `NullRenderer` is generic since WS6.4.0(ii-4),
+            // and a bare `default()` in a `&mut _` argument position has nothing
+            // to infer `C` from.
+            let mut target = NullRenderer::<NullColor>::default();
             let drew = render_once(
                 || {
-                    UI::new((), NullRenderer)
+                    UI::new((), NullRenderer::default())
                         .no_events()
                         .with_page((), || Label::new("x".inert()).into_el())
                 },
