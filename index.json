@@ -1,8 +1,8 @@
 {
-  "10e182ef866e4f944e3da08204b1858b6c457ddd": {
-    "date": 1785700122,
+  "27115cceb92157469a0db7cb68d1278424a575e6": {
+    "date": 1785748240,
     "parent": "",
-    "branch": "ws5.0b-renderer-single-owner",
-    "subject": "WS5.0b: renderer as a single-owner UI field (drop Signal<W::Renderer>)"
+    "branch": "master",
+    "subject": "Merge pull request #32 from hazer-hazer/ws5.0b-renderer-single-owner"
   }
 }
