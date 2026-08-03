@@ -200,20 +200,53 @@ pub trait Framebuf<C: Color + PackedColor> {
         target.draw(pixels);
     }
 
-    fn point_to_subpart(&self, point: Point) -> Option<(usize, usize)> {
-        let size = self.viewport().size;
-        if point.x < 0
-            || point.x >= size.width as i32
-            || point.y < 0
-            || point.y >= size.height as i32
-        {
-            None
-        } else {
-            let index =
-                point.y as usize * size.width as usize + point.x as usize;
+    /// Flat pixel index of `point`, in this buffer's own 0-based space.
+    ///
+    /// **WS6.4.0(i-2): the single source of truth for addressing.** Every path
+    /// that turns a coordinate into a storage index must route through this (or
+    /// [`row_stride`] to step between rows). `point` must be inside
+    /// [`viewport`] — callers bounds-check first ([`point_to_subpart`]) or clip
+    /// first ([`local_bounds`]).
+    ///
+    /// It used to be open-coded in two places: here and in
+    /// `PackedFramebuf::fill_solid`'s row loop, whose comment even noted it was
+    /// "same as `point_to_subpart`". That duplication is a trap for the tiled
+    /// work: giving the buffer a non-zero origin and updating only one of them
+    /// lands WS6.3b's fast solid fills in the wrong row while per-pixel writes
+    /// stay correct — a *plausible* image rather than an obvious failure. Fold
+    /// the origin in here and both paths follow.
+    ///
+    /// [`row_stride`]: Framebuf::row_stride
+    /// [`viewport`]: Framebuf::viewport
+    /// [`point_to_subpart`]: Framebuf::point_to_subpart
+    /// [`local_bounds`]: Framebuf::local_bounds
+    fn flat_index(&self, point: Point) -> usize {
+        let viewport = self.viewport();
+        let local = point - viewport.top_left;
+        local.y as usize * viewport.size.width as usize + local.x as usize
+    }
 
-            Some((index / C::pps(), index % C::pps()))
+    /// Flat-index distance between vertically adjacent pixels — i.e. one row.
+    /// A buffer's own width *is* its stride, so this derives from [`viewport`]
+    /// like [`flat_index`] does.
+    ///
+    /// [`viewport`]: Framebuf::viewport
+    /// [`flat_index`]: Framebuf::flat_index
+    fn row_stride(&self) -> usize {
+        self.viewport().size.width as usize
+    }
+
+    /// `area` clipped to this buffer. A zero-sized result means nothing to do.
+    fn local_bounds(&self, area: Rect) -> Rect {
+        area.intersection(&self.viewport())
+    }
+
+    fn point_to_subpart(&self, point: Point) -> Option<(usize, usize)> {
+        if !self.viewport().contains(point) {
+            return None;
         }
+        let index = self.flat_index(point);
+        Some((index / C::pps(), index % C::pps()))
     }
 
     fn draw_buffer(&self, f: impl FnOnce(&[C::Storage])) {
@@ -267,26 +300,24 @@ impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor> DrawTarget
         area: &embedded_graphics::primitives::Rectangle,
         color: Self::Color,
     ) -> Result<(), Self::Error> {
-        let bounds = embedded_graphics::primitives::Rectangle::new(
-            embedded_graphics::prelude::Point::zero(),
-            OriginDimensions::size(self),
-        );
-        let area = area.intersection(&bounds);
+        // WS6.4.0(i-2): clipping and addressing both come from `Framebuf` now,
+        // not from a second open-coded copy of `y*width + x` — see
+        // `Framebuf::flat_index`. The row start is computed ONCE and stepped by
+        // `row_stride`, so a non-zero buffer origin (the tiled work) lands here
+        // for free.
+        let area = Framebuf::local_bounds(self, (*area).into());
         if area.size.width == 0 || area.size.height == 0 {
             return Ok(());
         }
 
-        let width = self.size.width as usize;
         let pps = C::pps();
         let solid = C::solid_storage(color);
-        let x0 = area.top_left.x as usize;
-        let y0 = area.top_left.y as usize;
+        let stride = Framebuf::row_stride(self);
         let w = area.size.width as usize;
         let h = area.size.height as usize;
+        let mut start = Framebuf::flat_index(self, area.top_left);
 
-        for y in y0..y0 + h {
-            // Flat index space (`y*width + x`), same as `point_to_subpart`.
-            let start = y * width + x0;
+        for _ in 0..h {
             let end = start + w;
             // Round the pixel range INWARD to whole storage-word boundaries.
             let head_end = start.div_ceil(pps) * pps;
@@ -307,6 +338,8 @@ impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor> DrawTarget
                     C::set_color(&mut self.pixels[i / pps], i % pps, color);
                 }
             }
+
+            start += stride;
         }
 
         Ok(())
@@ -634,5 +667,66 @@ mod tests {
                 "mono seed {seed}: fill_solid != draw_iter for {area:?}"
             );
         }
+    }
+
+    /// A buffer whose viewport has a **non-zero origin** — what a tile is.
+    /// `PackedFramebuf::viewport()` is hard-wired to `Point::zero()`, so this is
+    /// the only way to exercise the origin term today.
+    struct OffsetBuf {
+        origin: Point,
+        size: Size,
+        pixels: Vec<u8>,
+    }
+
+    impl super::Framebuf<BinaryColor> for OffsetBuf {
+        fn data(&self) -> &[u8] {
+            &self.pixels
+        }
+        fn data_mut(&mut self) -> &mut [u8] {
+            &mut self.pixels
+        }
+        fn viewport(&self) -> Rect {
+            Rect::new(self.origin, self.size)
+        }
+    }
+
+    /// WS6.4.0(i-2): addressing is origin-aware, in ONE place.
+    ///
+    /// `flat_index` / `point_to_subpart` take **absolute** coordinates and
+    /// resolve them against `viewport()`, so a buffer that covers a sub-rect of
+    /// the screen — a tile — indexes correctly without every caller translating
+    /// by hand. This is what `fill_solid` now inherits instead of open-coding
+    /// `y*width + x` against an assumed zero origin.
+    #[test]
+    fn addressing_is_origin_aware() {
+        let origin = Point::new(40, 100);
+        let size = Size::new(16, 8);
+        let buf = OffsetBuf {
+            origin,
+            size,
+            pixels: Vec::from([0u8; 16]), // 16x8 mono = 128 px = 16 bytes
+        };
+
+        // The origin itself is local (0, 0).
+        assert_eq!(buf.flat_index(origin), 0);
+        assert_eq!(buf.point_to_subpart(origin), Some((0, 0)));
+
+        // Stride is the buffer's own width, so one row down is +width.
+        assert_eq!(buf.row_stride(), 16);
+        assert_eq!(buf.flat_index(origin + Point::new(0, 1)), 16);
+        assert_eq!(buf.flat_index(origin + Point::new(3, 2)), 2 * 16 + 3);
+
+        // Anything outside is rejected — including points that WOULD be valid
+        // under the old zero-origin assumption (this is the regression).
+        assert_eq!(buf.point_to_subpart(Point::new(0, 0)), None);
+        assert_eq!(buf.point_to_subpart(origin + Point::new(-1, 0)), None);
+        assert_eq!(buf.point_to_subpart(origin + Point::new(0, -1)), None);
+        assert_eq!(buf.point_to_subpart(origin + Point::new(16, 0)), None);
+        assert_eq!(buf.point_to_subpart(origin + Point::new(0, 8)), None);
+
+        // `local_bounds` clips to the buffer, in absolute coordinates.
+        let clipped =
+            buf.local_bounds(Rect::new(Point::new(32, 96), Size::new(16, 8)));
+        assert_eq!(clipped, Rect::new(origin, Size::new(8, 4)));
     }
 }
