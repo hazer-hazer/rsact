@@ -170,10 +170,49 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> EGRenderer<C, AA> {
         self.layers[pos].1.canvas.draw_buffer(f);
     }
 
+    /// Map a point from the active viewport's coordinate space into the layer
+    /// canvas's own space — the transform the *write* paths ([`draw_pixels`],
+    /// `fill_solid`) get for free by dispatching through embedded-graphics'
+    /// `DrawTargetExt`. Any path that touches the canvas **directly** must apply
+    /// it by hand or it addresses a different pixel than the matching write.
+    ///
+    /// [`ViewportKind::Fullscreen`] is the identity, and [`ViewportKind::Clipped`]
+    /// is too — eg's `clipped` only *filters* pixels outside the area and never
+    /// rebases the origin. [`ViewportKind::Cropped`] does rebase (eg's `cropped`
+    /// puts the origin at `area.top_left`).
+    ///
+    /// [`draw_pixels`]: Self::draw_pixels
+    fn viewport_to_canvas(&self, point: Point) -> Point {
+        match self.current_viewport().kind {
+            ViewportKind::Fullscreen | ViewportKind::Clipped(_) => point,
+            ViewportKind::Cropped(area) => point + area.top_left,
+        }
+    }
+
+    /// Blend `pixel`'s colour into whatever the canvas already holds there.
+    ///
+    /// WS6.4.0(i-1): the read goes through [`viewport_to_canvas`] so it lands on
+    /// the pixel `draw_pixels` will write. It previously read `pixel.0` raw,
+    /// which is only correct while the viewport is `Fullscreen`/`Clipped` — under
+    /// `Cropped` the write is rebased and the read was not, so the blend mixed
+    /// against an unrelated pixel. Latent today (nothing constructs a `Cropped`
+    /// viewport — see the commented-out producer at `layer.rs:88`), but painting
+    /// into a tile *is* a rebased coordinate space, so 6.4d would have activated
+    /// it. Note this is a read-modify-write per pixel: it defeats
+    /// write-combining, and it is why a tile buffer must be pre-filled with the
+    /// true background before painting (roadmap 6.4 constraint (b)).
+    ///
+    /// [`viewport_to_canvas`]: Self::viewport_to_canvas
     pub fn pixel_alpha(&mut self, pixel: Pixel<C>, blend: f32) -> RenderResult {
+        let read_at = self.viewport_to_canvas(pixel.0);
         let canvas = self.current_canvas();
+        // NOTE: an out-of-bounds read still degrades to the unblended colour
+        // rather than an error, so a mis-addressed read yields a *plausible*
+        // pixel, not a failure. Preserved as-is (a behaviour change is out of
+        // scope here); it is why 6.4a's tile-invariance op-log check is the real
+        // defence for this area.
         let color = canvas
-            .pixel(pixel.0)
+            .pixel(read_at)
             .map(|current| current.mix(blend, pixel.1))
             .unwrap_or(pixel.1);
         self.draw_pixels(core::iter::once(Pixel(pixel.0, color)))
@@ -696,6 +735,54 @@ mod tests {
         fast.draw_buffer(|f| {
             slow.draw_buffer(|s| {
                 assert_eq!(f, s, "EGRenderer fill_solid != per-pixel fill");
+            })
+        });
+    }
+
+    /// WS6.4.0(i-1): `pixel_alpha` must read the destination through the SAME
+    /// viewport transform its write goes through. Under `ViewportKind::Cropped`
+    /// the write is rebased to the crop origin (eg's `cropped`) while the read
+    /// was raw, so the blend mixed against a different pixel than it wrote.
+    ///
+    /// Expressed as an invariance: `Cropped(crop)` + a viewport-local point must
+    /// produce the same framebuffer as `Fullscreen` + the absolute point. That
+    /// equivalence is exactly what painting into a tile relies on, which is why
+    /// this latent bug would have gone live with 6.4d.
+    #[test]
+    fn pixel_alpha_reads_through_the_viewport_transform() {
+        let size = Size::new(20, 16);
+        let crop = Rect::new(Point::new(5, 4), Size::new(10, 8));
+        let local = Point::new(2, 3);
+        let abs = local + crop.top_left;
+
+        // The backdrop must differ from the cleared background, or reading the
+        // wrong pixel would coincidentally produce the right colour.
+        let backdrop = Rgb888::new(200, 0, 0);
+        let ink = Rgb888::new(0, 0, 200);
+        assert_ne!(backdrop, <Rgb888 as Color>::default_background());
+
+        // Cropped: seed the backdrop at the ABSOLUTE pixel, blend at the LOCAL
+        // point. Pre-fix, the read landed on `local` (still background).
+        let mut cropped = EGRenderer::<Rgb888, AntiAliasingDisabled>::new(size);
+        Renderer::pixel(&mut cropped, abs, backdrop).unwrap();
+        cropped
+            .viewport_stack
+            .push(Viewport { layer: 0, kind: ViewportKind::Cropped(crop) });
+        cropped.pixel_alpha(Pixel(local, ink), 0.5).unwrap();
+        cropped.viewport_stack.pop();
+
+        // Reference: the same blend written in absolute coordinates.
+        let mut absolute =
+            EGRenderer::<Rgb888, AntiAliasingDisabled>::new(size);
+        Renderer::pixel(&mut absolute, abs, backdrop).unwrap();
+        absolute.pixel_alpha(Pixel(abs, ink), 0.5).unwrap();
+
+        cropped.draw_buffer(|c| {
+            absolute.draw_buffer(|a| {
+                assert_eq!(
+                    c, a,
+                    "pixel_alpha blended against the untranslated destination"
+                );
             })
         });
     }
