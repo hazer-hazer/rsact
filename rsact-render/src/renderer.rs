@@ -72,6 +72,20 @@ impl Viewport {
 pub trait Renderer {
     type Color: Color;
 
+    /// How many storage units this renderer's surface holds — the capacity side
+    /// of WS6.4.0(iii)'s compile-time tile check.
+    ///
+    /// `usize::MAX` means "my surface always covers the frame": a GPU, a host
+    /// renderer owning a resizable buffer, `NullRenderer`. Such a renderer
+    /// accepts any frame policy. A tile-backed renderer overrides this with its
+    /// buffer's `PixelBuf::UNITS`, after which a policy asking for a region
+    /// larger than the buffer fails to compile — see
+    /// [`assert_region_fits`](crate::eg::framebuf::assert_region_fits).
+    ///
+    /// The default sits at the permissive end on purpose: a renderer that has
+    /// not opted into tiling is one that never needed the check.
+    const SURFACE_UNITS: usize = usize::MAX;
+
     // NOTE (WS6.4.0(ii-2)): `type Options` + `fn set_options` lived here and
     // were removed as dead — all seven implementors were `type Options = ()`
     // with an empty body, and nothing ever called the setter. The associated
