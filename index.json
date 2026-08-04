@@ -1,8 +1,8 @@
 {
-  "54ca9ea4c7bcbbe37b396944144f58ce9be481e0": {
-    "date": 1785799361,
+  "881055497854fe4edf3377b07596d79e7289925d": {
+    "date": 1785833731,
     "parent": "",
-    "branch": "ws6.4.0-render-prep",
-    "subject": "WS6.4.0(iii): compile-time tile-capacity chain"
+    "branch": "master",
+    "subject": "Merge pull request #31 from hazer-hazer/render-a-delete-layers"
   }
 }
