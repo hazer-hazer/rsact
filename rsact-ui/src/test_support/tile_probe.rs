@@ -208,9 +208,17 @@ pub struct VisitReport {
     ///
     /// A load-bearing soundness number, not a curiosity: pruning a subtree on the
     /// parent's rect silently drops these children. Scrollable content is the
-    /// obvious source (that is what `ClipPath::InnerRect` exists for). If this is
-    /// non-zero, WS6.4b(i) cannot prune on `outer` alone — it must prune on the
-    /// subtree's union extent, or only where a clip bounds the children.
+    /// obvious source. If this is non-zero, WS6.4b(i) cannot prune on `outer`
+    /// alone — it must prune on the subtree's **union extent**.
+    ///
+    /// The tempting alternative — "prune under `outer`, except where a clip bounds
+    /// the children" — is **not available today**: `ElState::clip_path` is only
+    /// ever initialised to `None` (`el/state.rs:86`) and nothing anywhere sets it,
+    /// so `render_subtree`'s `ClipPath::InnerRect` arm is unreachable and
+    /// `Scrollable`'s own clip call is commented out with a TODO
+    /// (`widget/scrollable.rs:344-350`). Overflowing content is bounded only by the
+    /// framebuffer viewport, which is why the `escaping` node here is *visible* off
+    /// the bottom of the screen rather than clipped inside its parent.
     pub escaping: usize,
 }
 

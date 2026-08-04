@@ -121,7 +121,9 @@ fn checkboxes_page(n: usize) -> impl View<RecWtf> {
 
 /// Content taller than the viewport, inside a `Scrollable` — the page whose
 /// layout nodes reach outside their parent, which is the soundness question for
-/// WS6.4b's subtree culling (see `VisitReport::escaping`).
+/// WS6.4b's subtree culling (see `VisitReport::escaping`). Note the overflow is
+/// genuinely unclipped, not merely un-pruned: nothing in the crate sets
+/// `ElState::clip_path`, so only the framebuffer viewport bounds it.
 fn scrollable_page(n: usize) -> impl View<RecWtf> {
     Scrollable::vertical(
         Flex::col(
