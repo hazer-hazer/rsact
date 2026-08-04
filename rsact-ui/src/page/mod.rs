@@ -15,7 +15,7 @@ use crate::{
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use dev::{DevHoveredEl, DevTools};
-use log::{debug, info};
+use log::{debug, error, info};
 use rsact_reactive::prelude::*;
 use rsact_reactive::scope::ScopeHandle;
 
@@ -52,8 +52,29 @@ pub struct Page<W: WidgetCtx> {
     root: ElId,
     needs_redraw: bool,
     arena: Signal<ElArena<W>>,
-    // TODO: MaybeReactive
-    layout: Memo<LayoutModel>,
+    /// The page's layout, owned inline — **not** a reactive value (WS6.4.0(iv)).
+    ///
+    /// It used to be a `Memo<LayoutModel>`, which made recomputation happen
+    /// wherever the first pull of the frame landed. Owning it moves the decision
+    /// to one explicit call, [`relayout_if_needed`](Self::relayout_if_needed),
+    /// so a frame can hold a single consistent layout for all of its passes
+    /// without cloning a recursive tree or holding a `RefCell` borrow across the
+    /// frame (the latter would panic on a mid-frame pull — WS1.8).
+    ///
+    /// Being owned also unlocks something a memo cannot express: a future
+    /// relayout can *splice this tree in place* instead of building a fresh one,
+    /// since a memo's contract is to produce a value and `&mut` access to its
+    /// contents would make change-detection meaningless.
+    layout: LayoutModel,
+    /// Gate for [`relayout_if_needed`](Self::relayout_if_needed): answers "did a
+    /// tracked layout input change?" without storing the model in the graph.
+    ///
+    /// Tracks the reactive inputs the old memo tracked — `viewport` and `fonts`,
+    /// both owned outside the page. The structure/prop channel is *not* tracked:
+    /// it arrives through the poll's `force` flag, because the arena's own dirty
+    /// set already records it (see `relayout_if_needed`). Owned by the page and
+    /// disposed in `Drop`, like `render_probe`.
+    layout_probe: Probe,
     state: PageState<W>,
     style: Signal<PageStyle<W::Color>>,
     // WS5.0b: the renderer is NOT stored here. It is a single-owner value living
@@ -97,16 +118,152 @@ pub struct Page<W: WidgetCtx> {
     scope: ScopeHandle,
 }
 
+/// Compute a page's [`LayoutModel`]. Extracted from what used to be the page's
+/// layout `Memo` callback (WS6.4.0(iv)) so it can be called from `Page::new` and
+/// from [`Page::relayout_if_needed`] alike — the same body, no longer wrapped in
+/// a reactive node.
+///
+/// Reading `viewport`/`fonts` here TRACKS them, so call it inside the layout
+/// probe's `poll` closure and nowhere else; that is what keeps a change to either
+/// one able to re-run a relayout.
+///
+/// `prev` is the page's current model, used only by the `incremental-layout`
+/// splice path. `None` on first build.
+fn compute_layout<W: WidgetCtx>(
+    id: W::PageId,
+    arena: Signal<ElArena<W>>,
+    root: ElId,
+    viewport: MaybeReactive<Size>,
+    fonts: Signal<FontCtx>,
+    mut force_redraw: Signal<bool>,
+    mut full_flush: Signal<bool>,
+    prev: Option<&LayoutModel>,
+) -> LayoutModel {
+    info!("Relayout page {:?}", id);
+
+    // `prev` is only consumed by the incremental path.
+    #[cfg(not(feature = "incremental-layout"))]
+    let _ = prev;
+
+    // WS6.4.0(iv): `viewport` and `fonts` are the only TRACKED
+    // dependencies — reading them here subscribes the caller's probe.
+    // The structure/prop channel is deliberately NOT tracked: it arrives
+    // as the poll's `force` flag from `ElArena::has_dirty()`, because
+    // every site that mutates layout marks the arena in the same breath.
+    let viewport = viewport.with(|v| *v);
+
+    // WS6.1: set true by the incremental path below when it does a
+    // TARGETED repaint (marked specific stable ancestors), so the
+    // blanket `force_redraw`/`full_flush` is skipped. Only exists under
+    // the feature — the default path is always blanket (see `blanket`).
+    #[cfg(feature = "incremental-layout")]
+    let mut targeted = false;
+
+    // `fonts.with` tracks the font context (a change ⇒ whole-tree
+    // relayout — fonts feed every text node's measure).
+    let layout = fonts.with(|fonts| {
+        // `take_dirty` mutates the arena, so `update_untracked` (needs
+        // `&mut` on the Copy signal handle) rather than `with_untracked`.
+        let mut arena = arena;
+        arena.update_untracked(|arena| {
+            let ctx = LayoutCtx {
+                fonts,
+                viewport,
+                font_props: FontProps {
+                    font: Some(Font::Auto),
+                    font_size: None,
+                    font_style: None,
+                },
+            };
+
+            // Drain the dirty set every pass so marks are attributed to
+            // the relayout that handles them (also stops it accumulating
+            // under default features, which never read it).
+            let _dirty = arena.take_dirty();
+
+            // Incremental only for a non-empty, non-`full` dirty set with
+            // a previous tree. A `full` mark (structure change / fonts),
+            // an empty set (viewport change / first build), or no `prev`
+            // ⇒ full recompute.
+            #[cfg(feature = "incremental-layout")]
+            if let Some(prev) = prev
+                && !_dirty.is_empty()
+                && !_dirty.is_full()
+            {
+                let new = crate::layout::model::relayout_incremental(
+                    prev,
+                    _dirty.nodes(),
+                    fonts,
+                    viewport,
+                    arena,
+                );
+
+                // WS6.1: TARGETED invalidation. Instead of the blanket
+                // `force_redraw`/`full_flush` below, repaint only the
+                // nearest size-stable ancestor of each moved node (its
+                // clear covers the old + new child positions — no
+                // ghosting). Those ancestors' `outer` rects become the
+                // damage the render pass records + flushes (WS6.2). If a
+                // change reached the ROOT (`full`), no stable ancestor
+                // exists ⇒ fall through to the blanket path.
+                let roots =
+                    crate::layout::model::layout_repaint_roots(prev, &new);
+                if !roots.full {
+                    for id in roots.roots {
+                        arena.mark_needs_redraw(id);
+                    }
+                    targeted = true;
+                }
+
+                return new;
+            }
+
+            model_layout(
+                &ctx,
+                arena,
+                root,
+                Limits::only_max(viewport),
+                viewport.into(),
+            )
+        })
+    });
+
+    // Blanket full repaint + whole-viewport flush, UNLESS the
+    // incremental path already did a targeted repaint above (WS6.1). The
+    // default (non-incremental) build has no targeted path, so it is
+    // always blanket — the historical behaviour.
+    #[cfg(feature = "incremental-layout")]
+    let blanket = !targeted;
+    #[cfg(not(feature = "incremental-layout"))]
+    let blanket = true;
+
+    if blanket {
+        // force_redraw re-runs every part's probe; full_flush (WS6.2, a
+        // NON-reactive flag — see its doc) flushes the whole viewport,
+        // since the page background outside widgets is not painted
+        // per-frame. Used for first build, fonts/viewport change,
+        // structure change, and any relayout that reached the root.
+        force_redraw.set(true);
+        full_flush.set_untracked(true);
+    }
+
+    debug!("{}", PPLayoutModel::root(&layout));
+
+    layout
+}
+
 impl<W: WidgetCtx> Drop for Page<W> {
     fn drop(&mut self) {
-        // Dispose every render probe the page owns before the arena signal
-        // itself (WS2.3): each element's `part_probes` (walked via the arena)
-        // and the page `render_probe`. Goto navigation drops the old page, so
-        // without this every navigation would leak probe nodes.
+        // Dispose every probe the page owns before the arena signal itself
+        // (WS2.3): each element's `part_probes` (walked via the arena), the page
+        // `render_probe`, and the `layout_probe` (WS6.4.0(iv)). Goto navigation
+        // drops the old page, so without this every navigation would leak probe
+        // nodes.
         self.arena
             .update_untracked(|arena| arena.dispose_all_probes());
         unsafe {
             self.render_probe.dispose();
+            self.layout_probe.dispose();
             self.arena.dispose();
         }
     }
@@ -147,141 +304,36 @@ impl<W: WidgetCtx> Page<W> {
         // layout memo below + `force_redraw()`); drained in `use_renderer`.
         let mut full_flush = create_signal(false).name("Full flush");
 
-        // WS5.1: the page relayout trigger. Off-graph layout means the layout
-        // `Memo` no longer tracks a reactive `Layout` handle — instead the
-        // reactive layout-prop bindings (`BuildCtx::bind_layout`) and structure
-        // changes (`set_children`/`set_single_child`) fire this trigger, and the
-        // memo tracks it, so either kind of change re-runs a relayout.
-        let relayout = create_trigger();
+        let root = BuildCtx::run(&mut root, arena);
 
-        let root = BuildCtx::run(&mut root, arena, relayout);
+        // Untracked so the probe is owned by no observer/scope — the page owns
+        // it and disposes it explicitly in `Drop` (WS2.3), like `render_probe`.
+        let layout_probe = untrack(create_probe);
 
-        // TODO: If we make fonts MaybeReactive, we can go fully MaybeReactive
-        // LayoutModel here.
-        //
-        // WS5.2: a `create_memo(|prev| …)` (the SingleParam form) so the callback
-        // gets the PREVIOUS `LayoutModel`. Under `incremental-layout` a non-full
-        // dirty set is relayed out incrementally by splicing `prev`; otherwise
-        // (default features, a `full` mark, an empty set, or first build) it is a
-        // full recompute.
-        let layout_model = create_memo(move |prev: Option<&LayoutModel>| {
-            info!("Relayout page {:?}", id);
+        // The initial layout. `Copy` closure (every capture is a `Copy` handle),
+        // so it can serve both the poll and the degraded path below.
+        let compute = || {
+            compute_layout::<W>(
+                id,
+                arena,
+                root,
+                viewport,
+                fonts,
+                force_redraw,
+                full_flush,
+                None,
+            )
+        };
 
-            // `prev` is only consumed by the incremental path.
-            #[cfg(not(feature = "incremental-layout"))]
-            let _ = prev;
-
-            // WS5.1: the layout is walked off-graph from the arena, whose
-            // structure/prop writes are untracked, so the memo has no implicit
-            // per-node dependency to re-run on. `relayout` (fired by
-            // `bind_layout` for reactive props and by `set_children`/
-            // `set_single_child` for structure), plus `fonts`/`viewport`, are the
-            // explicit dependencies tracked here.
-            relayout.track();
-
-            let viewport = viewport.with(|v| *v);
-
-            // WS6.1: set true by the incremental path below when it does a
-            // TARGETED repaint (marked specific stable ancestors), so the
-            // blanket `force_redraw`/`full_flush` is skipped. Only exists under
-            // the feature — the default path is always blanket (see `blanket`).
-            #[cfg(feature = "incremental-layout")]
-            let mut targeted = false;
-
-            // `fonts.with` tracks the font context (a change ⇒ whole-tree
-            // relayout — fonts feed every text node's measure).
-            let layout = fonts.with(|fonts| {
-                // `take_dirty` mutates the arena, so `update_untracked` (needs
-                // `&mut` on the Copy signal handle) rather than `with_untracked`.
-                let mut arena = arena;
-                arena.update_untracked(|arena| {
-                    let ctx = LayoutCtx {
-                        fonts,
-                        viewport,
-                        font_props: FontProps {
-                            font: Some(Font::Auto),
-                            font_size: None,
-                            font_style: None,
-                        },
-                    };
-
-                    // Drain the dirty set every pass so marks are attributed to
-                    // the relayout that handles them (also stops it accumulating
-                    // under default features, which never read it).
-                    let _dirty = arena.take_dirty();
-
-                    // Incremental only for a non-empty, non-`full` dirty set with
-                    // a previous tree. A `full` mark (structure change / fonts),
-                    // an empty set (viewport change / first build), or no `prev`
-                    // ⇒ full recompute.
-                    #[cfg(feature = "incremental-layout")]
-                    if let Some(prev) = prev
-                        && !_dirty.is_empty()
-                        && !_dirty.is_full()
-                    {
-                        let new = crate::layout::model::relayout_incremental(
-                            prev,
-                            _dirty.nodes(),
-                            fonts,
-                            viewport,
-                            arena,
-                        );
-
-                        // WS6.1: TARGETED invalidation. Instead of the blanket
-                        // `force_redraw`/`full_flush` below, repaint only the
-                        // nearest size-stable ancestor of each moved node (its
-                        // clear covers the old + new child positions — no
-                        // ghosting). Those ancestors' `outer` rects become the
-                        // damage the render pass records + flushes (WS6.2). If a
-                        // change reached the ROOT (`full`), no stable ancestor
-                        // exists ⇒ fall through to the blanket path.
-                        let roots = crate::layout::model::layout_repaint_roots(
-                            prev, &new,
-                        );
-                        if !roots.full {
-                            for id in roots.roots {
-                                arena.mark_needs_redraw(id);
-                            }
-                            targeted = true;
-                        }
-
-                        return new;
-                    }
-
-                    model_layout(
-                        &ctx,
-                        arena,
-                        root,
-                        Limits::only_max(viewport),
-                        viewport.into(),
-                    )
-                })
-            });
-
-            // Blanket full repaint + whole-viewport flush, UNLESS the
-            // incremental path already did a targeted repaint above (WS6.1). The
-            // default (non-incremental) build has no targeted path, so it is
-            // always blanket — the historical behaviour.
-            #[cfg(feature = "incremental-layout")]
-            let blanket = !targeted;
-            #[cfg(not(feature = "incremental-layout"))]
-            let blanket = true;
-
-            if blanket {
-                // force_redraw re-runs every part's probe; full_flush (WS6.2, a
-                // NON-reactive flag — see its doc) flushes the whole viewport,
-                // since the page background outside widgets is not painted
-                // per-frame. Used for first build, fonts/viewport change,
-                // structure change, and any relayout that reached the root.
-                force_redraw.set(true);
-                full_flush.set_untracked(true);
-            }
-
-            debug!("{}", PPLayoutModel::root(&layout));
-
-            layout
-        })
-        .name("Layout model");
+        // `force: true` rather than leaning on the probe being born dirty: this
+        // poll's job is to register the `viewport`/`fonts` dependencies, and that
+        // should not depend on birth state. `None` for `prev` — nothing to splice.
+        let layout = layout_probe.poll(true, compute).unwrap_or_else(|| {
+            // Unreachable: a probe created three lines above cannot already be
+            // disposed. Logged and degraded rather than unwrapped (WS1.8).
+            error!("Page {id:?}: fresh layout probe was already disposed");
+            compute()
+        });
 
         let style = PageStyle::base().signal().name("Page style");
 
@@ -299,7 +351,8 @@ impl<W: WidgetCtx> Page<W> {
             root,
             needs_redraw: true,
             arena,
-            layout: layout_model,
+            layout,
+            layout_probe,
             state,
             style,
             // TODO: Signal viewport in Renderer? Windows can change size.
@@ -318,6 +371,82 @@ impl<W: WidgetCtx> Page<W> {
 
     pub(crate) fn id(&self) -> W::PageId {
         self.id
+    }
+
+    /// The page's current layout, relayouting first if an input changed.
+    ///
+    /// `&mut self` is the point (WS6.4.0(iv)): it is what makes a relayout
+    /// *during* a frame a compile error rather than a runtime hazard, since a
+    /// frame holds `&mut Page` for its duration.
+    pub(crate) fn layout(&mut self) -> &LayoutModel {
+        self.relayout_if_needed();
+        &self.layout
+    }
+
+    /// Bring `self.layout` up to date. Returns whether it actually recomputed.
+    ///
+    /// **Relayout is never an effect and never a memo** (WS6.4.0(iv)): it is this
+    /// one call, made where `&mut Page` is held — the start of a render frame and
+    /// before an event pass — and *never* while a frame is in flight. That last
+    /// part is enforced rather than documented: a frame holds `&mut Page`, so no
+    /// other `&mut self` method can run during it.
+    ///
+    /// It replaced a `Memo<LayoutModel>`, where recomputation happened wherever
+    /// the frame's first pull landed. Two things follow from making it explicit:
+    ///
+    /// - the caller can order it *between* draining the root's redraw flag and
+    ///   polling the render gate, feeding the result into that gate's `force`
+    ///   (`use_renderer` documents why both sides matter). With the memo, a
+    ///   targeted relayout (WS6.1
+    ///   marks specific ancestors instead of forcing a blanket redraw) woke the
+    ///   render probe only because reading the memo inside the render pass
+    ///   subscribed the probe to it. Deleting the memo *without* this reordering
+    ///   would leave a targeted layout change repainting *nothing*.
+    /// - `force_redraw`/`full_flush` stop being written from inside a memo
+    ///   callback, which is what lets them stop being reactive at all.
+    ///
+    /// # Which inputs are tracked, and which are not
+    ///
+    /// `viewport` and `fonts` are reactive values owned outside the page, so they
+    /// stay TRACKED — read inside the poll closure by `compute_layout`.
+    ///
+    /// The structure/prop channel is **not** tracked; it arrives as the poll's
+    /// `force` flag, from the arena's own dirty set. That is sound because every
+    /// site which mutates layout marks the arena in the same breath —
+    /// `BuildCtx::set_children`/`set_single_child` (`mark_full_relayout`) and
+    /// `bind_layout`'s effect (`mark_dirty`). Those three used to *also* fire a
+    /// `relayout` Trigger for the memo to track; the mark and the request were
+    /// the same fact recorded twice, so the Trigger is gone. The marks are kept
+    /// on **both** feature paths — a default build never reads the dirty set to
+    /// choose incremental-vs-full, but it does maintain and drain it — so
+    /// `has_dirty` gates correctly with or without `incremental-layout`.
+    fn relayout_if_needed(&mut self) -> bool {
+        let force = self.arena.with_untracked(|arena| arena.is_layout_dirty());
+
+        // `Probe` is `Copy`: taking it out first means `poll` does not borrow
+        // `self`, so the closure can borrow `self.layout` as `prev` and the
+        // assignment below can take `&mut self.layout` once the poll returns.
+        let probe = self.layout_probe;
+        let recomputed = probe.poll(force, || {
+            compute_layout::<W>(
+                self.id,
+                self.arena,
+                self.root,
+                self.viewport,
+                self.fonts,
+                self.force_redraw,
+                self.full_flush,
+                Some(&self.layout),
+            )
+        });
+
+        match recomputed {
+            Some(layout) => {
+                self.layout = layout;
+                true
+            },
+            None => false,
+        }
     }
 
     pub(crate) fn force_redraw(&mut self) -> &mut Self {
@@ -429,12 +558,15 @@ impl<W: WidgetCtx> Page<W> {
 
     /// For Dev tools
     fn find_el_under_cursor(&self, point: Point) -> Option<DevHoveredEl> {
-        self.layout.with(|layout| {
-            layout
-                .tree_root()
-                .dev_hover(point)
-                .map(|layout| DevHoveredEl { layout })
-        })
+        // WS6.4.0(iv): a plain read of the owned model, and deliberately NOT a
+        // relayout. Pulling the old `Memo` from `&self` could recompute (a memo
+        // is interior-mutable), so a dev-tools hover could trigger a relayout.
+        // Dev tools are an add-on — they must never define rsact's logic — and
+        // they are headed for a separate window/host anyway.
+        self.layout
+            .tree_root()
+            .dev_hover(point)
+            .map(|layout| DevHoveredEl { layout })
     }
 
     /// Apply global logic for unhandled events.
@@ -466,22 +598,19 @@ impl<W: WidgetCtx> Page<W> {
 
         let defer_effects = defer_effects();
 
-        let res = self.layout.with(|layout| {
-            let response = self.arena.update_untracked(|arena| {
-                EventPass::run(
-                    arena,
-                    event,
-                    &mut self.state,
-                    &layout.tree_root(),
-                )
-            });
+        // WS6.4.0(iv): event routing hit-tests against layout, so bring it up
+        // to date first. This used to happen implicitly by pulling the layout
+        // `Memo`; now it is an explicit, ordered call.
+        self.relayout_if_needed();
 
-            // TODO: notify root on event capture?
-            //  - No, root is not used reactively, it is a signal only to be
-            //    usable in reactive contexts. Need `StoredValue`
-
-            response
+        let layout = &self.layout;
+        let res = self.arena.update_untracked(|arena| {
+            EventPass::run(arena, event, &mut self.state, &layout.tree_root())
         });
+
+        // TODO: notify root on event capture?
+        //  - No, root is not used reactively, it is a signal only to be
+        //    usable in reactive contexts. Need `StoredValue`
 
         defer_effects.run();
 
@@ -498,16 +627,18 @@ impl<W: WidgetCtx> Page<W> {
     ) -> EventResponse {
         let defer_effects = defer_effects();
 
-        let res = self.layout.with(|layout| {
-            self.arena.update_untracked(|arena| {
-                EventPass::run_to(
-                    target,
-                    arena,
-                    event,
-                    &mut self.state,
-                    &layout.tree_root(),
-                )
-            })
+        // WS6.4.0(iv): see `send_event` — explicit relayout before hit-testing.
+        self.relayout_if_needed();
+
+        let layout = &self.layout;
+        let res = self.arena.update_untracked(|arena| {
+            EventPass::run_to(
+                target,
+                arena,
+                event,
+                &mut self.state,
+                &layout.tree_root(),
+            )
         });
 
         defer_effects.run();
@@ -768,12 +899,17 @@ impl<W: WidgetCtx> Page<W> {
         //     .unwrap();
 
         let fonts = self.fonts.read_only();
-        let layout = self.layout;
+        // WS6.4.0(iv): the layout is an owned field, so it is a plain borrow —
+        // no longer one of the reactive values `with!` unwraps. It is guaranteed
+        // current because `use_renderer` calls `relayout_if_needed` before
+        // polling the render probe, which is also what makes a targeted layout
+        // change wake this pass at all.
+        let layout = &self.layout;
         // WS4.1: borrow (don't move) — `Inert<W::Stylist>` is inline
         // now and no longer `Copy`; the `with!` below only reads it.
         let stylist = &self.stylist;
 
-        with!(|layout, stylist| {
+        with!(|stylist| {
             debug!("Force redraw: {}", self.force_redraw.get());
             self.arena.update_untracked(|arena| {
                 RenderPass::new(
@@ -839,6 +975,7 @@ impl<W: WidgetCtx> Page<W> {
         // already tracked by `render_probe` below — WS2 dropped it with the
         // observer registry rather than mint a debug-only probe for a log line.)
 
+        // Drained BEFORE the relayout below — see the note there.
         let redraw_reason = self.arena.update_untracked(|arena| {
             arena
                 .expect_mut(self.root)
@@ -846,7 +983,27 @@ impl<W: WidgetCtx> Page<W> {
                 .state
                 .take_needs_redraw()
         });
-        let needs_redraw = redraw_reason.is_some() || self.needs_redraw;
+
+        // WS6.4.0(iv): relayout HERE — after the drain above, before the gate
+        // below. Both sides of that sandwich are load-bearing.
+        //
+        // *Before the gate*: the layout used to be a `Memo` pulled from inside
+        // `render_pass`, i.e. from inside the poll closure, so the render probe
+        // *subscribed* to it and a relayout woke the pass as a side effect of that
+        // subscription. With the layout owned, nothing subscribes — so a TARGETED
+        // relayout (WS6.1 marks specific stable ancestors rather than forcing a
+        // blanket redraw) would wake nothing and repaint NOTHING. OR-ing
+        // `relayouted` into `needs_redraw` restores that wake explicitly.
+        //
+        // *After the drain*: a targeted relayout marks its repaint roots via
+        // `arena.mark_needs_redraw`, and those marks must survive for the tree
+        // walk to read. Draining afterwards consumes a mark placed on the root
+        // element before the walk ever sees it — which is exactly what
+        // `incremental_layout_change_damages_only_the_stable_parent` catches
+        // (verified: swapping these two makes it fail with `[]` damage).
+        let relayouted = self.relayout_if_needed();
+        let needs_redraw =
+            relayouted || redraw_reason.is_some() || self.needs_redraw;
 
         // Copy the probe handle out (it is `Copy`) so the poll closure can
         // borrow `self` mutably without aliasing `self.render_probe`.
@@ -1300,7 +1457,7 @@ mod tests {
             // Build the layout tree (3 children) without rendering — the null
             // theme panics on a Label's unset text color, and the event pass is
             // what we want to exercise anyway.
-            let pt = page.layout.with(|m| m.tree_root().outer.center());
+            let pt = page.layout().tree_root().outer.center();
             let _ = page.handle_events(core::iter::once(Event::Mouse(
                 MouseEvent::MouseMove(pt),
             )));
@@ -1344,7 +1501,7 @@ mod tests {
         }
 
         with_new_runtime(|_| {
-            let page = create_null_page_sized(
+            let mut page = create_null_page_sized(
                 Size::new_equal(100),
                 Flex::col(alloc::vec![
                     boxed().into_el(),
@@ -1354,7 +1511,8 @@ mod tests {
                 .into_el(),
             );
 
-            let ys = page.layout.with(|m| {
+            let ys = {
+                let m = page.layout();
                 let root = m.tree_root();
                 assert_eq!(
                     root.children_len(),
@@ -1364,7 +1522,7 @@ mod tests {
                 root.children()
                     .map(|c| c.outer.top_left.y)
                     .collect::<Vec<_>>()
-            });
+            };
             assert!(
                 ys[0] < ys[1] && ys[1] < ys[2],
                 "the Dynamic's child must occupy a real middle slot, got y={ys:?}"
@@ -1538,7 +1696,7 @@ mod tests {
             // unset text color — the same pre-existing limitation as
             // `draw_on_demand` — and the click logic under test runs entirely in
             // `handle_events`, independent of rendering.)
-            let pt = page.layout.with(|m| m.tree_root().outer.center());
+            let pt = page.layout().tree_root().outer.center();
 
             // Pointer hovers the checkbox, then settle any hover-driven redraw.
             let _ = page.handle_events(core::iter::once(Event::Mouse(
@@ -1592,7 +1750,7 @@ mod tests {
             // unset text color — the same pre-existing limitation as
             // `draw_on_demand` — and the click logic under test runs entirely in
             // `handle_events`, independent of rendering.)
-            let pt = page.layout.with(|m| m.tree_root().outer.center());
+            let pt = page.layout().tree_root().outer.center();
             let _ = page.handle_events(core::iter::once(Event::Mouse(
                 MouseEvent::MouseMove(pt),
             )));
@@ -1640,7 +1798,7 @@ mod tests {
             // unset text color — the same pre-existing limitation as
             // `draw_on_demand` — and the click logic under test runs entirely in
             // `handle_events`, independent of rendering.)
-            let pt = page.layout.with(|m| m.tree_root().outer.center());
+            let pt = page.layout().tree_root().outer.center();
             let outside = Point::new(10_000, 10_000);
 
             let _ = page.handle_events(
@@ -1682,7 +1840,7 @@ mod tests {
             let mut page = create_null_page(Checkbox::new(false).into_el());
             let cb = page.root;
 
-            let pt = page.layout.with(|m| m.tree_root().outer.center());
+            let pt = page.layout().tree_root().outer.center();
             let outside = Point::new(10_000, 10_000);
 
             // Hover the checkbox.
@@ -2876,8 +3034,7 @@ mod tests {
             let mut root: El<NullWtf> =
                 Edge::<NullWtf>::new().width(w).into_el();
             let arena = create_signal(ElArena::new());
-            let relayout = create_trigger();
-            let root_id = BuildCtx::run(&mut root, arena, relayout);
+            let root_id = BuildCtx::run(&mut root, arena);
 
             // The binding wrote the signal's initial value into the arena.
             assert_eq!(
@@ -2889,18 +3046,22 @@ mod tests {
                 Length::fill(),
             );
 
-            // A relayout observer (stand-in for the page layout memo) must
-            // re-run when the source changes — this is the off-graph relayout.
-            let mut runs = create_signal(0u32);
-            create_effect(move |_| {
-                runs.update_untracked(|r| *r += 1);
-                relayout.track();
+            // WS6.4.0(iv): the relayout request IS the arena's dirty mark — the
+            // `relayout` Trigger this used to observe is gone, because every site
+            // that fired it marked the arena in the same breath. Drain the
+            // build-time marks so the assertion below is about THIS write only.
+            arena.clone().update_untracked(|a| {
+                a.take_dirty();
             });
-            assert_eq!(runs.get_untracked(), 1);
+            assert!(
+                !arena.with_untracked(|a| a.is_layout_dirty()),
+                "dirty set must start drained"
+            );
 
             w.set(Length::Fixed(50));
 
-            // The binding re-ran: arena `LayoutData` updated AND relayout fired.
+            // The binding re-ran: arena `LayoutData` updated AND the layout was
+            // marked dirty — which is what `relayout_if_needed` polls.
             assert_eq!(
                 arena.with_untracked(|a| a
                     .layout(root_id)
@@ -2909,7 +3070,11 @@ mod tests {
                     .width()),
                 Length::Fixed(50),
             );
-            assert_eq!(runs.get_untracked(), 2);
+            assert!(
+                arena.with_untracked(|a| a.is_layout_dirty()),
+                "a reactive layout-prop write must mark the arena layout-dirty \
+                 — that mark is the relayout request"
+            );
         });
     }
 
@@ -2925,8 +3090,7 @@ mod tests {
             let mut root: El<NullWtf> =
                 Label::<NullWtf>::new("x").font_size(fs).into_el();
             let arena = create_signal(ElArena::new());
-            let relayout = create_trigger();
-            let root_id = BuildCtx::run(&mut root, arena, relayout);
+            let root_id = BuildCtx::run(&mut root, arena);
 
             assert_eq!(
                 arena.with_untracked(|a| a
@@ -2937,12 +3101,17 @@ mod tests {
                 Some(Some(FontSize::Fixed(10))),
             );
 
-            let mut runs = create_signal(0u32);
-            create_effect(move |_| {
-                runs.update_untracked(|r| *r += 1);
-                relayout.track();
+            // WS6.4.0(iv): the relayout request IS the arena's dirty mark — the
+            // `relayout` Trigger this used to observe is gone, because every site
+            // that fired it marked the arena in the same breath. Drain the
+            // build-time marks so the assertion below is about THIS write only.
+            arena.clone().update_untracked(|a| {
+                a.take_dirty();
             });
-            assert_eq!(runs.get_untracked(), 1);
+            assert!(
+                !arena.with_untracked(|a| a.is_layout_dirty()),
+                "dirty set must start drained"
+            );
 
             fs.set(FontSize::Fixed(20));
 
@@ -2954,7 +3123,11 @@ mod tests {
                     .map(|fp| fp.font_size)),
                 Some(Some(FontSize::Fixed(20))),
             );
-            assert_eq!(runs.get_untracked(), 2);
+            assert!(
+                arena.with_untracked(|a| a.is_layout_dirty()),
+                "a reactive layout-prop write must mark the arena layout-dirty \
+                 — that mark is the relayout request"
+            );
         });
     }
 }
