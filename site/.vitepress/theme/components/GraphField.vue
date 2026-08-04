@@ -25,6 +25,7 @@ let spawnAcc = 0
 let running = false
 
 let signal = '#c9a24b' // signals are ENIG-gold "pads"
+let signalRGB = '201,162,75' // signal's r,g,b — for `rgba(...,a)` gradient stops
 let edgeStyle = 'rgba(130,150,158,0.10)'
 let nodeStyle = 'rgba(140,160,168,0.28)'
 
@@ -35,9 +36,18 @@ const reduce = () =>
   typeof window !== 'undefined' &&
   window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
+// "#rrggbb" → "r,g,b" so gradient stops can fade alpha WITHIN the hue. Fading to
+// the `transparent` keyword instead lerps rgb toward black (transparent black),
+// which greys the glow over the dark background (canvas interpolates in sRGB).
+function hexToRgb(hex: string): string {
+  const n = parseInt(hex.slice(1), 16)
+  return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`
+}
+
 function palette() {
   const dark = document.documentElement.classList.contains('dark')
-  signal = dark ? '#c9a24b' : '#b28d38' // ENIG gold; deeper on light for contrast
+  signal = dark ? '#c9a24b' : '#c9a24b' // ENIG gold; deeper on light for contrast
+  signalRGB = hexToRgb(signal)
   edgeStyle = dark ? 'rgba(130,150,158,0.20)' : 'rgba(60,90,90,0.10)'
   nodeStyle = dark ? 'rgba(150,170,178,0.3)' : 'rgba(50,90,90,0.22)'
 }
@@ -64,7 +74,7 @@ function layout() {
   // signals propagate one way, branching and occasionally merging (a memo with
   // several sources). Wiring to the nearest node in the next layer keeps edge
   // crossings low → an organic tree, not a street grid.
-  const layers = Math.min(8, Math.max(4, Math.round(W / 240)))
+  const layers = Math.min(10, Math.max(4, Math.round(W / 120)))
   const bandW = W / layers
   nodes = []
   const byLayer: number[][] = []
@@ -179,27 +189,36 @@ function frame(ts: number) {
     }
     const hx = A.x + (B.x - A.x) * s.t
     const hy = A.y + (B.y - A.y) * s.t
-    // trailing streak (the "shooting star")
-    const tail = Math.max(0, s.t - 0.22)
-    const tx = A.x + (B.x - A.x) * tail
-    const ty = A.y + (B.y - A.y) * tail
-    const g = ctx.createLinearGradient(tx, ty, hx, hy)
-    g.addColorStop(0, 'transparent')
-    g.addColorStop(1, signal)
-    ctx.strokeStyle = g
-    ctx.lineWidth = 1.6
-    ctx.beginPath()
-    ctx.moveTo(tx, ty)
-    ctx.lineTo(hx, hy)
-    ctx.stroke()
-    // head
-    ctx.fillStyle = signal
+    // Comet, oriented along travel (A→B): a teardrop glow — rounded head,
+    // tapering to a point behind. u = forward unit vector, p = perpendicular.
+    const dx = B.x - A.x, dy = B.y - A.y
+    const len = Math.hypot(dx, dy) || 1
+    const ux = dx / len, uy = dy / len
+    const px = -uy, py = ux
+    const headW = 3.4 // head half-width
+    // tail grows as the signal pulls away from A, capped — never overshoots A.
+    const tailLen = Math.min(30, len * s.t)
+    const bx = hx - ux * tailLen, by = hy - uy * tailLen // tail tip
+    // fade WITHIN the hue (rgba alpha→0), not to `transparent` (=black) — else
+    // the tail greys as it fades over the dark background.
+    const grad = ctx.createLinearGradient(bx, by, hx, hy)
+    grad.addColorStop(0, `rgba(${signalRGB},0)`)
+    grad.addColorStop(1, `rgba(${signalRGB},0.6)`)
+    ctx.fillStyle = grad
     ctx.shadowColor = signal
-    ctx.shadowBlur = 25
+    ctx.shadowBlur = 8 // soft edges → a glow, not a hard arrowhead
     ctx.beginPath()
-    ctx.arc(hx, hy, 2.2, 0, Math.PI * 2)
+    ctx.moveTo(bx, by) // tail point
+    ctx.quadraticCurveTo(hx + px * headW * 1.3, hy + py * headW * 1.3, hx + ux * headW, hy + uy * headW) // belly → nose
+    ctx.quadraticCurveTo(hx - px * headW * 1.3, hy - py * headW * 1.3, bx, by) // back to tail
+    ctx.closePath()
     ctx.fill()
     ctx.shadowBlur = 0
+    // hot core at the head
+    ctx.fillStyle = signal
+    ctx.beginPath()
+    ctx.arc(hx, hy, 2, 0, Math.PI * 2)
+    ctx.fill()
   }
 
   // nodes (dim; briefly bright when just charged)
