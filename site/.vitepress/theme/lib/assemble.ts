@@ -1,12 +1,18 @@
 import type { MetricsData, Snapshot, IndexMap } from './types'
 
 // Turn a raw index + snapshot set into the {snapshots, index} the dashboard
-// consumes, ordered oldest→newest. History order = index date, then recorded_at,
-// then rev for stability (backfilled snapshots can share a wall-clock). Pure.
+// consumes, ordered oldest→newest. Primary key is index `order` — the grouped
+// mainline sequence (a PR's commits contiguous, so the header can span a whole
+// PR) computed by `metrics-probe index`. Commits without an order (a shallow
+// `record` since the last index pass) sort AFTER all ordered ones — they're the
+// newest, so date-ordering them at the tail is correct. Ties fall back to
+// committer date, then recorded_at, then rev for stability. Pure.
 export function assemble(index: IndexMap, snapshots: Snapshot[]): MetricsData {
+  const orderOf = (s: Snapshot) => index[s.git_rev]?.order ?? Infinity
   const dateOf = (s: Snapshot) => index[s.git_rev]?.date ?? s.recorded_at ?? 0
   const sorted = [...snapshots].sort(
-    (a, b) => dateOf(a) - dateOf(b) || a.git_rev.localeCompare(b.git_rev),
+    (a, b) =>
+      orderOf(a) - orderOf(b) || dateOf(a) - dateOf(b) || a.git_rev.localeCompare(b.git_rev),
   )
   return { snapshots: sorted, index }
 }

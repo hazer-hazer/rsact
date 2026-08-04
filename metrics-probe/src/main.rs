@@ -177,8 +177,9 @@ fn git_index_entry(rev: &str) -> index::IndexEntry {
         .unwrap_or_default();
     let subject =
         git_out(&["show", "-s", "--format=%s", rev]).unwrap_or_default();
-    // pr is filled by cmd_index (needs merge history); record leaves it None.
-    index::IndexEntry { date, parent, branch, subject, pr: None }
+    // pr + order are filled by cmd_index (need full merge history); record
+    // leaves them None (the viewer date-orders HEAD until the next index pass).
+    index::IndexEntry { date, parent, branch, subject, pr: None, order: None }
 }
 
 /// Merge one snapshot's rev into `metrics/index.json` (incremental, shallow-safe
@@ -219,27 +220,57 @@ fn cmd_index() -> std::io::Result<()> {
     let path = Path::new(index::INDEX_PATH);
     let mut idx = index::load(path);
 
-    // Pure-git PR map: for each `Merge pull request #N` merge commit M, the
-    // commits it brought in are `git rev-list M^2 --not M^1`. No network.
+    // Anchor the mainline to the primary branch so ordering is stable no matter
+    // which branch `index` runs from: CI backfill checks out `master` (HEAD ==
+    // master), but a local preview may sit on a feature branch whose first-parent
+    // line diverges from master's tip. Prefer `master`; fall back to HEAD when
+    // there's no such ref (detached / renamed default).
+    let mainref =
+        if git_out(&["rev-parse", "--verify", "--quiet", "master"]).is_some() {
+            "master"
+        } else {
+            "HEAD"
+        };
+
+    // Pure-git PR map + per-merge branch commits (no network). For each merge
+    // commit M, `git rev-list --reverse M^2 --not M^1` lists the commits it
+    // brought in, oldest→newest. `Merge pull request #N` merges additionally
+    // stamp those commits (and M) with PR N. Branch commits are collected for
+    // EVERY merge (not just PR merges) so `mainline_order` can group any merge's
+    // second-parent side; only merges on the first-parent line are consulted.
     let mut pr_of: HashMap<String, u32> = HashMap::new();
-    if let Some(out) = git_out(&["log", "--merges", "--format=%H %s"]) {
+    let mut branch_commits: HashMap<String, Vec<String>> = HashMap::new();
+    if let Some(out) = git_out(&["log", mainref, "--merges", "--format=%H %s"])
+    {
         for line in out.lines() {
             let (m, subject) = line.split_once(' ').unwrap_or((line, ""));
-            if let Some(n) = index::parse_merge_pr(subject) {
-                if let Some(revs) = git_out(&[
-                    "rev-list",
-                    &format!("{m}^2"),
-                    "--not",
-                    &format!("{m}^1"),
-                ]) {
-                    for c in revs.lines() {
-                        pr_of.insert(c.to_string(), n);
+            if let Some(revs) = git_out(&[
+                "rev-list",
+                "--reverse",
+                &format!("{m}^2"),
+                "--not",
+                &format!("{m}^1"),
+            ]) {
+                let list: Vec<String> =
+                    revs.lines().map(str::to_string).collect();
+                if let Some(n) = index::parse_merge_pr(subject) {
+                    for c in &list {
+                        pr_of.insert(c.clone(), n);
                     }
+                    pr_of.insert(m.to_string(), n);
                 }
-                pr_of.insert(m.to_string(), n);
+                branch_commits.insert(m.to_string(), list);
             }
         }
     }
+
+    // Grouped x-axis order: the mainline's first-parent walk (oldest→newest)
+    // with each PR's branch commits laid contiguously before their merge commit.
+    let mainline: Vec<String> =
+        git_out(&["rev-list", "--first-parent", "--reverse", mainref])
+            .map(|s| s.lines().map(str::to_string).collect())
+            .unwrap_or_default();
+    let order_of = index::mainline_order(&mainline, &branch_commits);
 
     let mut resolved = 0;
     for rev in snapshot_revs(Path::new(SNAPSHOT_DIR)) {
@@ -247,7 +278,9 @@ fn cmd_index() -> std::io::Result<()> {
         if entry.date != 0 {
             // Exact merge-map ancestry wins; squash-subject only fills commits
             // no merge covers (true squash-merges).
-            entry.pr = index::resolve_pr(pr_of.get(&rev).copied(), &entry.subject);
+            entry.pr =
+                index::resolve_pr(pr_of.get(&rev).copied(), &entry.subject);
+            entry.order = order_of.get(&rev).copied();
             index::merge_entry(&mut idx, &rev, entry);
             resolved += 1;
         }
@@ -431,7 +464,10 @@ fn print_snapshot(snap: &Snapshot) {
         );
     }
     for bm in &snap.bench_medians {
-        println!("  bench {}: {:.0} ns (±{:.0})", bm.id, bm.median_ns, bm.ci_half_ns);
+        println!(
+            "  bench {}: {:.0} ns (±{:.0})",
+            bm.id, bm.median_ns, bm.ci_half_ns
+        );
     }
 }
 

@@ -58,6 +58,10 @@ export interface IndexEntry {
   branch: string
   subject?: string
   pr?: number
+  // Total x-axis order: position in the grouped-mainline sequence (a PR's
+  // commits laid contiguously before their merge). Absent for shallow-recorded
+  // commits → they sort after all ordered commits, by date. See assemble().
+  order?: number
 }
 export type IndexMap = Record<string, IndexEntry>
 

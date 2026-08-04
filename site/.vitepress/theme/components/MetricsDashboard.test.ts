@@ -70,7 +70,26 @@ describe('MetricsDashboard', () => {
     expect(links[0].attributes('href')).toContain('/pull/5')
     expect(links[1].attributes('href')).toContain('/pull/6')
   })
-  it('falls back to grouping by branch (as one spanning column) when pr is absent', async () => {
+  it('spans one PR header cell across all of that PR’s contiguous commits', async () => {
+    // Both commits belong to PR #5 and are ordered adjacently (grouped-mainline
+    // order) → the header collapses them into ONE cell spanning both columns.
+    const data: MetricsData = {
+      index: {
+        aaaaaaaa11: { date: 1_700_000_000, parent: 'par', branch: 'main', pr: 5, order: 0 },
+        bbbbbbbb22: { date: 1_700_100_000, parent: 'aaaaaaaa11', branch: 'main', pr: 5, order: 1 },
+      },
+      snapshots: DATA.snapshots,
+    }
+    const w = mount(MetricsDashboard, { props: { data } })
+    await flushPromises()
+    const cols = w.findAll('thead tr.prgroups th.col')
+    expect(cols.length).toBe(1)
+    expect(cols[0].attributes('colspan')).toBe('2')
+    expect(cols[0].find('a').attributes('href')).toContain('/pull/5')
+  })
+  it('does not group by branch when pr is absent (branch hints are ignored)', async () => {
+    // Grouping is by PR only now — a bare branch hint must NOT create a span
+    // (branch-fallback produced noisy, fragmented non-PR cells).
     const data: MetricsData = {
       index: {
         aaaaaaaa11: { date: 1_700_000_000, parent: 'par', branch: 'feature-y' },
@@ -80,16 +99,9 @@ describe('MetricsDashboard', () => {
     }
     const w = mount(MetricsDashboard, { props: { data } })
     await flushPromises()
-    const prRow = w.find('thead tr.prgroups')
-    expect(prRow.exists()).toBe(true)
-    const cols = prRow.findAll('th.col')
-    expect(cols.length).toBe(1)
-    expect(cols[0].attributes('colspan')).toBe('2')
-    const link = cols[0].find('a')
-    expect(link.text()).toBe('feature-y')
-    expect(link.attributes('href')).toContain('/commits/feature-y')
+    expect(w.find('thead tr.prgroups').exists()).toBe(false)
   })
-  it('omits the PR row when no column has a PR or branch to group by', async () => {
+  it('omits the PR row when no column has a PR to group by', async () => {
     const data: MetricsData = {
       index: {
         aaaaaaaa11: { date: 1_700_000_000, parent: 'par', branch: '' },
