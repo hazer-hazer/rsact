@@ -1845,19 +1845,11 @@ mod tests {
 
         impl Renderer for RecordingRenderer {
             type Color = NullColor;
-            type Options = ();
-
-            fn set_options(&mut self, _options: Self::Options) {}
             fn size(&self) -> Size {
                 Size::new_equal(64)
             }
-            fn clipped(
-                &mut self,
-                _area: Rect,
-                f: impl FnOnce(&mut Self) -> RenderResult,
-            ) -> RenderResult {
-                f(self)
-            }
+            fn push_clip(&mut self, _area: Rect) {}
+            fn pop_clip(&mut self) {}
             fn fill_solid(
                 &mut self,
                 _rect: Rect,

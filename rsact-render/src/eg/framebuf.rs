@@ -19,8 +19,19 @@ pub trait PackedColor {
     type Storage: Clone + Send + Sync + 'static;
 
     /// Pixels-per-storage for a specific color (e.g. BinaryColor is one bit and
-    /// 8 of it can be stored inside a single byte)
-    fn pps() -> usize;
+    /// 8 of it can be stored inside a single byte).
+    ///
+    /// WS6.4.0(iii): an associated **const** so it is usable from a `const fn`
+    /// — [`units_for`] needs it inside a `const { assert!(..) }`, and a trait
+    /// *method* cannot be called in a const context on stable. The method form
+    /// below is kept, defaulted, so every existing `C::pps()` call site is
+    /// untouched.
+    const PPS: usize;
+
+    /// Method form of [`PPS`](PackedColor::PPS). Do not override.
+    fn pps() -> usize {
+        Self::PPS
+    }
 
     fn into_storage(&self) -> Self::Storage;
 
@@ -41,9 +52,7 @@ macro_rules! rgb_packed_color_impl {
         impl PackedColor for $ty {
             type Storage = $storage;
 
-            fn pps() -> usize {
-                1
-            }
+            const PPS: usize = 1;
 
             fn into_storage(&self) -> Self::Storage {
                 embedded_graphics::pixelcolor::IntoStorage::into_storage(*self)
@@ -82,9 +91,7 @@ impl PackedColor for BinaryColor {
     //     0b00
     // }
 
-    fn pps() -> usize {
-        8
-    }
+    const PPS: usize = 8;
 
     fn into_storage(&self) -> Self::Storage {
         embedded_graphics::pixelcolor::IntoStorage::into_storage(*self)
@@ -137,6 +144,136 @@ impl PackedColor for BinaryColor {
             BinaryColor::Off => 0x00,
         }
     }
+}
+
+// ─────────────────────── WS6.4.0(iii): tile capacity, checked at compile time
+//
+// The chain, all static, with no `generic_const_exprs`:
+//
+//   buffer type ─────────▶ PixelBuf::UNITS ─────▶ Renderer::SURFACE_UNITS
+//   region + PackedColor::PPS ─▶ units_for ──▶ assert_region_fits
+//
+// so a frame policy whose largest region cannot fit the renderer's surface is a
+// **compile error**, not a runtime check. 6.4d wires the assert into
+// `UI::start_frame`; the pieces land here because they are pure additions with
+// no dependency on tiles existing yet.
+
+/// Units of `C::Storage` needed to hold a `w × h` region, **including row
+/// padding**.
+///
+/// Rows pad to a whole number of storage units, which is what makes sub-byte
+/// packing correct: a 122-pixel 1-bpp row occupies 16 bytes, not 15.25.
+/// Area-based arithmetic gets this wrong, and that is exactly why
+/// `PackedFramebuf::new` asserts `area % pps == 0` today and panics on a real
+/// 122×250 mono e-paper panel — roadmap 6.5 replaces that check with this.
+///
+/// ```
+/// # use rsact_render::eg::framebuf::units_for;
+/// # use embedded_graphics::pixelcolor::{BinaryColor, Rgb565};
+/// // 16-bit colour: one storage unit per pixel, nothing to pad.
+/// assert_eq!(units_for::<Rgb565>(240, 24), 5760);
+/// // 1-bpp: each row rounds up to a whole byte — 122px -> 16 bytes.
+/// assert_eq!(units_for::<BinaryColor>(122, 24), 384);
+/// ```
+pub const fn units_for<C: PackedColor>(w: u32, h: u32) -> usize {
+    // `div_ceil` written out: keeps this a plain const fn on stable.
+    let row_units = ((w as usize) + C::PPS - 1) / C::PPS;
+    row_units * (h as usize)
+}
+
+/// A caller-owned buffer able to hold `UNITS` storage units of colour `C`.
+///
+/// Implemented for plain arrays so capacity is part of the *type* and can be
+/// compared against a frame policy at compile time. rsact never holds one of
+/// these — the user hands it to their concrete renderer through that backend's
+/// own inherent API (roadmap 6.4.0, "surface ownership"). This trait exists only
+/// so the size can be *checked*.
+pub trait PixelBuf<C: PackedColor> {
+    const UNITS: usize;
+}
+
+macro_rules! native_pixel_buf {
+    ($($storage:ty),* $(,)?) => {$(
+        impl<C: PackedColor<Storage = $storage>, const N: usize> PixelBuf<C>
+            for [$storage; N]
+        {
+            const UNITS: usize = N;
+        }
+    )*};
+}
+
+// Keyed by storage type, so each impl targets a distinct `Self` and coherence
+// holds without any negative reasoning.
+native_pixel_buf!(u8, u16, u32);
+
+/// A raw byte buffer viewed as storage for a wider colour — the DMA/wire-format
+/// case (an RGB565 tile handed to SPI as bytes).
+///
+/// A newtype rather than a second `impl … for [u8; N]`, and that is **forced**:
+/// `impl<C: PackedColor<Storage = u8>> PixelBuf<C> for [u8; N]` and
+/// `impl<C: PackedColor<Storage = u16>> PixelBuf<C> for [u8; N]` are `E0119`
+/// conflicting impls, because Rust does no negative reasoning over associated
+/// types and cannot see that a colour's `Storage` is only ever one of them.
+/// Wrapping also reads as documentation at the call site: `AsBytes` is precisely
+/// what you hand to the transport.
+///
+/// ```
+/// # use rsact_render::eg::framebuf::{AsBytes, PixelBuf, units_for};
+/// # use embedded_graphics::pixelcolor::Rgb565;
+/// // The same 240x24 RGB565 tile, expressed two ways — protocol-agnostic.
+/// assert_eq!(<[u16; 5760] as PixelBuf<Rgb565>>::UNITS, 5760);
+/// assert_eq!(<AsBytes<[u8; 11520]> as PixelBuf<Rgb565>>::UNITS, 5760);
+/// assert_eq!(units_for::<Rgb565>(240, 24), 5760);
+/// ```
+pub struct AsBytes<B>(pub B);
+
+impl<C: PackedColor, const N: usize> PixelBuf<C> for AsBytes<[u8; N]> {
+    // One impl covers every storage width, so there is no conflict to resolve.
+    // Integer division truncates, which is the safe direction: a buffer a byte
+    // short of a whole unit reports the smaller capacity and gets rejected.
+    const UNITS: usize = N / core::mem::size_of::<C::Storage>();
+}
+
+/// Compile-time proof that a `w × h` region fits in buffer `B`.
+///
+/// Call it from a `const` block; a violation is a post-monomorphization error
+/// whose instantiation names the concrete colour, buffer and dimensions. 6.4d
+/// calls this from `UI::start_frame` with the frame policy's largest region, so
+/// a `Frame` whose regions could overflow the surface cannot be obtained.
+///
+/// ```
+/// # use rsact_render::eg::framebuf::assert_region_fits;
+/// # use embedded_graphics::pixelcolor::Rgb565;
+/// // 240x24 RGB565 needs 5760 u16 — exactly what this buffer holds.
+/// const _: () = assert_region_fits::<Rgb565, [u16; 5760]>(240, 24);
+/// ```
+///
+/// One row too tall does not compile:
+///
+/// ```compile_fail
+/// # use rsact_render::eg::framebuf::assert_region_fits;
+/// # use embedded_graphics::pixelcolor::Rgb565;
+/// // 240x25 needs 6000 units; the buffer holds 5760.
+/// const _: () = assert_region_fits::<Rgb565, [u16; 5760]>(240, 25);
+/// ```
+///
+/// Nor does a 1-bpp buffer sized by area instead of by padded rows:
+///
+/// ```compile_fail
+/// # use rsact_render::eg::framebuf::assert_region_fits;
+/// # use embedded_graphics::pixelcolor::BinaryColor;
+/// // 122x24 needs ceil(122/8)*24 = 384 bytes, not 122*24/8 = 366.
+/// const _: () = assert_region_fits::<BinaryColor, [u8; 366]>(122, 24);
+/// ```
+pub const fn assert_region_fits<C: PackedColor, B: PixelBuf<C>>(
+    w: u32,
+    h: u32,
+) {
+    assert!(
+        units_for::<C>(w, h) <= B::UNITS,
+        "region does not fit the pixel buffer — see the instantiation in this \
+         error for the colour, buffer type and region size"
+    );
 }
 
 pub trait Framebuf<C: Color + PackedColor> {
@@ -200,20 +337,53 @@ pub trait Framebuf<C: Color + PackedColor> {
         target.draw(pixels);
     }
 
-    fn point_to_subpart(&self, point: Point) -> Option<(usize, usize)> {
-        let size = self.viewport().size;
-        if point.x < 0
-            || point.x >= size.width as i32
-            || point.y < 0
-            || point.y >= size.height as i32
-        {
-            None
-        } else {
-            let index =
-                point.y as usize * size.width as usize + point.x as usize;
+    /// Flat pixel index of `point`, in this buffer's own 0-based space.
+    ///
+    /// **WS6.4.0(i-2): the single source of truth for addressing.** Every path
+    /// that turns a coordinate into a storage index must route through this (or
+    /// [`row_stride`] to step between rows). `point` must be inside
+    /// [`viewport`] — callers bounds-check first ([`point_to_subpart`]) or clip
+    /// first ([`local_bounds`]).
+    ///
+    /// It used to be open-coded in two places: here and in
+    /// `PackedFramebuf::fill_solid`'s row loop, whose comment even noted it was
+    /// "same as `point_to_subpart`". That duplication is a trap for the tiled
+    /// work: giving the buffer a non-zero origin and updating only one of them
+    /// lands WS6.3b's fast solid fills in the wrong row while per-pixel writes
+    /// stay correct — a *plausible* image rather than an obvious failure. Fold
+    /// the origin in here and both paths follow.
+    ///
+    /// [`row_stride`]: Framebuf::row_stride
+    /// [`viewport`]: Framebuf::viewport
+    /// [`point_to_subpart`]: Framebuf::point_to_subpart
+    /// [`local_bounds`]: Framebuf::local_bounds
+    fn flat_index(&self, point: Point) -> usize {
+        let viewport = self.viewport();
+        let local = point - viewport.top_left;
+        local.y as usize * viewport.size.width as usize + local.x as usize
+    }
 
-            Some((index / C::pps(), index % C::pps()))
+    /// Flat-index distance between vertically adjacent pixels — i.e. one row.
+    /// A buffer's own width *is* its stride, so this derives from [`viewport`]
+    /// like [`flat_index`] does.
+    ///
+    /// [`viewport`]: Framebuf::viewport
+    /// [`flat_index`]: Framebuf::flat_index
+    fn row_stride(&self) -> usize {
+        self.viewport().size.width as usize
+    }
+
+    /// `area` clipped to this buffer. A zero-sized result means nothing to do.
+    fn local_bounds(&self, area: Rect) -> Rect {
+        area.intersection(&self.viewport())
+    }
+
+    fn point_to_subpart(&self, point: Point) -> Option<(usize, usize)> {
+        if !self.viewport().contains(point) {
+            return None;
         }
+        let index = self.flat_index(point);
+        Some((index / C::pps(), index % C::pps()))
     }
 
     fn draw_buffer(&self, f: impl FnOnce(&[C::Storage])) {
@@ -267,26 +437,24 @@ impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor> DrawTarget
         area: &embedded_graphics::primitives::Rectangle,
         color: Self::Color,
     ) -> Result<(), Self::Error> {
-        let bounds = embedded_graphics::primitives::Rectangle::new(
-            embedded_graphics::prelude::Point::zero(),
-            OriginDimensions::size(self),
-        );
-        let area = area.intersection(&bounds);
+        // WS6.4.0(i-2): clipping and addressing both come from `Framebuf` now,
+        // not from a second open-coded copy of `y*width + x` — see
+        // `Framebuf::flat_index`. The row start is computed ONCE and stepped by
+        // `row_stride`, so a non-zero buffer origin (the tiled work) lands here
+        // for free.
+        let area = Framebuf::local_bounds(self, (*area).into());
         if area.size.width == 0 || area.size.height == 0 {
             return Ok(());
         }
 
-        let width = self.size.width as usize;
         let pps = C::pps();
         let solid = C::solid_storage(color);
-        let x0 = area.top_left.x as usize;
-        let y0 = area.top_left.y as usize;
+        let stride = Framebuf::row_stride(self);
         let w = area.size.width as usize;
         let h = area.size.height as usize;
+        let mut start = Framebuf::flat_index(self, area.top_left);
 
-        for y in y0..y0 + h {
-            // Flat index space (`y*width + x`), same as `point_to_subpart`.
-            let start = y * width + x0;
+        for _ in 0..h {
             let end = start + w;
             // Round the pixel range INWARD to whole storage-word boundaries.
             let head_end = start.div_ceil(pps) * pps;
@@ -307,6 +475,8 @@ impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor> DrawTarget
                     C::set_color(&mut self.pixels[i / pps], i % pps, color);
                 }
             }
+
+            start += stride;
         }
 
         Ok(())
@@ -634,5 +804,100 @@ mod tests {
                 "mono seed {seed}: fill_solid != draw_iter for {area:?}"
             );
         }
+    }
+
+    /// A buffer whose viewport has a **non-zero origin** — what a tile is.
+    /// `PackedFramebuf::viewport()` is hard-wired to `Point::zero()`, so this is
+    /// the only way to exercise the origin term today.
+    struct OffsetBuf {
+        origin: Point,
+        size: Size,
+        pixels: Vec<u8>,
+    }
+
+    impl super::Framebuf<BinaryColor> for OffsetBuf {
+        fn data(&self) -> &[u8] {
+            &self.pixels
+        }
+        fn data_mut(&mut self) -> &mut [u8] {
+            &mut self.pixels
+        }
+        fn viewport(&self) -> Rect {
+            Rect::new(self.origin, self.size)
+        }
+    }
+
+    /// WS6.4.0(iii): row padding is the whole subtlety of `units_for`, so pin
+    /// the boundaries rather than only the happy cases the doctests show.
+    ///
+    /// The rule is per-**row**, not per-area: a row that ends mid-storage-unit
+    /// still consumes the whole unit, because the next row starts on a fresh
+    /// one. Area arithmetic silently under-counts and is what makes
+    /// `PackedFramebuf::new`'s `area % pps == 0` assert reject real panels.
+    #[test]
+    fn units_for_pads_each_row_not_the_area() {
+        use super::{AsBytes, PixelBuf, units_for};
+        use embedded_graphics::pixelcolor::Rgb565;
+
+        // Exactly one storage unit wide: no padding.
+        assert_eq!(units_for::<BinaryColor>(8, 1), 1);
+        // One pixel over: a whole second byte, for one row.
+        assert_eq!(units_for::<BinaryColor>(9, 1), 2);
+        // One pixel wide, ten rows: ten bytes, 79 of the 80 bits wasted. Area
+        // arithmetic would say ceil(10/8) = 2.
+        assert_eq!(units_for::<BinaryColor>(1, 10), 10);
+        // The e-paper case: 122 -> 16 bytes per row, not 15.25.
+        assert_eq!(units_for::<BinaryColor>(122, 24), 16 * 24);
+        // pps == 1 colours can never pad.
+        assert_eq!(units_for::<Rgb888>(7, 3), 21);
+        // Degenerate regions cost nothing.
+        assert_eq!(units_for::<Rgb888>(0, 5), 0);
+        assert_eq!(units_for::<BinaryColor>(5, 0), 0);
+
+        // `AsBytes` truncates, which is the SAFE direction: a buffer one byte
+        // short of a whole unit reports the smaller capacity and gets rejected
+        // rather than over-promising.
+        assert_eq!(<AsBytes<[u8; 11521]> as PixelBuf<Rgb565>>::UNITS, 5760);
+        assert_eq!(<AsBytes<[u8; 11519]> as PixelBuf<Rgb565>>::UNITS, 5759);
+    }
+
+    /// WS6.4.0(i-2): addressing is origin-aware, in ONE place.
+    ///
+    /// `flat_index` / `point_to_subpart` take **absolute** coordinates and
+    /// resolve them against `viewport()`, so a buffer that covers a sub-rect of
+    /// the screen — a tile — indexes correctly without every caller translating
+    /// by hand. This is what `fill_solid` now inherits instead of open-coding
+    /// `y*width + x` against an assumed zero origin.
+    #[test]
+    fn addressing_is_origin_aware() {
+        let origin = Point::new(40, 100);
+        let size = Size::new(16, 8);
+        let buf = OffsetBuf {
+            origin,
+            size,
+            pixels: Vec::from([0u8; 16]), // 16x8 mono = 128 px = 16 bytes
+        };
+
+        // The origin itself is local (0, 0).
+        assert_eq!(buf.flat_index(origin), 0);
+        assert_eq!(buf.point_to_subpart(origin), Some((0, 0)));
+
+        // Stride is the buffer's own width, so one row down is +width.
+        assert_eq!(buf.row_stride(), 16);
+        assert_eq!(buf.flat_index(origin + Point::new(0, 1)), 16);
+        assert_eq!(buf.flat_index(origin + Point::new(3, 2)), 2 * 16 + 3);
+
+        // Anything outside is rejected — including points that WOULD be valid
+        // under the old zero-origin assumption (this is the regression).
+        assert_eq!(buf.point_to_subpart(Point::new(0, 0)), None);
+        assert_eq!(buf.point_to_subpart(origin + Point::new(-1, 0)), None);
+        assert_eq!(buf.point_to_subpart(origin + Point::new(0, -1)), None);
+        assert_eq!(buf.point_to_subpart(origin + Point::new(16, 0)), None);
+        assert_eq!(buf.point_to_subpart(origin + Point::new(0, 8)), None);
+
+        // `local_bounds` clips to the buffer, in absolute coordinates.
+        let clipped =
+            buf.local_bounds(Rect::new(Point::new(32, 96), Size::new(16, 8)));
+        assert_eq!(clipped, Rect::new(origin, Size::new(8, 4)));
     }
 }

@@ -141,14 +141,53 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> EGRenderer<C, AA> {
         self.canvas.draw_buffer(f);
     }
 
+    /// Map a point from the active viewport's coordinate space into the layer
+    /// canvas's own space — the transform the *write* paths ([`draw_pixels`],
+    /// `fill_solid`) get for free by dispatching through embedded-graphics'
+    /// `DrawTargetExt`. Any path that touches the canvas **directly** must apply
+    /// it by hand or it addresses a different pixel than the matching write.
+    ///
+    /// [`ViewportKind::Fullscreen`] is the identity, and [`ViewportKind::Clipped`]
+    /// is too — eg's `clipped` only *filters* pixels outside the area and never
+    /// rebases the origin. [`ViewportKind::Cropped`] does rebase (eg's `cropped`
+    /// puts the origin at `area.top_left`).
+    ///
+    /// [`draw_pixels`]: Self::draw_pixels
+    fn viewport_to_canvas(&self, point: Point) -> Point {
+        match self.current_viewport() {
+            ViewportKind::Fullscreen | ViewportKind::Clipped(_) => point,
+            ViewportKind::Cropped(area) => point + area.top_left,
+        }
+    }
+
+    /// Blend `pixel`'s colour into whatever the canvas already holds there.
+    ///
+    /// WS6.4.0(i-1): the read goes through [`viewport_to_canvas`] so it lands on
+    /// the pixel `draw_pixels` will write. It previously read `pixel.0` raw,
+    /// which is only correct while the viewport is `Fullscreen`/`Clipped` — under
+    /// `Cropped` the write is rebased and the read was not, so the blend mixed
+    /// against an unrelated pixel. Latent today (nothing constructs a `Cropped`
+    /// viewport since PR #31 deleted the only, commented-out, producer), but painting
+    /// into a tile *is* a rebased coordinate space, so 6.4d would have activated
+    /// it. Note this is a read-modify-write per pixel: it defeats
+    /// write-combining, and it is why a tile buffer must be pre-filled with the
+    /// true background before painting (roadmap 6.4 constraint (b)).
+    ///
+    /// [`viewport_to_canvas`]: Self::viewport_to_canvas
     // Note: Real alpha channel is not supported. Alpha is currently just a
     // blend parameter applied while drawing onto the (opaque) framebuffer — it
     // affects blending against existing pixels, not surface transparency.
     // TODO: Real alpha-channel
     pub fn pixel_alpha(&mut self, pixel: Pixel<C>, blend: f32) -> RenderResult {
+        let read_at = self.viewport_to_canvas(pixel.0);
         let canvas = self.current_canvas();
+        // NOTE: an out-of-bounds read still degrades to the unblended colour
+        // rather than an error, so a mis-addressed read yields a *plausible*
+        // pixel, not a failure. Preserved as-is (a behaviour change is out of
+        // scope here); it is why 6.4a's tile-invariance op-log check is the real
+        // defence for this area.
         let color = canvas
-            .pixel(pixel.0)
+            .pixel(read_at)
             .map(|current| current.mix(blend, pixel.1))
             .unwrap_or(pixel.1);
         self.draw_pixels(core::iter::once(Pixel(pixel.0, color)))
@@ -197,15 +236,16 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> EGRenderer<C, AA> {
         }
     }
 
-    fn renderer_clipped(
-        &mut self,
-        area: Rect,
-        f: impl FnOnce(&mut Self) -> RenderResult,
-    ) -> RenderResult {
+    fn renderer_push_clip(&mut self, area: Rect) {
         self.viewport_stack.push(ViewportKind::Clipped(area));
-        let result = f(self);
-        self.viewport_stack.pop();
-        result
+    }
+
+    // Never pops the root viewport: an unbalanced `pop_clip` must degrade, not
+    // leave the renderer with no viewport at all (`current_viewport` unwraps).
+    fn renderer_pop_clip(&mut self) {
+        if self.viewport_stack.len() > 1 {
+            self.viewport_stack.pop();
+        }
     }
 
     fn renderer_image<'a>(&mut self, image: DrawImage<'a, C>) -> RenderResult {
@@ -291,20 +331,17 @@ impl<C: Color + PackedColor + PixelColor> Renderer
     for EGRenderer<C, AntiAliasingDisabled>
 {
     type Color = C;
-    type Options = ();
-
-    fn set_options(&mut self, _options: Self::Options) {}
 
     fn size(&self) -> Size {
         self.main_viewport
     }
 
-    fn clipped(
-        &mut self,
-        area: Rect,
-        f: impl FnOnce(&mut Self) -> RenderResult,
-    ) -> RenderResult {
-        self.renderer_clipped(area, f)
+    fn push_clip(&mut self, area: Rect) {
+        self.renderer_push_clip(area)
+    }
+
+    fn pop_clip(&mut self) {
+        self.renderer_pop_clip()
     }
 
     fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult {
@@ -451,20 +488,17 @@ impl<C: Color + PackedColor + PixelColor> Renderer
     for EGRenderer<C, AntiAliasingEnabled>
 {
     type Color = C;
-    type Options = ();
-
-    fn set_options(&mut self, _options: Self::Options) {}
 
     fn size(&self) -> Size {
         self.main_viewport
     }
 
-    fn clipped(
-        &mut self,
-        area: Rect,
-        f: impl FnOnce(&mut Self) -> RenderResult,
-    ) -> RenderResult {
-        self.renderer_clipped(area, f)
+    fn push_clip(&mut self, area: Rect) {
+        self.renderer_push_clip(area)
+    }
+
+    fn pop_clip(&mut self) {
+        self.renderer_pop_clip()
     }
 
     fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult {
@@ -613,7 +647,7 @@ mod tests {
     use super::*;
     use crate::{
         geometry::{Point, Rect, Size},
-        renderer::Renderer,
+        renderer::{NullColor, NullRenderer, Renderer},
     };
     use embedded_graphics::pixelcolor::Rgb888;
 
@@ -639,6 +673,116 @@ mod tests {
         fast.draw_buffer(|f| {
             slow.draw_buffer(|s| {
                 assert_eq!(f, s, "EGRenderer fill_solid != per-pixel fill");
+            })
+        });
+    }
+
+    /// WS6.4.0(ii-4): `NullRenderer` must be a no-op renderer for the
+    /// *application's* colour, not only for `NullColor`.
+    ///
+    /// This is what 6.4c's collect pass runs widget bodies against: it has to
+    /// satisfy `Renderer<Color = W::Color>` while rasterising nothing, which the
+    /// old `type Color = NullColor` hard-wiring could not express. Lives in this
+    /// module because a second real `Color` impl (`Rgb888`) is in scope here.
+    #[test]
+    fn null_renderer_is_generic_over_colour() {
+        fn accepts_renderer_for<C: Color, R: Renderer<Color = C>>(
+            r: &mut R,
+            c: C,
+        ) {
+            // Every primitive is a no-op that still reports success, so a
+            // collect pass never sees a spurious `Err` from the null backend.
+            Renderer::pixel(r, Point::zero(), c).unwrap();
+            r.push_clip(Rect::new(Point::zero(), Size::new_equal(4)));
+            r.pop_clip();
+            // Defaulted in ii-3; correct as a no-op for a full-frame surface.
+            r.begin_region(Rect::new(Point::zero(), Size::new_equal(4)))
+                .unwrap();
+            r.end_region().unwrap();
+        }
+
+        let mut app = NullRenderer::<Rgb888>::default();
+        accepts_renderer_for(&mut app, Rgb888::WHITE);
+
+        // The `C = NullColor` default keeps every existing `Wtf<NullRenderer, ..>`
+        // and `&mut NullRenderer` spelling compiling unannotated.
+        let mut legacy = NullRenderer::default();
+        accepts_renderer_for(&mut legacy, NullColor);
+    }
+
+    /// WS6.4.0(ii-1): the clip stack must balance, and an unmatched `pop_clip`
+    /// must degrade rather than pop the root viewport — `current_viewport()`
+    /// unwraps the top of the stack, so emptying it would turn a caller's
+    /// bookkeeping slip into a panic on the render path (WS1.8: the UI logs and
+    /// degrades, it does not abort).
+    #[test]
+    fn clip_stack_balances_and_never_pops_the_root() {
+        let mut r =
+            EGRenderer::<Rgb888, AntiAliasingDisabled>::new(Size::new(20, 16));
+        let root = r.viewport_stack.len();
+        assert_eq!(root, 1, "a fresh renderer holds exactly the root viewport");
+
+        r.push_clip(Rect::new(Point::new(2, 2), Size::new(8, 8)));
+        assert_eq!(r.viewport_stack.len(), root + 1);
+        r.push_clip(Rect::new(Point::new(3, 3), Size::new(4, 4)));
+        assert_eq!(r.viewport_stack.len(), root + 2);
+
+        r.pop_clip();
+        r.pop_clip();
+        assert_eq!(r.viewport_stack.len(), root, "push/pop must balance");
+
+        // Unmatched pop: no panic, no lost root.
+        r.pop_clip();
+        r.pop_clip();
+        assert_eq!(r.viewport_stack.len(), root, "root viewport must survive");
+        // Still usable afterwards — the real point of not emptying the stack.
+        Renderer::pixel(&mut r, Point::new(1, 1), Rgb888::WHITE).unwrap();
+    }
+
+    /// WS6.4.0(i-1): `pixel_alpha` must read the destination through the SAME
+    /// viewport transform its write goes through. Under `ViewportKind::Cropped`
+    /// the write is rebased to the crop origin (eg's `cropped`) while the read
+    /// was raw, so the blend mixed against a different pixel than it wrote.
+    ///
+    /// Expressed as an invariance: `Cropped(crop)` + a viewport-local point must
+    /// produce the same framebuffer as `Fullscreen` + the absolute point. That
+    /// equivalence is exactly what painting into a tile relies on, which is why
+    /// this latent bug would have gone live with 6.4d.
+    #[test]
+    fn pixel_alpha_reads_through_the_viewport_transform() {
+        let size = Size::new(20, 16);
+        let crop = Rect::new(Point::new(5, 4), Size::new(10, 8));
+        let local = Point::new(2, 3);
+        let abs = local + crop.top_left;
+
+        // The backdrop must differ from the cleared background, or reading the
+        // wrong pixel would coincidentally produce the right colour.
+        let backdrop = Rgb888::new(200, 0, 0);
+        let ink = Rgb888::new(0, 0, 200);
+        assert_ne!(backdrop, <Rgb888 as Color>::default_background());
+
+        // Cropped: seed the backdrop at the ABSOLUTE pixel, blend at the LOCAL
+        // point. Pre-fix, the read landed on `local` (still background).
+        let mut cropped = EGRenderer::<Rgb888, AntiAliasingDisabled>::new(size);
+        Renderer::pixel(&mut cropped, abs, backdrop).unwrap();
+        // PR #31 collapsed `Viewport { layer, kind }` to a bare `ViewportKind`
+        // when the layer dimension was deleted.
+        cropped.viewport_stack.push(ViewportKind::Cropped(crop));
+        cropped.pixel_alpha(Pixel(local, ink), 0.5).unwrap();
+        cropped.viewport_stack.pop();
+
+        // Reference: the same blend written in absolute coordinates.
+        let mut absolute =
+            EGRenderer::<Rgb888, AntiAliasingDisabled>::new(size);
+        Renderer::pixel(&mut absolute, abs, backdrop).unwrap();
+        absolute.pixel_alpha(Pixel(abs, ink), 0.5).unwrap();
+
+        cropped.draw_buffer(|c| {
+            absolute.draw_buffer(|a| {
+                assert_eq!(
+                    c, a,
+                    "pixel_alpha blended against the untranslated destination"
+                );
             })
         });
     }

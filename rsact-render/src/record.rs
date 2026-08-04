@@ -206,22 +206,22 @@ impl<C, D> FinishRender<D> for RecordingRenderer<C> {
 
 impl<C: Color> Renderer for RecordingRenderer<C> {
     type Color = C;
-    type Options = ();
-
-    fn set_options(&mut self, _options: Self::Options) {}
 
     fn size(&self) -> Size {
         self.size
     }
 
-    fn clipped(
-        &mut self,
-        area: Rect,
-        f: impl FnOnce(&mut Self) -> RenderResult,
-    ) -> RenderResult {
+    fn push_clip(&mut self, area: Rect) {
         self.push(DrawOp::Clip(area));
-        f(self)
     }
+
+    // Deliberately records NOTHING (WS6.4.0(ii-1)). The op log is a linear
+    // trace in which a `Clip` applies to the ops that follow it, so emitting an
+    // "unclip" marker would change every WS6.9 golden for no information gain —
+    // the previous closure form recorded no end marker either. If 6.4a's
+    // tile-invariance check ever needs clip *scope* rather than clip *order*,
+    // add the marker there and bless the goldens in the same commit.
+    fn pop_clip(&mut self) {}
 
     fn fill_solid(&mut self, rect: Rect, _color: Self::Color) -> RenderResult {
         self.push(DrawOp::FillSolid(rect));
@@ -358,13 +358,17 @@ mod tests {
     #[test]
     fn clipped_records_the_region_then_the_nested_ops() {
         let mut rec = RecordingRenderer::<NullColor>::new(Size::new_equal(64));
-        rec.clipped(r(1, 1, 8, 8), |inner| {
-            inner.fill_solid(r(2, 2, 3, 3), NullColor)
-        })
-        .unwrap();
+        rec.push_clip(r(1, 1, 8, 8));
+        rec.fill_solid(r(2, 2, 3, 3), NullColor).unwrap();
+        rec.pop_clip();
 
         // The clip region is logged before the ops that drew inside it — this is
         // what lets WS6 assert "drawing was confined to the damage rect".
+        //
+        // WS6.4.0(ii-1): `pop_clip` deliberately records nothing, so this log —
+        // and every WS6.9 golden — is byte-identical to the closure-based form
+        // it replaces. The trace is linear: a `Clip` applies to the ops that
+        // follow it.
         assert_eq!(
             rec.ops(),
             [DrawOp::Clip(r(1, 1, 8, 8)), DrawOp::FillSolid(r(2, 2, 3, 3))]

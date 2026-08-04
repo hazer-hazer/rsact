@@ -22,8 +22,8 @@ pub fn labels_page(n: usize) -> (UI<NullWtf, WithPages>, Vec<Signal<String>>) {
         .map(|i| create_signal(format!("label {i}")))
         .collect();
     let init = labels.clone();
-    let mut ui: UI<NullWtf, _> =
-        UI::new((), NullRenderer).with_page((), move || {
+    let mut ui: UI<NullWtf, _> = UI::new((), NullRenderer::default())
+        .with_page((), move || {
             Flex::col(
                 init.iter()
                     .map(|s| Label::new(*s).into_el())
@@ -44,8 +44,8 @@ pub fn buttons_page(n: usize) -> (UI<NullWtf, WithPages>, Vec<Signal<String>>) {
         .map(|i| create_signal(format!("button {i}")))
         .collect();
     let init = labels.clone();
-    let mut ui: UI<NullWtf, _> =
-        UI::new((), NullRenderer).with_page((), move || {
+    let mut ui: UI<NullWtf, _> = UI::new((), NullRenderer::default())
+        .with_page((), move || {
             Flex::col(
                 init.iter()
                     .map(|s| Button::new(Label::new(*s)).into_el())
@@ -69,8 +69,8 @@ pub fn nested_flex_page(
         .map(|i| create_signal(format!("nested {i}")))
         .collect();
     let init = labels.clone();
-    let mut ui: UI<NullWtf, _> =
-        UI::new((), NullRenderer).with_page((), move || {
+    let mut ui: UI<NullWtf, _> = UI::new((), NullRenderer::default())
+        .with_page((), move || {
             Flex::col(
                 init.iter()
                     .map(|s| Flex::row([Label::new(*s).into_el()]).into_el())

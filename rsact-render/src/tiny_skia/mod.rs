@@ -140,23 +140,17 @@ where
 
 impl Renderer for TinySkiaRenderer<tiny_skia::Color> {
     type Color = tiny_skia::Color;
-    type Options = ();
-
-    fn set_options(&mut self, _options: Self::Options) {}
 
     fn size(&self) -> Size {
         self.size
     }
 
-    fn clipped(
-        &mut self,
-        area: Rect,
-        f: impl FnOnce(&mut Self) -> RenderResult,
-    ) -> RenderResult {
+    fn push_clip(&mut self, area: Rect) {
         self.canvas.enter_viewport(ViewportKind::Clipped(area));
-        let result = f(self);
+    }
+
+    fn pop_clip(&mut self) {
         self.canvas.exit_viewport();
-        result
     }
 
     fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult {
