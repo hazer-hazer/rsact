@@ -397,6 +397,13 @@ impl<W: WidgetCtx> Page<W> {
     /// `&mut self` is the point (WS6.4.0(iv)): it is what makes a relayout
     /// *during* a frame a compile error rather than a runtime hazard, since a
     /// frame holds `&mut Page` for its duration.
+    /// Test-only: production call sites cannot use this. The returned reference
+    /// borrows all of `*self` (it comes from a `&mut self` method), which
+    /// conflicts with the `&mut self.state` the event passes need alongside it —
+    /// so they call `relayout_if_needed()` and then borrow the `layout` FIELD,
+    /// which is disjoint. Kept because it is the shape a `Frame` will want
+    /// (WS6.4d), where holding `&mut Page` for the frame is the point.
+    #[cfg(test)]
     pub(crate) fn layout(&mut self) -> &LayoutModel {
         self.relayout_if_needed();
         &self.layout
