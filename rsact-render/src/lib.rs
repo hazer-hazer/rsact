@@ -43,13 +43,13 @@ pub mod geometry;
 #[cfg(feature = "std")]
 pub mod golden;
 pub mod image;
-pub mod layer;
 pub mod output;
 pub mod path;
 pub mod primitives;
 pub mod record;
 pub mod renderer;
 pub mod style;
+pub mod surface;
 
 #[macro_use]
 extern crate alloc;
@@ -86,7 +86,7 @@ pub mod prelude {
         },
         renderer::{
             AntiAliasing, NullColor, NullRenderer, RenderResult, Renderer,
-            Viewport, ViewportKind,
+            ViewportKind,
         },
         style::{ColorStyle, DrawStyle, StrokeAlignment, block::*},
     };
