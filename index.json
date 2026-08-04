@@ -11,6 +11,12 @@
     "branch": "master",
     "subject": "Merge pull request #18 from hazer-hazer/ws-home-hero"
   },
+  "73386c04d25c38e5ef2aae8ea982403cdfb2aca5": {
+    "date": 1785871204,
+    "parent": "",
+    "branch": "ws6.4a-tile-measurement",
+    "subject": "WS6.4a: correct the escaping-node note — nothing sets `clip_path` at all"
+  },
   "b3c82b0795053d37b0d5ca91e94a76e110610350": {
     "date": 1785863451,
     "parent": "",
