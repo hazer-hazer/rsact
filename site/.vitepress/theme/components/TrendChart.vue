@@ -158,7 +158,7 @@ const hoverX = computed(() =>
 // viewBox stretch (preserveAspectRatio="none") can't smear it sideways.
 .series-line {
   stroke-width: 1.25;
-  filter: drop-shadow(0 0 1.5px) drop-shadow(0 0 3px);
+  filter: drop-shadow(0 0 1.0px) drop-shadow(0 0 3px);
 }
 .dot { filter: drop-shadow(0 0 2px); }
 .guide { stroke: var(--vp-c-text-3); stroke-width: 1; stroke-dasharray: 3 3; }

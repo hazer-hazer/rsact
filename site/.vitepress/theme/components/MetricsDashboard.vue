@@ -304,7 +304,6 @@ function valAt(s: Series): string {
 
 <style scoped lang="scss">
 .metrics {
-  margin-top: 1rem;
   --metric-col-w: 13rem;
 }
 
@@ -314,6 +313,7 @@ function valAt(s: Series): string {
 
 .intro {
   font-size: 13px;
+  padding: 0 1rem;
 }
 
 .up {
@@ -325,7 +325,7 @@ function valAt(s: Series): string {
 }
 
 .controls {
-  margin: 0.6rem 0 1rem;
+  margin: 0.6rem 1rem;
   display: flex;
   gap: 0.75rem;
   align-items: center;

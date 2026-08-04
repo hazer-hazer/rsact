@@ -137,3 +137,18 @@
   vertical-align: -0.12em;
   background: center / contain no-repeat url("/rsact/hero-node.svg");
 }
+
+// :root {
+//   --vp-nav-bg-color: color-mix(in srgb, var(--vp-c-bg) 25%, transparent);
+//   --vp-local-nav-bg-color: var(--vp-nav-bg-color);
+// }
+
+// .VPNavBar,
+// .VPLocalNav {
+//   backdrop-filter: blur(7px) saturate(1.5);
+//   -webkit-backdrop-filter: blur(7px) saturate(1.5);
+// }
+
+// .VPFeature > article > img {
+//   margin: 0 !important;
+// }

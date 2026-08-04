@@ -1,16 +1,16 @@
 <template>
-    <div :class="$style['metrics-page']">
-        <div class="vp-doc">
-            <h1>Metrics</h1>
-            <p>
-                Per-commit performance and footprint, recorded in CI and charted live. Counts
-                (nodes, signals, allocations) are machine-independent; heap <b>bytes</b> and flash
-                sizes are CI-runner figures — compare trends within this store only.
-            </p>
-        </div>
-
-        <MetricsDashboard />
+  <div :class="$style['metrics-page']">
+    <div class="vp-doc" :class="$style['description']">
+      <h1>Metrics</h1>
+      <p>
+        Per-commit performance and footprint, recorded in CI and charted live. Counts
+        (nodes, signals, allocations) are machine-independent; heap <b>bytes</b> and flash
+        sizes are CI-runner figures — compare trends within this store only.
+      </p>
     </div>
+
+    <MetricsDashboard />
+  </div>
 </template>
 
 <script lang="ts" setup>
@@ -20,8 +20,18 @@ import MetricsDashboard from './MetricsDashboard.vue';
 
 <style lang="scss" module>
 .metrics-page {
-  padding: 5px 10px;
   box-sizing: border-box;
+
+  .description {
+    padding: 0.5rem 1rem;
+
+    h1 {}
+
+    p {
+      font-size: 14px;
+      margin: 0;
+    }
+  }
 }
 
 // Desktop: fill exactly the viewport below the fixed nav (VitePress adds
@@ -34,10 +44,12 @@ import MetricsDashboard from './MetricsDashboard.vue';
     flex-direction: column;
     overflow: hidden;
   }
+
   // header block: natural height
   .metrics-page :global(.vp-doc) {
     flex: 0 0 auto;
   }
+
   // dashboard fills the rest and becomes a column so its .wrap can flex-fill
   .metrics-page :global(.metrics) {
     flex: 1 1 auto;

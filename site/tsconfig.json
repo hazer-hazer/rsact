@@ -10,5 +10,15 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": [".vitepress/**/*.ts", ".vitepress/**/*.vue", ".vitepress/**/*.mts"]
+  "vueCompilerOptions": {
+    // "vitePressExtensions": [".md"]
+  },
+  "include": [
+    ".vitepress/**/*.ts",
+    ".vitepress/**/*.vue",
+    ".vitepress/**/*.mts"
+    // "docs/**/*.ts",
+    // "docs/**/*.vue",
+    // "docs/**/*.md"
+  ]
 }

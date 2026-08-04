@@ -17,7 +17,10 @@ hero:
 features:
   - title: Fine-grained reactivity
     details: Signals, memos, effects and probes. Change detection at the consumer and glitch-free, topologically-ordered effect flushing — only what actually changed recomputes.
+
   - title: no_std by default
+    # icon:
+    #   src: /oled-logo.svg
     details: Builds for thumbv7m (Cortex-M3, e.g. an STM32 "Blue Pill") and up. std is an opt-in feature; a heap allocator is the only hard requirement.
   - title: You pay for what you wire
     details: Pay-per-use by construction. Reactive-graph cost scales with the UI you actually build — and it's measured every commit, not promised.
