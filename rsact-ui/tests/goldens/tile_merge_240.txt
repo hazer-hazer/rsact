@@ -1,0 +1,3 @@
+adjacent     ops    130 ->    130 (1.00x)  area    2048 ->    2304 (1.12x)
+far          ops    127 ->    460 (3.62x)  area    2048 ->   48384 (23.62x)
+overlapping  ops    135 ->    132 (0.98x)  area    4096 ->    3072 (0.75x)

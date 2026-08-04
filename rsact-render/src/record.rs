@@ -53,11 +53,87 @@ pub enum DrawOp {
         top_left: Point,
         diameter: u32,
     },
+    /// `bounds` is the polygon's own bounding box: the individual points are not
+    /// kept (the log is a *count* of primitives, not a copy of their input), but
+    /// the extent is, because WS6.4a's [`Self::bounds`] contract needs it.
     Polygon {
         points: usize,
+        bounds: Rect,
     },
-    Path,
-    Image,
+    /// Ditto — [`Path::bounds`] at record time, so the log stays `Copy` and
+    /// allocation-free while remaining geometrically checkable.
+    Path {
+        bounds: Rect,
+    },
+    Image {
+        bounds: Rect,
+    },
+}
+
+impl DrawOp {
+    /// The conservative pixel bound of what this op draws, or `None` for an op
+    /// that draws nothing.
+    ///
+    /// **This is the culling contract** (WS6.4a). Read it as an obligation in one
+    /// direction: *if* this bound intersects a region, a renderer replaying the
+    /// frame region-by-region **must** emit the op for that region. A culler is
+    /// free to skip a region the bound misses; it may never skip one the bound
+    /// hits. [`tile_invariance`] is that sentence turned into an assertion, so
+    /// this method and any future geometric cull must stay the *same* predicate —
+    /// a cull tighter than this bound would pass review and fail on screen.
+    ///
+    /// Two deliberate imprecisions, both recorded because they set the limits of
+    /// what the check can prove:
+    ///
+    /// - **`None` means bookkeeping, not "everywhere".** Only [`Self::Clip`]
+    ///   returns it: a clip paints nothing, so it carries no obligation, and
+    ///   WS6.4a's arithmetic skips such ops entirely rather than treating them as
+    ///   present-in-every-tile. A *lost clip* is therefore invisible to the
+    ///   invariance check — that failure mode is over-painting, which is the
+    ///   pixel goldens' business (WS6.9's deferred PNG half).
+    /// - **Stroke width is not recorded** (the log is style-agnostic on purpose),
+    ///   so a stroked primitive paints up to `stroke_width / 2` outside its
+    ///   geometry. The bound therefore *under*-approximates by that margin, which
+    ///   makes the invariance check slightly weaker (it can miss a genuinely lost
+    ///   op in a boundary sliver) but never wrong in the other direction. Fixing
+    ///   it would mean recording style, which is exactly what keeps this log
+    ///   deterministic and colour-agnostic.
+    ///
+    /// [`tile_invariance`]: crate::schedule::tile_invariance
+    /// [`Path::bounds`]: crate::path::Path::bounds
+    pub fn bounds(&self) -> Option<Rect> {
+        // A `diameter`-wide primitive anchored at its top-left corner.
+        let square = |top_left: Point, diameter: u32| {
+            Rect::new(top_left, Size::new_equal(diameter))
+        };
+
+        match *self {
+            // Bookkeeping, not drawing — see the note above.
+            DrawOp::Clip(_) => None,
+            DrawOp::FillSolid(rect)
+            | DrawOp::Rect(rect)
+            | DrawOp::RoundedRect(rect)
+            | DrawOp::Ellipse(rect)
+            | DrawOp::Polygon { bounds: rect, .. }
+            | DrawOp::Path { bounds: rect }
+            | DrawOp::Image { bounds: rect } => Some(rect),
+            DrawOp::Pixel(point) => Some(Rect::new(point, Size::new_equal(1))),
+            DrawOp::Line { from, to } => Some(Rect::new(
+                Point::new(from.x.min(to.x), from.y.min(to.y)),
+                // Inclusive endpoints, exclusive rect edge — hence `+ 1`, so a
+                // horizontal line is 1 pixel tall rather than zero-area.
+                Size::new(
+                    (from.x.max(to.x) - from.x.min(to.x) + 1) as u32,
+                    (from.y.max(to.y) - from.y.min(to.y) + 1) as u32,
+                ),
+            )),
+            DrawOp::Circle { top_left, diameter }
+            | DrawOp::Arc { top_left, diameter }
+            | DrawOp::Sector { top_left, diameter } => {
+                Some(square(top_left, diameter))
+            },
+        }
+    }
 }
 
 impl fmt::Display for DrawOp {
@@ -124,9 +200,23 @@ impl fmt::Display for DrawOp {
                 point(f, top_left)?;
                 write!(f, " d={diameter}")
             },
-            DrawOp::Polygon { points } => write!(f, "Polygon n={points}"),
-            DrawOp::Path => write!(f, "Path"),
-            DrawOp::Image => write!(f, "Image"),
+            // WS6.4a prints the bound for the three ops whose own line carries
+            // no position at all. `Path` in particular used to log as the bare
+            // word "Path", so the checkbox goldens could not tell a correctly
+            // placed check-icon from a displaced one. The two WS6.9 goldens are
+            // re-blessed in the same commit (as `pop_clip`'s note requires).
+            DrawOp::Polygon { points, bounds } => {
+                write!(f, "Polygon n={points} ")?;
+                rect(f, bounds)
+            },
+            DrawOp::Path { bounds } => {
+                write!(f, "Path ")?;
+                rect(f, bounds)
+            },
+            DrawOp::Image { bounds } => {
+                write!(f, "Image ")?;
+                rect(f, bounds)
+            },
         }
     }
 }
@@ -191,6 +281,26 @@ impl<C> RecordingRenderer<C> {
     fn push(&self, op: DrawOp) {
         self.ops.borrow_mut().push(op);
     }
+}
+
+/// The bounding box of a point set — the recorded extent of a polygon, whose
+/// individual points the log does not keep. Empty input has no extent, and a
+/// zero-sized rect intersects nothing, which is the right answer for a primitive
+/// that draws nothing.
+fn points_bounds(points: &[Point]) -> Rect {
+    let Some(first) = points.first() else {
+        return Rect::zero();
+    };
+    let (mut min, mut max) = (*first, *first);
+    for point in &points[1..] {
+        min = Point::new(min.x.min(point.x), min.y.min(point.y));
+        max = Point::new(max.x.max(point.x), max.y.max(point.y));
+    }
+    // Inclusive corners, exclusive rect edge (see `Path::bounds`).
+    Rect::new(
+        min,
+        Size::new((max.x - min.x + 1) as u32, (max.y - min.y + 1) as u32),
+    )
 }
 
 impl<C: Color> RenderTarget for RecordingRenderer<C> {
@@ -310,24 +420,28 @@ impl<C: Color> Renderer for RecordingRenderer<C> {
         points: &[Point],
         _style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        self.push(DrawOp::Polygon { points: points.len() });
+        self.push(DrawOp::Polygon {
+            points: points.len(),
+            bounds: points_bounds(points),
+        });
         Ok(())
     }
 
     fn path(
         &mut self,
-        _path: &Path,
+        path: &Path,
         _style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        self.push(DrawOp::Path);
+        // A path that reaches no point draws nothing; `Rect::zero` is exactly
+        // that in bound form (it intersects no region).
+        self.push(DrawOp::Path {
+            bounds: path.bounds().unwrap_or(Rect::zero()),
+        });
         Ok(())
     }
 
-    fn image<'a>(
-        &mut self,
-        _image: DrawImage<'a, Self::Color>,
-    ) -> RenderResult {
-        self.push(DrawOp::Image);
+    fn image<'a>(&mut self, image: DrawImage<'a, Self::Color>) -> RenderResult {
+        self.push(DrawOp::Image { bounds: image.bounding_box() });
         Ok(())
     }
 }
@@ -388,9 +502,9 @@ mod tests {
             DrawOp::Arc { top_left: Point::new(5, 5), diameter: 10 },
             DrawOp::Ellipse(r(1, 1, 6, 3)),
             DrawOp::Sector { top_left: Point::new(5, 5), diameter: 10 },
-            DrawOp::Polygon { points: 3 },
-            DrawOp::Path,
-            DrawOp::Image,
+            DrawOp::Polygon { points: 3, bounds: r(1, 1, 6, 6) },
+            DrawOp::Path { bounds: r(12, 13, 8, 8) },
+            DrawOp::Image { bounds: r(0, 0, 16, 16) },
         ];
 
         assert_eq!(
@@ -406,10 +520,75 @@ Circle 5,5 d=10
 Arc 5,5 d=10
 Ellipse 1,1 6x3
 Sector 5,5 d=10
-Polygon n=3
-Path
-Image
+Polygon n=3 1,1 6x6
+Path 12,13 8x8
+Image 0,0 16x16
 "
+        );
+    }
+
+    /// WS6.4a: [`DrawOp::bounds`] is the culling contract, so the arithmetic that
+    /// derives a bound from a primitive's own anchor is pinned here. The three
+    /// cases that are easy to get wrong: an inclusive-endpoint line must not
+    /// collapse to zero area, a `Pixel` covers exactly one, and a `Clip` carries
+    /// no obligation at all.
+    #[test]
+    fn bounds_are_the_conservative_pixel_extent() {
+        assert_eq!(
+            DrawOp::FillSolid(r(3, 4, 10, 20)).bounds(),
+            Some(r(3, 4, 10, 20))
+        );
+        assert_eq!(
+            DrawOp::Pixel(Point::new(7, 9)).bounds(),
+            Some(r(7, 9, 1, 1))
+        );
+        // A horizontal line is one pixel TALL, not zero-area — a zero-area bound
+        // would intersect no tile and so oblige nobody to draw it.
+        assert_eq!(
+            DrawOp::Line { from: Point::new(2, 5), to: Point::new(8, 5) }
+                .bounds(),
+            Some(r(2, 5, 7, 1))
+        );
+        // Endpoint order must not matter.
+        assert_eq!(
+            DrawOp::Line { from: Point::new(8, 9), to: Point::new(2, 5) }
+                .bounds(),
+            Some(r(2, 5, 7, 5))
+        );
+        assert_eq!(
+            DrawOp::Circle { top_left: Point::new(5, 5), diameter: 10 }
+                .bounds(),
+            Some(r(5, 5, 10, 10))
+        );
+        // Bookkeeping: a clip draws nothing.
+        assert_eq!(DrawOp::Clip(r(0, 0, 64, 64)).bounds(), None);
+    }
+
+    /// A polygon's points are not kept in the log, so its extent must be captured
+    /// at record time — including the inclusive-corner `+1`, without which a
+    /// flat (collinear) polygon would record a zero-area bound.
+    #[test]
+    fn polygon_records_its_extent_not_its_points() {
+        let mut rec = RecordingRenderer::<NullColor>::new(Size::new_equal(64));
+        rec.polygon(
+            &[Point::new(4, 10), Point::new(9, 2), Point::new(1, 6)],
+            &DrawStyle::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            rec.ops(),
+            [DrawOp::Polygon { points: 3, bounds: r(1, 2, 9, 9) }]
+        );
+    }
+
+    #[test]
+    fn empty_polygon_has_a_zero_bound() {
+        let mut rec = RecordingRenderer::<NullColor>::new(Size::new_equal(64));
+        rec.polygon(&[], &DrawStyle::default()).unwrap();
+        assert_eq!(
+            rec.ops(),
+            [DrawOp::Polygon { points: 0, bounds: Rect::zero() }]
         );
     }
 

@@ -3,6 +3,8 @@
 //! page independently; a single builder here keeps them from drifting so their
 //! numbers stay comparable. Not part of the public API.
 
+pub mod tile_probe;
+
 use crate::{
     el::ctx::{WidgetCtx, Wtf},
     page::Page,

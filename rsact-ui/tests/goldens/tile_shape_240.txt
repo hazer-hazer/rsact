@@ -1,0 +1,3 @@
+region          rect      area  required
+tight      0,0 16x16       256         3
+band      0,0 240x24      5760       118
