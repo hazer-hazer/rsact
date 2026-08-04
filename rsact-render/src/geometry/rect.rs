@@ -129,6 +129,16 @@ impl Rect {
         }
     }
 
+    /// Whether the two rects share at least one pixel.
+    ///
+    /// A zero-sized rect covers no pixel, so it intersects nothing — the same
+    /// convention [`Self::intersection`] already uses for the disjoint case (it
+    /// returns [`Self::zero`], not an `Option`). WS6.4a leans on that: an op with
+    /// a zero-area bound paints nothing, so no tile is obliged to draw it.
+    pub fn intersects(&self, other: &Self) -> bool {
+        !self.intersection(other).is_zero_sized()
+    }
+
     pub fn resized_width(&self, new_width: u32, anchor: AnchorX) -> Self {
         let dx = new_width as i32 - self.size.width as i32;
         let new_x = match anchor {
@@ -333,5 +343,23 @@ mod tests {
         assert_eq!(Rect::zero().union(&sized), sized);
         assert_eq!(sized.union(&Rect::zero()), sized);
         assert_eq!(Rect::zero().union(&Rect::zero()), Rect::zero());
+    }
+
+    /// WS6.4a: `intersects` decides which tiles must redraw an op, so the
+    /// touching-but-not-overlapping boundary is the case that matters — the
+    /// bottom-right edge is exclusive, so two rects sharing an edge do NOT
+    /// intersect. Off by one here and every tile boundary either double-paints or
+    /// cracks.
+    #[test]
+    fn intersects_treats_the_shared_edge_as_disjoint() {
+        let left = r(0, 0, 10, 10);
+        assert!(left.intersects(&r(9, 0, 10, 10)), "one shared column");
+        assert!(!left.intersects(&r(10, 0, 10, 10)), "abutting, no overlap");
+        assert!(!left.intersects(&r(0, 10, 10, 10)), "abutting below");
+        assert!(left.intersects(&left));
+        // A zero-sized rect covers no pixel, so it meets nothing — not even a
+        // rect that contains its corner.
+        assert!(!left.intersects(&Rect::zero()));
+        assert!(!Rect::zero().intersects(&Rect::zero()));
     }
 }

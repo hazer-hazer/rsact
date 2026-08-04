@@ -75,7 +75,10 @@ fn collect_new_estimates(dir: &Path, out: &mut Vec<PathBuf>) {
 /// (criterion's latest-run slot — as opposed to `base/` or a saved baseline).
 fn is_new_estimates(path: &Path) -> bool {
     path.file_name().and_then(|n| n.to_str()) == Some("estimates.json")
-        && path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str())
+        && path
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
             == Some("new")
 }
 
