@@ -16,5 +16,11 @@
     "parent": "",
     "branch": "ws6.4.0-layout-owned",
     "subject": "WS6.4.0(iv): gate the test-only layout accessor"
+  },
+  "d20fe00c604538991c5365ca131220e705e1b72a": {
+    "date": 1785868657,
+    "parent": "",
+    "branch": "ws6.4a-tile-measurement",
+    "subject": "Roadmap: 6.4a DONE — estimates replaced by measurements; ISSUE-2 filed"
   }
 }
