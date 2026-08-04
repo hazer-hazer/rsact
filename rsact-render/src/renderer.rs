@@ -64,6 +64,16 @@ impl ViewportKind {
     /// WS6.4b reads this as the **cull rect**: a widget whose bounds miss it
     /// cannot affect the output, so it need not be drawn at all. That is only
     /// sound if the stack composes — see [`Self::nested_in`].
+    ///
+    /// The rect is in **the caller's coordinate space**, i.e. absolute, for every
+    /// variant — including [`Self::Cropped`], whose stored rect is absolute and
+    /// whose *rebasing* is the renderer's private business (WS6.4.0(ii-3): rsact
+    /// paints in absolute coordinates and a region-backed renderer offsets
+    /// internally). That is what lets both consumers compare against it directly:
+    /// `render_part`'s cull, which holds an absolute `layout.outer`, and
+    /// `DrawTargetProxy`'s per-pixel filter, which sees the coordinates the
+    /// drawing code emitted. A variant reporting a viewport-local rect here would
+    /// silently invert both tests the moment WS6.4d starts constructing `Cropped`.
     pub fn clip_bounds(&self) -> Option<Rect> {
         match *self {
             ViewportKind::Fullscreen => None,
