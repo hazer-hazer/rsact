@@ -43,25 +43,17 @@ impl AntiAliasing for AntiAliasingDisabled {}
 #[derive(Clone, Copy, Debug)]
 pub enum ViewportKind {
     Fullscreen,
-    /// Clipped part of parent layer with absolute positions relative to screen
-    /// top-left point
+    /// Clipped part of the parent viewport with absolute positions relative to
+    /// the screen top-left point
     Clipped(Rect),
-    /// Part of parent layer with positions relative to this layer top-left
-    /// point
+    /// Part of the parent viewport with positions relative to this viewport's
+    /// top-left point
     Cropped(Rect),
 }
 
-#[derive(Clone, Copy)]
-pub struct Viewport {
-    /// It's okay to have multiple Layers pointing to the same Canvas as it can
-    /// be Clipped or Cropped but not for overlaying
-    pub layer: usize,
-    pub kind: ViewportKind,
-}
-
-impl Viewport {
+impl ViewportKind {
     pub fn root() -> Self {
-        Self { layer: 0, kind: ViewportKind::Fullscreen }
+        Self::Fullscreen
     }
 }
 

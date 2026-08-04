@@ -14,7 +14,7 @@ use crate::{
     },
     renderer::{
         AntiAliasing, AntiAliasingDisabled, AntiAliasingEnabled, RenderResult,
-        Renderer, Viewport, ViewportKind,
+        Renderer, ViewportKind,
     },
     style::{DrawStyle, StrokeAlignment},
 };
@@ -102,31 +102,16 @@ impl<C: Color + PixelColor> DrawStyle<C> {
     }
 }
 
-// Note: Real alpha channel is not supported. Now, alpha channel is more like
-// blending parameter for drawing on a single layer, so each layer is not
-// transparent and alpha parameter only affects blending on current layer.
-// TODO: Real alpha-channel
-// TODO: Use common [`Layering`]
-struct Layer<C: Color + PackedColor> {
-    canvas: PackedFramebuf<C>,
-}
-
-impl<C: Color + PackedColor> Layer<C> {
-    fn fullscreen(size: Size) -> Self {
-        Self { canvas: PackedFramebuf::new(size, C::default_background()) }
-    }
-}
-
-/// Renderer backed by embedded_graphics. Combines buffering and layering into
-/// one structure.
+/// Renderer backed by embedded_graphics, drawing into a single owned
+/// `PackedFramebuf` under a clip/crop viewport stack.
 ///
-/// Preserves PackedColor framebuffer optimization, alpha channel blending,
-/// anti-aliasing, and layering support.
+/// Preserves the PackedColor framebuffer optimization, alpha-channel blending,
+/// and anti-aliasing. Layer compositing was removed (see [`crate::surface`]).
+// TODO: Use the common [`crate::surface::Canvas`] surface + viewport helper
+// instead of holding `canvas` + `viewport_stack` inline here.
 pub struct EGRenderer<C: Color + PackedColor, AA: AntiAliasing> {
-    viewport_stack: Vec<Viewport>,
-    // 9a.2: sorted `Vec` keyed by layer index instead of a `BTreeMap`
-    // (dynamic layering disabled → N == 1; kept sorted for compositing order).
-    layers: Vec<(usize, Layer<C>)>,
+    viewport_stack: Vec<ViewportKind>,
+    canvas: PackedFramebuf<C>,
     main_viewport: Size,
     aa: PhantomData<AA>,
 }
@@ -134,8 +119,8 @@ pub struct EGRenderer<C: Color + PackedColor, AA: AntiAliasing> {
 impl<C: Color + PackedColor> EGRenderer<C, AntiAliasingDisabled> {
     pub fn new(viewport: Size) -> Self {
         Self {
-            viewport_stack: vec![Viewport::root()],
-            layers: vec![(0, Layer::fullscreen(viewport))],
+            viewport_stack: vec![ViewportKind::root()],
+            canvas: PackedFramebuf::new(viewport, C::default_background()),
             main_viewport: viewport,
             aa: PhantomData,
         }
@@ -143,33 +128,23 @@ impl<C: Color + PackedColor> EGRenderer<C, AntiAliasingDisabled> {
 }
 
 impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> EGRenderer<C, AA> {
-    fn current_viewport(&self) -> Viewport {
+    fn current_viewport(&self) -> ViewportKind {
         self.viewport_stack.last().copied().unwrap()
     }
 
-    fn layer_index(&self) -> usize {
-        self.current_viewport().layer
-    }
-
-    fn sub_viewport(&self, kind: ViewportKind) -> Viewport {
-        Viewport { layer: self.layer_index(), kind }
-    }
-
     fn current_canvas(&mut self) -> &mut PackedFramebuf<C> {
-        let layer_index = self.layer_index();
-        let pos = self
-            .layers
-            .binary_search_by_key(&layer_index, |(k, _)| *k)
-            .unwrap();
-        &mut self.layers[pos].1.canvas
+        &mut self.canvas
     }
 
-    /// Obtain the raw framebuffer data from layer 0 for hardware output.
+    /// Obtain the raw framebuffer data for hardware output.
     pub fn draw_buffer(&self, f: impl FnOnce(&[<C as PackedColor>::Storage])) {
-        let pos = self.layers.binary_search_by_key(&0, |(k, _)| *k).unwrap();
-        self.layers[pos].1.canvas.draw_buffer(f);
+        self.canvas.draw_buffer(f);
     }
 
+    // Note: Real alpha channel is not supported. Alpha is currently just a
+    // blend parameter applied while drawing onto the (opaque) framebuffer — it
+    // affects blending against existing pixels, not surface transparency.
+    // TODO: Real alpha-channel
     pub fn pixel_alpha(&mut self, pixel: Pixel<C>, blend: f32) -> RenderResult {
         let canvas = self.current_canvas();
         let color = canvas
@@ -184,15 +159,11 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> EGRenderer<C, AA> {
         pixels: impl IntoIterator<Item = Pixel<C>>,
     ) -> Result<(), ()> {
         let viewport = self.current_viewport();
-        let pos = self
-            .layers
-            .binary_search_by_key(&viewport.layer, |(k, _)| *k)
-            .unwrap();
-        let canvas = &mut self.layers[pos].1.canvas;
+        let canvas = &mut self.canvas;
         let eg_pixels = pixels
             .into_iter()
             .map(|p| embedded_graphics::prelude::Pixel(p.0.into(), p.1));
-        match viewport.kind {
+        match viewport {
             ViewportKind::Fullscreen => canvas.draw_iter(eg_pixels),
             ViewportKind::Clipped(area) => {
                 canvas.clipped(&area.into()).draw_iter(eg_pixels)
@@ -210,14 +181,10 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> EGRenderer<C, AA> {
     where
         C: MapColor<TC>,
     {
-        self.layers
-            .iter()
-            .for_each(|(_, layer)| layer.canvas.output(target))
+        self.canvas.output(target)
     }
 
-    /// WS6.3: flush only `regions` (each clamped to the viewport) across all
-    /// layers. Layer order is preserved (a region is streamed layer-by-layer,
-    /// same as the full flush), so overlapping upper layers still land last.
+    /// WS6.3: flush only `regions` (each clamped to the viewport) to `target`.
     fn renderer_output_regions<TC>(
         &self,
         target: &mut impl RenderTarget<Color = TC>,
@@ -225,11 +192,9 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> EGRenderer<C, AA> {
     ) where
         C: MapColor<TC>,
     {
-        self.layers.iter().for_each(|(_, layer)| {
-            for &region in regions {
-                layer.canvas.output_region(target, region)
-            }
-        })
+        for &region in regions {
+            self.canvas.output_region(target, region);
+        }
     }
 
     fn renderer_clipped(
@@ -237,8 +202,7 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> EGRenderer<C, AA> {
         area: Rect,
         f: impl FnOnce(&mut Self) -> RenderResult,
     ) -> RenderResult {
-        self.viewport_stack
-            .push(self.sub_viewport(ViewportKind::Clipped(area)));
+        self.viewport_stack.push(ViewportKind::Clipped(area));
         let result = f(self);
         self.viewport_stack.pop();
         result
@@ -253,23 +217,6 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> EGRenderer<C, AA> {
         Ok(())
     }
 }
-
-// impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor>
-//     LayerRenderer for EGRenderer<C>
-// {
-//     fn on_layer(
-//         &mut self,
-//         index: usize,
-//         f: impl FnOnce(&mut Self) -> RenderResult,
-//     ) -> RenderResult {
-//         self.layers.insert(index, Layer::fullscreen(self.main_viewport));
-//         self.viewport_stack
-//             .push(Viewport { layer: index, kind: ViewportKind::Fullscreen });
-//         let result = f(self);
-//         self.viewport_stack.pop();
-//         result
-//     }
-// }
 
 impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> DrawTarget
     for EGRenderer<C, AA>
@@ -297,12 +244,8 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> DrawTarget
         color: Self::Color,
     ) -> Result<(), Self::Error> {
         let viewport = self.current_viewport();
-        let pos = self
-            .layers
-            .binary_search_by_key(&viewport.layer, |(k, _)| *k)
-            .unwrap();
-        let canvas = &mut self.layers[pos].1.canvas;
-        match viewport.kind {
+        let canvas = &mut self.canvas;
+        match viewport {
             ViewportKind::Fullscreen => canvas.fill_solid(area, color),
             ViewportKind::Clipped(clip) => {
                 canvas.clipped(&clip.into()).fill_solid(area, color)

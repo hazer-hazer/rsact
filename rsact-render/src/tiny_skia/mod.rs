@@ -1,9 +1,9 @@
 #[allow(unused)]
 use crate::FloatExt as _;
 use crate::{
-    layer::{Layering, Surface},
     output::{FinishRender, MapColor, pixel::Pixel},
     prelude::{Angle, DrawStyle, Path, Point, Rect, RenderResult, Size, *},
+    surface::{Canvas, Surface},
     tiny_skia::path::PathBuilderExt,
 };
 use core::marker::PhantomData;
@@ -35,14 +35,14 @@ impl Surface for Pixmap {
 }
 
 pub struct TinySkiaRenderer<C> {
-    layers: Layering<Pixmap>,
+    canvas: Canvas<Pixmap>,
     size: Size,
     _color: PhantomData<C>,
 }
 
 impl TinySkiaRenderer<tiny_skia::Color> {
     pub fn new(size: Size) -> Self {
-        Self { layers: Layering::new(size), size, _color: PhantomData }
+        Self { canvas: Canvas::new(size), size, _color: PhantomData }
     }
 
     fn bounding_box(&self) -> Rect {
@@ -71,7 +71,7 @@ impl TinySkiaRenderer<tiny_skia::Color> {
             let mut paint = self.base_paint();
             paint.set_color(fill);
 
-            self.layers.surface_mut().fill_path(
+            self.canvas.surface_mut().fill_path(
                 path,
                 &paint,
                 tiny_skia::FillRule::default(),
@@ -91,7 +91,7 @@ impl TinySkiaRenderer<tiny_skia::Color> {
             stroke.width = style.stroke_width as f32;
             stroke.line_cap = tiny_skia::LineCap::Round;
 
-            self.layers.surface_mut().stroke_path(
+            self.canvas.surface_mut().stroke_path(
                 path,
                 &paint,
                 &stroke,
@@ -117,27 +117,11 @@ where
         target: &mut impl RenderTarget<Color = C>,
         regions: &[Rect],
     ) {
-        // Composite the layer stack once into the base pixmap, then stream only
-        // the requested regions. Unlike the whole-frame path (which zipped the
-        // full point sequence with the full colour buffer), a sub-rect must
-        // INDEX the composited buffer per point — `y * width + x`.
-        let result = self
-            .layers
-            .layers_mut()
-            .reduce(|result, layer| {
-                let paint = PixmapPaint::default();
-
-                result.draw_pixmap(
-                    0,
-                    0,
-                    layer.as_ref(),
-                    &paint,
-                    Transform::identity(),
-                    None,
-                );
-                result
-            })
-            .unwrap();
+        // The single surface already holds the fully-drawn frame — stream only
+        // the requested regions. A sub-rect must INDEX the buffer per point
+        // (`y * width + x`), unlike a whole-frame zip of the point sequence to
+        // the colour buffer.
+        let result = self.canvas.surface();
 
         let width = result.width();
         let bounds =
@@ -169,9 +153,9 @@ impl Renderer for TinySkiaRenderer<tiny_skia::Color> {
         area: Rect,
         f: impl FnOnce(&mut Self) -> RenderResult,
     ) -> RenderResult {
-        self.layers.enter_viewport(ViewportKind::Clipped(area));
+        self.canvas.enter_viewport(ViewportKind::Clipped(area));
         let result = f(self);
-        self.layers.exit_viewport();
+        self.canvas.exit_viewport();
         result
     }
 
@@ -180,7 +164,7 @@ impl Renderer for TinySkiaRenderer<tiny_skia::Color> {
 
         paint.set_color(color);
 
-        self.layers.surface_mut().fill_rect(
+        self.canvas.surface_mut().fill_rect(
             rect.into(),
             &paint,
             Transform::identity(),
@@ -197,7 +181,7 @@ impl Renderer for TinySkiaRenderer<tiny_skia::Color> {
             return Ok(());
         }
 
-        let pixel_mut = &mut self.layers.surface_mut().pixels_mut()
+        let pixel_mut = &mut self.canvas.surface_mut().pixels_mut()
             [point.y as usize * self.size.width as usize + point.x as usize];
 
         *pixel_mut = color.premultiply().to_color_u8();
@@ -385,7 +369,7 @@ impl Renderer for TinySkiaRenderer<tiny_skia::Color> {
         )
         .ok_or(())?;
         let paint = PixmapPaint::default();
-        self.layers.surface_mut().draw_pixmap(
+        self.canvas.surface_mut().draw_pixmap(
             draw_box.top_left.x,
             draw_box.top_left.y,
             image_pixmap,
