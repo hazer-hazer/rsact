@@ -153,6 +153,10 @@ impl Renderer for TinySkiaRenderer<tiny_skia::Color> {
         self.canvas.exit_viewport();
     }
 
+    fn clip_bounds(&self) -> Option<Rect> {
+        self.canvas.current_viewport().clip_bounds()
+    }
+
     fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult {
         let mut paint = self.base_paint();
 

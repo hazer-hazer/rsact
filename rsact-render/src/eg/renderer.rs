@@ -236,8 +236,19 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> EGRenderer<C, AA> {
         }
     }
 
+    // WS6.4b: narrowed by the active viewport so the top of the stack IS the
+    // effective clip (`ViewportKind::nested_in` documents why that matters).
+    // `EGRenderer` still keeps its viewport stack inline instead of using the
+    // shared `surface::Canvas` helper — see this file's TODO — so the same
+    // one-line composition lives in both places for now.
     fn renderer_push_clip(&mut self, area: Rect) {
-        self.viewport_stack.push(ViewportKind::Clipped(area));
+        let nested =
+            ViewportKind::Clipped(area).nested_in(self.current_viewport());
+        self.viewport_stack.push(nested);
+    }
+
+    fn renderer_clip_bounds(&self) -> Option<Rect> {
+        self.current_viewport().clip_bounds()
     }
 
     // Never pops the root viewport: an unbalanced `pop_clip` must degrade, not
@@ -342,6 +353,10 @@ impl<C: Color + PackedColor + PixelColor> Renderer
 
     fn pop_clip(&mut self) {
         self.renderer_pop_clip()
+    }
+
+    fn clip_bounds(&self) -> Option<Rect> {
+        self.renderer_clip_bounds()
     }
 
     fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult {
@@ -499,6 +514,10 @@ impl<C: Color + PackedColor + PixelColor> Renderer
 
     fn pop_clip(&mut self) {
         self.renderer_pop_clip()
+    }
+
+    fn clip_bounds(&self) -> Option<Rect> {
+        self.renderer_clip_bounds()
     }
 
     fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult {
@@ -737,6 +756,64 @@ mod tests {
         assert_eq!(r.viewport_stack.len(), root, "root viewport must survive");
         // Still usable afterwards — the real point of not emptying the stack.
         Renderer::pixel(&mut r, Point::new(1, 1), Rgb888::WHITE).unwrap();
+    }
+
+    /// WS6.4b: a nested clip must be **narrowed by** its parent, not replace it.
+    ///
+    /// Asserted where it actually matters — on the framebuffer, not on the stack:
+    /// a pixel inside the inner clip but outside the outer one must not land. It
+    /// used to, because `push_clip` stored the raw area and the write filter
+    /// consults only the top of the stack, so an inner clip reaching beyond its
+    /// parent *widened* the effective clip. Under WS6.4d that is drawing escaping
+    /// its tile; here it is the precondition for `clip_bounds` being an exact cull
+    /// rect rather than a guess.
+    #[test]
+    fn a_nested_clip_narrows_and_never_widens() {
+        let mut r =
+            EGRenderer::<Rgb888, AntiAliasingDisabled>::new(Size::new(40, 40));
+
+        r.push_clip(Rect::new(Point::new(0, 0), Size::new(20, 20)));
+        // Overlaps the parent over (10,10)..(20,20) and reaches BEYOND it.
+        r.push_clip(Rect::new(Point::new(10, 10), Size::new(20, 20)));
+
+        assert_eq!(
+            r.clip_bounds(),
+            Some(Rect::new(Point::new(10, 10), Size::new(10, 10))),
+            "the effective clip is the intersection, not the inner rect"
+        );
+
+        // The probe colour must DIFFER from the untouched framebuffer, or the
+        // assertions below hold whatever the clip does: `default_background()`
+        // for RGB is WHITE, so a white probe pixel proves nothing (this test was
+        // written that way first and passed its "rejected" case vacuously).
+        let bg = <Rgb888 as Color>::default_background();
+        let ink = <Rgb888 as Color>::default_foreground();
+        assert_ne!(ink, bg, "the probe colour must be visible");
+
+        // Inside the inner rect but outside the parent: must be rejected.
+        Renderer::pixel(&mut r, Point::new(25, 15), ink).unwrap();
+        // Inside both: must land.
+        Renderer::pixel(&mut r, Point::new(15, 15), ink).unwrap();
+
+        assert_eq!(
+            r.canvas.pixel(Point::new(25, 15)),
+            Some(bg),
+            "a write outside the PARENT clip escaped the nested clip"
+        );
+        assert_eq!(r.canvas.pixel(Point::new(15, 15)), Some(ink));
+
+        // Popping restores the parent, not the raw inner rect.
+        r.pop_clip();
+        assert_eq!(
+            r.clip_bounds(),
+            Some(Rect::new(Point::new(0, 0), Size::new(20, 20)))
+        );
+        r.pop_clip();
+        assert_eq!(
+            r.clip_bounds(),
+            None,
+            "the root viewport confines nothing but the surface"
+        );
     }
 
     /// WS6.4.0(i-1): `pixel_alpha` must read the destination through the SAME
