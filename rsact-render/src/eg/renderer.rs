@@ -247,8 +247,17 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> EGRenderer<C, AA> {
         self.viewport_stack.push(nested);
     }
 
+    // `Fullscreen` falls back to the SURFACE rect rather than reporting "no
+    // bound": that is what makes WS6.4b's culling pay on an ordinary full-frame
+    // render, not only under tiles — off-screen content (scrolled-away rows) is
+    // exactly the case where the clip is currently a write filter and the paint
+    // happens anyway.
     fn renderer_clip_bounds(&self) -> Option<Rect> {
-        self.current_viewport().clip_bounds()
+        Some(
+            self.current_viewport()
+                .clip_bounds()
+                .unwrap_or(Rect::new(Point::zero(), self.main_viewport)),
+        )
     }
 
     // Never pops the root viewport: an unbalanced `pop_clip` must degrade, not
@@ -811,8 +820,8 @@ mod tests {
         r.pop_clip();
         assert_eq!(
             r.clip_bounds(),
-            None,
-            "the root viewport confines nothing but the surface"
+            Some(Rect::new(Point::zero(), Size::new(40, 40))),
+            "the root viewport reports the surface rect"
         );
     }
 

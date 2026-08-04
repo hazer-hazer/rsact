@@ -267,6 +267,35 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
         hash_source: &'static str,
         f: impl FnOnce(RenderCtx<'_, W, CtxReady>) -> RenderResult,
     ) -> RenderResult {
+        // WS6.4b: the GEOMETRY gate, ahead of the reactive one. A part whose area
+        // cannot reach the renderer's clip cannot affect the output, so nothing
+        // below needs to happen — no clear, no paint, no damage, not even a probe.
+        //
+        // Placed in `render_part` rather than per widget on purpose (AGENTS.md):
+        // every drawing widget already funnels through here, and this is also
+        // where `layout.outer` is known to be ABSOLUTE.
+        //
+        // Two consequences that make this sound rather than merely fast:
+        //
+        // - **The predicate is the renderer's own.** `clip_bounds()` never reports
+        //   narrower than what the backend clips to, and a widget must not draw
+        //   outside its declared bounds, so "outer misses the clip" ⇒ "every write
+        //   would have been filtered anyway". `None` (a renderer that does not
+        //   report, e.g. `NullRenderer`) disables the cull entirely.
+        // - **A culled part is skipped, not resolved.** Its probe is left unpolled
+        //   and therefore still dirty, so it repaints whenever it next comes into
+        //   view — WS6.4c's "an unpainted probe stays dirty" property. The page
+        //   does not spin on it either: the walk no longer reads that probe, so the
+        //   page probe's `clear_sources` drops the edge and the next frame is idle.
+        //   What brings it back is the geometry channel (a scroll/resize is a
+        //   layout change ⇒ repaint roots or a blanket redraw), never a stale
+        //   reactive edge.
+        if let Some(clip) = self.renderer.clip_bounds()
+            && !self.layout.outer.intersects(&clip)
+        {
+            return Ok(());
+        }
+
         // Imperative force-dirty flag that triggers redraw even if no reactive
         // dependency changed in the probe.
         // WS6.4.0(iv): `force_redraw` is OR-ed in here instead of being `track()`ed

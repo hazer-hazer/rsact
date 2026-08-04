@@ -367,7 +367,13 @@ impl<C: Color> Renderer for RecordingRenderer<C> {
     }
 
     fn clip_bounds(&self) -> Option<Rect> {
-        self.current_viewport().clip_bounds()
+        // Fullscreen ⇒ the recorder's own extent, so a harness measuring a
+        // full-frame capture sees the same cull rect a real backend would.
+        Some(
+            self.current_viewport()
+                .clip_bounds()
+                .unwrap_or(Rect::new(Point::zero(), self.size)),
+        )
     }
 
     fn fill_solid(&mut self, rect: Rect, _color: Self::Color) -> RenderResult {
@@ -500,7 +506,13 @@ mod tests {
     #[test]
     fn clip_bounds_reports_the_effective_clip() {
         let mut rec = RecordingRenderer::<NullColor>::new(Size::new_equal(64));
-        assert_eq!(rec.clip_bounds(), None, "the root confines nothing");
+        let surface = r(0, 0, 64, 64);
+        assert_eq!(
+            rec.clip_bounds(),
+            Some(surface),
+            "the root reports the SURFACE rect, not `None` — that is what makes \
+             culling pay on a full-frame render and not only under tiles"
+        );
 
         rec.push_clip(r(0, 0, 20, 20));
         assert_eq!(rec.clip_bounds(), Some(r(0, 0, 20, 20)));
@@ -511,10 +523,10 @@ mod tests {
         rec.pop_clip();
         assert_eq!(rec.clip_bounds(), Some(r(0, 0, 20, 20)));
         rec.pop_clip();
-        assert_eq!(rec.clip_bounds(), None);
+        assert_eq!(rec.clip_bounds(), Some(surface));
         // Unbalanced pop degrades rather than panicking (as `EGRenderer` does).
         rec.pop_clip();
-        assert_eq!(rec.clip_bounds(), None);
+        assert_eq!(rec.clip_bounds(), Some(surface));
 
         // None of it touches the op log — the WS6.9 goldens stay valid.
         assert_eq!(

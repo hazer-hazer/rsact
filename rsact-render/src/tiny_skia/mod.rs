@@ -154,7 +154,13 @@ impl Renderer for TinySkiaRenderer<tiny_skia::Color> {
     }
 
     fn clip_bounds(&self) -> Option<Rect> {
-        self.canvas.current_viewport().clip_bounds()
+        // Fullscreen ⇒ the surface rect (see `EGRenderer::renderer_clip_bounds`).
+        Some(
+            self.canvas
+                .current_viewport()
+                .clip_bounds()
+                .unwrap_or(Rect::new(Point::zero(), self.size)),
+        )
     }
 
     fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult {
