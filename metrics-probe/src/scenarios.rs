@@ -291,7 +291,15 @@ mod tests {
     // non-reactive `full_flush` flag (the damage-flush full-invalidate gate), so
     // the UI totals rise by one page's worth: ui5 24->25, ui10 39->40. Reactive-
     // only has no page, so unchanged at 33.
-    // Re-baselined again by WS6.4.0(iv) (2026-08-04, second commit): `full_flush`
+    // Re-baselined again by WS6.4.0(iv) (2026-08-04, third commit): `force_redraw`
+    // is a plain `bool` too, carried into the walk through `RenderShared` and into
+    // the render probe's poll `force`. The node was the small part — every part's
+    // probe `track()`ed it, so setting it created and walked one subscriber EDGE
+    // PER WIDGET; it is one boolean OR per part now. -1 node per page: ui5 22->21,
+    // ui10 37->36. Cumulative for (iv): 24->21 / 39->36, i.e. -3 nodes per page
+    // (layout Memo, relayout Trigger, force_redraw and full_flush Signals out;
+    // layout_probe in).
+    // (History: WS6.4.0(iv) second commit (2026-08-04): `full_flush`
     // is a plain `bool` field instead of a `Signal<bool>`. It never had a
     // subscriber and never could usefully have one — every access was
     // `set_untracked`/`get_untracked` — so it was a `Cell<bool>` paying for a
@@ -330,7 +338,7 @@ mod tests {
         );
 
         let ui5 = ui_labels(5);
-        assert_eq!(ui5.counts.total, 22, "ui_labels_5 node total moved");
+        assert_eq!(ui5.counts.total, 21, "ui_labels_5 node total moved");
         assert_eq!(
             ui5.counts.stored, 0,
             "ui_labels_5 stored = 0: WS5.1 moved every widget's LayoutData \
@@ -343,7 +351,7 @@ mod tests {
         );
 
         let ui10 = ui_labels(10);
-        assert_eq!(ui10.counts.total, 37, "ui_labels_10 node total moved");
+        assert_eq!(ui10.counts.total, 36, "ui_labels_10 node total moved");
         assert_eq!(
             ui10.counts.observers, 12,
             // 10 label render probes + the page render probe + the page LAYOUT

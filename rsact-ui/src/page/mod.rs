@@ -85,7 +85,21 @@ pub struct Page<W: WidgetCtx> {
     viewport: MaybeReactive<Size>,
     stylist: Inert<W::Stylist>,
     dev_tools: Signal<DevTools>,
-    force_redraw: Signal<bool>,
+    /// "Repaint every part this frame." WS6.4.0(iv): a plain `bool`, carried into
+    /// the walk through `RenderShared` and into the render probe's poll `force`.
+    ///
+    /// It was a `Signal<bool>`, and the cost was not the node — it was the
+    /// broadcast. Every part's probe `track()`ed it (`el/render.rs`), so setting
+    /// it created, maintained and walked one subscriber edge per widget in the
+    /// tree. Nothing ever read its value reactively; the subscription *was* the
+    /// mechanism. As a carried flag it is one boolean OR per part.
+    ///
+    /// Caveat worth keeping in mind: losing `track()` means losing the automatic
+    /// wake, so every setter must sit on a path that reaches `use_renderer`. All
+    /// of them are `&mut Page` methods called from the driver loop, which always
+    /// renders after ticking. A future API letting user code request a redraw
+    /// outside that loop would need to preserve the property deliberately.
+    force_redraw: bool,
     /// WS6.2: "flush the whole viewport this frame". Drained in `use_renderer`
     /// to expand the damage set to the full viewport, because the page
     /// background outside the widget tree is not painted per-frame.
@@ -301,7 +315,7 @@ impl<W: WidgetCtx> Page<W> {
         let mut root: El<W> = root.into_el();
         let state = PageState::new();
 
-        let mut force_redraw = create_signal(false).name("Force redraw");
+        let mut force_redraw = false;
 
         // WS6.4.0(iv): a plain flag, not a signal (see the field's doc). It is
         // still true that `force_redraw` must not be value-read to make the flush
@@ -336,7 +350,7 @@ impl<W: WidgetCtx> Page<W> {
         // tree and flushes the whole viewport. Applied HERE rather than inside
         // the compute, which no longer writes redraw state (see `Relayout`).
         if relayout.blanket {
-            force_redraw.set(true);
+            force_redraw = true;
             full_flush = true;
         }
 
@@ -461,7 +475,7 @@ impl<W: WidgetCtx> Page<W> {
 
     pub(crate) fn force_redraw(&mut self) -> &mut Self {
         info!("Force redraw page {:?}", self.id);
-        self.force_redraw.set(true);
+        self.force_redraw = true;
         // WS6.2: a forced redraw flushes the whole viewport (see `full_flush`).
         self.full_flush = true;
         self
@@ -951,7 +965,9 @@ impl<W: WidgetCtx> Page<W> {
         let stylist = &self.stylist;
 
         with!(|stylist| {
-            debug!("Force redraw: {}", self.force_redraw.get());
+            // Plain read since WS6.4.0(iv) — this used to be `.get()`, i.e. a
+            // debug-only *subscription* of the render probe to `force_redraw`.
+            debug!("Force redraw: {}", self.force_redraw);
             self.arena.update_untracked(|arena| {
                 RenderPass::new(
                     arena,
@@ -963,6 +979,7 @@ impl<W: WidgetCtx> Page<W> {
                         fonts,
                         stylist,
                         force_redraw: self.force_redraw,
+
                         damage: &self.damage,
                     },
                 )
@@ -1043,8 +1060,14 @@ impl<W: WidgetCtx> Page<W> {
         // `incremental_layout_change_damages_only_the_stable_parent` catches
         // (verified: swapping these two makes it fail with `[]` damage).
         let relayouted = self.relayout_if_needed();
-        let needs_redraw =
-            relayouted || redraw_reason.is_some() || self.needs_redraw;
+        // `self.force_redraw` is OR-ed in because nothing subscribes to it any
+        // more (WS6.4.0(iv)): the render probe used to `track()` it inside its own
+        // poll closure. Setting the flag must still guarantee the poll runs, or a
+        // `Page::force_redraw()` on an otherwise-idle frame would be swallowed.
+        let needs_redraw = relayouted
+            || redraw_reason.is_some()
+            || self.needs_redraw
+            || self.force_redraw;
 
         // Copy the probe handle out (it is `Copy`) so the poll closure can
         // borrow `self` mutably without aliasing `self.render_probe`.
@@ -1062,8 +1085,6 @@ impl<W: WidgetCtx> Page<W> {
                     info!("Rerender debug info: {di}");
                 });
             }
-
-            self.force_redraw.track();
 
             self.render_calls += 1;
 
@@ -1092,7 +1113,7 @@ impl<W: WidgetCtx> Page<W> {
         // `self.layout`. (Until Stage 6.1 makes layout invalidation targeted,
         // any layout change is conservatively a full flush — never a
         // regression.)
-        self.force_redraw.set_untracked(false);
+        self.force_redraw = false;
         self.needs_redraw = false;
 
         // WS6.2 full-invalidate escape hatch: a full-redraw frame (page enter /
