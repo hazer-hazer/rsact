@@ -18,6 +18,16 @@ echo "== rsact-ui (lib) =="
 cargo test -p rsact-ui --lib --features "std,embedded-graphics" -- \
     --test-threads=1
 
+echo "== rsact-ui (lib, incremental-layout) =="
+# WS6.4.0(iv): the tests behind `incremental-layout` — WS5.2's incremental
+# relayout and WS6.1's targeted invalidation — were running NOWHERE in CI
+# (ci-test.sh omitted the feature; the powerset only *compiles* it). That is 9
+# tests, and they are the ones that catch mis-ordering the relayout against the
+# render gate: both halves of that ordering were verified to fail here and pass
+# on default features, so without this job such a regression ships green.
+cargo test -p rsact-ui --lib \
+    --features "std,embedded-graphics,incremental-layout" -- --test-threads=1
+
 echo "== rsact-render =="
 cargo test -p rsact-render --features "std,embedded-graphics,tiny-skia" -- \
     --test-threads=1

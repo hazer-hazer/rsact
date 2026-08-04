@@ -12,6 +12,7 @@
     "Framebuf",
     "fullscreen",
     "HOVERABLE",
+    "monomorphized",
     "pixelcolor",
     "Pixmap",
     "premultiply",

@@ -31,8 +31,16 @@ pub struct RenderShared<'a, W: WidgetCtx> {
     pub viewport: MaybeReactive<Size>,
     pub fonts: Signal<FontCtx, ReadOnly>,
     pub stylist: &'a W::Stylist,
-    /// Page-level flag that triggers a full redraw (e.g. after layout change).
-    pub force_redraw: Signal<bool>,
+    /// Page-level "repaint everything this frame" flag (e.g. after a layout
+    /// change that reached the root, or an explicit `Page::force_redraw`).
+    ///
+    /// WS6.4.0(iv): a plain `bool` carried down the walk, not a `Signal<bool>`
+    /// that every part's probe subscribed to. It was never read as a value here —
+    /// only `track()`ed — so its whole job was invalidation broadcast: setting it
+    /// created and walked one subscriber edge PER PART. As an argument it is one
+    /// boolean OR per part, no edges at all, and the page probe is woken by the
+    /// same flag feeding its poll `force` (see `Page::use_renderer`).
+    pub force_redraw: bool,
     /// WS6.2: the page's damage accumulator. `render_part` pushes the absolute
     /// outer rect of each **redraw root** (a part that repainted without a
     /// parent already clearing its area) here; the page flushes only these rects
@@ -261,7 +269,12 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
     ) -> RenderResult {
         // Imperative force-dirty flag that triggers redraw even if no reactive
         // dependency changed in the probe.
-        let redraw = self.frame.parent_dirty || self.needs_redraw.is_some();
+        // WS6.4.0(iv): `force_redraw` is OR-ed in here instead of being `track()`ed
+        // inside the probe below. Same semantics — every part repaints — but as a
+        // value carried down the walk rather than a subscription per part.
+        let redraw = self.frame.parent_dirty
+            || self.needs_redraw.is_some()
+            || self.shared.force_redraw;
 
         // WS6.2: is this part the *root* of a repainted region? It is if no
         // parent already cleared its area (`!parent_dirty`) — then its own
@@ -307,11 +320,6 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
                 self.needs_redraw,
                 indent = self.frame.nesting_level
             );
-
-            // Track force_redraw so this probe automatically re-runs
-            // when the page-level force-redraw flag is set
-            // (e.g. after layout change).
-            self.shared.force_redraw.track();
 
             // Clear the element rect unless the parent already did so.
             //

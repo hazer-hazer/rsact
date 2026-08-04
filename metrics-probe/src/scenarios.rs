@@ -291,12 +291,34 @@ mod tests {
     // non-reactive `full_flush` flag (the damage-flush full-invalidate gate), so
     // the UI totals rise by one page's worth: ui5 24->25, ui10 39->40. Reactive-
     // only has no page, so unchanged at 33.
-    // Re-baselined by WS5.0b (2026-08-02): the renderer is a plain single-owner
+    // Re-baselined again by WS6.4.0(iv) (2026-08-04, third commit): `force_redraw`
+    // is a plain `bool` too, carried into the walk through `RenderShared` and into
+    // the render probe's poll `force`. The node was the small part — every part's
+    // probe `track()`ed it, so setting it created and walked one subscriber EDGE
+    // PER WIDGET; it is one boolean OR per part now. -1 node per page: ui5 22->21,
+    // ui10 37->36. Cumulative for (iv): 24->21 / 39->36, i.e. -3 nodes per page
+    // (layout Memo, relayout Trigger, force_redraw and full_flush Signals out;
+    // layout_probe in).
+    // (History: WS6.4.0(iv) second commit (2026-08-04): `full_flush`
+    // is a plain `bool` field instead of a `Signal<bool>`. It never had a
+    // subscriber and never could usefully have one — every access was
+    // `set_untracked`/`get_untracked` — so it was a `Cell<bool>` paying for a
+    // graph node. It only needed to be a `Copy` handle because the layout memo's
+    // closure wrote it, and relayout is a `&mut self` call now. -1 per page:
+    // ui5 23->22, ui10 38->37.
+    // (History: WS6.4.0(iv) first commit (2026-08-04): the page's layout is an owned
+    // `LayoutModel` field gated by a `layout_probe`, instead of a
+    // `Memo<LayoutModel>` tracking a `relayout` Trigger. Net -1 per page: the
+    // Memo and the Trigger both go (-2), the probe arrives (+1). The Trigger was
+    // redundant because every site that fired it marked the arena layout-dirty in
+    // the same breath, which is now the gate (`ElArena::is_layout_dirty`). ui5
+    // 24->23, ui10 39->38. Reactive-only has no page, so it is unchanged at 33.
+    // (History: WS5.0b (2026-08-02): the renderer is a plain single-owner
     // field on `UI` instead of a `Signal<W::Renderer>`, so each UI sheds exactly
     // one node (the signal was created once in `UI::new` and only *copied* into
     // pages): ui5 25->24, ui10 40->39. Reactive-only has no renderer, so it is
     // unchanged at 33.
-    // (History: WS4.1 2026-07-09 inlined `Inert`, removing builder-literal/prop
+    // WS4.1 2026-07-09 inlined `Inert`, removing builder-literal/prop
     // nodes, -3 per UI scenario (32->29 / 52->49); pre-WS4 2026-07-07 / WS0.3b:
     // reactive 33, ui5 32, ui10 52.)
     #[test]
@@ -316,7 +338,7 @@ mod tests {
         );
 
         let ui5 = ui_labels(5);
-        assert_eq!(ui5.counts.total, 24, "ui_labels_5 node total moved");
+        assert_eq!(ui5.counts.total, 21, "ui_labels_5 node total moved");
         assert_eq!(
             ui5.counts.stored, 0,
             "ui_labels_5 stored = 0: WS5.1 moved every widget's LayoutData \
@@ -329,10 +351,13 @@ mod tests {
         );
 
         let ui10 = ui_labels(10);
-        assert_eq!(ui10.counts.total, 39, "ui_labels_10 node total moved");
+        assert_eq!(ui10.counts.total, 36, "ui_labels_10 node total moved");
         assert_eq!(
-            ui10.counts.observers, 11,
-            "one render observer per label + page"
+            ui10.counts.observers, 12,
+            // 10 label render probes + the page render probe + the page LAYOUT
+            // probe (WS6.4.0(iv) — the owned `LayoutModel`'s recompute gate; was
+            // 11 while layout was a `Memo`, which counted as a memo, not a probe).
+            "one render probe per label, plus the page's render and layout probes"
         );
         assert_eq!(
             ui10.counts.stored, 0,

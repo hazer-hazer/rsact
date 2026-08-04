@@ -6,7 +6,6 @@ use crate::{
 };
 use alloc::{boxed::Box, vec::Vec};
 use log::{error, warn};
-use rsact_reactive::prelude::Trigger;
 
 /// A transient **builder**: holds construction-only state and is consumed at
 /// build into its retained [`Widget`]. `build` is the type transform
@@ -57,35 +56,20 @@ pub trait Build<W: WidgetCtx>: core::any::Any {
 pub struct BuildCtx<W: WidgetCtx> {
     arena: Signal<ElArena<W>>,
     id: ElId,
-    /// WS5.1: the page's relayout trigger. Reactive layout-prop bindings
-    /// ([`bind_layout`](Self::bind_layout)) and structure changes
-    /// (`set_children`/`set_single_child`) fire it after mutating the arena so
-    /// the page's layout `Memo` (which tracks it) re-runs a relayout. This is
-    /// the off-graph replacement for the memo tracking a reactive `Layout`
-    /// handle.
-    relayout: Trigger,
 }
 
 impl<W: WidgetCtx> Clone for BuildCtx<W> {
     fn clone(&self) -> Self {
-        Self {
-            arena: self.arena.clone(),
-            id: self.id.clone(),
-            relayout: self.relayout,
-        }
+        Self { arena: self.arena.clone(), id: self.id.clone() }
     }
 }
 impl<W: WidgetCtx> Copy for BuildCtx<W> {}
 
 impl<W: WidgetCtx> BuildCtx<W> {
-    pub fn run(
-        root: &mut El<W>,
-        mut arena: Signal<ElArena<W>>,
-        relayout: Trigger,
-    ) -> ElId {
+    pub fn run(root: &mut El<W>, mut arena: Signal<ElArena<W>>) -> ElId {
         let root = arena.update_untracked(|arena| arena.add(None, root));
 
-        let mut ctx = Self { id: root, arena, relayout };
+        let mut ctx = Self { id: root, arena };
 
         ctx.build_el(root);
 
@@ -121,9 +105,10 @@ impl<W: WidgetCtx> BuildCtx<W> {
             arena.mark_full_relayout();
         });
 
-        // WS5.1: a structure change relayouts the page (the layout `Memo`
-        // tracks this trigger). No-op before the memo exists (initial build).
-        self.relayout.notify();
+        // WS6.4.0(iv): the `arena.mark_full_relayout()` above is the whole
+        // signal. This used to also fire a `relayout` Trigger for the layout
+        // `Memo` to track; the layout is owned by the page now and gated on
+        // `ElArena::has_dirty()`, so the mark and the request are one thing.
 
         self
     }
@@ -138,8 +123,8 @@ impl<W: WidgetCtx> BuildCtx<W> {
             arena.mark_full_relayout();
         });
 
-        // WS5.1: a structure change relayouts the page (see `set_children`).
-        self.relayout.notify();
+        // WS6.4.0(iv): the arena mark above is the whole signal — see
+        // `set_children`.
 
         self
     }
@@ -157,7 +142,6 @@ impl<W: WidgetCtx> BuildCtx<W> {
     ) {
         let mut arena = self.arena;
         let id = self.id;
-        let relayout = self.relayout;
         create_effect(move |_| {
             source.with(|value| {
                 arena.update_untracked(|arena| {
@@ -166,11 +150,11 @@ impl<W: WidgetCtx> BuildCtx<W> {
                     }
                     arena.mark_dirty(id);
                 });
-                // WS5.1: a reactive prop change relayouts the page (the layout
-                // `Memo` tracks this trigger). The arena reads inside the memo
-                // are untracked, so this trigger is the only dependency that
-                // re-runs relayout on a prop change.
-                relayout.notify();
+                // WS6.4.0(iv): `arena.mark_dirty(id)` above is the whole
+                // signal. This used to also fire a `relayout` Trigger, which the
+                // layout `Memo` tracked because its arena reads were untracked;
+                // the layout is owned by the page now and `relayout_if_needed`
+                // reads the dirty set directly, so one mark suffices.
             });
         });
     }
@@ -230,7 +214,7 @@ impl<W: WidgetCtx> BuildCtx<W> {
     // }
 
     fn for_el(self, parent_id: ElId) -> Self {
-        Self { arena: self.arena, id: parent_id, relayout: self.relayout }
+        Self { arena: self.arena, id: parent_id }
     }
 
     fn add_inner(&mut self, el: &mut El<W>) -> ElId {
@@ -358,7 +342,7 @@ mod tests {
         with_new_runtime(|_| {
             let mut root: El<NullWtf> = Unit.el();
             let arena = create_signal(ElArena::new());
-            let root_id = BuildCtx::run(&mut root, arena, create_trigger());
+            let root_id = BuildCtx::run(&mut root, arena);
 
             arena.with(|arena| {
                 let data = arena.expect(root_id).expect("root must exist");
