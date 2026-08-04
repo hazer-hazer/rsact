@@ -1,8 +1,8 @@
 {
-  "0de6bec56f47be1fc476dcccc15cea8de4cf260b": {
-    "date": 1785841161,
+  "b3c82b0795053d37b0d5ca91e94a76e110610350": {
+    "date": 1785863451,
     "parent": "",
-    "branch": "master",
-    "subject": "Merge pull request #33 from hazer-hazer/ws6.4.0-render-prep"
+    "branch": "ws6.4.0-layout-owned",
+    "subject": "WS6.4.0(iv): gate the test-only layout accessor"
   }
 }
