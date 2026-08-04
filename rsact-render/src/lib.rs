@@ -48,6 +48,10 @@ pub mod path;
 pub mod primitives;
 pub mod record;
 pub mod renderer;
+// WS6.4a's measurement + tile-invariance arithmetic over `record`'s op logs.
+// Unconditional for the same reason `record` is: pure `alloc` math with no file
+// I/O (unlike `golden`), so a no_std integration test can use it too.
+pub mod schedule;
 pub mod style;
 pub mod surface;
 
