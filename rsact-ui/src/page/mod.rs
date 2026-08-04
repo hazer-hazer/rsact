@@ -86,10 +86,18 @@ pub struct Page<W: WidgetCtx> {
     stylist: Inert<W::Stylist>,
     dev_tools: Signal<DevTools>,
     force_redraw: Signal<bool>,
-    /// WS6.2: non-reactive "flush the whole viewport this frame" flag (see its
-    /// creation in `Page::new`). Set alongside `force_redraw`; drained in
-    /// `use_renderer` to expand the damage set to the full viewport.
-    full_flush: Signal<bool>,
+    /// WS6.2: "flush the whole viewport this frame". Drained in `use_renderer`
+    /// to expand the damage set to the full viewport, because the page
+    /// background outside the widget tree is not painted per-frame.
+    ///
+    /// WS6.4.0(iv): a plain `bool`. It was a `Signal<bool>` that never had a
+    /// subscriber and never could usefully have one — every access was
+    /// `set_untracked`/`get_untracked` — so it was a `Cell<bool>` paying for a
+    /// graph node, plus a standing footgun (a stray `.get()` would have minted a
+    /// subscription and spuriously re-dirtied the render probe). The only reason
+    /// it needed to be a `Copy` handle was that the layout memo's closure wrote
+    /// it; relayout is a `&mut self` call now, so a field suffices.
+    full_flush: bool,
     render_calls: usize,
     fonts: Signal<FontCtx>,
     /// The page's render gate (WS2). One probe, polled once per frame in
@@ -129,16 +137,26 @@ pub struct Page<W: WidgetCtx> {
 ///
 /// `prev` is the page's current model, used only by the `incremental-layout`
 /// splice path. `None` on first build.
+/// What [`compute_layout`] produced: the model, plus whether the caller owes a
+/// blanket repaint.
+///
+/// WS6.4.0(iv): `compute_layout` used to *write* `force_redraw`/`full_flush`
+/// itself, from inside what was then a memo callback. Reporting instead of
+/// writing is what lets those two stop being reactive at all — a `Signal` was
+/// only ever needed because a closure cannot hold `&mut`.
+struct Relayout {
+    layout: LayoutModel,
+    blanket: bool,
+}
+
 fn compute_layout<W: WidgetCtx>(
     id: W::PageId,
     arena: Signal<ElArena<W>>,
     root: ElId,
     viewport: MaybeReactive<Size>,
     fonts: Signal<FontCtx>,
-    mut force_redraw: Signal<bool>,
-    mut full_flush: Signal<bool>,
     prev: Option<&LayoutModel>,
-) -> LayoutModel {
+) -> Relayout {
     info!("Relayout page {:?}", id);
 
     // `prev` is only consumed by the incremental path.
@@ -228,28 +246,20 @@ fn compute_layout<W: WidgetCtx>(
         })
     });
 
-    // Blanket full repaint + whole-viewport flush, UNLESS the
-    // incremental path already did a targeted repaint above (WS6.1). The
-    // default (non-incremental) build has no targeted path, so it is
-    // always blanket — the historical behaviour.
+    // Whether the caller must do a BLANKET repaint + whole-viewport flush —
+    // true unless the incremental path already did a TARGETED repaint above
+    // (WS6.1). The default (non-incremental) build has no targeted path, so it
+    // is always blanket: the historical behaviour. Covers first build,
+    // fonts/viewport change, structure change, and any relayout that reached
+    // the root.
     #[cfg(feature = "incremental-layout")]
     let blanket = !targeted;
     #[cfg(not(feature = "incremental-layout"))]
     let blanket = true;
 
-    if blanket {
-        // force_redraw re-runs every part's probe; full_flush (WS6.2, a
-        // NON-reactive flag — see its doc) flushes the whole viewport,
-        // since the page background outside widgets is not painted
-        // per-frame. Used for first build, fonts/viewport change,
-        // structure change, and any relayout that reached the root.
-        force_redraw.set(true);
-        full_flush.set_untracked(true);
-    }
-
     debug!("{}", PPLayoutModel::root(&layout));
 
-    layout
+    Relayout { layout, blanket }
 }
 
 impl<W: WidgetCtx> Drop for Page<W> {
@@ -293,16 +303,12 @@ impl<W: WidgetCtx> Page<W> {
 
         let mut force_redraw = create_signal(false).name("Force redraw");
 
-        // WS6.2: a NON-reactive "flush the whole viewport next frame" flag,
-        // parallel to `force_redraw`. It exists because `force_redraw` cannot be
-        // *read* after the pass to make the flush decision: the layout memo
-        // `set`s force_redraw (a notifying write), and any value-read of it
-        // triggers `maybe_update`, propagating that pending dirtiness to the
-        // render probe → a spurious re-render next frame. `full_flush` is only
-        // ever `set_untracked`/`get_untracked` and has NO subscribers, so
-        // reading it perturbs nothing. Set wherever force_redraw is set (the
-        // layout memo below + `force_redraw()`); drained in `use_renderer`.
-        let mut full_flush = create_signal(false).name("Full flush");
+        // WS6.4.0(iv): a plain flag, not a signal (see the field's doc). It is
+        // still true that `force_redraw` must not be value-read to make the flush
+        // decision — reading a notifying signal propagates pending dirtiness to
+        // the render probe — which is why the flush decision has its own flag at
+        // all rather than reusing `force_redraw`.
+        let mut full_flush = false;
 
         let root = BuildCtx::run(&mut root, arena);
 
@@ -312,28 +318,27 @@ impl<W: WidgetCtx> Page<W> {
 
         // The initial layout. `Copy` closure (every capture is a `Copy` handle),
         // so it can serve both the poll and the degraded path below.
-        let compute = || {
-            compute_layout::<W>(
-                id,
-                arena,
-                root,
-                viewport,
-                fonts,
-                force_redraw,
-                full_flush,
-                None,
-            )
-        };
+        let compute =
+            || compute_layout::<W>(id, arena, root, viewport, fonts, None);
 
         // `force: true` rather than leaning on the probe being born dirty: this
         // poll's job is to register the `viewport`/`fonts` dependencies, and that
         // should not depend on birth state. `None` for `prev` — nothing to splice.
-        let layout = layout_probe.poll(true, compute).unwrap_or_else(|| {
+        let relayout = layout_probe.poll(true, compute).unwrap_or_else(|| {
             // Unreachable: a probe created three lines above cannot already be
             // disposed. Logged and degraded rather than unwrapped (WS1.8).
             error!("Page {id:?}: fresh layout probe was already disposed");
             compute()
         });
+        let layout = relayout.layout;
+
+        // First build is always blanket, so the initial frame repaints the whole
+        // tree and flushes the whole viewport. Applied HERE rather than inside
+        // the compute, which no longer writes redraw state (see `Relayout`).
+        if relayout.blanket {
+            force_redraw.set(true);
+            full_flush = true;
+        }
 
         let style = PageStyle::base().signal().name("Page style");
 
@@ -434,15 +439,20 @@ impl<W: WidgetCtx> Page<W> {
                 self.root,
                 self.viewport,
                 self.fonts,
-                self.force_redraw,
-                self.full_flush,
                 Some(&self.layout),
             )
         });
 
         match recomputed {
-            Some(layout) => {
-                self.layout = layout;
+            Some(relayout) => {
+                self.layout = relayout.layout;
+                // Applied outside the poll closure: `compute_layout` reports
+                // rather than writes, so the redraw state is set here, by a
+                // `&mut self` method, which is what lets `full_flush` be a plain
+                // field (WS6.4.0(iv)).
+                if relayout.blanket {
+                    self.force_redraw();
+                }
                 true
             },
             None => false,
@@ -453,8 +463,15 @@ impl<W: WidgetCtx> Page<W> {
         info!("Force redraw page {:?}", self.id);
         self.force_redraw.set(true);
         // WS6.2: a forced redraw flushes the whole viewport (see `full_flush`).
-        self.full_flush.set_untracked(true);
+        self.full_flush = true;
         self
+    }
+
+    /// This frame's damage rects (WS6.2), for tests outside the `page` module —
+    /// `damage` itself is private to it.
+    #[cfg(test)]
+    pub(crate) fn damage_snapshot(&self) -> alloc::vec::Vec<Rect> {
+        self.damage.borrow().clone()
     }
 
     pub fn take_draw_calls(&mut self) -> usize {
@@ -491,6 +508,30 @@ impl<W: WidgetCtx> Page<W> {
                 )
                 .ok()
                 .unwrap();
+
+                // WS6.4.0(iv): whoever paints pixels declares them. This just
+                // repainted the WHOLE viewport in the framebuffer, so the whole
+                // viewport must reach the display; otherwise a damage-driven
+                // flush sends only the widget rects and everything the widgets do
+                // not cover keeps whatever the framebuffer held. That matters
+                // because the framebuffer is one `UI`-owned value outliving every
+                // page, and a `Flex` root's `render` is a literal no-op — so
+                // container padding and inter-child gaps are painted by no widget.
+                //
+                // NOT load-bearing in production today, and the comment should
+                // say so: `clear`'s only caller is `UI::on_page_change`, which
+                // runs on a freshly built page whose first-build blanket already
+                // sets this flag. It is here so `clear` is correct in isolation
+                // for any future caller, and `clear_declares_a_full_viewport_flush`
+                // pins it (verified: that test fails with `[]` damage without it).
+                //
+                // It must be this flag rather than a damage rect: `use_renderer`
+                // clears the damage list at frame start, so a rect pushed before
+                // the frame would be silently dropped.
+                //
+                // Inside the `if let` on purpose — with no background colour
+                // nothing was painted, so nothing needs flushing.
+                self.full_flush = true;
             }
         });
         self
@@ -1064,8 +1105,7 @@ impl<W: WidgetCtx> Page<W> {
         // spuriously re-dirty the render probe — see `full_flush`'s doc). Until
         // WS6.1 makes layout invalidation targeted, any layout change is
         // conservatively a full flush — never a regression.
-        let full_flush = self.full_flush.get_untracked();
-        self.full_flush.set_untracked(false);
+        let full_flush = core::mem::take(&mut self.full_flush);
         if full_flush {
             let viewport = self.viewport.get_untracked();
             let mut damage = self.damage.borrow_mut();
@@ -2415,6 +2455,47 @@ mod tests {
                 "damage {:?} must be strictly smaller than the {viewport:?} \
                  viewport",
                 damage[0]
+            );
+        });
+    }
+
+    /// WS6.4.0(iv): `clear` repaints the whole viewport, so it declares the whole
+    /// viewport.
+    ///
+    /// Nothing in production depends on this *today* — `clear` is only called
+    /// from `UI::on_page_change`, on a freshly built page whose first-build
+    /// blanket already sets `full_flush`. It is here because damage-driven
+    /// flushing only composes if whoever writes a pixel records it, and a `clear`
+    /// that painted the viewport while declaring nothing would be a trap for the
+    /// next caller.
+    #[test]
+    fn clear_declares_a_full_viewport_flush() {
+        use crate::widget::checkbox::Checkbox;
+        use rsact_reactive::runtime::with_new_runtime;
+
+        with_new_runtime(|_| {
+            let viewport = Size::new_equal(64);
+            let full = Rect::new(Point::zero(), viewport);
+            let mut page =
+                create_null_page_sized(viewport, Checkbox::new(false));
+
+            // Drain the first-build blanket so the assertion below is about
+            // `clear` and nothing else.
+            for _ in 0..6 {
+                page.use_renderer(|_| {});
+            }
+            assert_ne!(
+                page.damage.borrow().clone(),
+                vec![full],
+                "page must settle to something other than a full flush first"
+            );
+
+            page.clear();
+            page.use_renderer(|_| {});
+            assert_eq!(
+                page.damage.borrow().clone(),
+                vec![full],
+                "clear repainted the viewport, so it must flush the viewport"
             );
         });
     }

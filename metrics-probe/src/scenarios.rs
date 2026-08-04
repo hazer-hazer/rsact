@@ -291,7 +291,14 @@ mod tests {
     // non-reactive `full_flush` flag (the damage-flush full-invalidate gate), so
     // the UI totals rise by one page's worth: ui5 24->25, ui10 39->40. Reactive-
     // only has no page, so unchanged at 33.
-    // Re-baselined by WS6.4.0(iv) (2026-08-04): the page's layout is an owned
+    // Re-baselined again by WS6.4.0(iv) (2026-08-04, second commit): `full_flush`
+    // is a plain `bool` field instead of a `Signal<bool>`. It never had a
+    // subscriber and never could usefully have one — every access was
+    // `set_untracked`/`get_untracked` — so it was a `Cell<bool>` paying for a
+    // graph node. It only needed to be a `Copy` handle because the layout memo's
+    // closure wrote it, and relayout is a `&mut self` call now. -1 per page:
+    // ui5 23->22, ui10 38->37.
+    // (History: WS6.4.0(iv) first commit (2026-08-04): the page's layout is an owned
     // `LayoutModel` field gated by a `layout_probe`, instead of a
     // `Memo<LayoutModel>` tracking a `relayout` Trigger. Net -1 per page: the
     // Memo and the Trigger both go (-2), the probe arrives (+1). The Trigger was
@@ -323,7 +330,7 @@ mod tests {
         );
 
         let ui5 = ui_labels(5);
-        assert_eq!(ui5.counts.total, 23, "ui_labels_5 node total moved");
+        assert_eq!(ui5.counts.total, 22, "ui_labels_5 node total moved");
         assert_eq!(
             ui5.counts.stored, 0,
             "ui_labels_5 stored = 0: WS5.1 moved every widget's LayoutData \
@@ -336,7 +343,7 @@ mod tests {
         );
 
         let ui10 = ui_labels(10);
-        assert_eq!(ui10.counts.total, 38, "ui_labels_10 node total moved");
+        assert_eq!(ui10.counts.total, 37, "ui_labels_10 node total moved");
         assert_eq!(
             ui10.counts.observers, 12,
             // 10 label render probes + the page render probe + the page LAYOUT

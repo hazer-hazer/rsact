@@ -371,7 +371,26 @@ impl<W: WidgetCtx> UI<W, WithPages> {
     fn on_page_change(&mut self) {
         info!("UI: Page changed to {:?}", self.current_page_id());
         let (page, renderer) = self.current_page_and_renderer();
-        page.clear(renderer).force_redraw();
+        // WS6.4.0(iv): `clear` only. The `.force_redraw()` that used to follow it
+        // was residue from stored pages, and BOTH of the things it did are now
+        // redundant here, because `current_page_and_renderer` above BUILDS a
+        // fresh `Page` on a change:
+        //
+        //   - its invalidation broadcast: every probe in a fresh page is newborn
+        //     and therefore dirty, so the whole tree renders on the first poll
+        //     regardless. (When pages persisted, their probes came back CLEAN
+        //     from the previous visit and the broadcast was load-bearing.)
+        //   - its whole-viewport flush: `Page::new`'s first-build relayout is
+        //     always blanket, so it sets `full_flush` itself.
+        //
+        // `clear` is still needed, for the framebuffer rather than the flush: the
+        // framebuffer is one `UI`-owned value outliving every page, so without it
+        // the previous page's pixels stay under anything the new page's widgets
+        // do not paint — and a `Flex` root paints nothing at all.
+        //
+        // `page_change_flushes_the_whole_viewport` (in this module's tests) pins
+        // the observable end of this, which had NO coverage before.
+        page.clear(renderer);
 
         // TODO
         // if self.options.auto_focus {
@@ -525,6 +544,58 @@ mod tests {
         leak::{leak_report, leak_snapshot},
         runtime::with_new_runtime,
     };
+
+    /// WS6.4.0(iv): navigating to another page must flush the WHOLE viewport.
+    ///
+    /// There was **no page-navigation coverage at all** before this, which is why
+    /// dropping `force_redraw()` from `on_page_change` had to be argued from
+    /// first principles. The argument, now pinned here:
+    ///
+    /// - the broadcast half of `force_redraw()` was residue from stored pages.
+    ///   `current_page_and_renderer` BUILDS a fresh `Page` on a change, so every
+    ///   probe is newborn and therefore dirty — the tree renders regardless.
+    /// - the whole-viewport FLUSH is not residue. The framebuffer is one
+    ///   `UI`-owned value outliving every page, and a `Flex` root's `render` is a
+    ///   no-op, so container padding and inter-child gaps are painted by no widget
+    ///   and would keep showing the previous page. `Page::clear` therefore
+    ///   declares the repaint it performs, and this asserts that it does.
+    #[test]
+    fn page_change_flushes_the_whole_viewport() {
+        use rsact_render::{record::RecordingRenderer, renderer::NullColor};
+
+        with_new_runtime(|_| {
+            let viewport = Size::new_equal(64);
+            let full = Rect::new(Point::zero(), viewport);
+            type RecWtf =
+                crate::el::ctx::Wtf<RecordingRenderer<NullColor>, u8, (), ()>;
+
+            let mut ui: UI<RecWtf, _> =
+                UI::new((), RecordingRenderer::<NullColor>::new(viewport))
+                    .with_page(0u8, || Label::new("a".inert()).into_el())
+                    .with_page(1u8, || Label::new("b".inert()).into_el());
+
+            // Settle page 0: the first frame is a full invalidate, so render
+            // until the damage set stops covering everything.
+            for _ in 0..6 {
+                ui.use_renderer(|_| {});
+            }
+            assert!(
+                ui.current_page().damage_snapshot() != vec![full],
+                "page 0 must have settled to something other than a full flush"
+            );
+
+            ui.goto(1u8);
+            ui.use_renderer(|_| {});
+
+            let d = ui.current_page().damage_snapshot();
+            assert_eq!(
+                d,
+                vec![full],
+                "a page change must flush the whole viewport, or the previous \
+                 page shows through wherever the new one paints nothing"
+            );
+        });
+    }
 
     /// WS3.4: `render_once` builds, lays out and renders a single frame, then
     /// drops the whole UI + reactive graph — the runtime node population must
