@@ -1,0 +1,320 @@
+== labels-12 / whole (1 regions, coverage 1.00) ==
+1 tiles
+kind               full  emitted required    xemit     xreq
+all                2490     2490     2490     1.00     1.00
+structural           12       12       12     1.00     1.00
+FillSolid            12       12       12     1.00     1.00
+Pixel              2478     2478     2478     1.00     1.00
+wasted 0 bookkeeping 1
+visits            nodes  visited cullable   xvisit    xcull
+nodes                13       13       13     1.00     1.00
+escaping 0
+
+== labels-12 / rows-48 (5 regions, coverage 1.00) ==
+5 tiles
+kind               full  emitted required    xemit     xreq
+all                2490    12450     2493     5.00     1.00
+structural           12       60       15     5.00     1.25
+FillSolid            12       60       15     5.00     1.25
+Pixel              2478    12390     2478     5.00     1.00
+wasted 9957 bookkeeping 5
+visits            nodes  visited cullable   xvisit    xcull
+nodes                13       65       20     5.00     1.54
+escaping 0
+
+== labels-12 / rows-24 (10 regions, coverage 1.00) ==
+10 tiles
+kind               full  emitted required    xemit     xreq
+all                2490    24900     2496    10.00     1.00
+structural           12      120       18    10.00     1.50
+FillSolid            12      120       18    10.00     1.50
+Pixel              2478    24780     2478    10.00     1.00
+wasted 22404 bookkeeping 10
+visits            nodes  visited cullable   xvisit    xcull
+nodes                13      130       28    10.00     2.15
+escaping 0
+
+== labels-12 / grid-80 (9 regions, coverage 1.00) ==
+9 tiles
+kind               full  emitted required    xemit     xreq
+all                2490    22410     2506     9.00     1.01
+structural           12      108       28     9.00     2.33
+FillSolid            12      108       28     9.00     2.33
+Pixel              2478    22302     2478     9.00     1.00
+wasted 19904 bookkeeping 9
+visits            nodes  visited cullable   xvisit    xcull
+nodes                13      117       37     9.00     2.85
+escaping 0
+
+== buttons-8 / whole (1 regions, coverage 1.00) ==
+1 tiles
+kind               full  emitted required    xemit     xreq
+all                 934      934      934     1.00     1.00
+structural           16       16       16     1.00     1.00
+FillSolid             8        8        8     1.00     1.00
+Pixel               918      918      918     1.00     1.00
+RoundedRect           8        8        8     1.00     1.00
+wasted 0 bookkeeping 1
+visits            nodes  visited cullable   xvisit    xcull
+nodes                17       17       17     1.00     1.00
+escaping 0
+
+== buttons-8 / rows-48 (5 regions, coverage 1.00) ==
+5 tiles
+kind               full  emitted required    xemit     xreq
+all                 934     4670      940     5.00     1.01
+structural           16       80       22     5.00     1.38
+FillSolid             8       40       11     5.00     1.38
+Pixel               918     4590      918     5.00     1.00
+RoundedRect           8       40       11     5.00     1.38
+wasted 3730 bookkeeping 5
+visits            nodes  visited cullable   xvisit    xcull
+nodes                17       85       26     5.00     1.53
+escaping 0
+
+== buttons-8 / rows-24 (10 regions, coverage 1.00) ==
+10 tiles
+kind               full  emitted required    xemit     xreq
+all                 934     9340      950    10.00     1.02
+structural           16      160       32    10.00     2.00
+FillSolid             8       80       16    10.00     2.00
+Pixel               918     9180      918    10.00     1.00
+RoundedRect           8       80       16    10.00     2.00
+wasted 8390 bookkeeping 10
+visits            nodes  visited cullable   xvisit    xcull
+nodes                17      170       38    10.00     2.24
+escaping 0
+
+== buttons-8 / grid-80 (9 regions, coverage 1.00) ==
+9 tiles
+kind               full  emitted required    xemit     xreq
+all                 934     8406      938     9.00     1.00
+structural           16      144       20     9.00     1.25
+FillSolid             8       72       10     9.00     1.25
+Pixel               918     8262      918     9.00     1.00
+RoundedRect           8       72       10     9.00     1.25
+wasted 7468 bookkeeping 9
+visits            nodes  visited cullable   xvisit    xcull
+nodes                17      153       28     9.00     1.65
+escaping 0
+
+== checkboxes-8 / whole (1 regions, coverage 1.00) ==
+1 tiles
+kind               full  emitted required    xemit     xreq
+all                  24       24       24     1.00     1.00
+structural           24       24       24     1.00     1.00
+FillSolid             8        8        8     1.00     1.00
+RoundedRect           8        8        8     1.00     1.00
+Path                  8        8        8     1.00     1.00
+wasted 0 bookkeeping 1
+visits            nodes  visited cullable   xvisit    xcull
+nodes                 9        9        9     1.00     1.00
+escaping 0
+
+== checkboxes-8 / rows-48 (5 regions, coverage 1.00) ==
+5 tiles
+kind               full  emitted required    xemit     xreq
+all                  24      120       29     5.00     1.21
+structural           24      120       29     5.00     1.21
+FillSolid             8       40       10     5.00     1.25
+RoundedRect           8       40       10     5.00     1.25
+Path                  8       40        9     5.00     1.12
+wasted 91 bookkeeping 5
+visits            nodes  visited cullable   xvisit    xcull
+nodes                 9       45       15     5.00     1.67
+escaping 0
+
+== checkboxes-8 / rows-24 (10 regions, coverage 1.00) ==
+10 tiles
+kind               full  emitted required    xemit     xreq
+all                  24      240       34    10.00     1.42
+structural           24      240       34    10.00     1.42
+FillSolid             8       80       12    10.00     1.50
+RoundedRect           8       80       12    10.00     1.50
+Path                  8       80       10    10.00     1.25
+wasted 206 bookkeeping 10
+visits            nodes  visited cullable   xvisit    xcull
+nodes                 9       90       22    10.00     2.44
+escaping 0
+
+== checkboxes-8 / grid-80 (9 regions, coverage 1.00) ==
+9 tiles
+kind               full  emitted required    xemit     xreq
+all                  24      216       24     9.00     1.00
+structural           24      216       24     9.00     1.00
+FillSolid             8       72        8     9.00     1.00
+RoundedRect           8       72        8     9.00     1.00
+Path                  8       72        8     9.00     1.00
+wasted 192 bookkeeping 9
+visits            nodes  visited cullable   xvisit    xcull
+nodes                 9       81       17     9.00     1.89
+escaping 0
+
+== scrollable-20 / whole (1 regions, coverage 1.00) ==
+1 tiles
+kind               full  emitted required    xemit     xreq
+all                 576      576      565     1.00     0.98
+structural           24       24       13     1.00     0.54
+FillSolid             1        1        1     1.00     1.00
+Pixel               552      552      552     1.00     1.00
+Line                  2        2        2     1.00     1.00
+RoundedRect          21       21       10     1.00     0.48
+wasted 11 bookkeeping 1
+visits            nodes  visited cullable   xvisit    xcull
+nodes                42       42       20     1.00     0.48
+escaping 1
+
+== scrollable-20 / rows-48 (5 regions, coverage 1.00) ==
+5 tiles
+kind               full  emitted required    xemit     xreq
+all                 576     2880      583     5.00     1.01
+structural           24      120       31     5.00     1.29
+FillSolid             1        5        5     5.00     5.00
+Pixel               552     2760      552     5.00     1.00
+Line                  2       10        8     5.00     4.00
+RoundedRect          21      105       18     5.00     0.86
+wasted 2297 bookkeeping 5
+visits            nodes  visited cullable   xvisit    xcull
+nodes                42      210       34     5.00     0.81
+escaping 1
+
+== scrollable-20 / rows-24 (10 regions, coverage 1.00) ==
+10 tiles
+kind               full  emitted required    xemit     xreq
+all                 576     5760      604    10.00     1.05
+structural           24      240       52    10.00     2.17
+FillSolid             1       10       10    10.00    10.00
+Pixel               552     5520      552    10.00     1.00
+Line                  2       20       15    10.00     7.50
+RoundedRect          21      210       27    10.00     1.29
+wasted 5156 bookkeeping 10
+visits            nodes  visited cullable   xvisit    xcull
+nodes                42      420       50    10.00     1.19
+escaping 1
+
+== scrollable-20 / grid-80 (9 regions, coverage 1.00) ==
+9 tiles
+kind               full  emitted required    xemit     xreq
+all                 576     5184      584     9.00     1.01
+structural           24      216       32     9.00     1.33
+FillSolid             1        9        9     9.00     9.00
+Pixel               552     4968      552     9.00     1.00
+Line                  2       18        5     9.00     2.50
+RoundedRect          21      189       18     9.00     0.86
+wasted 4600 bookkeeping 9
+visits            nodes  visited cullable   xvisit    xcull
+nodes                42      378       36     9.00     0.86
+escaping 1
+
+== option-rows-6 / whole (1 regions, coverage 1.00) ==
+1 tiles
+kind               full  emitted required    xemit     xreq
+all                 697      697      697     1.00     1.00
+structural           24       24       24     1.00     1.00
+FillSolid            12       12       12     1.00     1.00
+Pixel               673      673      673     1.00     1.00
+RoundedRect           6        6        6     1.00     1.00
+Path                  6        6        6     1.00     1.00
+wasted 0 bookkeeping 1
+visits            nodes  visited cullable   xvisit    xcull
+nodes                19       19       19     1.00     1.00
+escaping 0
+
+== option-rows-6 / rows-48 (5 regions, coverage 1.00) ==
+5 tiles
+kind               full  emitted required    xemit     xreq
+all                 697     3485      704     5.00     1.01
+structural           24      120       31     5.00     1.29
+FillSolid            12       60       16     5.00     1.33
+Pixel               673     3365      673     5.00     1.00
+RoundedRect           6       30        8     5.00     1.33
+Path                  6       30        7     5.00     1.17
+wasted 2781 bookkeeping 5
+visits            nodes  visited cullable   xvisit    xcull
+nodes                19       95       29     5.00     1.53
+escaping 0
+
+== option-rows-6 / rows-24 (10 regions, coverage 1.00) ==
+10 tiles
+kind               full  emitted required    xemit     xreq
+all                 697     6970      715    10.00     1.03
+structural           24      240       42    10.00     1.75
+FillSolid            12      120       22    10.00     1.83
+Pixel               673     6730      673    10.00     1.00
+RoundedRect           6       60       11    10.00     1.83
+Path                  6       60        9    10.00     1.50
+wasted 6255 bookkeeping 10
+visits            nodes  visited cullable   xvisit    xcull
+nodes                19      190       43    10.00     2.26
+escaping 0
+
+== option-rows-6 / grid-80 (9 regions, coverage 1.00) ==
+9 tiles
+kind               full  emitted required    xemit     xreq
+all                 697     6273      705     9.00     1.01
+structural           24      216       32     9.00     1.33
+FillSolid            12      108       19     9.00     1.58
+Pixel               673     6057      673     9.00     1.00
+RoundedRect           6       54        7     9.00     1.17
+Path                  6       54        6     9.00     1.00
+wasted 5568 bookkeeping 9
+visits            nodes  visited cullable   xvisit    xcull
+nodes                19      171       49     9.00     2.58
+escaping 0
+
+== mixed / whole (1 regions, coverage 1.00) ==
+1 tiles
+kind               full  emitted required    xemit     xreq
+all                 460      460      460     1.00     1.00
+structural            9        9        9     1.00     1.00
+FillSolid             6        6        6     1.00     1.00
+Pixel               451      451      451     1.00     1.00
+RoundedRect           2        2        2     1.00     1.00
+Path                  1        1        1     1.00     1.00
+wasted 0 bookkeeping 1
+visits            nodes  visited cullable   xvisit    xcull
+nodes                 9        9        9     1.00     1.00
+escaping 0
+
+== mixed / rows-48 (5 regions, coverage 1.00) ==
+5 tiles
+kind               full  emitted required    xemit     xreq
+all                 460     2300      463     5.00     1.01
+structural            9       45       12     5.00     1.33
+FillSolid             6       30        8     5.00     1.33
+Pixel               451     2255      451     5.00     1.00
+RoundedRect           2       10        3     5.00     1.50
+Path                  1        5        1     5.00     1.00
+wasted 1837 bookkeeping 5
+visits            nodes  visited cullable   xvisit    xcull
+nodes                 9       45       16     5.00     1.78
+escaping 0
+
+== mixed / rows-24 (10 regions, coverage 1.00) ==
+10 tiles
+kind               full  emitted required    xemit     xreq
+all                 460     4600      466    10.00     1.01
+structural            9       90       15    10.00     1.67
+FillSolid             6       60        9    10.00     1.50
+Pixel               451     4510      451    10.00     1.00
+RoundedRect           2       20        4    10.00     2.00
+Path                  1       10        2    10.00     2.00
+wasted 4134 bookkeeping 10
+visits            nodes  visited cullable   xvisit    xcull
+nodes                 9       90       22    10.00     2.44
+escaping 0
+
+== mixed / grid-80 (9 regions, coverage 1.00) ==
+9 tiles
+kind               full  emitted required    xemit     xreq
+all                 460     4140      462     9.00     1.00
+structural            9       81       11     9.00     1.22
+FillSolid             6       54        8     9.00     1.33
+Pixel               451     4059      451     9.00     1.00
+RoundedRect           2       18        2     9.00     1.00
+Path                  1        9        1     9.00     1.00
+wasted 3678 bookkeeping 9
+visits            nodes  visited cullable   xvisit    xcull
+nodes                 9       81       24     9.00     2.67
+escaping 0
+

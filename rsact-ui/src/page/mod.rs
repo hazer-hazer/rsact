@@ -397,13 +397,15 @@ impl<W: WidgetCtx> Page<W> {
     /// `&mut self` is the point (WS6.4.0(iv)): it is what makes a relayout
     /// *during* a frame a compile error rather than a runtime hazard, since a
     /// frame holds `&mut Page` for its duration.
-    /// Test-only: production call sites cannot use this. The returned reference
-    /// borrows all of `*self` (it comes from a `&mut self` method), which
-    /// conflicts with the `&mut self.state` the event passes need alongside it —
-    /// so they call `relayout_if_needed()` and then borrow the `layout` FIELD,
-    /// which is disjoint. Kept because it is the shape a `Frame` will want
-    /// (WS6.4d), where holding `&mut Page` for the frame is the point.
-    #[cfg(test)]
+    /// Harness-only, and unusable by the production passes rather than merely
+    /// discouraged: the returned reference borrows all of `*self` (it comes from a
+    /// `&mut self` method), which conflicts with the `&mut self.state` the event
+    /// passes need alongside it — so they call `relayout_if_needed()` and then
+    /// borrow the `layout` FIELD, which is disjoint. Kept because it is the shape
+    /// a `Frame` will want (WS6.4d), where holding `&mut Page` for the frame is
+    /// the point. WS6.4a's `test_support::tile_probe` is the in-crate caller (it
+    /// derives the traversal cost from the layout tree), which is why this is no
+    /// longer `#[cfg(test)]`.
     pub(crate) fn layout(&mut self) -> &LayoutModel {
         self.relayout_if_needed();
         &self.layout
@@ -488,9 +490,11 @@ impl<W: WidgetCtx> Page<W> {
         self
     }
 
-    /// This frame's damage rects (WS6.2), for tests outside the `page` module —
-    /// `damage` itself is private to it.
-    #[cfg(test)]
+    /// This frame's damage rects (WS6.2), for callers outside the `page` module —
+    /// `damage` itself is private to it. WS6.4a's `test_support::tile_probe` turns
+    /// this into a *region schedule*, which is how the harness measures a real
+    /// interactive frame rather than an invented one; that is also why it is no
+    /// longer `#[cfg(test)]`.
     pub(crate) fn damage_snapshot(&self) -> alloc::vec::Vec<Rect> {
         self.damage.borrow().clone()
     }

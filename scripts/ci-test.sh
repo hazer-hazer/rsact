@@ -28,6 +28,16 @@ echo "== rsact-ui (lib, incremental-layout) =="
 cargo test -p rsact-ui --lib \
     --features "std,embedded-graphics,incremental-layout" -- --test-threads=1
 
+echo "== rsact-ui (tile-schedule harness) =="
+# WS6.4a's harness is an INTEGRATION test on purpose — it has to be usable from
+# OUTSIDE the crate, which is what metrics-probe will need — and the `--lib` jobs
+# above cannot reach it. Naming the target is what keeps the required-features
+# examples out of the build, so this needs its own job rather than dropping
+# `--lib` above. Same class of gap as the incremental-layout job: a test target
+# no job names runs nowhere, and its goldens then rot unnoticed.
+cargo test -p rsact-ui --test tile_schedule \
+    --features "std,embedded-graphics" -- --test-threads=1
+
 echo "== rsact-render =="
 cargo test -p rsact-render --features "std,embedded-graphics,tiny-skia" -- \
     --test-threads=1
