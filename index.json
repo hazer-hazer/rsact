@@ -35,6 +35,12 @@
     "branch": "ws6.4a-tile-measurement",
     "subject": "WS6.4a: correct the escaping-node note — nothing sets `clip_path` at all"
   },
+  "928cc223de79fa88ca848ef6c90878697f0b9c98": {
+    "date": 1785969528,
+    "parent": "",
+    "branch": "master",
+    "subject": "Merge pull request #37 from hazer-hazer/ws6.4c-collect-paint"
+  },
   "b201ff3c175ac903994ab4ae3cba3660656e5e06": {
     "date": 1785963304,
     "parent": "",
