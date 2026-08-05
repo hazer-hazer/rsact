@@ -941,7 +941,11 @@ impl<W: WidgetCtx> Page<W> {
     /// dev-tools overlay. Split out of [`Self::use_renderer`] (WS5.0b) so the
     /// `?`s below have a function boundary to return to now that the body is
     /// no longer wrapped in a `Signal::update_untracked` closure.
-    fn render_pass(&mut self, renderer: &mut W::Renderer) -> RenderResult {
+    fn render_pass(
+        &mut self,
+        renderer: &mut W::Renderer,
+        mode: RenderMode,
+    ) -> RenderResult {
         // self.style
         //     .with(|style| {
         //         if let Some(background_color) =
@@ -984,6 +988,7 @@ impl<W: WidgetCtx> Page<W> {
                     arena,
                     renderer,
                     RenderShared {
+                        mode,
                         page_state: &self.state,
                         page_style: self.style.read_only(),
                         viewport: self.viewport,
@@ -1034,6 +1039,82 @@ impl<W: WidgetCtx> Page<W> {
         renderer: &mut W::Renderer,
         f: impl FnOnce(&mut W::Renderer),
     ) -> bool {
+        let drawn = self.probe_gated_pass(renderer, RenderMode::Fused);
+
+        // TODO: Can be put directly into the observe
+        if drawn {
+            f(renderer);
+        }
+        drawn
+    }
+
+    /// WS6.4c: **plan** the frame — one tracked, probe-gated walk whose drawing
+    /// is discarded, leaving the damage rects in `self.damage`.
+    ///
+    /// This is the pass that answers "what changed"; [`paint_region`] then
+    /// answers "what does the screen look like there". Same walk as
+    /// [`use_renderer`], same probe polling, same cleaning — only the output is
+    /// thrown away, at the drawing seam, before any primitive rasterizes.
+    ///
+    /// Returns whether the page was dirty at all. When it returns `false` the
+    /// plan is empty and the frame can be skipped entirely.
+    ///
+    /// The bodies genuinely run, which is the point: dirtiness is only knowable
+    /// by running them, and the run is what re-tracks dynamic dependencies.
+    ///
+    /// [`paint_region`]: Self::paint_region
+    /// [`use_renderer`]: Self::use_renderer
+    pub fn collect(&mut self, renderer: &mut W::Renderer) -> bool {
+        self.probe_gated_pass(renderer, RenderMode::Collect)
+    }
+
+    /// WS6.4c: **paint** one region — untracked, no probes, everything
+    /// intersecting `region` repaints.
+    ///
+    /// Call after [`collect`] has planned the frame, once per region. The walk
+    /// is wrapped in `untrack` so a paint pass cannot subscribe anything: the
+    /// page probe's `clear_sources` + re-subscribe + `mark_clean` round-trip is
+    /// paid once per frame by `collect`, not once per region, and a bare re-run
+    /// would otherwise donate every leaf's dependencies to whatever observer is
+    /// ambient — destroying targeted invalidation (6.4c(2)).
+    ///
+    /// The damage set is deliberately left alone: the region already *is* the
+    /// flush unit, and letting paint feed the plan channel would make every
+    /// painted region re-damage itself (6.4d(4)).
+    ///
+    /// [`collect`]: Self::collect
+    pub fn paint_region(
+        &mut self,
+        renderer: &mut W::Renderer,
+        region: Rect,
+    ) -> RenderResult {
+        renderer.begin_region(region)?;
+        renderer.push_clip(region);
+
+        // `untrack` is load-bearing, not hygiene — see the doc comment.
+        let result = untrack(|| self.render_pass(renderer, RenderMode::Paint));
+
+        renderer.pop_clip();
+        renderer.end_region()?;
+
+        result
+    }
+
+    /// The shared body of [`use_renderer`] and [`collect`]: everything a
+    /// probe-gated pass does, parameterized by what the pass is *for*.
+    ///
+    /// [`use_renderer`]: Self::use_renderer
+    /// [`collect`]: Self::collect
+    fn probe_gated_pass(
+        &mut self,
+        renderer: &mut W::Renderer,
+        mode: RenderMode,
+    ) -> bool {
+        debug_assert!(
+            mode.is_probe_gated(),
+            "[BUG] {mode:?} must not go through the probe-gated pass"
+        );
+
         // WS6.2: start a fresh damage set for this frame. Cleared here (not at
         // the end) so a pass that the probe SKIPS leaves it empty — an idle
         // frame flushes nothing — while `render` reads it back after the pass.
@@ -1105,7 +1186,7 @@ impl<W: WidgetCtx> Page<W> {
             // method, rather than an inline closure, gives the `?`
             // operator inside it somewhere to return to.
             self
-                .render_pass(renderer)
+                .render_pass(renderer, mode)
                 // A render error must not abort the device: log and
                 // continue. A dropped frame is recoverable; a panic in the
                 // render loop (which runs every frame) is not.
@@ -1145,14 +1226,7 @@ impl<W: WidgetCtx> Page<W> {
             damage.push(Rect::new(Point::zero(), viewport));
         }
 
-        // TODO: Can be put directly into the observe
-        if drawn.is_some() {
-            f(renderer);
-
-            true
-        } else {
-            false
-        }
+        drawn.is_some()
     }
 }
 
@@ -2430,6 +2504,193 @@ mod tests {
     /// part — that it comes back, and that skipping it does not leave the page
     /// spinning. Both are properties of the reactive graph, so they are asserted
     /// here rather than counted there.
+    /// WS6.4c: the collect/paint split — probes stop gating paint.
+    ///
+    /// Every test here fails on the pre-split design, and the reason is always
+    /// the same one sentence: `render_part`'s probe used to both *detect change*
+    /// and *authorize paint*, so a second pass over an already-painted frame
+    /// found every probe clean and painted nothing. Under tiling that is not a
+    /// missed optimization, it is a tile flushed with holes.
+    mod collect_paint {
+        use super::culling::{RecWtf, two_checkbox_page};
+        use super::*;
+        use crate::render::record::{DrawOp, RecordingRenderer};
+        use rsact_reactive::runtime::with_new_runtime;
+
+        const VIEWPORT: Rect =
+            Rect::new(Point::zero(), Size { width: 64, height: 64 });
+
+        /// Ops that actually paint. `Clip` carries no bounds, obliges nobody and
+        /// is excluded everywhere in WS6 — pushing a region clip must not read
+        /// as drawing.
+        fn painted(recorder: &RecordingRenderer<NullColor>) -> usize {
+            recorder
+                .ops()
+                .iter()
+                .filter(|op| op.bounds().is_some())
+                .count()
+        }
+
+        /// A settled page whose probes are all clean.
+        fn settled(
+            second: Signal<bool>,
+        ) -> (TestPage<RecWtf>, RecordingRenderer<NullColor>) {
+            let (mut page, recorder) = two_checkbox_page(second);
+            page.force_redraw();
+            page.use_renderer(|_| {});
+            recorder.clear();
+            (page, recorder)
+        }
+
+        #[test]
+        fn collect_plans_the_frame_and_paints_nothing() {
+            with_new_runtime(|_| {
+                let mut second = create_signal(false);
+                let (mut page, recorder) = settled(second);
+
+                second.set(true);
+                let dirty = page.collect();
+
+                assert!(dirty, "a changed signal must make the plan non-empty");
+                assert_eq!(
+                    painted(&recorder),
+                    0,
+                    "collect must discard its drawing — the mute sits at the \
+                     drawing seam, before any primitive rasterizes"
+                );
+                assert!(
+                    !page.damage_snapshot().is_empty(),
+                    "collect must leave the damage rects behind as the plan"
+                );
+            });
+        }
+
+        #[test]
+        fn collect_cleans_probes_so_an_unchanged_frame_is_idle() {
+            with_new_runtime(|_| {
+                let mut second = create_signal(false);
+                let (mut page, _recorder) = settled(second);
+
+                second.set(true);
+                assert!(page.collect(), "the change must be seen once");
+                assert!(
+                    !page.collect(),
+                    "collect must CLEAN the probes it polled; leaving them dirty \
+                     would re-plan the same rect every frame forever"
+                );
+            });
+        }
+
+        /// **The property the whole item exists for.** After `collect` has run
+        /// and cleaned every probe, a paint pass must still paint — because it
+        /// is selected by geometry, not by dirtiness.
+        #[test]
+        fn paint_repaints_what_the_now_clean_probes_would_have_skipped() {
+            with_new_runtime(|_| {
+                let mut second = create_signal(false);
+                let (mut page, recorder) = settled(second);
+
+                second.set(true);
+                page.collect();
+                assert_eq!(painted(&recorder), 0, "collect painted");
+
+                recorder.clear();
+                page.paint_region(VIEWPORT).unwrap();
+
+                assert!(
+                    painted(&recorder) > 0,
+                    "paint must not be gated by the probes collect just \
+                     cleaned — on a tile there are no previous pixels to keep"
+                );
+            });
+        }
+
+        /// A tile has no history, so a region repaints EVERYTHING inside it,
+        /// clean widgets included — not just the one that changed.
+        #[test]
+        fn paint_repaints_every_part_in_the_region_not_only_the_dirty_one() {
+            with_new_runtime(|_| {
+                let mut second = create_signal(false);
+                let (mut page, recorder) = settled(second);
+
+                // Only the SECOND checkbox changes...
+                second.set(true);
+                page.collect();
+                recorder.clear();
+
+                // ...but a full-viewport region must repaint both, or the tile
+                // would be flushed with a hole where the first one belongs.
+                page.paint_region(VIEWPORT).unwrap();
+                let ops = recorder.ops();
+                let top = ops
+                    .iter()
+                    .filter_map(DrawOp::bounds)
+                    .filter(|b| b.top_left.y < super::culling::CLIP_H as i32)
+                    .count();
+                assert!(
+                    top > 0,
+                    "the unchanged part inside the region must repaint too"
+                );
+            });
+        }
+
+        /// Paint is untracked and probe-free, so it neither consumes a pending
+        /// change nor subscribes anything. Both halves matter: consuming would
+        /// lose the repaint, subscribing would donate every leaf's dependencies
+        /// to whatever observer is ambient and destroy targeted invalidation.
+        #[test]
+        fn paint_neither_consumes_dirtiness_nor_subscribes() {
+            with_new_runtime(|_| {
+                let mut second = create_signal(false);
+                let (mut page, _recorder) = settled(second);
+
+                second.set(true);
+                // Paint BEFORE planning: the change must survive it.
+                page.paint_region(VIEWPORT).unwrap();
+                page.collect();
+                assert!(
+                    !page.damage_snapshot().is_empty(),
+                    "a paint pass consumed the pending change — it must not \
+                     poll (or clean) any probe, or the plan loses the very \
+                     rect it exists to find"
+                );
+
+                // And after a planned frame, painting again leaves the page idle
+                // rather than re-arming it.
+                page.paint_region(VIEWPORT).unwrap();
+                page.paint_region(VIEWPORT).unwrap();
+                assert!(
+                    !page.collect(),
+                    "repeated paints left the page armed — painting is not an \
+                     invalidation event"
+                );
+            });
+        }
+
+        /// Paint must not feed the plan channel: under tiling the region already
+        /// IS the flush unit, so damage recorded while painting would make every
+        /// painted region re-damage itself, frame after frame (6.4d(4)).
+        #[test]
+        fn paint_does_not_add_to_the_damage_plan() {
+            with_new_runtime(|_| {
+                let mut second = create_signal(false);
+                let (mut page, _recorder) = settled(second);
+
+                second.set(true);
+                page.collect();
+                let plan = page.damage_snapshot();
+                assert!(!plan.is_empty());
+
+                page.paint_region(VIEWPORT).unwrap();
+                assert_eq!(
+                    page.damage_snapshot(),
+                    plan,
+                    "painting must leave the plan exactly as collect left it"
+                );
+            });
+        }
+    }
+
     mod culling {
         use super::*;
         use crate::{
@@ -2438,13 +2699,13 @@ mod tests {
         };
         use rsact_reactive::runtime::with_new_runtime;
 
-        type RecWtf = Wtf<RecordingRenderer<NullColor>, (), (), ()>;
+        pub(super) type RecWtf = Wtf<RecordingRenderer<NullColor>, (), (), ()>;
 
         /// Two checkboxes stacked in a 64x64 page: the first at y≈0, the second
         /// below `CLIP_H`, so a clip of `0,0 64xCLIP_H` culls exactly the second.
-        const CLIP_H: u32 = 18;
+        pub(super) const CLIP_H: u32 = 18;
 
-        fn two_checkbox_page(
+        pub(super) fn two_checkbox_page(
             second: Signal<bool>,
         ) -> (TestPage<RecWtf>, RecordingRenderer<NullColor>) {
             let renderer =
