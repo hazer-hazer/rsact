@@ -2691,6 +2691,91 @@ mod tests {
         }
     }
 
+    /// WS6.4c(F): clipping is widget behaviour the framework reads, not a call a
+    /// widget makes inside its own `render`.
+    mod widget_clipping {
+        use super::*;
+        use crate::{
+            render::record::{DrawOp, RecordingRenderer},
+            widget::{checkbox::Checkbox, scrollable::Scrollable},
+        };
+        use rsact_reactive::runtime::with_new_runtime;
+
+        type RecWtf = Wtf<RecordingRenderer<NullColor>, (), (), ()>;
+
+        /// The scroll window: short enough that the content overflows it, and
+        /// far enough from the bottom of the page that the overflow lands
+        /// **inside the viewport**. That second half is what makes this test
+        /// meaningful — content below the viewport was already culled against
+        /// the framebuffer bounds by WS6.4b, so a scrollable that fills the page
+        /// cannot tell you whether its own clip works.
+        const WINDOW_H: u32 = 20;
+
+        fn scrollable_page() -> (TestPage<RecWtf>, RecordingRenderer<NullColor>)
+        {
+            let renderer =
+                RecordingRenderer::<NullColor>::new(Size::new_equal(64));
+            let recorder = renderer.clone();
+            let arena = create_signal(ElArena::new()).name("Page arena");
+            let scope = new_scope();
+            let mut page = TestPage::new(
+                Page::new(
+                    (),
+                    Scrollable::vertical(
+                        Flex::col(
+                            (0..4)
+                                .map(|_| Checkbox::new(false).into_el())
+                                .collect::<Vec<_>>(),
+                        )
+                        .gap(2u32),
+                    )
+                    .height(WINDOW_H),
+                    arena,
+                    Size::new_equal(64).maybe_reactive(),
+                    ().inert(),
+                    DevTools::default().signal(),
+                    FontCtx::new().signal(),
+                    scope,
+                ),
+                renderer,
+            );
+            for _ in 0..4 {
+                page.use_renderer(|_| {});
+            }
+            (page, recorder)
+        }
+
+        #[test]
+        fn a_clipping_parent_confines_its_children() {
+            with_new_runtime(|_| {
+                let (mut page, recorder) = scrollable_page();
+
+                recorder.clear();
+                page.force_redraw();
+                page.use_renderer(|_| {});
+
+                let escaped: Vec<Rect> = recorder
+                    .ops()
+                    .iter()
+                    .filter_map(DrawOp::bounds)
+                    .filter(|b| b.top_left.y >= WINDOW_H as i32)
+                    .collect();
+
+                assert!(
+                    !recorder.ops().is_empty(),
+                    "the visible part of the scrollable must still draw"
+                );
+                assert!(
+                    escaped.is_empty(),
+                    "content below the scroll window escaped its parent and \
+                     drew into the page: {escaped:?}. `CLIPS_CHILDREN` is what \
+                     confines it — and what lets the traversal prune skip it \
+                     without per-node storage."
+                );
+            });
+        }
+    }
+
     mod culling {
         use super::*;
         use crate::{

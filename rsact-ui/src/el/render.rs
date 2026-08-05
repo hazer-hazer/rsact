@@ -1,6 +1,6 @@
 use crate::{
     el::{
-        ClipPath, ElId, RedrawReason,
+        ElId, RedrawReason, WidgetFlags,
         arena::{ArenaEls, ElArena},
         ctx::{PageState, WidgetCtx},
     },
@@ -180,6 +180,8 @@ pub struct RenderCtx<'a, W: WidgetCtx, S = CtxUnready> {
     debug_name: &'a str,
     dirten: &'a mut bool,
     needs_redraw: Option<RedrawReason>,
+    /// This widget's declared behaviour (WS6.4c(F) reads `CLIPS_SELF` here).
+    flags: WidgetFlags,
     hovered: bool,
     pressed: bool,
     /// This element's render probes, pre-extracted from its `ElState` for the
@@ -269,6 +271,7 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
             debug_name: self.debug_name,
             dirten: self.dirten,
             needs_redraw: self.needs_redraw,
+            flags: self.flags,
             hovered: self.hovered,
             pressed: self.pressed,
             part_probes: self.part_probes,
@@ -317,43 +320,6 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
         } else {
             base
         }
-    }
-
-    /// Clip subsequent drawing operations to the layout's inner rect.
-    ///
-    /// This is the scoped sugar over the renderer's clip **stack**
-    /// (WS6.4.0(ii-1)): push, run `f`, pop — the pop happens on the error path
-    /// too, so an early `Err` from a widget cannot leave the stack unbalanced
-    /// and silently clip everything drawn afterwards. Widgets keep the
-    /// closure-shaped API they had; only the renderer trait changed.
-    ///
-    /// Every field but `renderer` is `Copy`, so the child ctx is still a single
-    /// struct expression; `renderer` is reborrowed for the call rather than
-    /// handed over by a sub-renderer.
-    #[must_use]
-    pub fn clip_inner(
-        &mut self,
-        f: impl FnOnce(RenderCtx<'_, W, CtxReady>) -> RenderResult,
-    ) -> RenderResult {
-        let inner = self.layout.inner;
-        self.renderer.push_clip(inner);
-        let result = f(RenderCtx {
-            id: self.id,
-            debug_name: self.debug_name,
-            dirten: self.dirten,
-            needs_redraw: self.needs_redraw,
-            hovered: self.hovered,
-            pressed: self.pressed,
-            part_probes: self.part_probes,
-            renderer: self.renderer,
-            layout: self.layout,
-            visual: self.visual,
-            frame: self.frame,
-            shared: self.shared,
-            _marker: PhantomData,
-        });
-        self.renderer.pop_clip();
-        result
     }
 }
 
@@ -750,11 +716,23 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
             self.clear_outer()?;
         }
 
-        f(RenderCtx {
+        // WS6.4c(F): a widget that declares `CLIPS_SELF` confines its OWN
+        // drawing to its inner rect — `Canvas`, whose closure is user code the
+        // framework did not write. Pushed AFTER the clear for the same reason
+        // `CLIPS_CHILDREN` wraps only the children loop: the clear fills
+        // `layout.outer`, and trimming it to `inner` would leave the padding
+        // ring stale.
+        let clips_self = self.flags.clips_self_set();
+        if clips_self {
+            self.renderer.push_clip(self.layout.inner);
+        }
+
+        let result = f(RenderCtx {
             id: self.id,
             debug_name: self.debug_name,
             dirten: self.dirten,
             needs_redraw: self.needs_redraw,
+            flags: self.flags,
             hovered: self.hovered,
             pressed: self.pressed,
             part_probes: self.part_probes,
@@ -770,7 +748,15 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
                 call: self.frame.call + 1,
             },
             _marker: PhantomData,
-        })
+        });
+
+        // Popped on the error path too, or an `Err` would leave every later
+        // sibling clipped to this widget's rect.
+        if clips_self {
+            self.renderer.pop_clip();
+        }
+
+        result
     }
 
     #[must_use]
@@ -878,12 +864,6 @@ fn render_subtree<W: WidgetCtx>(
     // `model_layout`, so `layout.id()` is always a real widget).
     let id = layout.id();
 
-    // TODO: Get rid of double element access
-    let (clip_path,) = {
-        let Some(data) = els.expect(id) else { return Ok(()) };
-        (data.state.clip_path,)
-    };
-
     // Build the per-element frame.
     let child_frame = RenderFrame {
         parent_dirty: frame.parent_dirty,
@@ -891,32 +871,9 @@ fn render_subtree<W: WidgetCtx>(
         call: frame.call,
     };
 
-    match clip_path {
-        None => render_subtree_body(
-            els,
-            renderer,
-            shared,
-            layout,
-            visual,
-            child_frame,
-        ),
-        Some(ClipPath::InnerRect) => {
-            // WS6.4.0(ii-1): push/pop around the subtree. `pop_clip` runs on the
-            // error path too — an `Err` escaping here with the clip still pushed
-            // would clip every later sibling to this subtree's rect.
-            renderer.push_clip(layout.inner);
-            let result = render_subtree_body(
-                els,
-                renderer,
-                shared,
-                layout,
-                visual,
-                child_frame,
-            );
-            renderer.pop_clip();
-            result
-        },
-    }
+    // WS6.4c(F): the clip is applied inside `render_subtree_body`, around the
+    // CHILDREN loop only — see the note there for why it cannot wrap the body.
+    render_subtree_body(els, renderer, shared, layout, visual, child_frame)
 }
 
 fn render_subtree_body<W: WidgetCtx>(
@@ -957,12 +914,14 @@ fn render_subtree_body<W: WidgetCtx>(
         indent = frame.nesting_level
     );
 
+    let flags = data.state.flags;
     let mut dirten = false;
     let ctx = RenderCtx {
         id,
         debug_name: data.state.debug_name,
         dirten: &mut dirten,
         needs_redraw,
+        flags,
         hovered: data.state.hovered(),
         pressed: data.state.pressed(),
         part_probes: &mut part_probes,
@@ -1019,23 +978,55 @@ fn render_subtree_body<W: WidgetCtx>(
     // list, and no separate transparent-layout branch (a transparent wrapper is
     // simply absent from the layout tree; its real child sits in its place, with
     // its own layout).
-    for child_layout in layout.children() {
-        let child_font_props =
-            child_layout.font_props().unwrap_or(visual.font_props);
-        let child_visual = RenderVisual {
-            font_props: child_font_props,
-            tree_style: visual.tree_style,
-        };
-
-        render_subtree(
-            els,
-            renderer,
-            shared,
-            &child_layout,
-            child_visual,
-            children_frame,
-        )?;
+    // WS6.4c(F): a widget that declares `CLIPS_CHILDREN` confines its SUBTREE —
+    // and only its subtree — to its inner rect.
+    //
+    // Around the children loop, never around the body above. The dead
+    // `ClipPath::InnerRect` arm this replaces wrapped the whole body, which
+    // would have clipped the widget's own paint too: `Scrollable`, the one
+    // widget that must set this flag, draws its `Block` on `layout.outer`
+    // (`scrollable.rs`), so a body-wide inner clip erases its own background and
+    // border while `clear_outer`'s fill of `outer` is trimmed to `inner`,
+    // leaving stale pixels in the padding ring. Latent until now only because
+    // nothing ever set `clip_path`.
+    //
+    // This is what makes containment STRUCTURAL, and therefore what makes the
+    // traversal prune sound with no per-node storage: everything a subtree draws
+    // is inside `outer ∩ enclosing clips`, and `Renderer::clip_bounds()` already
+    // reports that composed rect (nested clips compose since PR #36).
+    //
+    // `pop_clip` runs on the error path too — an `Err` escaping with the clip
+    // still pushed would clip every later sibling to this subtree's rect.
+    let clips_children = flags.clips_children_set();
+    if clips_children {
+        renderer.push_clip(layout.inner);
     }
+
+    let children = (|| -> RenderResult {
+        for child_layout in layout.children() {
+            let child_font_props =
+                child_layout.font_props().unwrap_or(visual.font_props);
+            let child_visual = RenderVisual {
+                font_props: child_font_props,
+                tree_style: visual.tree_style,
+            };
+
+            render_subtree(
+                els,
+                renderer,
+                shared,
+                &child_layout,
+                child_visual,
+                children_frame,
+            )?;
+        }
+        Ok(())
+    })();
+
+    if clips_children {
+        renderer.pop_clip();
+    }
+    children?;
 
     // // TODO: Remove/hide debug only
     // if needs_redraw.is_some() {

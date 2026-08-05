@@ -382,48 +382,56 @@ impl<W: WidgetCtx, K: PartialEq + 'static> Widget<W> for Select<W, K> {
             let (_options_offset, _) =
                 state.options_offset(ctx.layout.inner, &children_layouts);
 
+            // WS6.4c(F): the clip this part used to request via
+            // `ctx.clip_inner` is gone with that method — clipping is now
+            // declared behaviour the framework reads, and a per-PART clip has
+            // no flag because `CLIPS_SELF` would also clip this widget's own
+            // `Block` on `layout.outer`. Nothing is lost today: the body below
+            // is `TODO(unimplemented)` and draws nothing.
+            // TODO: restore the clip when the options render for real. The
+            // right shape is GAP 2's — make the options real arena children,
+            // then this widget declares `clips_children` like `Scrollable` and
+            // the framework clips the subtree (and can prune it).
             self.options.with(move |options| {
-                ctx.clip_inner(|_ctx| {
-                    options
-                        .iter()
-                        .zip(children_layouts.iter())
-                        .enumerate()
-                        .try_for_each(|(_index, (_option, _option_layout))| {
-                            // TODO: Need to thing how to properly handle select
-                            // widget. Should options be real widgets or hidden
-                            // inside Select just to render? Maybe we even don't
-                            // need to have real Text widgets, instead storing
-                            // only text and rendering it through renderer, but
-                            // then we'll probably lose some text properties
-                            // handling.
-                            //
-                            // TODO(unimplemented): render option text. Degrade
-                            // to a no-op instead of `todo!()` so a Select with
-                            // options does not abort the device on render.
-                            Ok(())
-                            // ctx.with_tree_style(
-                            //     |tree_style| {
-                            //         tree_style.text_color(
-                            //             (if Some(index) == state.selected {
-                            //                 style.selected_text_color
-                            //             } else {
-                            //                 style.text_color
-                            //             })
-                            //             .get(),
-                            //         )
-                            //     },
-                            //     |mut ctx| {
-                            //         let option = &option.el;
-                            //         ctx.for_child(
-                            //             option.id(),
-                            //             &option_layout
-                            //                 .translate(options_offset),
-                            //             |ctx| option.render(ctx),
-                            //         )
-                            //     },
-                            // )
-                        })
-                })
+                options
+                    .iter()
+                    .zip(children_layouts.iter())
+                    .enumerate()
+                    .try_for_each(|(_index, (_option, _option_layout))| {
+                        // TODO: Need to thing how to properly handle select
+                        // widget. Should options be real widgets or hidden
+                        // inside Select just to render? Maybe we even don't
+                        // need to have real Text widgets, instead storing
+                        // only text and rendering it through renderer, but
+                        // then we'll probably lose some text properties
+                        // handling.
+                        //
+                        // TODO(unimplemented): render option text. Degrade
+                        // to a no-op instead of `todo!()` so a Select with
+                        // options does not abort the device on render.
+                        Ok(())
+                        // ctx.with_tree_style(
+                        //     |tree_style| {
+                        //         tree_style.text_color(
+                        //             (if Some(index) == state.selected {
+                        //                 style.selected_text_color
+                        //             } else {
+                        //                 style.text_color
+                        //             })
+                        //             .get(),
+                        //         )
+                        //     },
+                        //     |mut ctx| {
+                        //         let option = &option.el;
+                        //         ctx.for_child(
+                        //             option.id(),
+                        //             &option_layout
+                        //                 .translate(options_offset),
+                        //             |ctx| option.render(ctx),
+                        //         )
+                        //     },
+                        // )
+                    })
             })
         })
     }

@@ -6,12 +6,6 @@ use core::{
 use rsact_reactive::probe::Probe;
 use tinyvec::TinyVec;
 
-#[derive(Debug, Clone, Copy)]
-pub enum ClipPath {
-    // Rect(Rect),
-    InnerRect,
-}
-
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum RedrawReason {
     PseudoclassChange,
@@ -51,7 +45,6 @@ pub struct ElState<W: WidgetCtx> {
 
     // Rendering //
     needs_redraw: Option<RedrawReason>,
-    pub clip_path: Option<ClipPath>,
 
     /// Render probes owned by this element, one per widget "part" it draws
     /// (`"self"`, `"thumb"`, `"options"`, …). WS2 moved render identity out of
@@ -83,7 +76,6 @@ impl<W: WidgetCtx> ElState<W> {
             pressed: false,
 
             needs_redraw: None,
-            clip_path: None,
             part_probes: TinyVec::new(),
             // pseudoclass: StylePseudoClass::default(),
         }
@@ -183,7 +175,6 @@ impl<W: WidgetCtx> Debug for ElState<W> {
             .field("flags", &self.flags)
             .field("hovered", &self.hovered)
             .field("needs_redraw", &self.needs_redraw)
-            .field("clip_path", &self.clip_path)
             .finish()
     }
 }

@@ -44,6 +44,12 @@ use crate::widget::prelude::*;
 /// ```
 #[derive(Builder)]
 #[builds(Canvas<W>)]
+// WS6.4c(F): the draw closure is user code the framework did not write, so its
+// output is confined to the Canvas rect — declared as behaviour rather than
+// called as `ctx.clip_inner(..)` inside `render`, which the framework could not
+// see. Note this is `clips_self`, not `clips_children`: a Canvas has no children,
+// and only a *subtree* claim tells the traversal prune anything.
+#[flags(clips_self)]
 pub struct CanvasBuilder<W: WidgetCtx> {
     // A single boxed closure is the entire Canvas state — no per-frame
     // `VecDeque` of commands and no image storage, which is the memory win of
@@ -118,11 +124,13 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
     #[track_caller]
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
         // `render_self` gates the redraw (tracking whatever reactivity the
-        // closure reads, plus `force_redraw`); `clip_inner` confines drawing to
-        // the Canvas rect. The closure re-issues the whole scene each frame.
-        ctx.render_self(|mut ctx| {
-            ctx.clip_inner(|mut ctx| (self.draw)(&mut ctx))
-        })
+        // closure reads, plus `force_redraw`). The clip that confines the
+        // closure to the Canvas rect is no longer requested here: it is declared
+        // as `CLIPS_SELF` behaviour on the builder and applied by the framework
+        // in `run_body`, so the walk KNOWS this widget clips itself instead of
+        // finding out only when the body happens to ask (WS6.4c(F)). The closure
+        // re-issues the whole scene each frame.
+        ctx.render_self(|mut ctx| (self.draw)(&mut ctx))
     }
 
     fn on_event(&mut self, ctx: EventCtx<'_, W>) -> EventResponse {

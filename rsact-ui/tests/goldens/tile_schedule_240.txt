@@ -159,7 +159,7 @@ FillSolid             1        1        1     1.00     1.00
 Pixel               552      552      552     1.00     1.00
 Line                  2        2        2     1.00     1.00
 RoundedRect          10       10       10     1.00     1.00
-wasted 0 bookkeeping 1
+wasted 0 bookkeeping 3
 visits            nodes  visited cullable   xvisit    xcull
 nodes                42       42       20     1.00     0.48
 escaping 1
@@ -173,7 +173,7 @@ FillSolid             1        5        5     5.00     5.00
 Pixel               552      552      552     1.00     1.00
 Line                  2       10        8     5.00     4.00
 RoundedRect          10       18       18     1.80     1.80
-wasted 2 bookkeeping 5
+wasted 2 bookkeeping 11
 visits            nodes  visited cullable   xvisit    xcull
 nodes                42      210       34     5.00     0.81
 escaping 1
@@ -187,7 +187,7 @@ FillSolid             1       10       10    10.00    10.00
 Pixel               552      552      552     1.00     1.00
 Line                  2       20       15    10.00     7.50
 RoundedRect          10       27       27     2.70     2.70
-wasted 5 bookkeeping 10
+wasted 5 bookkeeping 21
 visits            nodes  visited cullable   xvisit    xcull
 nodes                42      420       50    10.00     1.19
 escaping 1
@@ -201,7 +201,7 @@ FillSolid             1        9        9     9.00     9.00
 Pixel               552      552      552     1.00     1.00
 Line                  2       18        5     9.00     2.50
 RoundedRect          10       18       18     1.80     1.80
-wasted 13 bookkeeping 9
+wasted 13 bookkeeping 19
 visits            nodes  visited cullable   xvisit    xcull
 nodes                42      378       36     9.00     0.86
 escaping 1
