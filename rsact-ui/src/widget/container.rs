@@ -132,7 +132,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
     // `#[builds(Container<W>)]`). `Container` never overrode `flags` either,
     // so no `#[flags(...)]` attr is needed on `ContainerBuilder`.
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> crate::widget::RenderResult {
-        ctx.render_self(|ctx| {
+        ctx.render_self(|mut ctx| {
             let style = ctx.get_style(self.style.as_deref());
 
             // WS5.1: `self.layout` is the owned build-time `LayoutData` (see the
@@ -142,7 +142,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
                 self.layout.block_model(),
                 style.container,
             )
-            .render(ctx.renderer)
+            .render(&mut ctx)
         })
     }
 

@@ -56,7 +56,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
     // `EdgeBuilder`.
     #[track_caller]
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
-        ctx.render_self(|ctx| {
+        ctx.render_self(|mut ctx| {
             let style = ctx.get_style(self.style.as_deref());
 
             log::info!("Edge style: {:?}", style);
@@ -66,7 +66,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
                 self.layout.block_model(),
                 style.container,
             )
-            .render(ctx.renderer)
+            .render(&mut ctx)
         })
     }
 

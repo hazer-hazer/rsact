@@ -85,7 +85,7 @@ impl<W: WidgetCtx> Widget<W> for Checkbox<W> {
                 self.layout.block_model(),
                 style.container,
             )
-            .render(ctx.renderer)?;
+            .render(&mut ctx)?;
 
             ctx.render_focus_outline(ctx.id)?;
 
@@ -95,7 +95,7 @@ impl<W: WidgetCtx> Widget<W> for Checkbox<W> {
                 let icon_style =
                     DrawStyle::default().stroke_width(2).stroke(icon_color);
 
-                ctx.renderer.path(
+                ctx.path(
                     &PathBuilder::new()
                         .with_lines(
                             CHECKBOX_ICON_POINTS

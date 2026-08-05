@@ -1,4 +1,4 @@
-use crate::{el::ctx::WidgetCtx, render::prelude::*};
+use crate::render::prelude::*;
 use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
 use fixed::{FixedFont, FixedFontCollection};
@@ -253,13 +253,21 @@ pub trait FontHandler {
         overflow: TextOverflow,
     ) -> u32;
 
-    fn draw<W: WidgetCtx>(
+    /// Draw `content` into `bounds`.
+    ///
+    /// WS6.4c(A): generic over the **renderer**, not over `WidgetCtx`. `W` was
+    /// only ever used for `W::Color` and `W::Renderer`, so this is strictly
+    /// simpler — and it is what lets text go through rsact-ui's drawing seam
+    /// (`RenderCtx` implements `Renderer`) rather than around it. Without it the
+    /// render mode would have a hole exactly where the most expensive drawing
+    /// happens.
+    fn draw<R: Renderer>(
         &self,
         content: &str,
         props: ResolvedFontProps,
         bounds: Rect,
-        color: W::Color,
-        renderer: &mut W::Renderer,
+        color: R::Color,
+        renderer: &mut R,
     ) -> Option<RenderResult>;
 }
 
@@ -325,21 +333,21 @@ impl FontHandler for StoredFont {
         }
     }
 
-    fn draw<W: WidgetCtx>(
+    fn draw<R: Renderer>(
         &self,
         content: &str,
         props: ResolvedFontProps,
         bounds: Rect,
-        color: W::Color,
-        renderer: &mut W::Renderer,
+        color: R::Color,
+        renderer: &mut R,
     ) -> Option<RenderResult> {
         match self {
             StoredFont::Fixed(fixed_font) => {
-                fixed_font.draw::<W>(content, props, bounds, color, renderer)
+                fixed_font.draw::<R>(content, props, bounds, color, renderer)
             },
             StoredFont::FixedCollection(fixed_font_collection) => {
                 fixed_font_collection
-                    .draw::<W>(content, props, bounds, color, renderer)
+                    .draw::<R>(content, props, bounds, color, renderer)
             },
         }
     }
@@ -504,29 +512,29 @@ impl FontCtx {
 
     // TODO: Background color!
     // TODO: Alignment!
-    pub fn render<W: WidgetCtx>(
+    pub fn render<R: Renderer>(
         &self,
         font: Font,
         content: &str,
         props: ResolvedFontProps,
         bounds: Rect,
-        color: W::Color,
-        renderer: &mut W::Renderer,
+        color: R::Color,
+        renderer: &mut R,
     ) -> RenderResult {
         match font {
             Font::Auto => self
                 .auto_font()
-                .draw::<W>(content, props, bounds, color, renderer),
+                .draw::<R>(content, props, bounds, color, renderer),
             Font::Fixed(fixed_font) => {
-                fixed_font.draw::<W>(content, props, bounds, color, renderer)
+                fixed_font.draw::<R>(content, props, bounds, color, renderer)
             },
             Font::Id(font_id) => self
                 .expect(font_id)
-                .draw::<W>(content, props, bounds, color, renderer),
+                .draw::<R>(content, props, bounds, color, renderer),
         }
         .unwrap_or_else(|| {
             self.fallback_font()
-                .draw::<W>(content, props, bounds, color, renderer)
+                .draw::<R>(content, props, bounds, color, renderer)
                 .expect("[BUG] Fallback font must be defined")
         })
     }

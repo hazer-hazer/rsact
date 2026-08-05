@@ -92,7 +92,7 @@ impl<W: WidgetCtx + 'static, V: RangeValue + 'static> Widget<W> for Bar<W, V> {
     // `BarBuilder`.
     #[track_caller]
     fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
-        ctx.render_self(|ctx| {
+        ctx.render_self(|mut ctx| {
             let style = ctx.get_style(self.style.as_deref());
 
             // let start = ctx.layout.area.anchor_point(
@@ -111,7 +111,7 @@ impl<W: WidgetCtx + 'static, V: RangeValue + 'static> Widget<W> for Bar<W, V> {
                 block_model,
                 style.container,
             )
-            .render(ctx.renderer)?;
+            .render(&mut ctx)?;
 
             let full_len = ctx.layout.inner.size.main(self.axis);
             let value_len = self.value.get().point(full_len);
@@ -122,7 +122,7 @@ impl<W: WidgetCtx + 'static, V: RangeValue + 'static> Widget<W> for Bar<W, V> {
                 Anchor::Start,
             );
 
-            ctx.renderer.rounded_rect(
+            ctx.rounded_rect(
                 bar_area,
                 style
                     .container
@@ -132,7 +132,7 @@ impl<W: WidgetCtx + 'static, V: RangeValue + 'static> Widget<W> for Bar<W, V> {
                 &style.bar_draw_style(),
             )?;
 
-            // ctx.renderer.line(
+            // ctx.line(
             //     Line::new(start,
             // end).into_styled(style.line_style(bar_width)), )?;
 

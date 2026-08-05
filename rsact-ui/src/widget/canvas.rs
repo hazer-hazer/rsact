@@ -49,21 +49,48 @@ pub struct CanvasBuilder<W: WidgetCtx> {
     // `VecDeque` of commands and no image storage, which is the memory win of
     // the immediate-mode model.
     #[widget]
-    draw: Box<dyn Fn(&mut W::Renderer) -> RenderResult>,
+    draw: Box<dyn Fn(&mut RenderCtx<'_, W, CtxReady>) -> RenderResult>,
     #[widget]
     layout: LayoutBuilder<W>,
 }
 
 pub struct Canvas<W: WidgetCtx> {
-    draw: Box<dyn Fn(&mut W::Renderer) -> RenderResult>,
+    draw: Box<dyn Fn(&mut RenderCtx<'_, W, CtxReady>) -> RenderResult>,
     layout: LayoutData,
 }
 
 impl<W: WidgetCtx> Canvas<W> {
-    /// Create a Canvas from a draw closure. The closure receives the renderer
-    /// clipped to the Canvas's rect and is called on every (forced) render.
+    /// Create a Canvas from a draw closure. The closure receives a drawing
+    /// context clipped to the Canvas's rect and is called on every (forced)
+    /// render.
+    ///
+    /// WS6.4c(A): the argument is a [`RenderCtx`], not `&mut W::Renderer`. It
+    /// still *is* a renderer — `RenderCtx` implements [`Renderer`], so a closure
+    /// that only calls primitives compiles unchanged (the argument type is
+    /// inferred from the expected `Fn` type; only a closure that *annotates*
+    /// `&mut SomeRenderer` breaks). Two reasons for the change:
+    ///
+    /// - **Forced:** `RenderCtx::renderer` is private, because a widget that can
+    ///   reach the raw renderer can bypass the render mode. Canvas's closure is
+    ///   user code, so it needs a public path to something drawable.
+    /// - **Necessary for correctness under 6.4c:** this is the only widget whose
+    ///   reactive reads happen *behind* a `dyn Fn`. Muting by not calling the
+    ///   closure would leave its probe with an empty source set, and since the
+    ///   collect pass is the only tracked run, the canvas would never repaint
+    ///   again. Muting at the draw call runs the closure — `x.get()` and all —
+    ///   and no-ops only its primitives.
+    ///
+    /// Bonus: the closure can now read its own `ctx.layout`, styles and
+    /// pseudo-class, which a bare renderer could never expose.
+    ///
+    /// TODO (WS6.4c): give user closures a purpose-built `CanvasRenderCtx` —
+    /// the public subset (`area()`, `style::<S>()`, `pseudoclass()`, `font()`,
+    /// `clip()`) with probes, part keys, the arena and the damage sink absent.
+    /// `RenderCtx` is an internal pass context and should not be the public
+    /// surface; passing it here is the step, not the destination. Design in
+    /// `docs/plans/2026-07-05-rsact-evolution-roadmap.md` § 6.4c(C).
     pub fn new(
-        draw: impl Fn(&mut W::Renderer) -> RenderResult + 'static,
+        draw: impl Fn(&mut RenderCtx<'_, W, CtxReady>) -> RenderResult + 'static,
     ) -> CanvasBuilder<W> {
         CanvasBuilder {
             draw: Box::new(draw),
@@ -94,7 +121,7 @@ impl<W: WidgetCtx> Widget<W> for Canvas<W> {
         // closure reads, plus `force_redraw`); `clip_inner` confines drawing to
         // the Canvas rect. The closure re-issues the whole scene each frame.
         ctx.render_self(|mut ctx| {
-            ctx.clip_inner(|ctx| (self.draw)(ctx.renderer))
+            ctx.clip_inner(|mut ctx| (self.draw)(&mut ctx))
         })
     }
 
@@ -148,7 +175,12 @@ mod tests {
         let draws_in = Rc::clone(&draws);
 
         let mut page = null_page(
-            Canvas::new(move |_renderer: &mut NullRenderer| {
+            // WS6.4c(A): the argument type is inferred from the expected `Fn`
+            // type, so an unannotated closure survived the switch from
+            // `&mut W::Renderer` to `&mut RenderCtx` untouched. This one used to
+            // annotate `&mut NullRenderer` and is the only site in the workspace
+            // that had to change — which is the whole cost of that API move.
+            Canvas::new(move |_ctx| {
                 draws_in.set(draws_in.get() + 1);
                 Ok(())
             })

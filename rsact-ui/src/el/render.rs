@@ -16,6 +16,9 @@ use alloc::vec::Vec;
 use core::{cell::RefCell, marker::PhantomData};
 use log::debug;
 use rsact_reactive::{prelude::*, signal::marker::ReadOnly};
+// Not in `render::prelude` — `Renderer::image` is the only method that needs
+// it, so it is imported here for the drawing-seam impl below.
+use rsact_render::image::DrawImage;
 use tinyvec::TinyVec;
 
 pub struct CtxReady;
@@ -94,7 +97,11 @@ pub struct RenderCtx<'a, W: WidgetCtx, S = CtxUnready> {
     /// `render_part` looks up / lazily creates the probe for a part key here.
     part_probes: &'a mut TinyVec<[(&'static str, Probe); 2]>,
 
-    pub renderer: &'a mut W::Renderer,
+    /// **Private on purpose** (WS6.4c(A), maintainer-confirmed): the ctx *is*
+    /// the renderer widgets draw on — see the [`Renderer`] impl below. A widget
+    /// that could reach this field could bypass the render mode, and then the
+    /// mode is advisory rather than enforced. Only this module touches it.
+    renderer: &'a mut W::Renderer,
     pub layout: &'a LayoutModelNode<'a>,
     /// Inheritable visual properties (tree_style, font_props).
     pub visual: RenderVisual<W>,
@@ -118,17 +125,16 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
         // Render path uses try_* + log-and-degrade rather than panicking if the
         // shared font-provider signal is ever disposed (WS1.8; "UI must never
         // panic"). It is page-lifetime today, so the None arm is defensive.
-        self.shared
-            .fonts
-            .try_with(|fonts| {
-                fonts.render::<W>(
-                    font,
-                    content,
-                    props,
-                    bounds,
-                    color,
-                    self.renderer,
-                )
+        //
+        // WS6.4c(A): the font stack draws through `self` — the drawing seam —
+        // not through the raw renderer, so text obeys the render mode like every
+        // other primitive. `FontHandler::draw` is generic over the *renderer*
+        // for exactly this reason. The signal handle is copied out first so the
+        // closure can borrow `self` mutably (`Signal` is `Copy`).
+        let fonts = self.shared.fonts;
+        fonts
+            .try_with(|font_ctx| {
+                font_ctx.render(font, content, props, bounds, color, self)
             })
             .unwrap_or_else(|| {
                 log::error!("text render skipped: font provider was disposed");
@@ -149,7 +155,12 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
                         .color(<W::Color as Color>::accents()[1]),
                 ),
             )
-            .render(self.renderer)
+            // Through the seam (`self`), not the raw renderer: this is a draw
+            // call like any other and must obey the render mode. It is also the
+            // one that paints OUTSIDE `layout.outer` — offset 0 + width 1 +
+            // `StrokeAlignment::Outside` puts it 1 px beyond on all four sides
+            // — so it is the first customer for `ext_draw` (ISSUE-3).
+            .render(self)
         } else {
             Ok(())
         }
@@ -252,6 +263,163 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
         });
         self.renderer.pop_clip();
         result
+    }
+}
+
+/// **The drawing seam** (WS6.4c(A)): a ready [`RenderCtx`] *is* the renderer a
+/// widget draws on, forwarding every primitive to the private `renderer` field.
+///
+/// Widgets used to receive `pub renderer: &mut W::Renderer` and draw straight
+/// onto the backend, which left rsact with **nowhere to intercept drawing**.
+/// That is why 6.4.0(ii-4) reached for a no-op `Renderer` *type* — unreachable,
+/// since `Widget::render` is a non-generic trait method behind `dyn Widget<W>`
+/// so `W::Renderer` cannot be substituted — and why a backend-side `set_muted`
+/// was proposed and rejected: it would make every implementor carry logic only
+/// rsact's frame planner needs. The missing piece was never a capability, it was
+/// an **encapsulation boundary**. With the field private and this impl in place,
+/// one forwarding layer owns every draw call a widget can make.
+///
+/// What that buys beyond 6.4c's collect pass:
+///
+/// - **`RenderMode`**: `Collect` runs bodies for their tracked reads and
+///   discards the drawing — one branch here, short-circuiting *before* the
+///   primitive rasterizes, with no backend involvement at all.
+/// - **The bounds `debug_assert`** for 6.4a's "a primitive must not write
+///   outside its declared bounds" invariant (ISSUE-3), which has no other home.
+/// - **6.4d's per-region translation**, if it is ever wanted above the backend.
+///
+/// Cost is flat: primitives already take `&mut impl Renderer`, so they simply
+/// instantiate against `RenderCtx<W>` instead of `W::Renderer` — the same count,
+/// plus these inlinable forwarders. No `dyn`, no second widget tree.
+///
+/// [`SURFACE_UNITS`] is forwarded rather than left to default, so 6.4.0(iii)'s
+/// compile-time tile-capacity proof still sees the real surface through the seam.
+///
+/// [`SURFACE_UNITS`]: Renderer::SURFACE_UNITS
+impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
+    type Color = W::Color;
+
+    const SURFACE_UNITS: usize = <W::Renderer as Renderer>::SURFACE_UNITS;
+
+    fn size(&self) -> Size {
+        self.renderer.size()
+    }
+
+    // A widget has no business opening a region — that is the frame driver's
+    // call (6.4d) — but forwarding keeps this a faithful proxy instead of one
+    // that silently swallows the call through the trait default.
+    fn begin_region(&mut self, region: Rect) -> RenderResult {
+        self.renderer.begin_region(region)
+    }
+
+    fn end_region(&mut self) -> RenderResult {
+        self.renderer.end_region()
+    }
+
+    fn push_clip(&mut self, area: Rect) {
+        self.renderer.push_clip(area)
+    }
+
+    fn pop_clip(&mut self) {
+        self.renderer.pop_clip()
+    }
+
+    fn clip_bounds(&self) -> Option<Rect> {
+        self.renderer.clip_bounds()
+    }
+
+    fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult {
+        self.renderer.fill_solid(rect, color)
+    }
+
+    fn pixel(&mut self, point: Point, color: Self::Color) -> RenderResult {
+        self.renderer.pixel(point, color)
+    }
+
+    fn line(
+        &mut self,
+        from: Point,
+        to: Point,
+        style: &DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        self.renderer.line(from, to, style)
+    }
+
+    fn rect(
+        &mut self,
+        rect: Rect,
+        style: &DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        self.renderer.rect(rect, style)
+    }
+
+    fn rounded_rect(
+        &mut self,
+        rect: Rect,
+        corners: CornerRadii,
+        style: &DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        self.renderer.rounded_rect(rect, corners, style)
+    }
+
+    fn circle(
+        &mut self,
+        top_left: Point,
+        diameter: u32,
+        style: &DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        self.renderer.circle(top_left, diameter, style)
+    }
+
+    fn arc(
+        &mut self,
+        top_left: Point,
+        diameter: u32,
+        start: Angle,
+        sweep: Angle,
+        style: &DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        self.renderer.arc(top_left, diameter, start, sweep, style)
+    }
+
+    fn ellipse(
+        &mut self,
+        bounding_box: Rect,
+        style: &DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        self.renderer.ellipse(bounding_box, style)
+    }
+
+    fn sector(
+        &mut self,
+        top_left: Point,
+        diameter: u32,
+        start: Angle,
+        sweep: Angle,
+        style: &DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        self.renderer
+            .sector(top_left, diameter, start, sweep, style)
+    }
+
+    fn polygon(
+        &mut self,
+        points: &[Point],
+        style: &DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        self.renderer.polygon(points, style)
+    }
+
+    fn path(
+        &mut self,
+        path: &Path,
+        style: &DrawStyle<Self::Color>,
+    ) -> RenderResult {
+        self.renderer.path(path, style)
+    }
+
+    fn image<'i>(&mut self, image: DrawImage<'i, Self::Color>) -> RenderResult {
+        self.renderer.image(image)
     }
 }
 

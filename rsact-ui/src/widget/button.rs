@@ -99,7 +99,7 @@ impl<W: WidgetCtx + 'static> Widget<W> for Button<W> {
                 self.layout.block_model(),
                 style.container,
             )
-            .render(ctx.renderer)?;
+            .render(&mut ctx)?;
 
             ctx.render_focus_outline(ctx.id)
         })

@@ -127,7 +127,7 @@ impl<W: WidgetCtx, V: RangeValue + 'static> Widget<W> for Knob<W, V> {
 
             let top_left = ctx.layout.inner.top_left;
             let diameter = ctx.layout.inner.size.max_square().width;
-            ctx.renderer.sector(
+            ctx.sector(
                 top_left,
                 diameter,
                 style.angle_start,
