@@ -35,6 +35,12 @@
     "branch": "ws6.4a-tile-measurement",
     "subject": "WS6.4a: correct the escaping-node note — nothing sets `clip_path` at all"
   },
+  "b201ff3c175ac903994ab4ae3cba3660656e5e06": {
+    "date": 1785963304,
+    "parent": "",
+    "branch": "ws6.4c-modes",
+    "subject": "WS6.4c(B): RenderMode::{Fused, Collect, Paint} — probes stop gating paint"
+  },
   "b3c82b0795053d37b0d5ca91e94a76e110610350": {
     "date": 1785863451,
     "parent": "",
