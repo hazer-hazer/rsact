@@ -23,6 +23,12 @@
     "branch": "ws6.4b-culling",
     "subject": "Roadmap: 6.4b paint side DONE; traversal deferred into 6.4c"
   },
+  "593fb62d7f85cca5efafec7650155c008dfdcee3": {
+    "date": 1785962121,
+    "parent": "",
+    "branch": "ws6.4c-collect-paint",
+    "subject": "WS6.4c(A): RenderCtx is the drawing seam; the renderer field goes private"
+  },
   "73386c04d25c38e5ef2aae8ea982403cdfb2aca5": {
     "date": 1785871204,
     "parent": "",
