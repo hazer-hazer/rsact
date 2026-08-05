@@ -268,7 +268,7 @@ impl<W: WidgetCtx> Widget<W> for Scrollable<W> {
                 self.layout.block_model(),
                 style.container,
             )
-            .render(ctx.renderer)?;
+            .render(&mut ctx)?;
 
             let mut content_length = child_layout.outer.size.main(self.axis);
             let scrollable_length = ctx.layout.inner.size.main(self.axis);
@@ -307,7 +307,7 @@ impl<W: WidgetCtx> Widget<W> for Scrollable<W> {
                     self.axis.canon(0, -((style.scrollbar_width as i32) / 2));
 
                 // Draw track
-                ctx.renderer.line(
+                ctx.line(
                     track_start + scrollbar_translation,
                     track_end + scrollbar_translation,
                     &style.track_draw_style(),
@@ -328,7 +328,7 @@ impl<W: WidgetCtx> Widget<W> for Scrollable<W> {
                 let thumb_start = track_start
                     + self.axis.canon::<Point>(thumb_offset as i32, 0);
 
-                ctx.renderer.line(
+                ctx.line(
                     thumb_start + scrollbar_translation,
                     thumb_start
                         + self.axis.canon::<Point>(thumb_len as i32, 0)

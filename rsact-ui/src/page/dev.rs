@@ -53,7 +53,7 @@ impl DevHoveredEl {
         // TODO: Viewport-dependent font props resolution similar to layout
         // computation for text widget.
         font_ctx.with(|font_ctx| {
-            font_ctx.render::<W>(
+            font_ctx.render::<W::Renderer>(
                 crate::font::Font::Auto,
                 &format!("{}", self.layout),
                 crate::font::ResolvedFontProps {

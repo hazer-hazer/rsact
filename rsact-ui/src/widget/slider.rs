@@ -194,7 +194,7 @@ impl<W: WidgetCtx> Widget<W> for Slider<W> {
 
             let end = start + self.axis.canon::<Point>(track_len as i32, 0);
 
-            ctx.renderer.line(start, end, &style.track_draw_style())?;
+            ctx.line(start, end, &style.track_draw_style())?;
 
             let (range_start, range_len) = self
                 .range
@@ -223,7 +223,7 @@ impl<W: WidgetCtx> Widget<W> for Slider<W> {
             };
 
             match style.thumb_shape {
-                SliderThumbShape::Dash => ctx.renderer.line(
+                SliderThumbShape::Dash => ctx.line(
                     thumb_pos,
                     thumb_pos
                         + self.axis.canon::<Point>(0, style.thumb_size as i32),
@@ -232,18 +232,16 @@ impl<W: WidgetCtx> Widget<W> for Slider<W> {
                 SliderThumbShape::RoundedSquare => {
                     let rect =
                         Rect::new(thumb_pos, Size::new_equal(style.thumb_size));
-                    ctx.renderer.rounded_rect(
+                    ctx.rounded_rect(
                         rect,
                         style.thumb.border.radius.into_corner_radii(rect.size),
                         &thumb_draw_style,
                     )
                 },
-                SliderThumbShape::Circle => ctx.renderer.circle(
-                    thumb_pos,
-                    style.thumb_size,
-                    &thumb_draw_style,
-                ),
-                SliderThumbShape::Square => ctx.renderer.rect(
+                SliderThumbShape::Circle => {
+                    ctx.circle(thumb_pos, style.thumb_size, &thumb_draw_style)
+                },
+                SliderThumbShape::Square => ctx.rect(
                     Rect::new(thumb_pos, Size::new_equal(style.thumb_size)),
                     &thumb_draw_style,
                 ),

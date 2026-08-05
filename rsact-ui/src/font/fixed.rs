@@ -2,7 +2,7 @@ use super::{
     FontHandler, FontStyle, ResolvedFontProps, TextIntrinsics, TextOverflow,
     measure,
 };
-use crate::{el::ctx::*, render::prelude::*};
+use crate::render::prelude::*;
 use alloc::collections::btree_map::BTreeMap;
 use core::fmt::Display;
 
@@ -113,13 +113,13 @@ impl FontHandler for FixedFont {
         }
     }
 
-    fn draw<W: WidgetCtx>(
+    fn draw<R: Renderer>(
         &self,
         content: &str,
         _props: ResolvedFontProps,
         bounds: Rect,
-        color: W::Color,
-        renderer: &mut W::Renderer,
+        color: R::Color,
+        renderer: &mut R,
     ) -> Option<RenderResult> {
         match self {
             #[cfg(feature = "embedded-graphics")]
@@ -229,16 +229,16 @@ impl FontHandler for FixedFontCollection {
         .unwrap_or(0)
     }
 
-    fn draw<W: WidgetCtx>(
+    fn draw<R: Renderer>(
         &self,
         content: &str,
         props: ResolvedFontProps,
         bounds: Rect,
-        color: W::Color,
-        renderer: &mut W::Renderer,
+        color: R::Color,
+        renderer: &mut R,
     ) -> Option<RenderResult> {
         self.with(props, |font| {
-            font.draw::<W>(content, props, bounds, color, renderer)
+            font.draw::<R>(content, props, bounds, color, renderer)
         })
     }
 }

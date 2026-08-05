@@ -369,7 +369,7 @@ impl<W: WidgetCtx, K: PartialEq + 'static> Widget<W> for Select<W, K> {
                     BlockModel::zero().border_width(1),
                     style.selected,
                 )
-                .render(ctx.renderer)?;
+                .render(&mut ctx)?;
             }
 
             // TODO: Review if focus outline visible
