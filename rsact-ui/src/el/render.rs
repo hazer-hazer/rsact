@@ -28,7 +28,98 @@ pub struct CtxUnready;
 // `Primitive::(...).render(ctx)`? Maybe later, and surely not .render(ctx), at
 // least .render(ctx.renderer), otherwise it breaks encapsulation of the crates.
 
+/// What this pass over the widget tree is *for* (WS6.4c).
+///
+/// A frame is one of two shapes. On a **full framebuffer** it is a single
+/// [`Fused`] pass: the surface survives between frames, so skipping a clean
+/// widget leaves last frame's pixels in place and probe-gating is not merely
+/// allowed but optimal. Under **tiling** (6.4d) it is one [`Collect`] pass
+/// followed by K [`Paint`] passes, because a tile is *scratch with no history* —
+/// skipping a clean widget flushes a tile with holes, so paint must be selected
+/// by geometry rather than by dirtiness.
+///
+/// That is why the split exists at all: `render_part`'s probe currently does two
+/// jobs — *detect change* and *authorize paint* — and a second pass over an
+/// already-painted frame finds every probe clean and paints nothing. Separating
+/// the roles dissolves it.
+///
+/// [`Fused`]: RenderMode::Fused
+/// [`Collect`]: RenderMode::Collect
+/// [`Paint`]: RenderMode::Paint
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RenderMode {
+    /// Full-frame: tracked, probe-gated, **and** painting, pushing damage for
+    /// the flush. Today's behaviour and still the default — see the type docs
+    /// for why probe-gating is right when the surface has history.
+    Fused,
+    /// Plan the frame: tracked and probe-gated exactly like [`Fused`], but the
+    /// drawing is discarded and only the damage rects survive.
+    ///
+    /// The bodies must genuinely run: dirtiness is only knowable by running
+    /// them (the tracked reads are interleaved with the draw calls), and the run
+    /// is also what re-tracks dynamic dependencies — an `is_dirty()` peek would
+    /// freeze the recorded source set and silently break conditional reads.
+    /// Probes are marked clean *here*, not after the last paint, so a write that
+    /// lands mid-frame re-plans on the next frame instead of being swallowed.
+    ///
+    /// [`Fused`]: RenderMode::Fused
+    Collect,
+    /// Paint one region: **untracked, no probe**, everything intersecting the
+    /// region repaints.
+    ///
+    /// Untracked so that `run_probe`'s `clear_sources` + re-subscribe +
+    /// `mark_clean` round-trip is paid once per frame regardless of how many
+    /// regions the frame is cut into; polling K times would be K× graph churn.
+    /// No damage is pushed either — under tiling the region *is* the flush unit,
+    /// and paint-derived damage feeding the plan would make every painted region
+    /// re-damage itself (6.4d(4): the two damage channels stay separate).
+    Paint,
+}
+
+impl RenderMode {
+    /// Does this pass discard its drawing?
+    ///
+    /// The check lives at the drawing seam ([`RenderCtx`]'s [`Renderer`] impl),
+    /// so it short-circuits *before* a primitive rasterizes and no backend has
+    /// to know the mode exists.
+    pub fn is_muted(self) -> bool {
+        matches!(self, Self::Collect)
+    }
+
+    /// Does this pass consult (and clean) part probes?
+    ///
+    /// False for [`Paint`], which is selected by geometry alone.
+    ///
+    /// [`Paint`]: RenderMode::Paint
+    pub fn is_probe_gated(self) -> bool {
+        matches!(self, Self::Fused | Self::Collect)
+    }
+
+    /// Does this pass contribute to the damage set?
+    ///
+    /// [`Fused`] records it for the flush and [`Collect`] records it as the
+    /// *plan*; [`Paint`] records nothing, because under tiling the region is
+    /// already the flush unit and paint-derived damage feeding the plan would
+    /// make every painted region re-damage itself — the two channels have to
+    /// stay separate (6.4d(4)).
+    ///
+    /// Spelled out rather than reusing [`is_probe_gated`] (which is the same
+    /// set today): they answer different questions and will diverge the moment
+    /// one of them grows a mode.
+    ///
+    /// [`Fused`]: RenderMode::Fused
+    /// [`Collect`]: RenderMode::Collect
+    /// [`Paint`]: RenderMode::Paint
+    /// [`is_probe_gated`]: RenderMode::is_probe_gated
+    pub fn records_damage(self) -> bool {
+        matches!(self, Self::Fused | Self::Collect)
+    }
+}
+
 pub struct RenderShared<'a, W: WidgetCtx> {
+    /// What this pass is for (WS6.4c). Carried down the walk as a plain value,
+    /// like `force_redraw`.
+    pub mode: RenderMode,
     pub page_state: &'a PageState<W>,
     pub page_style: Signal<PageStyle<W::Color>, ReadOnly>,
     pub viewport: MaybeReactive<Size>,
@@ -325,14 +416,34 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
     }
 
     fn clip_bounds(&self) -> Option<Rect> {
+        // Collect draws nowhere, so it is confined to nothing. Reporting `None`
+        // — the trait's "not confined / not reported" — disables 6.4b's
+        // per-node geometry gate and 6.4c's subtree prune for free, which is
+        // exactly what "the collect pass must visit every node" requires, with
+        // no special case anywhere in the walk. It is also simply true.
+        if self.shared.mode.is_muted() {
+            return None;
+        }
         self.renderer.clip_bounds()
     }
 
     fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult {
+        // WS6.4c: the mute. Collect runs bodies for their tracked reads
+        // and discards the drawing, short-circuiting BEFORE the primitive
+        // rasterizes — no backend knows the mode exists.
+        if self.shared.mode.is_muted() {
+            return Ok(());
+        }
         self.renderer.fill_solid(rect, color)
     }
 
     fn pixel(&mut self, point: Point, color: Self::Color) -> RenderResult {
+        // WS6.4c: the mute. Collect runs bodies for their tracked reads
+        // and discards the drawing, short-circuiting BEFORE the primitive
+        // rasterizes — no backend knows the mode exists.
+        if self.shared.mode.is_muted() {
+            return Ok(());
+        }
         self.renderer.pixel(point, color)
     }
 
@@ -342,6 +453,12 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         to: Point,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
+        // WS6.4c: the mute. Collect runs bodies for their tracked reads
+        // and discards the drawing, short-circuiting BEFORE the primitive
+        // rasterizes — no backend knows the mode exists.
+        if self.shared.mode.is_muted() {
+            return Ok(());
+        }
         self.renderer.line(from, to, style)
     }
 
@@ -350,6 +467,12 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         rect: Rect,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
+        // WS6.4c: the mute. Collect runs bodies for their tracked reads
+        // and discards the drawing, short-circuiting BEFORE the primitive
+        // rasterizes — no backend knows the mode exists.
+        if self.shared.mode.is_muted() {
+            return Ok(());
+        }
         self.renderer.rect(rect, style)
     }
 
@@ -359,6 +482,12 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         corners: CornerRadii,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
+        // WS6.4c: the mute. Collect runs bodies for their tracked reads
+        // and discards the drawing, short-circuiting BEFORE the primitive
+        // rasterizes — no backend knows the mode exists.
+        if self.shared.mode.is_muted() {
+            return Ok(());
+        }
         self.renderer.rounded_rect(rect, corners, style)
     }
 
@@ -368,6 +497,12 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         diameter: u32,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
+        // WS6.4c: the mute. Collect runs bodies for their tracked reads
+        // and discards the drawing, short-circuiting BEFORE the primitive
+        // rasterizes — no backend knows the mode exists.
+        if self.shared.mode.is_muted() {
+            return Ok(());
+        }
         self.renderer.circle(top_left, diameter, style)
     }
 
@@ -379,6 +514,12 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         sweep: Angle,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
+        // WS6.4c: the mute. Collect runs bodies for their tracked reads
+        // and discards the drawing, short-circuiting BEFORE the primitive
+        // rasterizes — no backend knows the mode exists.
+        if self.shared.mode.is_muted() {
+            return Ok(());
+        }
         self.renderer.arc(top_left, diameter, start, sweep, style)
     }
 
@@ -387,6 +528,12 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         bounding_box: Rect,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
+        // WS6.4c: the mute. Collect runs bodies for their tracked reads
+        // and discards the drawing, short-circuiting BEFORE the primitive
+        // rasterizes — no backend knows the mode exists.
+        if self.shared.mode.is_muted() {
+            return Ok(());
+        }
         self.renderer.ellipse(bounding_box, style)
     }
 
@@ -398,6 +545,12 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         sweep: Angle,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
+        // WS6.4c: the mute. Collect runs bodies for their tracked reads
+        // and discards the drawing, short-circuiting BEFORE the primitive
+        // rasterizes — no backend knows the mode exists.
+        if self.shared.mode.is_muted() {
+            return Ok(());
+        }
         self.renderer
             .sector(top_left, diameter, start, sweep, style)
     }
@@ -407,6 +560,12 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         points: &[Point],
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
+        // WS6.4c: the mute. Collect runs bodies for their tracked reads
+        // and discards the drawing, short-circuiting BEFORE the primitive
+        // rasterizes — no backend knows the mode exists.
+        if self.shared.mode.is_muted() {
+            return Ok(());
+        }
         self.renderer.polygon(points, style)
     }
 
@@ -415,10 +574,22 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         path: &Path,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
+        // WS6.4c: the mute. Collect runs bodies for their tracked reads
+        // and discards the drawing, short-circuiting BEFORE the primitive
+        // rasterizes — no backend knows the mode exists.
+        if self.shared.mode.is_muted() {
+            return Ok(());
+        }
         self.renderer.path(path, style)
     }
 
     fn image<'i>(&mut self, image: DrawImage<'i, Self::Color>) -> RenderResult {
+        // WS6.4c: the mute. Collect runs bodies for their tracked reads
+        // and discards the drawing, short-circuiting BEFORE the primitive
+        // rasterizes — no backend knows the mode exists.
+        if self.shared.mode.is_muted() {
+            return Ok(());
+        }
         self.renderer.image(image)
     }
 }
@@ -481,6 +652,27 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
         // rect, so recording it would just add a redundant sub-rect.
         let is_redraw_root = !self.frame.parent_dirty;
 
+        // WS6.4c: a **Paint** pass is selected by geometry alone — no probe is
+        // consulted and none is cleaned. Two reasons, both forced rather than
+        // convenient:
+        //
+        // - A tile is scratch with no history, so "skip the clean widgets" would
+        //   flush a tile with holes. Everything the gate above admitted must
+        //   repaint.
+        // - Polling here would re-run `clear_sources` + re-subscribe +
+        //   `mark_clean` once per region, i.e. K× the graph churn for a frame
+        //   cut into K regions. The single tracked run belongs to Collect.
+        //
+        // No damage is recorded either: under tiling the region IS the flush
+        // unit, and paint-derived damage feeding the plan would make every
+        // painted region re-damage itself (6.4d(4)).
+        if !self.shared.mode.is_probe_gated() {
+            let result = self.run_body(hash_source, f);
+            self.frame.parent_dirty = true;
+            *self.dirten = true;
+            return result;
+        }
+
         // Look up (or lazily create) this element's probe for `hash_source`.
         // Linear scan with CONTENT comparison: `&'static str` pointer identity
         // is not guaranteed equal across codegen units, so keys must be
@@ -507,50 +699,7 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
             },
         };
 
-        let result = probe.poll(redraw, || {
-            debug!(
-                "{:indent$}Render {} [#{:?}] (parent_dirty={}, needs_redraw={:?})",
-                "",
-                hash_source,
-                self.id,
-                self.frame.parent_dirty,
-                self.needs_redraw,
-                indent = self.frame.nesting_level
-            );
-
-            // Clear the element rect unless the parent already did so.
-            //
-            // Moved inside the probe (vs old code where it was outside) so
-            // the clear is always paired with an actual
-            // redraw — never a clear-without-redraw or a
-            // redraw-without-clear.
-            if !self.frame.parent_dirty {
-                self.clear_outer()?;
-            }
-
-            f(RenderCtx {
-                id: self.id,
-                debug_name: self.debug_name,
-                dirten: self.dirten,
-                needs_redraw: self.needs_redraw,
-                hovered: self.hovered,
-                pressed: self.pressed,
-                part_probes: self.part_probes,
-                renderer: self.renderer,
-                layout: self.layout,
-                visual: self.visual,
-                shared: self.shared,
-                // Children inside this closure see parent_dirty=true
-                // because we just cleared/drew into
-                // this element's area above.
-                frame: RenderFrame {
-                    parent_dirty: true,
-                    nesting_level: self.frame.nesting_level + 1,
-                    call: self.frame.call + 1,
-                },
-                _marker: PhantomData,
-            })
-        });
+        let result = probe.poll(redraw, || self.run_body(hash_source, f));
 
         if result.is_some() {
             // Record the damage rect for the flush (WS6.2) — but only for a
@@ -566,6 +715,62 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
         }
 
         result.unwrap_or(RenderResult::Ok(()))
+    }
+
+    /// Clear this part's rect (unless a parent already did) and run the
+    /// widget's body against a ready ctx.
+    ///
+    /// Extracted from [`render_part`] in WS6.4c because both the probe-gated
+    /// path and the geometry-selected Paint path need exactly this, and a copy
+    /// in each is how the two drift apart.
+    ///
+    /// [`render_part`]: Self::render_part
+    fn run_body(
+        &mut self,
+        hash_source: &'static str,
+        f: impl FnOnce(RenderCtx<'_, W, CtxReady>) -> RenderResult,
+    ) -> RenderResult {
+        debug!(
+            "{:indent$}Render {} [#{:?}] (mode={:?}, parent_dirty={}, needs_redraw={:?})",
+            "",
+            hash_source,
+            self.id,
+            self.shared.mode,
+            self.frame.parent_dirty,
+            self.needs_redraw,
+            indent = self.frame.nesting_level
+        );
+
+        // Clear the element rect unless the parent already did so.
+        //
+        // Inside the body (vs outside, as the old code had it) so the clear is
+        // always paired with an actual redraw — never a clear-without-redraw or
+        // a redraw-without-clear.
+        if !self.frame.parent_dirty {
+            self.clear_outer()?;
+        }
+
+        f(RenderCtx {
+            id: self.id,
+            debug_name: self.debug_name,
+            dirten: self.dirten,
+            needs_redraw: self.needs_redraw,
+            hovered: self.hovered,
+            pressed: self.pressed,
+            part_probes: self.part_probes,
+            renderer: self.renderer,
+            layout: self.layout,
+            visual: self.visual,
+            shared: self.shared,
+            // Children inside this closure see parent_dirty=true because we
+            // just cleared/drew into this element's area above.
+            frame: RenderFrame {
+                parent_dirty: true,
+                nesting_level: self.frame.nesting_level + 1,
+                call: self.frame.call + 1,
+            },
+            _marker: PhantomData,
+        })
     }
 
     #[must_use]
@@ -598,6 +803,15 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
         //     // .stroke(W::Color::accents()[4])
         //     // .stroke_width(1),
         // )
+
+        // WS6.4c: the clear is a draw call like any other and must obey the
+        // mode. It cannot go through the seam — `clear_outer` is available in
+        // both ctx states and `Renderer` is implemented only for `CtxReady` —
+        // so the mute is checked here explicitly. A Collect pass that cleared
+        // would paint the page background over a frame it is only planning.
+        if self.shared.mode.is_muted() {
+            return Ok(());
+        }
 
         self.shared
             .page_style
@@ -777,10 +991,18 @@ fn render_subtree_body<W: WidgetCtx>(
         && !frame.parent_dirty
         && matches!(needs_redraw, Some(RedrawReason::LayoutChange))
     {
-        if let Some(bg) = shared.page_style.with(|s| s.background_color) {
+        // WS6.4c: this one writes to the renderer directly (a transparent
+        // widget never reaches `render_part`, so there is no ctx to draw
+        // through), which means the mode has to be honoured by hand — a Collect
+        // pass must not paint, and a Paint pass must not feed the plan channel.
+        if !shared.mode.is_muted()
+            && let Some(bg) = shared.page_style.with(|s| s.background_color)
+        {
             renderer.fill_solid(layout.outer, bg)?;
         }
-        shared.damage.borrow_mut().push(layout.outer);
+        if shared.mode.records_damage() {
+            shared.damage.borrow_mut().push(layout.outer);
+        }
         dirten = true;
     }
 

@@ -11,21 +11,30 @@
 //!   recursed through. Derived from the `LayoutModel`, so it needs no
 //!   instrumentation in the render path at all.
 //!
-//! # How a region pass is faked before 6.4c/6.4d exist
+//! # How a region pass is driven (WS6.4c: for real, no longer simulated)
 //!
-//! A tile pass is a *second* pass over an already-painted frame, which today's
-//! probe-gated render refuses: the probes went clean on the first pass (this is
-//! precisely the conflict WS6.4c resolves by splitting collect from paint). The
-//! harness gets its N passes with `Page::force_redraw`, whose flag WS6.4.0(iv)
-//! turned into a value OR-ed into every part's gate — i.e. *paint everything,
-//! regardless of probe state*, which is exactly the geometry-selected paint 6.4c
-//! specifies. So the schedule this captures is the real thing minus the culling
-//! 6.4b will add, which is the measurement wanted: today's cost, and the floor.
+//! A tile pass is a *second* pass over an already-painted frame, which the
+//! probe-gated render used to refuse: the probes went clean on the first pass.
+//! That is precisely the conflict 6.4c resolves by splitting **collect** from
+//! **paint**, and until it landed this harness faked its way through with
+//! `Page::force_redraw` — a flag OR-ed into every part's gate, i.e. "paint
+//! everything regardless of probe state", which approximated geometry-selected
+//! paint closely enough to measure.
 //!
-//! One cost the harness deliberately keeps visible: forcing K passes pays
-//! `Probe::poll`'s `clear_sources` + re-subscribe round trip K times. 6.4c calls
-//! that out as the reason paint passes must be untracked; here it is accepted,
-//! because a harness measures rather than optimises.
+//! It no longer approximates anything. [`TileProbe::damage_after`] calls
+//! [`Page::collect`] — the plan pass, tracked and probe-gated with its drawing
+//! discarded — and each region goes through [`Page::paint_region`], the same
+//! entry point 6.4d's frame driver will use: untracked, probe-free, selected by
+//! geometry. The goldens did not move when the harness switched over, which is
+//! the evidence that the simulation had been faithful.
+//!
+//! One cost the fake used to pay and the real API does not: forcing K passes
+//! paid `Probe::poll`'s `clear_sources` + re-subscribe round trip K times. That
+//! is exactly why 6.4c requires paint passes to be untracked, and it is now
+//! paid once per frame by `collect` rather than once per region.
+//!
+//! [`Page::collect`]: crate::page::Page::collect
+//! [`Page::paint_region`]: crate::page::Page::paint_region
 //!
 //! [`ScheduleReport`]: rsact_render::schedule::ScheduleReport
 //! [`tile_invariance`]: rsact_render::schedule::tile_invariance
@@ -127,41 +136,49 @@ impl TileProbe {
     ) -> TileSchedule {
         interact(&mut self.page);
         self.recorder.clear();
-        // Deliberately NOT forced: the point is which rects the probe-gated
-        // render decided to repaint.
-        self.page.use_renderer(|_| {});
+        // Deliberately NOT forced: the point is which rects the render decided
+        // to repaint.
+        //
+        // WS6.4c: this is now a `collect` — the plan pass — rather than a
+        // painting frame. Same rects (both modes record damage identically),
+        // and the goldens prove it, but it is what 6.4d is actually handed:
+        // regions derived from a pass that painted nothing yet.
+        self.page.collect();
         TileSchedule::from_regions(self.viewport(), self.page.damage_snapshot())
     }
 
-    /// One forced frame, optionally announced as a region.
+    /// One frame: the whole viewport as a forced [`Fused`] pass, or one region
+    /// as a real [`Paint`] pass.
+    ///
+    /// **WS6.4c: the region path is no longer a simulation.** It used to force a
+    /// redraw and re-run the probe-gated pass under a hand-pushed clip, because
+    /// a second pass over an already-painted frame otherwise finds every probe
+    /// clean and draws nothing — `force_redraw` was the only way through before
+    /// the collect/paint split existed. It now calls [`Page::paint_region`], the
+    /// same entry point WS6.4d's frame driver will use: untracked, probe-free,
+    /// selected by geometry, with `begin_region`/`push_clip` handled inside.
+    ///
+    /// The full-frame reference stays `Fused`, which is exactly the comparison
+    /// tile-invariance wants: *does the union of the region passes reconstruct
+    /// the frame the full-framebuffer path would have painted?*
+    ///
+    /// [`Fused`]: crate::el::render::RenderMode::Fused
+    /// [`Paint`]: crate::el::render::RenderMode::Paint
+    /// [`Page::paint_region`]: crate::page::Page::paint_region
     fn frame(&mut self, region: Option<Rect>) -> Vec<DrawOp> {
         self.recorder.clear();
-        self.page.force_redraw();
 
-        if let Some(region) = region {
-            // What a tiled frame does per region: `begin_region` says *where* we
-            // are drawing (WS6.4.0(ii-3) — a no-op for a recorder, whose surface
-            // already covers the frame), and the clip is what a future cull would
-            // read (WS6.4.0(ii-1)). The recorder logs the clip as bookkeeping,
-            // which `schedule` excludes from every count.
-            // Unwrapped, not logged-and-continued: a region the renderer refused
-            // to enter makes every number below meaningless, and this is a
-            // harness, not the UI path WS1.8 governs.
-            self.page
-                .renderer
-                .begin_region(region)
-                .expect("recorder failed to begin a region");
-            self.page.renderer.push_clip(region);
-        }
-
-        self.page.use_renderer(|_| {});
-
-        if region.is_some() {
-            self.page.renderer.pop_clip();
-            self.page
-                .renderer
-                .end_region()
-                .expect("recorder failed to end a region");
+        match region {
+            Some(region) => {
+                // Unwrapped, not logged-and-continued: a region the renderer
+                // refused to enter makes every number below meaningless, and
+                // this is a harness, not the UI path WS1.8 governs.
+                self.page.paint_region(region).expect("paint_region failed");
+            },
+            None => {
+                self.page.force_redraw();
+                self.page.use_renderer(|_| {});
+            },
         }
 
         self.recorder.ops()
