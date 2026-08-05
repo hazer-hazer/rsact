@@ -17,6 +17,12 @@
     "branch": "master",
     "subject": "Merge pull request #18 from hazer-hazer/ws-home-hero"
   },
+  "4c6c75b4f9badb2fe5480e37be0a01bc3151133a": {
+    "date": 1785971035,
+    "parent": "",
+    "branch": "ws6.4c-prune",
+    "subject": "WS6.4c(F): clipping becomes widget behaviour; Scrollable finally clips"
+  },
   "4f88094393c98819406f3bf9297611d5bf677cf3": {
     "date": 1785877298,
     "parent": "",
