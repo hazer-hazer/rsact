@@ -57,6 +57,55 @@ impl ViewportKind {
     pub fn root() -> Self {
         Self::Fullscreen
     }
+
+    /// The absolute rect this viewport confines drawing to, or `None` for
+    /// [`Self::Fullscreen`] (confined only by the surface itself).
+    ///
+    /// WS6.4b reads this as the **cull rect**: a widget whose bounds miss it
+    /// cannot affect the output, so it need not be drawn at all. That is only
+    /// sound if the stack composes — see [`Self::nested_in`].
+    ///
+    /// The rect is in **the caller's coordinate space**, i.e. absolute, for every
+    /// variant — including [`Self::Cropped`], whose stored rect is absolute and
+    /// whose *rebasing* is the renderer's private business (WS6.4.0(ii-3): rsact
+    /// paints in absolute coordinates and a region-backed renderer offsets
+    /// internally). That is what lets both consumers compare against it directly:
+    /// `render_part`'s cull, which holds an absolute `layout.outer`, and
+    /// `DrawTargetProxy`'s per-pixel filter, which sees the coordinates the
+    /// drawing code emitted. A variant reporting a viewport-local rect here would
+    /// silently invert both tests the moment WS6.4d starts constructing `Cropped`.
+    pub fn clip_bounds(&self) -> Option<Rect> {
+        match *self {
+            ViewportKind::Fullscreen => None,
+            ViewportKind::Clipped(area) | ViewportKind::Cropped(area) => {
+                Some(area)
+            },
+        }
+    }
+
+    /// This viewport as it must be recorded *inside* `parent` — narrowed by it.
+    ///
+    /// **WS6.4b bug fix.** Nested clips did not compose: `push_clip` stored the
+    /// raw area and the write filter consulted only the top of the stack, so a
+    /// clip *wider* than its parent widened the effective clip. Unreachable today
+    /// (nothing sets `ElState::clip_path`, so a frame's own push is the only one)
+    /// and live the moment either WS6.4d pushes a region clip with a widget clip
+    /// inside it — where drawing would escape the tile — or `Scrollable`'s
+    /// commented-out clip is implemented. Intersecting on push also makes the top
+    /// of the stack *be* the effective clip, which is what makes reading it for
+    /// culling exact rather than approximate.
+    ///
+    /// `Cropped` passes through on either side: it re-bases coordinates, so
+    /// narrowing it is not a rect intersection. Nothing constructs it today, and
+    /// the coordinate-space rule is WS6.4d's to define when tile origins arrive.
+    pub fn nested_in(self, parent: ViewportKind) -> Self {
+        match (self, parent) {
+            (ViewportKind::Clipped(area), ViewportKind::Clipped(parent)) => {
+                ViewportKind::Clipped(area.intersection(&parent))
+            },
+            _ => self,
+        }
+    }
 }
 
 /// Core renderer trait: defines primitive drawing methods independent of
@@ -152,6 +201,29 @@ pub trait Renderer {
     ///
     /// [`push_clip`]: Renderer::push_clip
     fn pop_clip(&mut self);
+
+    /// The absolute rect drawing is currently confined to, or `None` for "not
+    /// confined / not reported".
+    ///
+    /// WS6.4b: this is the **cull rect**, and the contract runs one way —
+    /// *anything whose bounds miss it cannot affect the output*, so a caller may
+    /// skip drawing it. It must therefore never report *narrower* than what the
+    /// renderer actually clips to; reporting wider (or `None`) only costs
+    /// redundant paint. Same asymmetry as
+    /// [`DrawOp::bounds`](crate::record::DrawOp::bounds), and deliberately the
+    /// same predicate: WS6.4a's tile-invariance check is written against it.
+    ///
+    /// The default is `None`, which disables culling for a backend that does not
+    /// report — the safe direction, and correct for a no-op sink like
+    /// [`NullRenderer`], whose `size()` is zero and would otherwise read as
+    /// "clips everything away".
+    ///
+    /// Note what this is *not*: a way to ask "what is my surface". A tile-backed
+    /// renderer under WS6.4d reports its **region**, not its buffer — the whole
+    /// point being that the region is what bounds the frame's useful work.
+    fn clip_bounds(&self) -> Option<Rect> {
+        None
+    }
 
     fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult;
 

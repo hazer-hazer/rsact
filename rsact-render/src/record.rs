@@ -20,7 +20,7 @@ use crate::{
     image::DrawImage,
     output::{FinishRender, RenderTarget, pixel::Pixel},
     path::Path,
-    renderer::{RenderResult, Renderer},
+    renderer::{RenderResult, Renderer, ViewportKind},
     style::DrawStyle,
 };
 use alloc::{rc::Rc, string::String, vec::Vec};
@@ -241,12 +241,23 @@ pub fn format_ops(ops: &[DrawOp]) -> String {
 pub struct RecordingRenderer<C> {
     size: Size,
     ops: Rc<RefCell<Vec<DrawOp>>>,
+    /// WS6.4b: a real clip stack, so [`Renderer::clip_bounds`] can report the
+    /// effective clip. The recorder does not *apply* clips (it records what the
+    /// drawing code asked for, which is the measurement), but culling reads the
+    /// clip, so the harness would see `None` and cull nothing without this.
+    /// Shared with clones, like the log.
+    clips: Rc<RefCell<Vec<ViewportKind>>>,
     _color: PhantomData<C>,
 }
 
 impl<C> Clone for RecordingRenderer<C> {
     fn clone(&self) -> Self {
-        Self { size: self.size, ops: Rc::clone(&self.ops), _color: PhantomData }
+        Self {
+            size: self.size,
+            ops: Rc::clone(&self.ops),
+            clips: Rc::clone(&self.clips),
+            _color: PhantomData,
+        }
     }
 }
 
@@ -255,6 +266,7 @@ impl<C> RecordingRenderer<C> {
         Self {
             size,
             ops: Rc::new(RefCell::new(Vec::new())),
+            clips: Rc::new(RefCell::new(vec![ViewportKind::root()])),
             _color: PhantomData,
         }
     }
@@ -280,6 +292,15 @@ impl<C> RecordingRenderer<C> {
 
     fn push(&self, op: DrawOp) {
         self.ops.borrow_mut().push(op);
+    }
+
+    fn current_viewport(&self) -> ViewportKind {
+        // The stack is created non-empty and `pop_clip` never empties it.
+        self.clips
+            .borrow()
+            .last()
+            .copied()
+            .unwrap_or_else(ViewportKind::root)
     }
 }
 
@@ -323,6 +344,11 @@ impl<C: Color> Renderer for RecordingRenderer<C> {
 
     fn push_clip(&mut self, area: Rect) {
         self.push(DrawOp::Clip(area));
+        // Narrowed by the active clip, so the top IS the effective clip
+        // (WS6.4b — see `ViewportKind::nested_in`).
+        let nested =
+            ViewportKind::Clipped(area).nested_in(self.current_viewport());
+        self.clips.borrow_mut().push(nested);
     }
 
     // Deliberately records NOTHING (WS6.4.0(ii-1)). The op log is a linear
@@ -331,7 +357,24 @@ impl<C: Color> Renderer for RecordingRenderer<C> {
     // the previous closure form recorded no end marker either. If 6.4a's
     // tile-invariance check ever needs clip *scope* rather than clip *order*,
     // add the marker there and bless the goldens in the same commit.
-    fn pop_clip(&mut self) {}
+    fn pop_clip(&mut self) {
+        // Never pops the root, mirroring `EGRenderer`: an unbalanced pop must
+        // degrade, not leave the renderer with no viewport at all.
+        let mut clips = self.clips.borrow_mut();
+        if clips.len() > 1 {
+            clips.pop();
+        }
+    }
+
+    fn clip_bounds(&self) -> Option<Rect> {
+        // Fullscreen ⇒ the recorder's own extent, so a harness measuring a
+        // full-frame capture sees the same cull rect a real backend would.
+        Some(
+            self.current_viewport()
+                .clip_bounds()
+                .unwrap_or(Rect::new(Point::zero(), self.size)),
+        )
+    }
 
     fn fill_solid(&mut self, rect: Rect, _color: Self::Color) -> RenderResult {
         self.push(DrawOp::FillSolid(rect));
@@ -453,6 +496,54 @@ mod tests {
 
     fn r(x: i32, y: i32, w: u32, h: u32) -> Rect {
         Rect::new(Point::new(x, y), Size::new(w, h))
+    }
+
+    /// WS6.4b: the recorder does not *apply* clips — it records what the drawing
+    /// code asked for, which is the measurement — but it must still *report* the
+    /// effective clip, because that is what culling reads. Without a real stack
+    /// here the tile harness would see `None`, cull nothing, and silently measure
+    /// the un-culled cost as though it were the culled one.
+    #[test]
+    fn clip_bounds_reports_the_effective_clip() {
+        let mut rec = RecordingRenderer::<NullColor>::new(Size::new_equal(64));
+        let surface = r(0, 0, 64, 64);
+        assert_eq!(
+            rec.clip_bounds(),
+            Some(surface),
+            "the root reports the SURFACE rect, not `None` — that is what makes \
+             culling pay on a full-frame render and not only under tiles"
+        );
+
+        rec.push_clip(r(0, 0, 20, 20));
+        assert_eq!(rec.clip_bounds(), Some(r(0, 0, 20, 20)));
+        // Reaches beyond its parent ⇒ the effective clip is the intersection.
+        rec.push_clip(r(10, 10, 20, 20));
+        assert_eq!(rec.clip_bounds(), Some(r(10, 10, 10, 10)));
+
+        rec.pop_clip();
+        assert_eq!(rec.clip_bounds(), Some(r(0, 0, 20, 20)));
+        rec.pop_clip();
+        assert_eq!(rec.clip_bounds(), Some(surface));
+        // Unbalanced pop degrades rather than panicking (as `EGRenderer` does).
+        rec.pop_clip();
+        assert_eq!(rec.clip_bounds(), Some(surface));
+
+        // None of it touches the op log — the WS6.9 goldens stay valid.
+        assert_eq!(
+            rec.ops(),
+            [DrawOp::Clip(r(0, 0, 20, 20)), DrawOp::Clip(r(10, 10, 20, 20))],
+            "the log records the REQUESTED clips, not the narrowed ones"
+        );
+    }
+
+    /// A renderer that does not report a clip must disable culling, not enable it
+    /// with a zero rect: `NullRenderer::size()` is `Size::zero()`, so a default of
+    /// `Rect::new(zero, size())` would read as "clips everything away" and cull
+    /// every widget on every headless page.
+    #[test]
+    fn a_non_reporting_renderer_disables_culling() {
+        use crate::renderer::NullRenderer;
+        assert_eq!(NullRenderer::<NullColor>::default().clip_bounds(), None);
     }
 
     #[test]

@@ -2333,10 +2333,10 @@ mod tests {
         /// `interact` (input/state changes to reach the state under test), then
         /// force exactly one full frame and return its draw-op log as text.
         ///
-        /// `force_redraw()` re-arms every part's probe (each tracks the
-        /// page-level force flag, `el/render.rs`), so the captured frame is the
-        /// complete paint — not a partial, probe-gated one — and independent of
-        /// exactly which parts `interact` happened to dirty.
+        /// `force_redraw()` re-arms every part (WS6.4.0(iv): the flag is OR-ed
+        /// into each part's gate, no longer tracked by its probe), so the captured
+        /// frame is the complete paint — not a partial, probe-gated one — and
+        /// independent of exactly which parts `interact` happened to dirty.
         fn full_frame_log_after(
             root: impl View<RecWtf>,
             interact: impl FnOnce(&mut Page<RecWtf>),
@@ -2420,6 +2420,178 @@ mod tests {
                     env!("CARGO_MANIFEST_DIR"),
                     "checkbox_checked_64.txt",
                     &log,
+                );
+            });
+        }
+    }
+
+    /// WS6.4b: the geometry cull in `render_part`. What the op-log measurements
+    /// (`tests/tile_schedule.rs`) cannot show is the *behaviour* around a culled
+    /// part — that it comes back, and that skipping it does not leave the page
+    /// spinning. Both are properties of the reactive graph, so they are asserted
+    /// here rather than counted there.
+    mod culling {
+        use super::*;
+        use crate::{
+            render::record::{DrawOp, RecordingRenderer},
+            widget::checkbox::Checkbox,
+        };
+        use rsact_reactive::runtime::with_new_runtime;
+
+        type RecWtf = Wtf<RecordingRenderer<NullColor>, (), (), ()>;
+
+        /// Two checkboxes stacked in a 64x64 page: the first at y≈0, the second
+        /// below `CLIP_H`, so a clip of `0,0 64xCLIP_H` culls exactly the second.
+        const CLIP_H: u32 = 18;
+
+        fn two_checkbox_page(
+            second: Signal<bool>,
+        ) -> (TestPage<RecWtf>, RecordingRenderer<NullColor>) {
+            let renderer =
+                RecordingRenderer::<NullColor>::new(Size::new_equal(64));
+            let recorder = renderer.clone();
+            let arena = create_signal(ElArena::new()).name("Page arena");
+            let scope = new_scope();
+            let mut page = TestPage::new(
+                Page::new(
+                    (),
+                    Flex::col(vec![
+                        Checkbox::new(false).into_el(),
+                        Checkbox::new(second).into_el(),
+                    ])
+                    .gap(4u32),
+                    arena,
+                    Size::new_equal(64).maybe_reactive(),
+                    ().inert(),
+                    DevTools::default().signal(),
+                    FontCtx::new().signal(),
+                    scope,
+                ),
+                renderer,
+            );
+            // Settle, so every part's probe exists before anything is culled.
+            for _ in 0..4 {
+                page.use_renderer(|_| {});
+            }
+            (page, recorder)
+        }
+
+        /// One forced frame under `clip`, returning its ops.
+        fn frame(
+            page: &mut TestPage<RecWtf>,
+            recorder: &RecordingRenderer<NullColor>,
+            clip: Option<Rect>,
+        ) -> Vec<DrawOp> {
+            recorder.clear();
+            page.force_redraw();
+            if let Some(clip) = clip {
+                page.renderer.push_clip(clip);
+            }
+            page.use_renderer(|_| {});
+            if clip.is_some() {
+                page.renderer.pop_clip();
+            }
+            recorder.ops()
+        }
+
+        /// Ops that draw at or below `y` — i.e. outside the clip used here.
+        fn below(ops: &[DrawOp], y: i32) -> usize {
+            ops.iter()
+                .filter_map(|op| op.bounds())
+                .filter(|b| b.top_left.y >= y)
+                .count()
+        }
+
+        #[test]
+        fn a_part_outside_the_clip_is_not_drawn() {
+            with_new_runtime(|_| {
+                let second = create_signal(false);
+                let (mut page, recorder) = two_checkbox_page(second);
+
+                let whole = frame(&mut page, &recorder, None);
+                assert!(
+                    below(&whole, CLIP_H as i32) > 0,
+                    "the second checkbox must be below the clip, or this test \
+                     proves nothing"
+                );
+
+                let clipped = frame(
+                    &mut page,
+                    &recorder,
+                    Some(Rect::new(Point::zero(), Size::new(64, CLIP_H))),
+                );
+                assert_eq!(
+                    below(&clipped, CLIP_H as i32),
+                    0,
+                    "a part whose area cannot reach the clip must not draw"
+                );
+                assert!(
+                    !clipped.is_empty(),
+                    "the part INSIDE the clip must still draw"
+                );
+            });
+        }
+
+        /// The two reactive properties of a culled part, in one sequence:
+        ///
+        /// 1. it does not keep the page awake — the walk stops reading its probe,
+        ///    so the page probe's `clear_sources` drops the edge and the next
+        ///    frame is idle **even though the culled part is dirty**;
+        /// 2. it is skipped, not resolved — when it comes back into view it
+        ///    repaints, with the state it acquired while invisible.
+        ///
+        /// Together these are why "cull the paint, leave the probe dirty" is
+        /// sound (WS6.4c's "an unpainted probe stays dirty"). Get (1) wrong and
+        /// every frame re-walks the tree forever; get (2) wrong and scrolled-away
+        /// content comes back stale.
+        #[test]
+        fn a_culled_part_stays_dirty_without_waking_the_page() {
+            with_new_runtime(|_| {
+                let mut second = create_signal(false);
+                let (mut page, recorder) = two_checkbox_page(second);
+
+                let clip = Rect::new(Point::zero(), Size::new(64, CLIP_H));
+                let _ = frame(&mut page, &recorder, Some(clip));
+
+                // The culled part's own state changes while it is invisible.
+                page.take_draw_calls();
+                second.set(true);
+
+                // (1) An ORDINARY frame: nothing to do. The dirty-but-culled part
+                // must not have kept the page's render gate armed.
+                recorder.clear();
+                page.renderer.push_clip(clip);
+                page.use_renderer(|_| {});
+                page.renderer.pop_clip();
+                assert_eq!(
+                    page.take_draw_calls(),
+                    0,
+                    "a dirty culled part kept the page re-rendering"
+                );
+                // Drawing ops only: `push_clip` above logs a `Clip`, which is
+                // bookkeeping and paints nothing (same rule `schedule` uses).
+                assert_eq!(
+                    recorder
+                        .ops()
+                        .iter()
+                        .filter(|op| op.bounds().is_some())
+                        .count(),
+                    0,
+                    "an idle frame must paint nothing"
+                );
+
+                // (2) Back in view: it repaints, and shows the state it picked up
+                // while culled — a checked box draws its icon `Path`, which the
+                // unchecked frame does not have (same signal the WS6.9 goldens
+                // use to tell the two states apart).
+                let back = frame(&mut page, &recorder, None);
+                assert!(
+                    below(&back, CLIP_H as i32) > 0,
+                    "the part must repaint once it is visible again"
+                );
+                assert!(
+                    back.iter().any(|op| matches!(op, DrawOp::Path { .. })),
+                    "it must repaint with the state it acquired while culled"
                 );
             });
         }

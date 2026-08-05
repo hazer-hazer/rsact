@@ -57,17 +57,40 @@ impl<'a, C: Color, R: Renderer<Color = C>> DrawTarget
     where
         I: IntoIterator<Item = embedded_graphics::prelude::Pixel<Self::Color>>,
     {
-        pixels.into_iter().try_for_each(|p| {
-            self.renderer.pixel(
-                p.0.into(),
-                C::from_rgba(crate::color::Rgba {
-                    r: p.1.r(),
-                    g: p.1.g(),
-                    b: p.1.b(),
-                    a: 255,
-                }),
-            )
-        })
+        // WS6.4b(ii), the cheap half: drop pixels the renderer would reject
+        // anyway, BEFORE paying `Renderer::pixel` for each one.
+        //
+        // This is the only path text takes — `embedded-text` / u8g2 rasterise
+        // glyphs and hand them here one pixel at a time — and it is where the
+        // per-pixel cost that survives WS6.4b's part-level cull lives: a label
+        // straddling a region boundary is not culled in either region, so every
+        // glyph pixel is offered twice and each one pays a colour conversion plus
+        // a viewport dispatch into the framebuffer to be discarded.
+        //
+        // It is a cheaper *write filter*, not the loop bound (ii) ultimately
+        // wants: the glyph iteration upstream still runs, because the line/glyph
+        // loop belongs to `embedded-text`, not to us. Owning that loop — which is
+        // also what `font/fixed.rs`'s `Clip`/`Ellipsis` TODO needs — is what makes
+        // the first/last-visible-glyph arithmetic possible, and it is filed as the
+        // remaining part of (ii).
+        //
+        // Read once, outside the loop: `clip_bounds` borrows the renderer
+        // immutably and `pixel` needs it mutably.
+        let clip = self.renderer.clip_bounds();
+        pixels
+            .into_iter()
+            .filter(|p| clip.is_none_or(|clip| clip.contains(Point::from(p.0))))
+            .try_for_each(|p| {
+                self.renderer.pixel(
+                    p.0.into(),
+                    C::from_rgba(crate::color::Rgba {
+                        r: p.1.r(),
+                        g: p.1.g(),
+                        b: p.1.b(),
+                        a: 255,
+                    }),
+                )
+            })
     }
 }
 
@@ -236,8 +259,28 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> EGRenderer<C, AA> {
         }
     }
 
+    // WS6.4b: narrowed by the active viewport so the top of the stack IS the
+    // effective clip (`ViewportKind::nested_in` documents why that matters).
+    // `EGRenderer` still keeps its viewport stack inline instead of using the
+    // shared `surface::Canvas` helper — see this file's TODO — so the same
+    // one-line composition lives in both places for now.
     fn renderer_push_clip(&mut self, area: Rect) {
-        self.viewport_stack.push(ViewportKind::Clipped(area));
+        let nested =
+            ViewportKind::Clipped(area).nested_in(self.current_viewport());
+        self.viewport_stack.push(nested);
+    }
+
+    // `Fullscreen` falls back to the SURFACE rect rather than reporting "no
+    // bound": that is what makes WS6.4b's culling pay on an ordinary full-frame
+    // render, not only under tiles — off-screen content (scrolled-away rows) is
+    // exactly the case where the clip is currently a write filter and the paint
+    // happens anyway.
+    fn renderer_clip_bounds(&self) -> Option<Rect> {
+        Some(
+            self.current_viewport()
+                .clip_bounds()
+                .unwrap_or(Rect::new(Point::zero(), self.main_viewport)),
+        )
     }
 
     // Never pops the root viewport: an unbalanced `pop_clip` must degrade, not
@@ -342,6 +385,10 @@ impl<C: Color + PackedColor + PixelColor> Renderer
 
     fn pop_clip(&mut self) {
         self.renderer_pop_clip()
+    }
+
+    fn clip_bounds(&self) -> Option<Rect> {
+        self.renderer_clip_bounds()
     }
 
     fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult {
@@ -499,6 +546,10 @@ impl<C: Color + PackedColor + PixelColor> Renderer
 
     fn pop_clip(&mut self) {
         self.renderer_pop_clip()
+    }
+
+    fn clip_bounds(&self) -> Option<Rect> {
+        self.renderer_clip_bounds()
     }
 
     fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult {
@@ -737,6 +788,107 @@ mod tests {
         assert_eq!(r.viewport_stack.len(), root, "root viewport must survive");
         // Still usable afterwards — the real point of not emptying the stack.
         Renderer::pixel(&mut r, Point::new(1, 1), Rgb888::WHITE).unwrap();
+    }
+
+    /// WS6.4b(ii): the proxy must drop pixels outside the renderer's clip before
+    /// paying `Renderer::pixel` for them, and must drop **only** those.
+    ///
+    /// This is the path all text takes (`embedded-text` / u8g2 hand glyphs over
+    /// one pixel at a time), so it is where the per-pixel cost that survives the
+    /// part-level cull lives — a label straddling a region boundary is culled in
+    /// neither region. Asserted on op counts because the failure modes are
+    /// symmetric and both silent: filter too little and tiling pays N× per-pixel
+    /// work; filter too much and glyphs lose columns.
+    #[test]
+    fn the_proxy_filters_pixels_the_renderer_would_reject() {
+        use crate::record::{DrawOp, RecordingRenderer};
+
+        let mut rec = RecordingRenderer::<Rgb888>::new(Size::new(64, 64));
+        rec.push_clip(Rect::new(Point::new(10, 10), Size::new(10, 10)));
+
+        let ink = Rgb888::new(255, 255, 255);
+        let at = |x, y| {
+            embedded_graphics::prelude::Pixel(
+                embedded_graphics::prelude::Point::new(x, y),
+                ink,
+            )
+        };
+        DrawTargetProxy::new(&mut rec)
+            .draw_iter([
+                at(15, 15), // inside
+                at(19, 19), // inside, last pixel of the clip
+                at(20, 20), // outside: the clip's edge is exclusive
+                at(5, 5),   // outside
+            ])
+            .unwrap();
+
+        let drawn: Vec<_> = rec
+            .ops()
+            .into_iter()
+            .filter_map(|op| match op {
+                DrawOp::Pixel(point) => Some(point),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(drawn, [Point::new(15, 15), Point::new(19, 19)]);
+    }
+
+    /// WS6.4b: a nested clip must be **narrowed by** its parent, not replace it.
+    ///
+    /// Asserted where it actually matters — on the framebuffer, not on the stack:
+    /// a pixel inside the inner clip but outside the outer one must not land. It
+    /// used to, because `push_clip` stored the raw area and the write filter
+    /// consults only the top of the stack, so an inner clip reaching beyond its
+    /// parent *widened* the effective clip. Under WS6.4d that is drawing escaping
+    /// its tile; here it is the precondition for `clip_bounds` being an exact cull
+    /// rect rather than a guess.
+    #[test]
+    fn a_nested_clip_narrows_and_never_widens() {
+        let mut r =
+            EGRenderer::<Rgb888, AntiAliasingDisabled>::new(Size::new(40, 40));
+
+        r.push_clip(Rect::new(Point::new(0, 0), Size::new(20, 20)));
+        // Overlaps the parent over (10,10)..(20,20) and reaches BEYOND it.
+        r.push_clip(Rect::new(Point::new(10, 10), Size::new(20, 20)));
+
+        assert_eq!(
+            r.clip_bounds(),
+            Some(Rect::new(Point::new(10, 10), Size::new(10, 10))),
+            "the effective clip is the intersection, not the inner rect"
+        );
+
+        // The probe colour must DIFFER from the untouched framebuffer, or the
+        // assertions below hold whatever the clip does: `default_background()`
+        // for RGB is WHITE, so a white probe pixel proves nothing (this test was
+        // written that way first and passed its "rejected" case vacuously).
+        let bg = <Rgb888 as Color>::default_background();
+        let ink = <Rgb888 as Color>::default_foreground();
+        assert_ne!(ink, bg, "the probe colour must be visible");
+
+        // Inside the inner rect but outside the parent: must be rejected.
+        Renderer::pixel(&mut r, Point::new(25, 15), ink).unwrap();
+        // Inside both: must land.
+        Renderer::pixel(&mut r, Point::new(15, 15), ink).unwrap();
+
+        assert_eq!(
+            r.canvas.pixel(Point::new(25, 15)),
+            Some(bg),
+            "a write outside the PARENT clip escaped the nested clip"
+        );
+        assert_eq!(r.canvas.pixel(Point::new(15, 15)), Some(ink));
+
+        // Popping restores the parent, not the raw inner rect.
+        r.pop_clip();
+        assert_eq!(
+            r.clip_bounds(),
+            Some(Rect::new(Point::new(0, 0), Size::new(20, 20)))
+        );
+        r.pop_clip();
+        assert_eq!(
+            r.clip_bounds(),
+            Some(Rect::new(Point::zero(), Size::new(40, 40))),
+            "the root viewport reports the surface rect"
+        );
     }
 
     /// WS6.4.0(i-1): `pixel_alpha` must read the destination through the SAME

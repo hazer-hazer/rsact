@@ -37,8 +37,14 @@ impl<T: Surface> Canvas<T> {
         &mut self.surface
     }
 
+    /// Push a nested viewport, **narrowed by the one already active**
+    /// (`ViewportKind::nested_in`) so the top of the stack is always the
+    /// EFFECTIVE clip. Before WS6.4b this stored `kind` raw, and since the write
+    /// filters consult only the top, a clip wider than its parent widened the
+    /// effective clip.
     pub fn enter_viewport(&mut self, kind: ViewportKind) {
-        self.viewport_stack.push(kind);
+        let nested = kind.nested_in(self.current_viewport());
+        self.viewport_stack.push(nested);
     }
 
     pub fn exit_viewport(&mut self) {
