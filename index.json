@@ -35,6 +35,12 @@
     "branch": "ws6.4c-collect-paint",
     "subject": "WS6.4c(A): RenderCtx is the drawing seam; the renderer field goes private"
   },
+  "5c0adc31e44848cd1cca3d85123bf4e525c10d83": {
+    "date": 1786008194,
+    "parent": "",
+    "branch": "ws6.4c-prune",
+    "subject": "WS6.4c(E)+(G): the traversal prune, on the measured floor"
+  },
   "73386c04d25c38e5ef2aae8ea982403cdfb2aca5": {
     "date": 1785871204,
     "parent": "",
