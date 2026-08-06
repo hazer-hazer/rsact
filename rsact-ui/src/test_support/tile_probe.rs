@@ -184,9 +184,21 @@ impl TileProbe {
         self.recorder.ops()
     }
 
-    /// The traversal term: how many widget nodes a region schedule visits, as it
-    /// stands and as WS6.4b's culling could make it.
+    /// The traversal term: how many widget nodes a region schedule visits — the
+    /// modelled floor, and (WS6.4c(E)) what the walk **actually** does.
     pub fn visits(&mut self, schedule: &TileSchedule) -> VisitReport {
+        // MEASURED first: paint each region for real and read the page's own
+        // counter. `cullable` below is the model; this is the implementation,
+        // and the two agreeing is the claim worth making.
+        let measured = schedule
+            .tiles()
+            .iter()
+            .map(|&tile| {
+                self.page.paint_region(tile).expect("paint_region failed");
+                self.page.nodes_visited()
+            })
+            .sum();
+
         // `layout()` relayouts if needed and borrows the owned model
         // (WS6.4.0(iv)) — no clone of a recursive tree.
         let layout = self.page.layout();
@@ -197,6 +209,7 @@ impl TileProbe {
             nodes,
             regions: schedule.len(),
             visited: nodes * schedule.len(),
+            measured,
             cullable: schedule
                 .tiles()
                 .iter()
@@ -213,6 +226,10 @@ pub struct VisitReport {
     /// Nodes in the layout tree (transparent wrappers are already flattened out
     /// of it by `model_layout`, so this is the set the render walk dispatches to).
     pub nodes: usize,
+    /// WS6.4c(E): nodes the walk **actually** processed across the schedule,
+    /// counted by the page rather than modelled. Before the traversal prune this
+    /// equalled `visited`; it should now equal `cullable`.
+    pub measured: usize,
     pub regions: usize,
     /// Visits a region schedule performs today: the walk has no geometry test at
     /// all, so this is exactly `nodes * regions`.
@@ -274,6 +291,16 @@ impl core::fmt::Display for VisitReport {
             self.visited,
             self.cullable,
             self.visited_multiplier(),
+            self.cullable_multiplier()
+        )?;
+        writeln!(
+            f,
+            "{:<14}{:>9}{:>9}{:>9}{:>9.2}{:>9.2}",
+            "nodes(real)",
+            self.nodes,
+            self.measured,
+            self.cullable,
+            ratio(self.measured, self.nodes),
             self.cullable_multiplier()
         )?;
         writeln!(f, "escaping {}", self.escaping)

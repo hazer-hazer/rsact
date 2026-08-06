@@ -43,6 +43,38 @@ where
         core::any::type_name::<Self>()
     }
 
+    /// How far outside its layout rect this widget paints (WS6.4c(G), ISSUE-3).
+    ///
+    /// Every geometry decision in WS6 — the per-node cull, the damage rect, the
+    /// traversal prune — assumes a widget never draws outside `layout.outer`.
+    /// **That is already false**: an outline is drawn with
+    /// `StrokeAlignment::Outside` at `outline_offset + outline_width` beyond the
+    /// rect, so a focused widget paints 1 px past it on all four sides. Today
+    /// the consequences are bounded by the outline width (damage under-reports
+    /// that ring; a cull can skip a part whose outline would have reached the
+    /// region) — harmless on a persistent framebuffer, a visible crack under
+    /// 6.4d, where the tile has no history.
+    ///
+    /// This is the extension point that fixes it, deliberately **declared now
+    /// and computed later** (maintainer, 2026-08-05: "We don't need to calculate
+    /// it now btw. It can be postponed, but must be documented"). Every consumer
+    /// already routes through [`paint_bounds`], so filling this in is a
+    /// one-function change rather than a hunt.
+    ///
+    /// A `Padding` rather than LVGL's scalar `ext_draw_size`, because shadows are
+    /// *offset* as well as spread. Answerable without running the render body —
+    /// the geometry gate runs before `ctx.get_style` — which is why it lives here
+    /// rather than being read off a resolved `BlockStyle`.
+    ///
+    /// Zero is the **optimistic** default: a widget that under-reports cracks a
+    /// tile, where an over-reporting one only costs redundant paint. That is the
+    /// asymmetry the seam's bounds `debug_assert` is there to police.
+    ///
+    /// [`paint_bounds`]: crate::el::render::paint_bounds
+    fn ext_draw(&self) -> Padding {
+        Padding::zero()
+    }
+
     fn el(self) -> El<W>
     where
         Self: Sized + crate::el::build::Build<W> + 'static,

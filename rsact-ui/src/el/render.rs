@@ -13,7 +13,10 @@ use crate::{
     },
 };
 use alloc::vec::Vec;
-use core::{cell::RefCell, marker::PhantomData};
+use core::{
+    cell::{Cell, RefCell},
+    marker::PhantomData,
+};
 use log::debug;
 use rsact_reactive::{prelude::*, signal::marker::ReadOnly};
 // Not in `render::prelude` — `Renderer::image` is the only method that needs
@@ -27,6 +30,26 @@ pub struct CtxUnready;
 // TODO: Make RenderCtx a delegate to renderer so u can do
 // `Primitive::(...).render(ctx)`? Maybe later, and surely not .render(ctx), at
 // least .render(ctx.renderer), otherwise it breaks encapsulation of the crates.
+
+/// The screen area a widget actually affects: its layout rect grown by however
+/// far it paints **outside** that rect (WS6.4c(G), ISSUE-3).
+///
+/// Four consumers must agree on this and none may compute it themselves — the
+/// per-node geometry gate, the damage rect, the traversal prune, and (later) the
+/// seam's bounds `debug_assert`. Routing them all through one function is what
+/// makes `Widget::ext_draw` a one-line change when outlines, box shadows and
+/// tooltips start reporting a non-zero outset, instead of a hunt through the
+/// render path for every place that said `layout.outer`.
+///
+/// `ext` is `Padding::zero()` at every call site today, so this is currently the
+/// identity on `layout.outer` — deliberately: the mechanism is declared now and
+/// the computation is postponed (maintainer, 2026-08-05).
+///
+/// WS5.3's `layout_changed_set` and WS6.1's `layout_repaint_roots` derive damage
+/// from `outer` too and join this list the moment `ext` stops being zero.
+pub fn paint_bounds(layout: &LayoutModelNode<'_>, ext: Padding) -> Rect {
+    layout.outer.outset(ext)
+}
 
 /// What this pass over the widget tree is *for* (WS6.4c).
 ///
@@ -141,6 +164,16 @@ pub struct RenderShared<'a, W: WidgetCtx> {
     /// via `finish_frame_regions`. A shared `&RefCell` so it rides `Copy`
     /// `RenderShared` and every sibling in the walk appends to the one list.
     pub damage: &'a RefCell<Vec<Rect>>,
+    /// WS6.4c(E): how many nodes this pass actually processed, i.e. survived the
+    /// traversal prune.
+    ///
+    /// The traversal term is the one cost an op log cannot see — a transparent
+    /// `Flex` emits nothing yet is visited, styled and recursed through — so
+    /// 6.4a could only ever *model* it. Counting it here makes the prune's
+    /// effect measurable instead of argued, and gives 6.6's dirty-list walk a
+    /// number to beat from the other end. One `Cell` increment per processed
+    /// node, against the hundreds of cycles a node visit already costs.
+    pub visits: &'a Cell<usize>,
 }
 
 impl<'a, W: WidgetCtx> Clone for RenderShared<'a, W> {
@@ -182,6 +215,11 @@ pub struct RenderCtx<'a, W: WidgetCtx, S = CtxUnready> {
     needs_redraw: Option<RedrawReason>,
     /// This widget's declared behaviour (WS6.4c(F) reads `CLIPS_SELF` here).
     flags: WidgetFlags,
+    /// How far outside `layout.outer` this widget paints (WS6.4c(G)). Zero for
+    /// every widget today; see [`Widget::ext_draw`].
+    ///
+    /// [`Widget::ext_draw`]: crate::widget::Widget::ext_draw
+    ext: Padding,
     hovered: bool,
     pressed: bool,
     /// This element's render probes, pre-extracted from its `ElState` for the
@@ -272,6 +310,7 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
             dirten: self.dirten,
             needs_redraw: self.needs_redraw,
             flags: self.flags,
+            ext: self.ext,
             hovered: self.hovered,
             pressed: self.pressed,
             part_probes: self.part_probes,
@@ -596,7 +635,7 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
         //   layout change ⇒ repaint roots or a blanket redraw), never a stale
         //   reactive edge.
         if let Some(clip) = self.renderer.clip_bounds()
-            && !self.layout.outer.intersects(&clip)
+            && !paint_bounds(self.layout, self.ext).intersects(&clip)
         {
             return Ok(());
         }
@@ -674,7 +713,10 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
             // parent offsets), which is exactly what `finish_frame_regions`
             // wants.
             if is_redraw_root {
-                self.shared.damage.borrow_mut().push(self.layout.outer);
+                self.shared
+                    .damage
+                    .borrow_mut()
+                    .push(paint_bounds(self.layout, self.ext));
             }
             self.frame.parent_dirty = true;
             *self.dirten = true;
@@ -733,6 +775,7 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
             dirten: self.dirten,
             needs_redraw: self.needs_redraw,
             flags: self.flags,
+            ext: self.ext,
             hovered: self.hovered,
             pressed: self.pressed,
             part_probes: self.part_probes,
@@ -864,6 +907,54 @@ fn render_subtree<W: WidgetCtx>(
     // `model_layout`, so `layout.id()` is always a real widget).
     let id = layout.id();
 
+    // WS6.4c(G): how far outside its rect this widget paints. Looked up here
+    // rather than inside the body because the PRUNE below needs it, and a prune
+    // that used a smaller rect than the paint is the unsound direction.
+    let ext = els
+        .expect(id)
+        .and_then(|data| data.stage.built())
+        .map(|widget| widget.ext_draw())
+        .unwrap_or_else(Padding::zero);
+
+    // WS6.4c(E): **the traversal prune** — the cost 6.4b left on the table.
+    //
+    // 6.4b's gate stops a node from PAINTING when its area misses the clip, but
+    // the walk still visits every node, styles it and recurses: at 10 regions
+    // that is ×10.00 the node visits of a single pass, against a floor of
+    // ×1.19–2.85 (6.4a's `VisitReport`). Stopping the descent is the only thing
+    // that closes the gap.
+    //
+    // Soundness rests on one invariant, which 6.4c(F) is what makes true:
+    // **everything a subtree draws is inside `outer ∩ enclosing clips`**. A
+    // child may only escape its parent's rect if that parent clips its children
+    // (`CLIPS_CHILDREN`), in which case the escape is invisible anyway. The
+    // `debug_assert` in the children loop is what keeps a future layout honest;
+    // 6.4a's `escaping` counter is the same check from the measurement side.
+    //
+    // `clip_bounds()` already reports the composed clip — region ∩ every
+    // enclosing widget clip (nested clips compose since PR #36) — so the prune
+    // costs one rect test and **zero bytes per node**. This is why 6.4b's costed
+    // `subtree_fits`-vs-union-`Rect` storage decision was struck: it existed only
+    // to tolerate escapes that a widget-declared clip now prevents.
+    //
+    // `Collect` reports `None` here and so never prunes, which is exactly the
+    // requirement that its bodies all run.
+    if let Some(clip) = renderer.clip_bounds()
+        && !paint_bounds(layout, ext).intersects(&clip)
+    {
+        debug!(
+            "{:indent$}<- pruned (outside {clip})",
+            "",
+            indent = frame.nesting_level
+        );
+        return Ok(());
+    }
+
+    // Counted AFTER the prune, so this equals 6.4a's `VisitReport::cullable`
+    // model rather than "times we looked at a node" — the number the floor is
+    // expressed in.
+    shared.visits.set(shared.visits.get() + 1);
+
     // Build the per-element frame.
     let child_frame = RenderFrame {
         parent_dirty: frame.parent_dirty,
@@ -873,7 +964,7 @@ fn render_subtree<W: WidgetCtx>(
 
     // WS6.4c(F): the clip is applied inside `render_subtree_body`, around the
     // CHILDREN loop only — see the note there for why it cannot wrap the body.
-    render_subtree_body(els, renderer, shared, layout, visual, child_frame)
+    render_subtree_body(els, renderer, shared, layout, visual, child_frame, ext)
 }
 
 fn render_subtree_body<W: WidgetCtx>(
@@ -883,6 +974,7 @@ fn render_subtree_body<W: WidgetCtx>(
     layout: &LayoutModelNode<'_>,
     visual: RenderVisual<W>,
     frame: RenderFrame,
+    ext: Padding,
 ) -> RenderResult {
     // WS5.1: this widget's id is the layout node's id (see `render_subtree`).
     let id = layout.id();
@@ -922,6 +1014,7 @@ fn render_subtree_body<W: WidgetCtx>(
         dirten: &mut dirten,
         needs_redraw,
         flags,
+        ext,
         hovered: data.state.hovered(),
         pressed: data.state.pressed(),
         part_probes: &mut part_probes,
@@ -960,7 +1053,7 @@ fn render_subtree_body<W: WidgetCtx>(
             renderer.fill_solid(layout.outer, bg)?;
         }
         if shared.mode.records_damage() {
-            shared.damage.borrow_mut().push(layout.outer);
+            shared.damage.borrow_mut().push(paint_bounds(layout, ext));
         }
         dirten = true;
     }
@@ -1004,6 +1097,26 @@ fn render_subtree_body<W: WidgetCtx>(
 
     let children = (|| -> RenderResult {
         for child_layout in layout.children() {
+            // WS6.4c(E): the prune's premise, checked where it can be violated.
+            //
+            // Pruning a subtree on its root's rect is sound only if the subtree
+            // stays inside it — or if this widget clips, which makes any escape
+            // invisible. A layout that breaks both silently produces a plausible
+            // image today and a cracked tile under 6.4d, so it is worth a debug
+            // check rather than a comment. 6.4a's `VisitReport::escaping` is the
+            // same predicate from the measurement side.
+            debug_assert!(
+                clips_children
+                    || layout.outer.union(&child_layout.outer) == layout.outer,
+                "[BUG] child {:?} ({}) escapes its parent {:?} ({}) which does \
+                 not declare CLIPS_CHILDREN — the traversal prune would skip a \
+                 subtree that still draws",
+                child_layout.id(),
+                child_layout.outer,
+                layout.id(),
+                layout.outer,
+            );
+
             let child_font_props =
                 child_layout.font_props().unwrap_or(visual.font_props);
             let child_visual = RenderVisual {

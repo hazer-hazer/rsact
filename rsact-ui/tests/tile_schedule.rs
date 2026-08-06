@@ -470,3 +470,47 @@ fn merge_threshold_numbers() {
         );
     });
 }
+
+/// WS6.4c(E): the traversal prune must hit the modelled floor **exactly**, on
+/// every page and every schedule.
+///
+/// The goldens carry the numbers, but a golden can be re-blessed by accident;
+/// this asserts the *invariant* instead. `cullable` is computed straight from
+/// the `LayoutModel` ("which nodes could a region reach"), `measured` is what
+/// the render walk actually processed — so equality says the implementation and
+/// the model agree, and any prune that becomes conservative (or, worse,
+/// over-eager) breaks it.
+#[test]
+fn the_traversal_prune_hits_the_modelled_floor() {
+    with_new_runtime(|_| {
+        let viewport = Size::new_equal(240);
+        let mut probe = TileProbe::new(viewport, mixed_page());
+
+        for schedule in [
+            TileSchedule::whole(Rect::new(Point::zero(), viewport)),
+            TileSchedule::rows(Rect::new(Point::zero(), viewport), 48),
+            TileSchedule::rows(Rect::new(Point::zero(), viewport), 24),
+            TileSchedule::grid(
+                Rect::new(Point::zero(), viewport),
+                Size::new_equal(80),
+            ),
+        ] {
+            let report = probe.visits(&schedule);
+            assert_eq!(
+                report.measured,
+                report.cullable,
+                "the walk processed {} nodes over {} regions where the layout \
+                 model says {} are reachable — the prune and the model disagree",
+                report.measured,
+                schedule.len(),
+                report.cullable,
+            );
+            assert!(
+                report.measured <= report.visited,
+                "pruning made the walk BIGGER: {} > {}",
+                report.measured,
+                report.visited,
+            );
+        }
+    });
+}

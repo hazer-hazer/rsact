@@ -13,7 +13,7 @@ use crate::{
     style::TreeStyle,
 };
 use alloc::vec::Vec;
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 use dev::{DevHoveredEl, DevTools};
 use log::{debug, error, info};
 use rsact_reactive::prelude::*;
@@ -127,6 +127,8 @@ pub struct Page<W: WidgetCtx> {
     /// while `render` reads it back afterwards. Cleared at the start of each
     /// pass, so an idle frame leaves it empty (flush nothing).
     damage: RefCell<Vec<Rect>>,
+    /// WS6.4c(E): nodes processed by the last pass (see `RenderShared::visits`).
+    nodes_visited: Cell<usize>,
     /// The page's reactive scope (WS3.1). Everything the page built —
     /// `init_page()`'s widgets (run before `Page::new` while this scope is
     /// current) and `Page::new`'s per-page nodes (`force_redraw`, the layout
@@ -384,6 +386,7 @@ impl<W: WidgetCtx> Page<W> {
             fonts,
             render_probe,
             damage: RefCell::new(Vec::new()),
+            nodes_visited: Cell::new(0),
             scope,
         }
     }
@@ -997,6 +1000,7 @@ impl<W: WidgetCtx> Page<W> {
                         force_redraw: self.force_redraw,
 
                         damage: &self.damage,
+                        visits: &self.nodes_visited,
                     },
                 )
                 .render(
@@ -1083,11 +1087,18 @@ impl<W: WidgetCtx> Page<W> {
     /// painted region re-damage itself (6.4d(4)).
     ///
     /// [`collect`]: Self::collect
+    /// WS6.4c(E): nodes the last pass actually processed — the traversal term,
+    /// which no op log can see. Reset at the start of every pass.
+    pub fn nodes_visited(&self) -> usize {
+        self.nodes_visited.get()
+    }
+
     pub fn paint_region(
         &mut self,
         renderer: &mut W::Renderer,
         region: Rect,
     ) -> RenderResult {
+        self.nodes_visited.set(0);
         renderer.begin_region(region)?;
         renderer.push_clip(region);
 
@@ -1114,6 +1125,8 @@ impl<W: WidgetCtx> Page<W> {
             mode.is_probe_gated(),
             "[BUG] {mode:?} must not go through the probe-gated pass"
         );
+
+        self.nodes_visited.set(0);
 
         // WS6.2: start a fresh damage set for this frame. Cleared here (not at
         // the end) so a pass that the probe SKIPS leaves it empty — an idle
