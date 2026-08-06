@@ -17,6 +17,12 @@
     "branch": "master",
     "subject": "Merge pull request #18 from hazer-hazer/ws-home-hero"
   },
+  "40b7aa96c3c83b4b0cf6c7d69702511806925ef5": {
+    "date": 1786016813,
+    "parent": "",
+    "branch": "ws6.4c-clip-events",
+    "subject": "WS6.11: tiny-skia clipping is no longer a no-op"
+  },
   "4c6c75b4f9badb2fe5480e37be0a01bc3151133a": {
     "date": 1785971035,
     "parent": "",
