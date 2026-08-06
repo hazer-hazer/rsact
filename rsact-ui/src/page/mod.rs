@@ -2709,6 +2709,7 @@ mod tests {
     mod widget_clipping {
         use super::*;
         use crate::{
+            event::{Event, MouseButton, MouseEvent},
             render::record::{DrawOp, RecordingRenderer},
             widget::{checkbox::Checkbox, scrollable::Scrollable},
         };
@@ -2726,6 +2727,14 @@ mod tests {
 
         fn scrollable_page() -> (TestPage<RecWtf>, RecordingRenderer<NullColor>)
         {
+            scrollable_page_watching(create_signal(false))
+        }
+
+        /// As above, but the **third** checkbox — the one below the scroll
+        /// window, i.e. the clipped-away one — is bound to `watched`.
+        fn scrollable_page_watching(
+            watched: Signal<bool>,
+        ) -> (TestPage<RecWtf>, RecordingRenderer<NullColor>) {
             let renderer =
                 RecordingRenderer::<NullColor>::new(Size::new_equal(64));
             let recorder = renderer.clone();
@@ -2737,7 +2746,13 @@ mod tests {
                     Scrollable::vertical(
                         Flex::col(
                             (0..4)
-                                .map(|_| Checkbox::new(false).into_el())
+                                .map(|i| {
+                                    if i == 2 {
+                                        Checkbox::new(watched).into_el()
+                                    } else {
+                                        Checkbox::new(false).into_el()
+                                    }
+                                })
                                 .collect::<Vec<_>>(),
                         )
                         .gap(2u32),
@@ -2756,6 +2771,86 @@ mod tests {
                 page.use_renderer(|_| {});
             }
             (page, recorder)
+        }
+
+        /// WS6.4c: **hit-testing respects the clip, like painting does.**
+        ///
+        /// Before clipping existed, paint and hit-testing agreed because both
+        /// used `layout.outer`. Once `render_part` started honouring clips they
+        /// diverged, and the divergence is the bad direction: a scrolled-away
+        /// button is invisible and still clickable. The pointer must not be able
+        /// to reach what the renderer refuses to draw.
+        #[test]
+        fn a_clipped_away_widget_does_not_claim_hover() {
+            with_new_runtime(|_| {
+                let (mut page, _recorder) = scrollable_page();
+
+                // Inside the third checkbox's layout rect, below the 20 px
+                // scroll window — i.e. exactly the pixels the clip removes.
+                let over_clipped = Point::new(8, 40);
+                let _ = page.handle_events(core::iter::once(Event::Mouse(
+                    MouseEvent::MouseMove(over_clipped),
+                )));
+
+                assert_eq!(
+                    page.state.pointer.hovered, None,
+                    "a widget clipped out of view claimed hover — the pointer \
+                     must not reach what the renderer refuses to draw"
+                );
+                // NOTE: this one is enforced by the traversal PRUNE (the
+                // scrollable's own rect misses the cursor, so the subtree is
+                // never walked), not by `hit_bounds`. It is the end-to-end
+                // behaviour; `a_clipped_away_widget_cannot_be_clicked` is what
+                // pins the hit rect itself.
+            });
+        }
+
+        /// The test that isolates [`EventCtx::hit_bounds`] from the traversal
+        /// prune.
+        ///
+        /// A `MouseMove` over clipped-away content never arrives, because the
+        /// prune stops at the scrollable whose own rect misses the cursor — so
+        /// the hover test above passes even with `hit_bounds` clip-blind, and
+        /// proves the end-to-end behaviour rather than the mechanism. A **click**
+        /// is deliberately not pruned (`ButtonUp` must reach a pressed widget
+        /// wherever the cursor went), so it walks all the way to the clipped
+        /// checkbox and only `hit_bounds` can stop it.
+        ///
+        /// This is also the bug a user would actually hit: toggling a checkbox
+        /// they cannot see.
+        #[test]
+        fn a_clipped_away_widget_cannot_be_clicked() {
+            with_new_runtime(|_| {
+                let watched = create_signal(false);
+                let (mut page, _recorder) = scrollable_page_watching(watched);
+
+                // Inside the third checkbox's rect, below the 20 px window.
+                let over_clipped = Point::new(8, 40);
+                let _ = page.handle_events(
+                    [
+                        Event::Mouse(MouseEvent::ButtonDown(
+                            MouseButton::Left,
+                            Some(over_clipped),
+                        )),
+                        Event::Mouse(MouseEvent::ButtonUp(
+                            MouseButton::Left,
+                            Some(over_clipped),
+                        )),
+                    ]
+                    .into_iter(),
+                );
+
+                assert_eq!(
+                    page.state.pointer.pressed, None,
+                    "a clipped-away widget accepted a press"
+                );
+                assert!(
+                    !watched.get(),
+                    "a checkbox the renderer refuses to draw was toggled by a \
+                     click — hit-testing must honour the clip, or the user \
+                     operates controls they cannot see"
+                );
+            });
         }
 
         #[test]
