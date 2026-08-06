@@ -8,8 +8,8 @@ use crate::{
 };
 use core::marker::PhantomData;
 use tiny_skia::{
-    IntSize, Paint, Pixmap, PixmapPaint, PixmapRef, PremultipliedColorU8,
-    Transform,
+    IntSize, Mask, Paint, PathBuilder, Pixmap, PixmapPaint, PixmapRef,
+    PremultipliedColorU8, Transform,
 };
 
 pub mod color;
@@ -37,12 +37,56 @@ impl Surface for Pixmap {
 pub struct TinySkiaRenderer<C> {
     canvas: Canvas<Pixmap>,
     size: Size,
+    /// WS6.11: the active clip, as a tiny-skia [`Mask`].
+    ///
+    /// tiny-skia has no scissor rect — every draw call takes an
+    /// `Option<&Mask>`, so a clip has to be an actual alpha mask. Rebuilt only
+    /// when the clip stack changes (a `Mask` is `w*h` bytes, which is why it is
+    /// cached rather than constructed per primitive), and `None` while the
+    /// viewport is `Fullscreen`, which is both cheaper and the common case.
+    clip_mask: Option<Mask>,
     _color: PhantomData<C>,
 }
 
 impl TinySkiaRenderer<tiny_skia::Color> {
     pub fn new(size: Size) -> Self {
-        Self { canvas: Canvas::new(size), size, _color: PhantomData }
+        Self {
+            canvas: Canvas::new(size),
+            size,
+            clip_mask: None,
+            _color: PhantomData,
+        }
+    }
+
+    /// Rebuild [`clip_mask`] from the composed viewport (WS6.11).
+    ///
+    /// Called only from `push_clip`/`pop_clip`, so the per-primitive cost is a
+    /// null check. `enter_viewport` already intersects nested clips
+    /// (`ViewportKind::nested_in`), so the rect here is the *composed* one —
+    /// the same rect `clip_bounds()` reports, which is what keeps the culling
+    /// contract and the actual clipping in agreement.
+    fn rebuild_clip_mask(&mut self) {
+        self.clip_mask = match self.canvas.current_viewport().clip_bounds() {
+            None => None,
+            Some(area) => {
+                let mut mask = Mask::new(self.size.width, self.size.height)
+                    .expect("clip mask allocation failed");
+                let mut path = PathBuilder::new();
+                path.push_rect(area.into());
+                if let Some(path) = path.finish() {
+                    mask.fill_path(
+                        &path,
+                        tiny_skia::FillRule::default(),
+                        // No AA: a clip edge is a hard boundary. Anti-aliasing
+                        // it would leak half-covered pixels outside the rect,
+                        // which is exactly what a clip must not do.
+                        false,
+                        Transform::identity(),
+                    );
+                }
+                Some(mask)
+            },
+        };
     }
 
     fn bounding_box(&self) -> Rect {
@@ -71,12 +115,13 @@ impl TinySkiaRenderer<tiny_skia::Color> {
             let mut paint = self.base_paint();
             paint.set_color(fill);
 
-            self.canvas.surface_mut().fill_path(
+            let Self { canvas, clip_mask, .. } = self;
+            canvas.surface_mut().fill_path(
                 path,
                 &paint,
                 tiny_skia::FillRule::default(),
                 Transform::identity(),
-                None,
+                clip_mask.as_ref(),
             );
         }
 
@@ -91,12 +136,13 @@ impl TinySkiaRenderer<tiny_skia::Color> {
             stroke.width = style.stroke_width as f32;
             stroke.line_cap = tiny_skia::LineCap::Round;
 
-            self.canvas.surface_mut().stroke_path(
+            let Self { canvas, clip_mask, .. } = self;
+            canvas.surface_mut().stroke_path(
                 path,
                 &paint,
                 &stroke,
                 Transform::identity(),
-                None,
+                clip_mask.as_ref(),
             );
         }
     }
@@ -147,10 +193,12 @@ impl Renderer for TinySkiaRenderer<tiny_skia::Color> {
 
     fn push_clip(&mut self, area: Rect) {
         self.canvas.enter_viewport(ViewportKind::Clipped(area));
+        self.rebuild_clip_mask();
     }
 
     fn pop_clip(&mut self) {
         self.canvas.exit_viewport();
+        self.rebuild_clip_mask();
     }
 
     fn clip_bounds(&self) -> Option<Rect> {
@@ -168,11 +216,12 @@ impl Renderer for TinySkiaRenderer<tiny_skia::Color> {
 
         paint.set_color(color);
 
-        self.canvas.surface_mut().fill_rect(
+        let Self { canvas, clip_mask, .. } = self;
+        canvas.surface_mut().fill_rect(
             rect.into(),
             &paint,
             Transform::identity(),
-            None,
+            clip_mask.as_ref(),
         );
 
         Ok(())
@@ -373,13 +422,14 @@ impl Renderer for TinySkiaRenderer<tiny_skia::Color> {
         )
         .ok_or(())?;
         let paint = PixmapPaint::default();
-        self.canvas.surface_mut().draw_pixmap(
+        let Self { canvas, clip_mask, .. } = self;
+        canvas.surface_mut().draw_pixmap(
             draw_box.top_left.x,
             draw_box.top_left.y,
             image_pixmap,
             &paint,
             Transform::identity(),
-            None,
+            clip_mask.as_ref(),
         );
 
         Ok(())
@@ -409,3 +459,119 @@ impl Renderer for TinySkiaRenderer<tiny_skia::Color> {
 //         todo!()
 //     }
 // }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        geometry::{Point, Size},
+        renderer::Renderer as _,
+        style::DrawStyle,
+    };
+
+    const SIZE: u32 = 32;
+    const CLIP_H: u32 = 8;
+
+    fn renderer() -> TinySkiaRenderer<tiny_skia::Color> {
+        TinySkiaRenderer::new(Size::new_equal(SIZE))
+    }
+
+    /// Ink, not alpha.
+    ///
+    /// A fresh canvas is **opaque white**, so "alpha != 0" is true on every
+    /// pixel of an untouched surface and an assertion built on it passes
+    /// whatever the renderer does. (Second time this trap has appeared in this
+    /// project — the first was a golden test drawing `WHITE` on a `WHITE`
+    /// background.) So: paint BLACK, and look for pixels that are not white.
+    fn row_has_ink(r: &TinySkiaRenderer<tiny_skia::Color>, y: u32) -> bool {
+        let px = r.canvas.surface().pixels();
+        (0..SIZE).any(|x| {
+            let p = px[(y * SIZE + x) as usize];
+            (p.red(), p.green(), p.blue()) != (255, 255, 255)
+        })
+    }
+
+    /// Guards every test below: a fresh surface must contain no ink, or
+    /// "nothing escaped the clip" would be true by construction.
+    #[test]
+    fn a_fresh_surface_has_no_ink() {
+        let r = renderer();
+        assert!(!row_has_ink(&r, 0) && !row_has_ink(&r, SIZE - 1));
+    }
+
+    /// WS6.11: tiny-skia used to push a viewport and then draw with
+    /// `Transform::identity()` and mask `None` — i.e. the clip was a **no-op**,
+    /// and `Scrollable`'s content overflowed its window on this backend.
+    ///
+    /// Harmless while nothing in rsact pushed a clip. WS6.4c(F) made
+    /// `CLIPS_CHILDREN` real on every backend, so from that point this was a
+    /// visible defect, not a latent one — and WS16.3 plans the desktop tier here.
+    #[test]
+    fn a_clip_actually_clips() {
+        let mut r = renderer();
+        let whole = Rect::new(Point::zero(), Size::new_equal(SIZE));
+
+        r.push_clip(Rect::new(Point::zero(), Size::new(SIZE, CLIP_H)));
+        r.fill_solid(whole, tiny_skia::Color::BLACK).unwrap();
+        r.pop_clip();
+
+        assert!(
+            row_has_ink(&r, 0),
+            "nothing was painted at all — the test proves nothing"
+        );
+        assert!(
+            !row_has_ink(&r, CLIP_H + 1),
+            "the fill escaped the clip: tiny-skia is ignoring it"
+        );
+    }
+
+    /// The clip must be released again, or every later sibling inherits it.
+    #[test]
+    fn popping_the_clip_restores_full_drawing() {
+        let mut r = renderer();
+        let whole = Rect::new(Point::zero(), Size::new_equal(SIZE));
+
+        r.push_clip(Rect::new(Point::zero(), Size::new(SIZE, CLIP_H)));
+        r.pop_clip();
+        r.fill_solid(whole, tiny_skia::Color::BLACK).unwrap();
+
+        assert!(row_has_ink(&r, SIZE - 1), "the clip outlived its pop");
+    }
+
+    /// Nested clips **intersect** — the same composition `ViewportKind::nested_in`
+    /// gives the other backends, and what `clip_bounds()` promises the culler.
+    /// A wider inner clip must not widen the effective one.
+    #[test]
+    fn a_nested_clip_narrows_and_never_widens() {
+        let mut r = renderer();
+        let whole = Rect::new(Point::zero(), Size::new_equal(SIZE));
+
+        r.push_clip(Rect::new(Point::zero(), Size::new(SIZE, CLIP_H)));
+        r.push_clip(whole); // wider than the parent
+        r.fill_solid(whole, tiny_skia::Color::BLACK).unwrap();
+        r.pop_clip();
+        r.pop_clip();
+
+        assert!(row_has_ink(&r, 0), "the intersection painted nothing");
+        assert!(
+            !row_has_ink(&r, CLIP_H + 1),
+            "a wider child clip widened the effective clip"
+        );
+    }
+
+    /// Path drawing (fill and stroke) goes through the mask too, not only
+    /// `fill_solid` — all four draw entry points had `None` hard-coded.
+    #[test]
+    fn paths_are_clipped_as_well() {
+        let mut r = renderer();
+        let whole = Rect::new(Point::zero(), Size::new_equal(SIZE));
+
+        r.push_clip(Rect::new(Point::zero(), Size::new(SIZE, CLIP_H)));
+        r.rect(whole, &DrawStyle::default().fill(tiny_skia::Color::BLACK))
+            .unwrap();
+        r.pop_clip();
+
+        assert!(row_has_ink(&r, 0));
+        assert!(!row_has_ink(&r, CLIP_H + 1), "a filled path escaped the clip");
+    }
+}

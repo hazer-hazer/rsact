@@ -25,7 +25,7 @@ impl<'a, W: WidgetCtx> EventPass<'a, W> {
         layout: &'a LayoutModelNode<'a>,
     ) -> EventResponse {
         let mut this = Self { arena: &mut arena.els, event, page_state };
-        this.run_(layout)
+        this.run_(layout, None)
     }
 
     /// Dispatch the event to a single `target` widget only (used for pointer
@@ -40,7 +40,7 @@ impl<'a, W: WidgetCtx> EventPass<'a, W> {
         layout: &'a LayoutModelNode<'a>,
     ) -> EventResponse {
         let mut this = Self { arena: &mut arena.els, event, page_state };
-        this.run_to_(layout, target)
+        this.run_to_(layout, target, None)
             .unwrap_or(EventResponse::Continue(()))
     }
 
@@ -51,35 +51,92 @@ impl<'a, W: WidgetCtx> EventPass<'a, W> {
         &mut self,
         layout: &LayoutModelNode,
         target: ElId,
+        clip: Option<Rect>,
     ) -> Option<EventResponse> {
         if layout.id() == target {
-            return Some(self.run_el(layout.id(), layout));
+            return Some(self.run_el(layout.id(), layout, clip));
         }
 
-        // WS5.1: search children by identity from the layout tree — the source
-        // of truth for both geometry and identity. Transparent nodes are already
-        // flattened, so there is no transparent-layout branch and no positional
-        // zip against arena children.
+        // The clip is composed while SEARCHING, so the captured widget still
+        // receives a truthful `hit_bounds()`. Note what this deliberately does
+        // NOT do: capture routing itself is never clipped. Capture exists to
+        // override hit-testing — dragging a scrollbar thumb keeps delivering
+        // events with the cursor far outside it — so a captured target hears
+        // the event whether or not it is visible.
+        let child_clip = self.child_clip(layout, clip);
         for child_layout in layout.children() {
-            if let Some(response) = self.run_to_(&child_layout, target) {
+            if let Some(response) =
+                self.run_to_(&child_layout, target, child_clip)
+            {
                 return Some(response);
             }
         }
         None
     }
 
-    fn run_(&mut self, layout: &LayoutModelNode) -> EventResponse {
+    fn run_(
+        &mut self,
+        layout: &LayoutModelNode,
+        clip: Option<Rect>,
+    ) -> EventResponse {
+        // WS6.4c: prune the walk for POSITIONAL events — the same predicate the
+        // render pass prunes on, with a 1x1 "region", so it bites much harder
+        // here. A subtree whose visible area cannot contain the pointer cannot
+        // respond to it.
+        //
+        // Strictly positional-only: `run_` also carries keyboard, encoder and
+        // custom events, which every widget may care about regardless of where
+        // the cursor happens to be. Pruning those would silently break focus
+        // handling.
+        if let Some(pos) = positional_event_pos(self.event)
+            && !hit_bounds(layout, clip).contains(pos)
+        {
+            return EventResponse::Continue(());
+        }
+
         // WS5.1: visit children by identity from the layout tree (each node
         // carries its ElId; transparent nodes already flattened). Children
         // first, then this node, preserving the bottom-up dispatch order.
+        let child_clip = self.child_clip(layout, clip);
         for child_layout in layout.children() {
-            self.run_(&child_layout)?;
+            self.run_(&child_layout, child_clip)?;
         }
 
-        self.run_el(layout.id(), layout)
+        self.run_el(layout.id(), layout, clip)
     }
 
-    fn run_el(&mut self, id: ElId, layout: &LayoutModelNode) -> EventResponse {
+    /// The clip that applies to `layout`'s CHILDREN: the inherited one, narrowed
+    /// by this widget's own inner rect if it declares `CLIPS_CHILDREN`.
+    ///
+    /// The event pass keeps its own clip stack because it has no renderer to ask
+    /// — but it must compose exactly the way `Renderer::clip_bounds` does, or
+    /// hit-testing and painting disagree about what is visible.
+    fn child_clip(
+        &self,
+        layout: &LayoutModelNode,
+        clip: Option<Rect>,
+    ) -> Option<Rect> {
+        let clips = self
+            .arena
+            .expect(layout.id())
+            .is_some_and(|data| data.state.flags.clips_children_set());
+
+        if clips {
+            Some(match clip {
+                Some(clip) => clip.intersection(&layout.inner),
+                None => layout.inner,
+            })
+        } else {
+            clip
+        }
+    }
+
+    fn run_el(
+        &mut self,
+        id: ElId,
+        layout: &LayoutModelNode,
+        clip: Option<Rect>,
+    ) -> EventResponse {
         if let Some(el) = self.arena.get_mut(id).as_mut() {
             if let Some(data) = el.data.as_mut() {
                 if let Some(widget) = data.stage.built_mut() {
@@ -89,6 +146,7 @@ impl<'a, W: WidgetCtx> EventPass<'a, W> {
                         event: self.event,
                         page_state: self.page_state,
                         layout,
+                        clip,
                     })
                 } else {
                     error!("Element {id:?} has no built widget on event path");
@@ -117,7 +175,60 @@ pub struct EventCtx<'a, W: WidgetCtx> {
     pub event: &'a Event<W::CustomEvent>,
     pub page_state: &'a mut PageState<W>,
     pub layout: &'a LayoutModelNode<'a>,
+    /// WS6.4c: the composed clip at this widget — every enclosing
+    /// `CLIPS_CHILDREN` ancestor's inner rect, intersected. `None` means
+    /// unclipped. Read through [`hit_bounds`](EventCtx::hit_bounds), never
+    /// directly.
+    clip: Option<Rect>,
     // TODO: Instant now, already can get it from queue!
+}
+
+/// The area of `layout` a pointer can actually hit: its outer rect, narrowed by
+/// every enclosing clip (WS6.4c).
+///
+/// **Deliberately NOT outset by `ext_draw`**, which is the one place hit-testing
+/// and painting differ:
+///
+/// ```text
+///   paint area = outer.outset(ext_draw) ∩ clips     (an outline is drawn)
+///   hit   area = outer                  ∩ clips     (an outline is not a target)
+/// ```
+///
+/// They share the clip because "clipped" means invisible, and hit-testing
+/// something invisible is how you click a button that is not there. They differ
+/// on the outset because a shadow or focus ring is decoration: growing the hit
+/// area with it would make neighbouring widgets' targets overlap.
+fn hit_bounds(layout: &LayoutModelNode, clip: Option<Rect>) -> Rect {
+    match clip {
+        Some(clip) => layout.outer.intersection(&clip),
+        None => layout.outer,
+    }
+}
+
+/// The pointer position an event may be pruned by — deliberately **only**
+/// `MouseMove`.
+///
+/// `MouseMove` is the event worth pruning: a mouse emits hundreds per second
+/// against a handful of clicks, so it carries essentially all of the traversal
+/// saving. The other positional variants are excluded on purpose, and the
+/// reasons are not symmetric:
+///
+/// - **`ButtonUp`** must reach a widget that is `pressed` even when the cursor
+///   has left it, or the widget is stuck pressed forever. Pressing usually
+///   captures the pointer (so the release arrives via `run_to`, which is never
+///   pruned), but a widget that presses *without* capturing would be stranded —
+///   a correctness risk traded against a saving of a few events per second.
+/// - **`ButtonDown`/`ButtonUp`** may also carry `None` and fall back to the last
+///   known position, so "the event's position" is not even well defined here.
+/// - **`Wheel`** is left alone until it is clear nothing wants it globally.
+///
+/// Keyboard, focus, encoder and custom events are never positional and so are
+/// never pruned — pruning those would silently break focus handling.
+fn positional_event_pos<C>(event: &Event<C>) -> Option<Point> {
+    match event {
+        Event::Mouse(MouseEvent::MouseMove(pt)) => Some(*pt),
+        _ => None,
+    }
 }
 
 impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
@@ -181,12 +292,31 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
             .or_else(|| self.page_state.pointer.pos)
     }
 
-    // TODO: Customizable bounds. This may be required for widgets like scrollable that need to handle mouse events at scrollbar only.
+    /// The area a pointer can hit this widget in: its outer rect narrowed by
+    /// every enclosing clip (WS6.4c).
+    ///
+    /// One definition, and both hit tests below go through it — the same
+    /// discipline `paint_bounds` uses on the render side, and the reason those
+    /// two can be reasoned about together at all.
+    ///
+    /// TODO: Customizable bounds. This may be required for widgets like
+    /// scrollable that need to handle mouse events at scrollbar only. This is
+    /// where that belongs: a widget-declared hit rect would narrow the result
+    /// here, and every caller inherits it.
+    pub fn hit_bounds(&self) -> Rect {
+        hit_bounds(self.layout, self.clip)
+    }
+
     /// Whether the event cursor position (or last known position) lies within
-    /// this widget's outer layout rect.
+    /// this widget's hittable area.
+    ///
+    /// WS6.4c: clipped-away area does not count. Before clipping existed this
+    /// was `layout.outer` and agreed with what was painted; once `render_part`
+    /// started honouring clips, testing `outer` here would mean a scrolled-away
+    /// button is invisible and still clickable.
     pub fn cursor_in_bounds(&self) -> bool {
         self.cursor_pos()
-            .map(|pt| self.layout.outer.contains(pt))
+            .map(|pt| self.hit_bounds().contains(pt))
             .unwrap_or(false)
     }
 
@@ -286,10 +416,14 @@ impl<'a, W: WidgetCtx + 'static> EventCtx<'a, W> {
     #[must_use]
     pub fn handle_hover_move(&mut self) -> EventResponse {
         if let Event::Mouse(MouseEvent::MouseMove(pt)) = self.event {
-            if self.layout.outer.contains(*pt) {
+            // WS6.4c: the hittable area, not the layout rect — a widget scrolled
+            // out of its parent's window must not claim hover.
+            if self.hit_bounds().contains(*pt) {
                 debug!(
                     "Update hover to {}[{:?}] ({})",
-                    self.state.debug_name, self.id, self.layout.outer
+                    self.state.debug_name,
+                    self.id,
+                    self.hit_bounds()
                 );
                 self.update_hover();
             }
