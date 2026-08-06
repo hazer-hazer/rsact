@@ -13,7 +13,7 @@ use crate::{
     style::TreeStyle,
 };
 use alloc::vec::Vec;
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 use dev::{DevHoveredEl, DevTools};
 use log::{debug, error, info};
 use rsact_reactive::prelude::*;
@@ -127,6 +127,8 @@ pub struct Page<W: WidgetCtx> {
     /// while `render` reads it back afterwards. Cleared at the start of each
     /// pass, so an idle frame leaves it empty (flush nothing).
     damage: RefCell<Vec<Rect>>,
+    /// WS6.4c(E): nodes processed by the last pass (see `RenderShared::visits`).
+    nodes_visited: Cell<usize>,
     /// The page's reactive scope (WS3.1). Everything the page built —
     /// `init_page()`'s widgets (run before `Page::new` while this scope is
     /// current) and `Page::new`'s per-page nodes (`force_redraw`, the layout
@@ -384,6 +386,7 @@ impl<W: WidgetCtx> Page<W> {
             fonts,
             render_probe,
             damage: RefCell::new(Vec::new()),
+            nodes_visited: Cell::new(0),
             scope,
         }
     }
@@ -997,6 +1000,7 @@ impl<W: WidgetCtx> Page<W> {
                         force_redraw: self.force_redraw,
 
                         damage: &self.damage,
+                        visits: &self.nodes_visited,
                     },
                 )
                 .render(
@@ -1083,11 +1087,18 @@ impl<W: WidgetCtx> Page<W> {
     /// painted region re-damage itself (6.4d(4)).
     ///
     /// [`collect`]: Self::collect
+    /// WS6.4c(E): nodes the last pass actually processed — the traversal term,
+    /// which no op log can see. Reset at the start of every pass.
+    pub fn nodes_visited(&self) -> usize {
+        self.nodes_visited.get()
+    }
+
     pub fn paint_region(
         &mut self,
         renderer: &mut W::Renderer,
         region: Rect,
     ) -> RenderResult {
+        self.nodes_visited.set(0);
         renderer.begin_region(region)?;
         renderer.push_clip(region);
 
@@ -1114,6 +1125,8 @@ impl<W: WidgetCtx> Page<W> {
             mode.is_probe_gated(),
             "[BUG] {mode:?} must not go through the probe-gated pass"
         );
+
+        self.nodes_visited.set(0);
 
         // WS6.2: start a fresh damage set for this frame. Cleared here (not at
         // the end) so a pass that the probe SKIPS leaves it empty — an idle
@@ -2686,6 +2699,91 @@ mod tests {
                     page.damage_snapshot(),
                     plan,
                     "painting must leave the plan exactly as collect left it"
+                );
+            });
+        }
+    }
+
+    /// WS6.4c(F): clipping is widget behaviour the framework reads, not a call a
+    /// widget makes inside its own `render`.
+    mod widget_clipping {
+        use super::*;
+        use crate::{
+            render::record::{DrawOp, RecordingRenderer},
+            widget::{checkbox::Checkbox, scrollable::Scrollable},
+        };
+        use rsact_reactive::runtime::with_new_runtime;
+
+        type RecWtf = Wtf<RecordingRenderer<NullColor>, (), (), ()>;
+
+        /// The scroll window: short enough that the content overflows it, and
+        /// far enough from the bottom of the page that the overflow lands
+        /// **inside the viewport**. That second half is what makes this test
+        /// meaningful — content below the viewport was already culled against
+        /// the framebuffer bounds by WS6.4b, so a scrollable that fills the page
+        /// cannot tell you whether its own clip works.
+        const WINDOW_H: u32 = 20;
+
+        fn scrollable_page() -> (TestPage<RecWtf>, RecordingRenderer<NullColor>)
+        {
+            let renderer =
+                RecordingRenderer::<NullColor>::new(Size::new_equal(64));
+            let recorder = renderer.clone();
+            let arena = create_signal(ElArena::new()).name("Page arena");
+            let scope = new_scope();
+            let mut page = TestPage::new(
+                Page::new(
+                    (),
+                    Scrollable::vertical(
+                        Flex::col(
+                            (0..4)
+                                .map(|_| Checkbox::new(false).into_el())
+                                .collect::<Vec<_>>(),
+                        )
+                        .gap(2u32),
+                    )
+                    .height(WINDOW_H),
+                    arena,
+                    Size::new_equal(64).maybe_reactive(),
+                    ().inert(),
+                    DevTools::default().signal(),
+                    FontCtx::new().signal(),
+                    scope,
+                ),
+                renderer,
+            );
+            for _ in 0..4 {
+                page.use_renderer(|_| {});
+            }
+            (page, recorder)
+        }
+
+        #[test]
+        fn a_clipping_parent_confines_its_children() {
+            with_new_runtime(|_| {
+                let (mut page, recorder) = scrollable_page();
+
+                recorder.clear();
+                page.force_redraw();
+                page.use_renderer(|_| {});
+
+                let escaped: Vec<Rect> = recorder
+                    .ops()
+                    .iter()
+                    .filter_map(DrawOp::bounds)
+                    .filter(|b| b.top_left.y >= WINDOW_H as i32)
+                    .collect();
+
+                assert!(
+                    !recorder.ops().is_empty(),
+                    "the visible part of the scrollable must still draw"
+                );
+                assert!(
+                    escaped.is_empty(),
+                    "content below the scroll window escaped its parent and \
+                     drew into the page: {escaped:?}. `CLIPS_CHILDREN` is what \
+                     confines it — and what lets the traversal prune skip it \
+                     without per-node storage."
                 );
             });
         }

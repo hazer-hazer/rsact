@@ -37,6 +37,43 @@ bitflags! {
         // /// Edge widgets are widgets without children. This flag is generally
         // needed for debugging purposes in cases when something went wrong and
         // layout or other tree mismatches with widget tree. const IS_EDGE = 1 << 5;
+
+        // Clipping (WS6.4c(F)) //
+        //
+        // Clipping is a widget BEHAVIOUR the framework reads, not a call a
+        // widget makes inside its own `render`. Maintainer, 2026-08-05:
+        // "clip must be a widget behavior backed logic, not user call in the
+        // render method, otherwise we cannot know if widget clips its
+        // contents." That knowledge is load-bearing twice over: the traversal
+        // prune may only skip a subtree whose drawing is provably confined, and
+        // a clip established inside a body runs after the walk has already
+        // decided to descend.
+        //
+        // The two are deliberately separate bits because they clip DIFFERENT
+        // things, and conflating them breaks the widget that needs the first:
+        // `Scrollable` draws its own `Block` on `layout.outer`, so a clip that
+        // covered its own painting would erase its border and trim the clear of
+        // its padding ring.
+        /// The subtree below this widget is confined to its inner rect —
+        /// `Scrollable` and, later, any `overflow: hidden`. Pushed by
+        /// `render_subtree_body` around the **children loop**, never around the
+        /// widget's own paint.
+        ///
+        /// This is the flag the traversal prune reads (through the composed
+        /// `Renderer::clip_bounds`): with it, "everything this subtree draws is
+        /// inside `outer ∩ enclosing clips`" is structural, and the prune needs
+        /// no per-node storage at all.
+        const CLIPS_CHILDREN = 1 << 6;
+        /// This widget's OWN drawing is confined to its inner rect — `Canvas`,
+        /// whose closure is user code the framework did not write and cannot
+        /// trust. Pushed by `render_part` around the body.
+        ///
+        /// Same rect as [`CLIPS_CHILDREN`], opposite direction of trust, and
+        /// only the other one tells the prune anything (a leaf clipping itself
+        /// says nothing about a subtree).
+        ///
+        /// [`CLIPS_CHILDREN`]: WidgetFlags::CLIPS_CHILDREN
+        const CLIPS_SELF = 1 << 7;
     }
 }
 
@@ -63,6 +100,16 @@ impl WidgetFlags {
         self | Self::FOCUSABLE
     }
 
+    /// WS6.4c(F): confine this widget's **children** to its inner rect.
+    pub fn clips_children(self) -> Self {
+        self | Self::CLIPS_CHILDREN
+    }
+
+    /// WS6.4c(F): confine this widget's **own** drawing to its inner rect.
+    pub fn clips_self(self) -> Self {
+        self | Self::CLIPS_SELF
+    }
+
     // pub fn is_edge(self) -> Self {
     //     self | Self::IS_EDGE
     // }
@@ -78,6 +125,14 @@ impl WidgetFlags {
 
     pub fn is_hoverable_from_children(self) -> bool {
         self.contains(Self::HOVERABLE_FROM_CHILDREN)
+    }
+
+    pub fn clips_children_set(self) -> bool {
+        self.contains(Self::CLIPS_CHILDREN)
+    }
+
+    pub fn clips_self_set(self) -> bool {
+        self.contains(Self::CLIPS_SELF)
     }
 
     pub fn is_clickable(self) -> bool {

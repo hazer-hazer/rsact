@@ -8,6 +8,7 @@ Pixel              2478     2478     2478     1.00     1.00
 wasted 0 bookkeeping 1
 visits            nodes  visited cullable   xvisit    xcull
 nodes                13       13       13     1.00     1.00
+nodes(real)          13       13       13     1.00     1.00
 escaping 0
 
 == labels-12 / rows-48 (5 regions, coverage 1.00) ==
@@ -20,6 +21,7 @@ Pixel              2478     2478     2478     1.00     1.00
 wasted 0 bookkeeping 5
 visits            nodes  visited cullable   xvisit    xcull
 nodes                13       65       20     5.00     1.54
+nodes(real)          13       20       20     1.54     1.54
 escaping 0
 
 == labels-12 / rows-24 (10 regions, coverage 1.00) ==
@@ -32,6 +34,7 @@ Pixel              2478     2478     2478     1.00     1.00
 wasted 0 bookkeeping 10
 visits            nodes  visited cullable   xvisit    xcull
 nodes                13      130       28    10.00     2.15
+nodes(real)          13       28       28     2.15     2.15
 escaping 0
 
 == labels-12 / grid-80 (9 regions, coverage 1.00) ==
@@ -44,6 +47,7 @@ Pixel              2478     2478     2478     1.00     1.00
 wasted 0 bookkeeping 9
 visits            nodes  visited cullable   xvisit    xcull
 nodes                13      117       37     9.00     2.85
+nodes(real)          13       37       37     2.85     2.85
 escaping 0
 
 == buttons-8 / whole (1 regions, coverage 1.00) ==
@@ -57,6 +61,7 @@ RoundedRect           8        8        8     1.00     1.00
 wasted 0 bookkeeping 1
 visits            nodes  visited cullable   xvisit    xcull
 nodes                17       17       17     1.00     1.00
+nodes(real)          17       17       17     1.00     1.00
 escaping 0
 
 == buttons-8 / rows-48 (5 regions, coverage 1.00) ==
@@ -70,6 +75,7 @@ RoundedRect           8       11       11     1.38     1.38
 wasted 0 bookkeeping 5
 visits            nodes  visited cullable   xvisit    xcull
 nodes                17       85       26     5.00     1.53
+nodes(real)          17       26       26     1.53     1.53
 escaping 0
 
 == buttons-8 / rows-24 (10 regions, coverage 1.00) ==
@@ -83,6 +89,7 @@ RoundedRect           8       16       16     2.00     2.00
 wasted 0 bookkeeping 10
 visits            nodes  visited cullable   xvisit    xcull
 nodes                17      170       38    10.00     2.24
+nodes(real)          17       38       38     2.24     2.24
 escaping 0
 
 == buttons-8 / grid-80 (9 regions, coverage 1.00) ==
@@ -96,6 +103,7 @@ RoundedRect           8       10       10     1.25     1.25
 wasted 0 bookkeeping 9
 visits            nodes  visited cullable   xvisit    xcull
 nodes                17      153       28     9.00     1.65
+nodes(real)          17       28       28     1.65     1.65
 escaping 0
 
 == checkboxes-8 / whole (1 regions, coverage 1.00) ==
@@ -109,6 +117,7 @@ Path                  8        8        8     1.00     1.00
 wasted 0 bookkeeping 1
 visits            nodes  visited cullable   xvisit    xcull
 nodes                 9        9        9     1.00     1.00
+nodes(real)           9        9        9     1.00     1.00
 escaping 0
 
 == checkboxes-8 / rows-48 (5 regions, coverage 1.00) ==
@@ -122,6 +131,7 @@ Path                  8       10        9     1.25     1.12
 wasted 1 bookkeeping 5
 visits            nodes  visited cullable   xvisit    xcull
 nodes                 9       45       15     5.00     1.67
+nodes(real)           9       15       15     1.67     1.67
 escaping 0
 
 == checkboxes-8 / rows-24 (10 regions, coverage 1.00) ==
@@ -135,6 +145,7 @@ Path                  8       12       10     1.50     1.25
 wasted 2 bookkeeping 10
 visits            nodes  visited cullable   xvisit    xcull
 nodes                 9       90       22    10.00     2.44
+nodes(real)           9       22       22     2.44     2.44
 escaping 0
 
 == checkboxes-8 / grid-80 (9 regions, coverage 1.00) ==
@@ -148,6 +159,7 @@ Path                  8        8        8     1.00     1.00
 wasted 0 bookkeeping 9
 visits            nodes  visited cullable   xvisit    xcull
 nodes                 9       81       17     9.00     1.89
+nodes(real)           9       17       17     1.89     1.89
 escaping 0
 
 == scrollable-20 / whole (1 regions, coverage 1.00) ==
@@ -159,9 +171,10 @@ FillSolid             1        1        1     1.00     1.00
 Pixel               552      552      552     1.00     1.00
 Line                  2        2        2     1.00     1.00
 RoundedRect          10       10       10     1.00     1.00
-wasted 0 bookkeeping 1
+wasted 0 bookkeeping 3
 visits            nodes  visited cullable   xvisit    xcull
 nodes                42       42       20     1.00     0.48
+nodes(real)          42       20       20     0.48     0.48
 escaping 1
 
 == scrollable-20 / rows-48 (5 regions, coverage 1.00) ==
@@ -173,9 +186,10 @@ FillSolid             1        5        5     5.00     5.00
 Pixel               552      552      552     1.00     1.00
 Line                  2       10        8     5.00     4.00
 RoundedRect          10       18       18     1.80     1.80
-wasted 2 bookkeeping 5
+wasted 2 bookkeeping 11
 visits            nodes  visited cullable   xvisit    xcull
 nodes                42      210       34     5.00     0.81
+nodes(real)          42       34       34     0.81     0.81
 escaping 1
 
 == scrollable-20 / rows-24 (10 regions, coverage 1.00) ==
@@ -187,9 +201,10 @@ FillSolid             1       10       10    10.00    10.00
 Pixel               552      552      552     1.00     1.00
 Line                  2       20       15    10.00     7.50
 RoundedRect          10       27       27     2.70     2.70
-wasted 5 bookkeeping 10
+wasted 5 bookkeeping 21
 visits            nodes  visited cullable   xvisit    xcull
 nodes                42      420       50    10.00     1.19
+nodes(real)          42       50       50     1.19     1.19
 escaping 1
 
 == scrollable-20 / grid-80 (9 regions, coverage 1.00) ==
@@ -201,9 +216,10 @@ FillSolid             1        9        9     9.00     9.00
 Pixel               552      552      552     1.00     1.00
 Line                  2       18        5     9.00     2.50
 RoundedRect          10       18       18     1.80     1.80
-wasted 13 bookkeeping 9
+wasted 13 bookkeeping 19
 visits            nodes  visited cullable   xvisit    xcull
 nodes                42      378       36     9.00     0.86
+nodes(real)          42       36       36     0.86     0.86
 escaping 1
 
 == option-rows-6 / whole (1 regions, coverage 1.00) ==
@@ -218,6 +234,7 @@ Path                  6        6        6     1.00     1.00
 wasted 0 bookkeeping 1
 visits            nodes  visited cullable   xvisit    xcull
 nodes                19       19       19     1.00     1.00
+nodes(real)          19       19       19     1.00     1.00
 escaping 0
 
 == option-rows-6 / rows-48 (5 regions, coverage 1.00) ==
@@ -232,6 +249,7 @@ Path                  6        8        7     1.33     1.17
 wasted 1 bookkeeping 5
 visits            nodes  visited cullable   xvisit    xcull
 nodes                19       95       29     5.00     1.53
+nodes(real)          19       29       29     1.53     1.53
 escaping 0
 
 == option-rows-6 / rows-24 (10 regions, coverage 1.00) ==
@@ -246,6 +264,7 @@ Path                  6       11        9     1.83     1.50
 wasted 2 bookkeeping 10
 visits            nodes  visited cullable   xvisit    xcull
 nodes                19      190       43    10.00     2.26
+nodes(real)          19       43       43     2.26     2.26
 escaping 0
 
 == option-rows-6 / grid-80 (9 regions, coverage 1.00) ==
@@ -260,6 +279,7 @@ Path                  6        7        6     1.17     1.00
 wasted 1 bookkeeping 9
 visits            nodes  visited cullable   xvisit    xcull
 nodes                19      171       49     9.00     2.58
+nodes(real)          19       49       49     2.58     2.58
 escaping 0
 
 == mixed / whole (1 regions, coverage 1.00) ==
@@ -274,6 +294,7 @@ Path                  1        1        1     1.00     1.00
 wasted 0 bookkeeping 1
 visits            nodes  visited cullable   xvisit    xcull
 nodes                 9        9        9     1.00     1.00
+nodes(real)           9        9        9     1.00     1.00
 escaping 0
 
 == mixed / rows-48 (5 regions, coverage 1.00) ==
@@ -288,6 +309,7 @@ Path                  1        1        1     1.00     1.00
 wasted 0 bookkeeping 5
 visits            nodes  visited cullable   xvisit    xcull
 nodes                 9       45       16     5.00     1.78
+nodes(real)           9       16       16     1.78     1.78
 escaping 0
 
 == mixed / rows-24 (10 regions, coverage 1.00) ==
@@ -302,6 +324,7 @@ Path                  1        2        2     2.00     2.00
 wasted 0 bookkeeping 10
 visits            nodes  visited cullable   xvisit    xcull
 nodes                 9       90       22    10.00     2.44
+nodes(real)           9       22       22     2.44     2.44
 escaping 0
 
 == mixed / grid-80 (9 regions, coverage 1.00) ==
@@ -316,5 +339,6 @@ Path                  1        1        1     1.00     1.00
 wasted 0 bookkeeping 9
 visits            nodes  visited cullable   xvisit    xcull
 nodes                 9       81       24     9.00     2.67
+nodes(real)           9       24       24     2.67     2.67
 escaping 0
 

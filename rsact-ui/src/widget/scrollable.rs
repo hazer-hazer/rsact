@@ -104,7 +104,12 @@ impl<C: Color> ScrollableStyle<C> {
 // Not `clickable`: the mouse press starts a drag (handled explicitly via
 // `capture_pointer`/`drag_pos`), not a click. Only the focus/encoder
 // press-to-activate is behavioral.
-#[flags(focusable)]
+// WS6.4c(F): the content is confined to the scroll window. This is what makes
+// the scrolled-away part of the subtree invisible AND prunable — before it, the
+// content escaped its parent's rect entirely (measured by 6.4a's `count_escaping`)
+// and any prune on `outer` would have been unsound. The old mechanism it replaces,
+// `ElState::clip_path`, was never set by anything.
+#[flags(focusable, clips_children)]
 pub struct ScrollableBuilder<W: WidgetCtx> {
     #[widget]
     state: Signal<ScrollableState>,

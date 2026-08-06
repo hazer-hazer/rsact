@@ -184,9 +184,21 @@ impl TileProbe {
         self.recorder.ops()
     }
 
-    /// The traversal term: how many widget nodes a region schedule visits, as it
-    /// stands and as WS6.4b's culling could make it.
+    /// The traversal term: how many widget nodes a region schedule visits — the
+    /// modelled floor, and (WS6.4c(E)) what the walk **actually** does.
     pub fn visits(&mut self, schedule: &TileSchedule) -> VisitReport {
+        // MEASURED first: paint each region for real and read the page's own
+        // counter. `cullable` below is the model; this is the implementation,
+        // and the two agreeing is the claim worth making.
+        let measured = schedule
+            .tiles()
+            .iter()
+            .map(|&tile| {
+                self.page.paint_region(tile).expect("paint_region failed");
+                self.page.nodes_visited()
+            })
+            .sum();
+
         // `layout()` relayouts if needed and borrows the owned model
         // (WS6.4.0(iv)) — no clone of a recursive tree.
         let layout = self.page.layout();
@@ -197,6 +209,7 @@ impl TileProbe {
             nodes,
             regions: schedule.len(),
             visited: nodes * schedule.len(),
+            measured,
             cullable: schedule
                 .tiles()
                 .iter()
@@ -213,6 +226,10 @@ pub struct VisitReport {
     /// Nodes in the layout tree (transparent wrappers are already flattened out
     /// of it by `model_layout`, so this is the set the render walk dispatches to).
     pub nodes: usize,
+    /// WS6.4c(E): nodes the walk **actually** processed across the schedule,
+    /// counted by the page rather than modelled. Before the traversal prune this
+    /// equalled `visited`; it should now equal `cullable`.
+    pub measured: usize,
     pub regions: usize,
     /// Visits a region schedule performs today: the walk has no geometry test at
     /// all, so this is exactly `nodes * regions`.
@@ -228,14 +245,22 @@ pub struct VisitReport {
     /// obvious source. If this is non-zero, WS6.4b(i) cannot prune on `outer`
     /// alone — it must prune on the subtree's **union extent**.
     ///
-    /// The tempting alternative — "prune under `outer`, except where a clip bounds
-    /// the children" — is **not available today**: `ElState::clip_path` is only
-    /// ever initialised to `None` (`el/state.rs:86`) and nothing anywhere sets it,
-    /// so `render_subtree`'s `ClipPath::InnerRect` arm is unreachable and
-    /// `Scrollable`'s own clip call is commented out with a TODO
-    /// (`widget/scrollable.rs:344-350`). Overflowing content is bounded only by the
-    /// framebuffer viewport, which is why the `escaping` node here is *visible* off
-    /// the bottom of the screen rather than clipped inside its parent.
+    /// **RESOLVED 2026-08-06 (WS6.4c(F)) — read this number differently now.**
+    /// When it was written, "prune under `outer` except where a clip bounds the
+    /// children" was unavailable: `ElState::clip_path` was initialised to `None`
+    /// and set nowhere, so the clip arm was unreachable and overflowing content
+    /// was bounded only by the framebuffer viewport. Clipping is now declared
+    /// behaviour (`WidgetFlags::CLIPS_CHILDREN`, set by `Scrollable`), the
+    /// framework pushes it around the children loop, and `Renderer::clip_bounds`
+    /// composes it — so containment is structural and the prune needs no
+    /// per-node storage at all.
+    ///
+    /// Consequently this counter now **over-reports**: it compares layout rects,
+    /// so a child that escapes a *clipping* parent still counts, even though it
+    /// is provably invisible and prunable. It stays as-is deliberately — it is
+    /// the regression that shows whether the geometry still overflows, which is
+    /// what `ext_draw`/`paint_bounds` will need — but "escaping > 0" no longer
+    /// implies "cannot prune on `outer`".
     pub escaping: usize,
 }
 
@@ -266,6 +291,16 @@ impl core::fmt::Display for VisitReport {
             self.visited,
             self.cullable,
             self.visited_multiplier(),
+            self.cullable_multiplier()
+        )?;
+        writeln!(
+            f,
+            "{:<14}{:>9}{:>9}{:>9}{:>9.2}{:>9.2}",
+            "nodes(real)",
+            self.nodes,
+            self.measured,
+            self.cullable,
+            ratio(self.measured, self.nodes),
             self.cullable_multiplier()
         )?;
         writeln!(f, "escaping {}", self.escaping)

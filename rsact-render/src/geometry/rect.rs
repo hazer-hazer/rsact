@@ -2,6 +2,7 @@ use crate::{
     geometry::{
         anchor::{AnchorPoint, AnchorX, AnchorY},
         axis::{Anchor, Axis},
+        padding::Padding,
         point::Point,
         size::Size,
     },
@@ -137,6 +138,30 @@ impl Rect {
     /// a zero-area bound paints nothing, so no tile is obliged to draw it.
     pub fn intersects(&self, other: &Self) -> bool {
         !self.intersection(other).is_zero_sized()
+    }
+
+    /// Grow this rect outward by `by` on each side.
+    ///
+    /// WS6.4c(G): the arithmetic behind `paint_bounds` — a widget's painted area
+    /// is its layout rect grown by however far it draws *outside* that rect
+    /// (`ext_draw`: an outline today, box shadows and tooltips later). The
+    /// inverse of shrinking by padding, hence the name.
+    ///
+    /// Saturating on both axes: the top-left cannot wrap past `i32::MIN` and the
+    /// size cannot wrap past `u32::MAX`. Growing is the *safe* direction for
+    /// every consumer — a bound that is too large costs redundant paint, a bound
+    /// that is too small drops it — so saturation degrades toward correctness.
+    pub fn outset(&self, by: Padding) -> Self {
+        Self {
+            top_left: Point::new(
+                self.top_left.x.saturating_sub(by.left as i32),
+                self.top_left.y.saturating_sub(by.top as i32),
+            ),
+            size: Size::new(
+                self.size.width.saturating_add(by.left + by.right),
+                self.size.height.saturating_add(by.top + by.bottom),
+            ),
+        }
     }
 
     pub fn resized_width(&self, new_width: u32, anchor: AnchorX) -> Self {
