@@ -115,6 +115,16 @@ impl<W: WidgetCtx> TestPage<W> {
     pub fn clear(&mut self) -> &mut Page<W> {
         self.page.clear(&mut self.renderer)
     }
+
+    /// WS6.4c: plan the frame, lending it the owned renderer.
+    pub fn collect(&mut self) -> bool {
+        self.page.collect(&mut self.renderer)
+    }
+
+    /// WS6.4c: paint one region, lending it the owned renderer.
+    pub fn paint_region(&mut self, region: Rect) -> RenderResult {
+        self.page.paint_region(&mut self.renderer, region)
+    }
 }
 
 impl<W: WidgetCtx> core::ops::Deref for TestPage<W> {
