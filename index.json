@@ -118,5 +118,11 @@
     "parent": "",
     "branch": "master",
     "subject": "Merge pull request #36 from hazer-hazer/ws6.4b-culling"
+  },
+  "ef684cbacafc4f0e8975b7bce52a278b22a2a9e4": {
+    "date": 1786110192,
+    "parent": "",
+    "branch": "issue-4-style-traits",
+    "subject": "Roadmap: ISSUE-4 — style-property traits + a `Style` associated type"
   }
 }
