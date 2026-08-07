@@ -11,6 +11,12 @@
     "branch": "ws6.4c-clip-events",
     "subject": "Untrack .DS_Store and ignore it"
   },
+  "22b3f94d8350acaf418573a087c608d8dd30f4c9": {
+    "date": 1786133931,
+    "parent": "",
+    "branch": "issue2-label-layout",
+    "subject": "ISSUE-2: one dirty channel for layout"
+  },
   "2446c0b2143b9220851eddb2f8a8e6775e20d546": {
     "date": 1785873598,
     "parent": "",
