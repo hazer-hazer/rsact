@@ -308,17 +308,24 @@ fn impl_builder(input: &mut DeriveInput) -> Result<proc_macro2::TokenStream> {
         }
 
         if has_widget {
-            // WS5.1: the builder's `layout` field is a `LayoutBuilder`; the
-            // retained widget holds an owned `LayoutData`, so convert it via
-            // `.into_data()` (AFTER its reactive bindings are drained below).
-            // Delegate builders own no `layout` `LayoutBuilder` field, so their
-            // `#[widget]` fields (if any) move by name unchanged.
+            // WS5.5: the builder's `layout` is **not** moved into the retained
+            // widget any more.
+            //
+            // It used to be (`layout: this.layout.into_data()`), giving every
+            // widget a non-reactive `LayoutData` snapshot that drifted from the
+            // arena's authoritative copy the moment a reactive padding changed
+            // — `button.rs` carried the admission. The only thing render ever
+            // read from that snapshot was `block_model().border_width`, and the
+            // border is a style property now, so the snapshot has no readers
+            // left. The arena's `LayoutData` (built from `Build::layout()`) is
+            // the single source of truth.
+            //
+            // The field is still consumed for `Build::layout()` above; it just
+            // stops being duplicated into the widget.
             if !is_delegate && ident == "layout" {
-                widget_ctor_fields
-                    .push(quote! { #ident: this.#ident.into_data() });
-            } else {
-                widget_ctor_fields.push(quote! { #ident: this.#ident });
+                continue;
             }
+            widget_ctor_fields.push(quote! { #ident: this.#ident });
         }
 
         if let Some(attr) = child_attr {

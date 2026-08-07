@@ -38,7 +38,6 @@ pub struct CheckboxBuilder<W: WidgetCtx> {
 }
 
 pub struct Checkbox<W: WidgetCtx> {
-    layout: LayoutData,
     value: Signal<bool>,
     style: WidgetStyleFn<CheckboxStyle<W::Color>>,
 }
@@ -80,12 +79,8 @@ impl<W: WidgetCtx> Widget<W> for Checkbox<W> {
             let style = ctx.get_style(self.style.as_deref());
 
             // WS5.1: `self.layout` is the owned build-time `LayoutData`.
-            Block::from_layout_style(
-                ctx.layout.outer,
-                self.layout.block_model(),
-                style.container,
-            )
-            .render(&mut ctx)?;
+            Block::from_layout_style(ctx.layout.outer, style.container)
+                .render(&mut ctx)?;
 
             ctx.render_focus_outline(ctx.id)?;
 

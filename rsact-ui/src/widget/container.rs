@@ -26,7 +26,6 @@ pub struct ContainerBuilder<W: WidgetCtx> {
 }
 
 pub struct Container<W: WidgetCtx> {
-    layout: LayoutData,
     style: WidgetStyleFn<ContainerStyle<W::Color>>,
 }
 
@@ -137,12 +136,8 @@ impl<W: WidgetCtx + 'static> Widget<W> for Container<W> {
 
             // WS5.1: `self.layout` is the owned build-time `LayoutData` (see the
             // Button render TODO re: reactive block_model drift).
-            Block::from_layout_style(
-                ctx.layout.outer,
-                self.layout.block_model(),
-                style.container,
-            )
-            .render(&mut ctx)
+            Block::from_layout_style(ctx.layout.outer, style.container)
+                .render(&mut ctx)
         })
     }
 

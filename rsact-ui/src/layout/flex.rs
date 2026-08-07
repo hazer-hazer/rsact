@@ -86,7 +86,7 @@ pub fn model_flex<T: LayoutTree + ?Sized>(
         font_props: flex_fp,
     } = flex_layout;
 
-    let full_padding = block_model.full_padding();
+    let full_padding = block_model.padding;
 
     let child_fp = flex_fp.inherited(&ctx.font_props);
     let child_ctx = LayoutCtx { font_props: child_fp, ..*ctx };

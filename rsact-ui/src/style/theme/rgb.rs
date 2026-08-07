@@ -43,6 +43,11 @@ impl<C: RgbColor> Theme<C> {
         BorderStyle::base()
             .color(self.fg)
             .radius(self.border_radius)
+            // WS5.5: the border width is a STYLE property now — a theme
+            // sets it here instead of every widget's box model carrying
+            // one. 1 px matches what `BlockModel::border_width(1)`
+            // previously hard-coded on `Button` and `Select`.
+            .width(1)
     }
 
     fn container(&self) -> BlockStyle<C> {

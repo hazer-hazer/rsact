@@ -21,7 +21,6 @@ pub struct SpaceBuilder<W: WidgetCtx> {
 }
 
 pub struct Space<W: WidgetCtx> {
-    layout: LayoutData,
     // `W` is otherwise unused on the retained widget — kept only to satisfy
     // `Widget<W>`'s own `W` parameter, same as `flex.rs`/`show.rs`.
     ctx: PhantomData<W>,

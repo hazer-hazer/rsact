@@ -106,7 +106,6 @@ pub struct Slider<W: WidgetCtx> {
     range: MaybeReactive<RangeInclusive<f32>>,
     step: MaybeReactive<f32>,
     state: SliderState,
-    layout: LayoutData,
     style: WidgetStyleFn<SliderStyle<W::Color>>,
     axis: Axis,
 }

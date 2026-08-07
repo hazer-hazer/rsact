@@ -233,6 +233,7 @@ macro_rules! declare_widget_style {
             @opt_method_list $field: border {
                 border_color: border_color,
                 border_radius: border_radius,
+                border_width: border_width,
             }
         }
     };
@@ -269,6 +270,10 @@ macro_rules! declare_widget_style {
 
                 border_color: border_color,
                 border_radius: border_radius,
+                // WS5.5: the border WIDTH is a style property now — flat
+                // setter like every other one, and symmetric with the
+                // `outline_width` that was always here.
+                border_width: border_width,
 
                 outline_color: outline_color,
                 outline_radius: outline_radius,
@@ -311,6 +316,12 @@ macro_rules! declare_widget_style {
     (@opt_method $field: ident: container $outline_offset: ident: outline_offset) => {
         pub fn $outline_offset(mut self, outline_offset: i32) -> Self {
             self.$field.outline.offset = outline_offset;
+            self
+        }
+    };
+    (@opt_method $field: ident: container $border_width: ident: border_width) => {
+        pub fn $border_width(mut self, border_width: u32) -> Self {
+            self.$field.border.width = border_width;
             self
         }
     };

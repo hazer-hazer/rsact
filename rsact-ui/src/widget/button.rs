@@ -25,7 +25,6 @@ pub struct ButtonBuilder<W: WidgetCtx> {
 }
 
 pub struct Button<W: WidgetCtx> {
-    layout: LayoutData,
     style: WidgetStyleFn<ButtonStyle<W::Color>>,
     on_click: Option<Box<dyn FnMut()>>,
 }
@@ -36,7 +35,9 @@ impl<W: WidgetCtx + 'static> Button<W> {
 
         let layout =
             LayoutBuilder::shrink(LayoutKind::Container(ContainerLayout {
-                block_model: BlockModel::zero().padding(5).border_width(1),
+                // WS5.5: the border width moved to `ButtonStyle`'s
+                // container border — the box reserves padding only.
+                block_model: BlockModel::zero().padding(5),
                 horizontal_align: Align::Center,
                 vertical_align: Align::Center,
                 font_props: Default::default(),
@@ -94,12 +95,8 @@ impl<W: WidgetCtx + 'static> Widget<W> for Button<W> {
             // TODO: a padding/border bound to a signal after build drifts here
             // (the retained snapshot isn't the live arena value); accepted
             // narrow limitation until render reads block_model off the arena.
-            Block::from_layout_style(
-                ctx.layout.outer,
-                self.layout.block_model(),
-                style.container,
-            )
-            .render(&mut ctx)?;
+            Block::from_layout_style(ctx.layout.outer, style.container)
+                .render(&mut ctx)?;
 
             ctx.render_focus_outline(ctx.id)
         })

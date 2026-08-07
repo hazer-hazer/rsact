@@ -34,7 +34,6 @@ pub struct LabelBuilder<W: WidgetCtx> {
 
 pub struct Label<W: WidgetCtx> {
     content: MaybeReactive<String>,
-    layout: LayoutData,
     style: WidgetStyleFn<LabelStyle<W::Color>>,
 }
 

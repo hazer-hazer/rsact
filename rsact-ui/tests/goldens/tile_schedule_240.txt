@@ -67,43 +67,43 @@ escaping 0
 == buttons-8 / rows-48 (5 regions, coverage 1.00) ==
 5 tiles
 kind               full  emitted required    xemit     xreq
-all                 934      940      940     1.01     1.01
-structural           16       22       22     1.38     1.38
-FillSolid             8       11       11     1.38     1.38
+all                 934      942      942     1.01     1.01
+structural           16       24       24     1.50     1.50
+FillSolid             8       12       12     1.50     1.50
 Pixel               918      918      918     1.00     1.00
-RoundedRect           8       11       11     1.38     1.38
+RoundedRect           8       12       12     1.50     1.50
 wasted 0 bookkeeping 5
 visits            nodes  visited cullable   xvisit    xcull
-nodes                17       85       26     5.00     1.53
-nodes(real)          17       26       26     1.53     1.53
+nodes                17       85       27     5.00     1.59
+nodes(real)          17       27       27     1.59     1.59
 escaping 0
 
 == buttons-8 / rows-24 (10 regions, coverage 1.00) ==
 10 tiles
 kind               full  emitted required    xemit     xreq
-all                 934      950      950     1.02     1.02
-structural           16       32       32     2.00     2.00
-FillSolid             8       16       16     2.00     2.00
+all                 934      948      948     1.01     1.01
+structural           16       30       30     1.88     1.88
+FillSolid             8       15       15     1.88     1.88
 Pixel               918      918      918     1.00     1.00
-RoundedRect           8       16       16     2.00     2.00
+RoundedRect           8       15       15     1.88     1.88
 wasted 0 bookkeeping 10
 visits            nodes  visited cullable   xvisit    xcull
-nodes                17      170       38    10.00     2.24
-nodes(real)          17       38       38     2.24     2.24
+nodes                17      170       37    10.00     2.18
+nodes(real)          17       37       37     2.18     2.18
 escaping 0
 
 == buttons-8 / grid-80 (9 regions, coverage 1.00) ==
 9 tiles
 kind               full  emitted required    xemit     xreq
-all                 934      938      938     1.00     1.00
-structural           16       20       20     1.25     1.25
-FillSolid             8       10       10     1.25     1.25
+all                 934      934      934     1.00     1.00
+structural           16       16       16     1.00     1.00
+FillSolid             8        8        8     1.00     1.00
 Pixel               918      918      918     1.00     1.00
-RoundedRect           8       10       10     1.25     1.25
+RoundedRect           8        8        8     1.00     1.00
 wasted 0 bookkeeping 9
 visits            nodes  visited cullable   xvisit    xcull
-nodes                17      153       28     9.00     1.65
-nodes(real)          17       28       28     1.65     1.65
+nodes                17      153       25     9.00     1.47
+nodes(real)          17       25       25     1.47     1.47
 escaping 0
 
 == checkboxes-8 / whole (1 regions, coverage 1.00) ==
@@ -165,27 +165,27 @@ escaping 0
 == scrollable-20 / whole (1 regions, coverage 1.00) ==
 1 tiles
 kind               full  emitted required    xemit     xreq
-all                 565      565      565     1.00     1.00
-structural           13       13       13     1.00     1.00
+all                 619      619      619     1.00     1.00
+structural           14       14       14     1.00     1.00
 FillSolid             1        1        1     1.00     1.00
-Pixel               552      552      552     1.00     1.00
+Pixel               605      605      605     1.00     1.00
 Line                  2        2        2     1.00     1.00
-RoundedRect          10       10       10     1.00     1.00
+RoundedRect          11       11       11     1.00     1.00
 wasted 0 bookkeeping 3
 visits            nodes  visited cullable   xvisit    xcull
-nodes                42       42       20     1.00     0.48
-nodes(real)          42       20       20     0.48     0.48
+nodes                42       42       22     1.00     0.52
+nodes(real)          42       22       22     0.52     0.52
 escaping 1
 
 == scrollable-20 / rows-48 (5 regions, coverage 1.00) ==
 5 tiles
 kind               full  emitted required    xemit     xreq
-all                 565      585      583     1.04     1.03
-structural           13       33       31     2.54     2.38
+all                 619      638      636     1.03     1.03
+structural           14       33       31     2.36     2.21
 FillSolid             1        5        5     5.00     5.00
-Pixel               552      552      552     1.00     1.00
+Pixel               605      605      605     1.00     1.00
 Line                  2       10        8     5.00     4.00
-RoundedRect          10       18       18     1.80     1.80
+RoundedRect          11       18       18     1.64     1.64
 wasted 2 bookkeeping 11
 visits            nodes  visited cullable   xvisit    xcull
 nodes                42      210       34     5.00     0.81
@@ -195,31 +195,31 @@ escaping 1
 == scrollable-20 / rows-24 (10 regions, coverage 1.00) ==
 10 tiles
 kind               full  emitted required    xemit     xreq
-all                 565      609      604     1.08     1.07
-structural           13       57       52     4.38     4.00
+all                 619      662      657     1.07     1.06
+structural           14       57       52     4.07     3.71
 FillSolid             1       10       10    10.00    10.00
-Pixel               552      552      552     1.00     1.00
+Pixel               605      605      605     1.00     1.00
 Line                  2       20       15    10.00     7.50
-RoundedRect          10       27       27     2.70     2.70
+RoundedRect          11       27       27     2.45     2.45
 wasted 5 bookkeeping 21
 visits            nodes  visited cullable   xvisit    xcull
-nodes                42      420       50    10.00     1.19
-nodes(real)          42       50       50     1.19     1.19
+nodes                42      420       49    10.00     1.17
+nodes(real)          42       49       49     1.17     1.17
 escaping 1
 
 == scrollable-20 / grid-80 (9 regions, coverage 1.00) ==
 9 tiles
 kind               full  emitted required    xemit     xreq
-all                 565      597      584     1.06     1.03
-structural           13       45       32     3.46     2.46
+all                 619      653      640     1.05     1.03
+structural           14       48       35     3.43     2.50
 FillSolid             1        9        9     9.00     9.00
-Pixel               552      552      552     1.00     1.00
+Pixel               605      605      605     1.00     1.00
 Line                  2       18        5     9.00     2.50
-RoundedRect          10       18       18     1.80     1.80
+RoundedRect          11       21       21     1.91     1.91
 wasted 13 bookkeeping 19
 visits            nodes  visited cullable   xvisit    xcull
-nodes                42      378       36     9.00     0.86
-nodes(real)          42       36       36     0.86     0.86
+nodes                42      378       41     9.00     0.98
+nodes(real)          42       41       41     0.98     0.98
 escaping 1
 
 == option-rows-6 / whole (1 regions, coverage 1.00) ==
@@ -315,16 +315,16 @@ escaping 0
 == mixed / rows-24 (10 regions, coverage 1.00) ==
 10 tiles
 kind               full  emitted required    xemit     xreq
-all                 460      466      466     1.01     1.01
-structural            9       15       15     1.67     1.67
-FillSolid             6        9        9     1.50     1.50
+all                 460      468      468     1.02     1.02
+structural            9       17       17     1.89     1.89
+FillSolid             6       11       11     1.83     1.83
 Pixel               451      451      451     1.00     1.00
 RoundedRect           2        4        4     2.00     2.00
 Path                  1        2        2     2.00     2.00
 wasted 0 bookkeeping 10
 visits            nodes  visited cullable   xvisit    xcull
-nodes                 9       90       22    10.00     2.44
-nodes(real)           9       22       22     2.44     2.44
+nodes                 9       90       25    10.00     2.78
+nodes(real)           9       25       25     2.78     2.78
 escaping 0
 
 == mixed / grid-80 (9 regions, coverage 1.00) ==

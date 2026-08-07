@@ -279,7 +279,6 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
         if self.shared.page_state.is_focused(id) {
             Block::from_layout_style(
                 self.layout.outer,
-                BlockModel::zero(),
                 BlockStyle::base().outline(
                     OutlineStyle::base()
                         .width(1)

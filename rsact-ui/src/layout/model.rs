@@ -417,7 +417,7 @@ pub fn model_layout<T: LayoutTree + ?Sized>(
 
             // let min_content = content_size.get().min();
 
-            let full_padding = block_model.full_padding();
+            let full_padding = block_model.padding;
 
             let child_fp = container_fp.inherited(&ctx.font_props);
             let child_ctx = LayoutCtx { font_props: child_fp, ..*ctx };

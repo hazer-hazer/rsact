@@ -30,7 +30,6 @@ pub struct FlexBuilder<W: WidgetCtx> {
 }
 
 pub struct Flex<W: WidgetCtx> {
-    layout: LayoutData,
     // `W` is otherwise unused on the retained widget (unlike `FlexBuilder`,
     // which threads it through `children: MaybeSignal<Vec<El<W>>>`) — kept
     // only to satisfy `Widget<W>`'s own `W` parameter, same as `space.rs`.

@@ -62,7 +62,6 @@ pub struct CanvasBuilder<W: WidgetCtx> {
 
 pub struct Canvas<W: WidgetCtx> {
     draw: Box<dyn Fn(&mut RenderCtx<'_, W, CtxReady>) -> RenderResult>,
-    layout: LayoutData,
 }
 
 impl<W: WidgetCtx> Canvas<W> {

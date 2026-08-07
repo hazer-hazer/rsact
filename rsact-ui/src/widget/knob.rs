@@ -73,7 +73,6 @@ pub struct KnobBuilder<W: WidgetCtx, V: RangeValue> {
 }
 
 pub struct Knob<W: WidgetCtx, V: RangeValue> {
-    layout: LayoutData,
     value: Signal<V>,
     state: KnobState,
     style: WidgetStyleFn<KnobStyle<W::Color>>,

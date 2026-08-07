@@ -144,7 +144,6 @@ pub struct SelectBuilder<W: WidgetCtx, K: PartialEq + 'static> {
 }
 
 pub struct Select<W: WidgetCtx, K: PartialEq + 'static> {
-    layout: LayoutData,
     state: Signal<SelectState>,
     style: WidgetStyleFn<SelectStyle<W::Color>>,
     options: Rc<MaybeReactive<Vec<SelectOption<W, K>>>>,
@@ -366,8 +365,9 @@ impl<W: WidgetCtx, K: PartialEq + 'static> Widget<W> for Select<W, K> {
                             ctx.layout.inner.size.cross(self.axis),
                             Anchor::Center,
                         ),
-                    BlockModel::zero().border_width(1),
-                    style.selected,
+                    // WS5.5: the 1 px width used to be smuggled in through a
+                    // throwaway `BlockModel`; it belongs to the style now.
+                    style.selected.border(style.selected.border.width(1)),
                 )
                 .render(&mut ctx)?;
             }

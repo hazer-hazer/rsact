@@ -53,7 +53,6 @@ pub struct BarBuilder<W: WidgetCtx, V: RangeValue> {
 
 pub struct Bar<W: WidgetCtx, V: RangeValue> {
     value: MaybeReactive<V>,
-    layout: LayoutData,
     style: WidgetStyleFn<BarStyle<W::Color>>,
     axis: Axis,
 }
@@ -105,13 +104,8 @@ impl<W: WidgetCtx + 'static, V: RangeValue + 'static> Widget<W> for Bar<W, V> {
 
             // let bar_width = ctx.layout.area.size.cross(Dir::AXIS);
 
-            let block_model = self.layout.block_model();
-            Block::from_layout_style(
-                ctx.layout.outer,
-                block_model,
-                style.container,
-            )
-            .render(&mut ctx)?;
+            Block::from_layout_style(ctx.layout.outer, style.container)
+                .render(&mut ctx)?;
 
             let full_len = ctx.layout.inner.size.main(self.axis);
             let value_len = self.value.get().point(full_len);
