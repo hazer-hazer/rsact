@@ -47,6 +47,12 @@
     "branch": "ws6.4c-clip-events",
     "subject": "WS6.11: tiny-skia clipping is no longer a no-op"
   },
+  "4c21f5eb2fda190ae9cec733d3e003bba472faef": {
+    "date": 1786137297,
+    "parent": "",
+    "branch": "issue2-label-layout",
+    "subject": "Fonts + viewport static; wrong-kind warnings on layout setters"
+  },
   "4c6c75b4f9badb2fe5480e37be0a01bc3151133a": {
     "date": 1785971035,
     "parent": "",
