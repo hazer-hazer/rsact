@@ -1504,6 +1504,152 @@ benches/allocations.rs (no regression) + benches/reactivity. Coordinate with WS9
 
 ---
 
+### WS21 — Environment: a sparse, cascading property tree (SwiftUI-style)
+
+**Sessions:** 2–3 · **Risk:** medium · **Directions:** D2 + D3 + D4 · **Depends on:** WS5 (arena-owned layout, ElId identity), ISSUE-2 (the one-dirty-channel rule this must obey) · **Feeds:** WS7.4, **ISSUE-4** (same "view that vanishes" mechanism), WS15 (i18n/locale cascade), WS5.4 (env is part of the text-measure cache key) · **Filed:** 2026-08-08, maintainer.
+
+**Status:** OPEN — analysed and specified, not scheduled. **Does not block WS6.4d** (see the blocking analysis at the end of this item).
+
+#### The problem
+
+Font size is **both** a layout property and a visual one: layout needs it for text intrinsics, render needs it to pick a raster and draw. WS5.5 settled the analogous `border_width` case with the box/pixel rule — *does it change the box, or only the pixels inside it?* — and pushed border into style. Font size cannot follow: pushing it into style loses it for measurement.
+
+Nor can it stay where it is. Today it lives in `LayoutData`, and the consequences are visible in two widgets:
+
+- **`Label`** carries `ContentLayout::Text.font_props`, written by `FontSettingWidget::font_size` → `layout.setter`.
+- **`Icon`** carries `ContentLayout::Icon(FontSize)` *and* a `Signal<FontSize>` in `IconValue::Relative`, because render needs the size too — so `IconBuilder::size()` spends **two** effects on a reactive size, one of which exists only to mirror one reactive value into another (measured; `only_a_reactive_size_costs_an_effect`). That relay is what `Icon::new`'s `SignalOnWrite` TODO has been asking about.
+
+And neither cascades from an arbitrary ancestor: there is no way to say "this whole `Flex` renders at 20px".
+
+#### Why the idea is right: the concept already exists **three times**
+
+This is the strongest argument for it, and it is not a design argument — it is what the code already does. The cascade was discovered independently three times and never named:
+
+| Site | What it is |
+| --- | --- |
+| `LayoutCtx.font_props` (`layout/mod.rs`) | the **live** cascade, threaded down the layout walk and merged per node via `FontProps::inherited` (field-wise `Option::or`) |
+| `LayoutModel.font_props: Option<FontProps>` (`layout/model.rs:120`, `:391`, `:463`) | the **resolved** value cached per node, so render *replays* the cascade instead of recomputing it — `None` means "nothing new here, keep the parent's", which is why `render.rs:1118`'s `unwrap_or` is correct rather than the merge bug it looks like |
+| `RetainedInputs.input_font_props` (`layout/model.rs:101`) | the per-node **resume anchor** that lets WS5.2's `recompute_upward` re-run a subtree without walking from the root |
+
+Plus a fourth, vestigial: `RenderVisual.tree_style` is a render-only cascade (`TreeStyle { text_color }`) with **no live producer at all** — its only mutator, `RenderCtx::with_tree_style`, is called from exactly one place, and that call is commented out in `select.rs:412`.
+
+So WS21 does not introduce a mechanism. It **names one the codebase already built three-and-a-half times**, generalizes `FontProps` to an open `Env`, and moves the *override source* out of `LayoutData` into its own sparse structure.
+
+#### The taxonomy this completes
+
+WS5.5 gave us two property categories. Environment is the third, and the rule that separates them is the same one:
+
+| Category | Where it lives | Cascades? | Affects the box? | Pseudo-classes? |
+| --- | --- | --- | --- | --- |
+| **Layout** — width, padding, gap | arena `LayoutData`, per node | no | yes | no (a hover-driven relayout is thrash) |
+| **Environment** — font, font size, font style; later locale, direction | arena env map, sparse | **yes** | yes (measurement) | no, same reason |
+| **Style** — colors, border width, radius | stylist, per widget | no | no (pixels only) | yes |
+
+Cascading is being adopted **deliberately and narrowly**, for properties that genuinely inherit — not as a general styling model. The project's anti-CSS stance for styles is unchanged and this must not become a back door to it (see risks).
+
+#### Design
+
+**`Env` is two groups, split by the box/pixel rule.** This is the one structural amendment to the proposal as sketched, and it matters:
+
+```rust
+pub struct Env {
+    // Resolved by the LAYOUT pass, cached into LayoutModel, replayed by render.
+    // A change MARKS THE ARENA DIRTY: it changes measurement.
+    pub font: Option<Font>,
+    pub font_size: Option<FontSize>,
+    pub font_style: Option<FontStyle>,
+    // Resolved by the RENDER walk (what `tree_style` already is).
+    // A change must NEVER relayout — pixels only.
+    pub text_color: Option<ColorStyle<C>>,
+}
+```
+
+Without the split, a cascading *colour* would mark the arena layout-dirty and trigger a relayout — precisely the WS5.5 anti-pattern. With it, the box/pixel rule applies for the third time and the two halves keep their existing homes: the layout half is `LayoutCtx.font_props` generalized, the visual half is `RenderVisual.tree_style` generalized (and finally given a producer).
+
+**Storage.** Overrides go in a sparse arena structure keyed by `ElId`; resolved values keep their existing caches (`LayoutModel`, `RetainedInputs`), generalized from `FontProps` to `Env`. Note that `SecondaryMap<ElId, Env>` is a **dense** `Vec` sized to the high-water index — it would cost a slot per live node whether or not it carries an env. Per WS9a.2's flat-vec precedent (and the `DirtySet`'s own choice), use a **sorted `Vec<(ElId, Env)>`**: env-carrying nodes are a handful, `binary_search` is cheap, no per-node cost.
+
+**Lookup cost is once per relayout, not once per frame.** Only the layout pass consults the map; render reads the already-resolved value from the `LayoutModel`, exactly as it does today. This matters because WS6.4c just spent real effort making traversal cheap and instrumented it (`nodes_visited`) — a per-node map probe on every render frame would show up there. If the layout-side lookup ever measures, a `has_env` bit in `ElState` (already loaded during the walk) turns the common case into a branch instead of a search.
+
+**`EnvironmentView` — a build-only view that does not retain.** It writes onto its child's `ElId` and vanishes; no arena node, no runtime cost. This is precisely the Xilem shape **ISSUE-4** describes — _"a view can consume a child, set one property on it, and vanish"_ — so the two items should be co-designed rather than inventing the mechanism twice.
+
+Two entry points, one mechanism:
+
+- `.font_size(x)` on a widget builder — sugar that writes that builder's **own** env entry. No wrapper type, so the builder chain's type does not change and `.width()` still chains.
+- `EnvironmentView` (`.environment(|e| …)`) wrapping any subtree — the "20px for this whole Flex" case.
+
+Precedence: **innermost wins**, field-wise `Option::or` child-first — `FontProps::inherited`'s existing semantics, unchanged.
+
+**Bindings** reuse `LayoutBuilder::setter`'s shape exactly: `Inert` writes the entry at build (no node, no effect); a reactive source records a binding wired at build into an effect that writes the entry and marks. That is the ISSUE-2 channel, and using it is non-negotiable — see risk 1.
+
+#### Risks, hardest first
+
+1. **An env change must reach BOTH damage channels, and the geometry one is not enough.** A font-size change moves geometry, so WS5.3's changed-set catches it. But a font *style* change at identical metrics (or a cascading `text_color`) moves **nothing** — and because render replays the cascade from the `LayoutModel` as a plain walk parameter, no render probe subscribes to it either. The result would be an env change that relayouts and repaints *nothing*: ISSUE-2's exact failure mode, reintroduced in a new system. The binding must therefore `mark_needs_redraw` the subtree as well as `mark_dirty` it. **This is the single thing most likely to ship as a silent bug**, and the tripwire will not catch it (the tripwire watches the layout probe, not the paint channel).
+2. **Subtree invalidation semantics.** An env change on an ancestor changes every descendant's measurement. Verified feasible: `recompute_upward` re-runs `model_layout` from the dirty node *downward* with `retained.input_font_props` as the seed, so marking the ancestor already re-measures the subtree — and `input_font_props` generalizes to `input_env` for free. Needs a differential-fuzz case (env change vs full rebuild) in WS5.2's existing harness.
+3. **The two-group split leaks if `Env` grows carelessly.** Every new field must be classified by the box/pixel rule at the point it is added, or the "colour relayouts the page" bug arrives later. Encode it in the type (two structs, or a marker), not in a comment.
+4. **Do not let it become CSS.** Cascading is justified for properties that genuinely inherit down a text/reading context. Resist selectors, specificity, and "any style property may cascade" — that repeals the anti-CSS decision by increments.
+5. **`.font_size()` ergonomics if it becomes a wrapper.** Solved by keeping the sugar (entry point 1) rather than making every `.font_size()` return `EnvironmentView<Inner>` and forcing users to order builder calls. Flagged because the wrapper-only design is the obvious first sketch and it is a trap.
+
+#### What it deletes
+
+Worth stating, because the payoff is subtractive: `ContentLayout::Text.font_props`, `ContainerLayout.font_props`, `FlexLayout.font_props`, `ScrollableLayout.font_props`, `ContentLayout::Icon(FontSize)` with its `set_icon_size`/`icon_size` accessors, `FontSettingWidget`'s layout setters, and — because `Icon` would read its resolved size from the model like `Label` reads font props — the `Signal<FontSize>` relay in `IconValue::Relative` and its second effect. The `SignalOnWrite` TODO is answered by removing the need for it rather than by building it.
+
+#### Stages
+
+- [ ] **21.1 Name the concept, no behaviour change.** `FontProps` → `Env` (layout group only) across `LayoutCtx`, `LayoutModel`, `RetainedInputs`; `RenderVisual.tree_style` → the visual group. Pure rename + regroup; every golden byte-identical. This is the commit that proves the three sites really are one concept.
+- [ ] **21.2 Move the override source.** Sorted `Vec<(ElId, Env)>` in the arena; `FontSettingWidget`'s setters retarget from `layout.setter` to `env.setter`; delete the `font_props` fields from all four layout kinds. Both marks (dirty + needs_redraw) land here — risk 1 is this stage's acceptance criterion, with a same-metrics font-style change as the regression test.
+- [ ] **21.3 `EnvironmentView`.** Build-only, non-retaining, writes the child's entry; co-designed with ISSUE-4's view vocabulary. Acceptance: wrapping a `Flex` sets the size for all descendants and creates **zero** arena nodes.
+- [ ] **21.4 Fold `Icon` in.** Size becomes an env property; `ContentLayout::Icon` loses its payload; the `Signal<FontSize>` relay and its effect disappear. Acceptance: `only_a_reactive_size_costs_an_effect` drops 2 → 1.
+- [ ] **21.5 (optional) Prove generality with a second property.** `enabled` or `locale` — one that is not font-shaped — to confirm the mechanism is not font-specific in disguise.
+
+#### Acceptance
+
+Goldens byte-identical through 21.1. A same-metrics font-style change on a nested subtree repaints (risk 1). Wrapping a subtree costs zero nodes. `nodes_visited` unchanged on the render path. WS5.2's differential fuzz extended with env changes. Effects: an inert env costs none.
+
+#### Open questions for the maintainer
+
+1. **Naming.** The maintainer is _"leaning towards calling builders views"_ — WS21 introduces the first view that is *only* a view (it never becomes a widget), so it is the natural place to settle that vocabulary, or the natural place to avoid pre-empting it.
+2. **Does `Env` subsume `MemoChain` style inheritance?** `EVOLUTION.md:31` wants `MemoChain` retired for styles; per-widget style *inheritance* is the overlapping concept. Decide whether WS21's visual group and WS7.4 converge or stay separate.
+3. **Viewport in `Env`?** `FontSize::Relative` resolves against the viewport, which is currently threaded separately in both `LayoutCtx` and `RenderShared`. It is a root-level environment value in all but name.
+
+#### Blocking analysis — WS21 does **not** block WS6.4d
+
+Recorded because the session that produced WS21 stepped away from tiled rendering to get here, and the two must not stay entangled.
+
+**6.4d's preconditions are all discharged.** 6.4a (measurement) ✓ · 6.4b (culling — ×10.00 → ×1.00–1.02 paint, `measured == cullable` traversal) ✓ · 6.4c (collect/paint split) ✓ · and **ISSUE-2**, which 6.4a's Amendment 2 promoted into a precondition when it found that "interactive +0%" held only for paint-only changes — now closed and measured (1.00 → 0.01 coverage, 478 → 93 ops). Nothing on 6.4d's critical path passes through the environment question.
+
+**Why they look entangled but are not.** Both topics touch font properties, so it is tempting to sequence them. But 6.4d needs three things from the invalidation system, and WS21 changes none of them: that damage rects are tight (WS6.2/6.3a), that a region replay costs ×1 (WS6.4b), and that an interactive frame is genuinely interactive (ISSUE-2). WS21 changes **where a font property is stored and how it is inherited** — an architecture and ergonomics concern. A tile does not care whether `font_size` came from `LayoutData` or an env map; it cares that the damage it is handed is small and correct, which is already true.
+
+**Is anything in PR #44 a stopgap WS21 will delete?** Yes, and none of it is a hack:
+
+| Landed in #44 | WS21's fate for it | Honest today? |
+| --- | --- | --- |
+| `ContentLayout::Icon(FontSize)` + `set_icon_size`/`icon_size` | deleted (size becomes env) | yes — identical shape to `set_text`, on the same channel, tested |
+| `IconBuilder::size` writing two channels | one channel (render reads the resolved value from the model) | yes — measured, locked at 2 effects with the reason recorded |
+| `LayoutData::set_text`/`text` | survives (text is content, not environment) | yes |
+| the `Signal<FontSize>` relay in `IconValue::Relative` | deleted | **pre-existing**, not introduced by #44; #44 only measured it and wrote down where it goes |
+
+So **#44 is mergeable as-is**. Every item WS21 will remove is either correct-and-tested today or predates the PR, and each carries a comment pointing at its successor. The one thing a reviewer might call unfinished — `Icon`'s second effect — has a cheap independent fix (collapse `Signal<FontSize>` → `MaybeReactive<FontSize>`), but that fix costs `.size(20)` → `.size(FontSize::Fixed(20))` at every call site and is a strict subset of 21.4, so doing it separately buys a week of slightly better numbers for a public API churn. Recommendation: let 21.4 do it.
+
+**The two tracks, then:** WS21 is its own session (start at 21.1, the rename that proves the three sites are one concept). WS6.4d resumes immediately after #44 merges, with no dependency on WS21 in either direction.
+
+#### Session prompt
+
+```text
+Read docs/plans/2026-07-05-rsact-evolution-roadmap.md — WS21. The mechanism ALREADY EXISTS
+three times (LayoutCtx.font_props live cascade, LayoutModel.font_props resolved cache,
+RetainedInputs.input_font_props resume anchor) plus a vestigial fourth (RenderVisual.
+tree_style, no live producer). Do 21.1 FIRST as a pure rename proving they are one concept —
+goldens must be byte-identical. Env is TWO groups split by the box/pixel rule (layout group
+marks the arena dirty; visual group must never relayout); encode the split in the type.
+The highest risk is NOT the cascade — it is that a same-metrics env change (font style,
+text colour) moves no geometry and wakes no render probe, so it would relayout and repaint
+NOTHING: ISSUE-2's failure mode in a new system. The binding must mark_needs_redraw as well
+as mark_dirty, and the tripwire will NOT catch this. Storage is a sorted Vec<(ElId, Env)>,
+not a SecondaryMap (dense — one slot per live node). Co-design EnvironmentView with ISSUE-4.
+```
+
+---
+
 ## Parked / rejected register (do not resurrect without new evidence)
 
 - **Per-node layout memos** (D3 candidate b): 350–500 B/node graph freight — disqualified on M0 RAM.

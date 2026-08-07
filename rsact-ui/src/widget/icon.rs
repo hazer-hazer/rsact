@@ -182,6 +182,58 @@ impl<W: WidgetCtx + 'static, I: IconSet + 'static>
     }
 }
 
+impl<W: WidgetCtx + 'static, I: IconSet + 'static> Widget<W> for Icon<W, I> {
+    // NOTE: no `flags`/`debug_name` override on the retained widget — both are
+    // read exactly once, pre-build, from `Build` (seeding `ElState`); a
+    // retained override would be dead duplication (M7). `Build::debug_name`
+    // on `IconBuilder` returns "Icon".
+    #[track_caller]
+    fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
+        ctx.render_self(|ctx| {
+            if !self.visible.get() {
+                return Ok(());
+            }
+
+            let viewport = ctx.shared.viewport;
+            let _style = ctx.get_style(self.style.as_deref());
+
+            let _icon_raw = match &self.value {
+                &IconValue::Fixed(icon_raw) => icon_raw,
+                IconValue::Relative(size, kind) => {
+                    // `viewport` is a plain `Size` now, so it drops out of the
+                    // `with!` — only `size` and `kind` are still reactive here.
+                    with!(move |size, kind| kind.size(size.resolve(viewport)))
+                },
+            };
+
+            #[cfg(feature = "embedded-graphics")]
+            {
+                let _eg_top_left: embedded_graphics::geometry::Point =
+                    ctx.layout.inner.top_left.into();
+                // TODO(unimplemented): draw the icon via rsact-icons. Until the
+                // draw path is wired up, degrade to not drawing rather than
+                // `todo!()` — which would abort the device on every frame an
+                // icon is on screen.
+                // let icon = rsact_icons::Icon::new(
+                //     icon_raw,
+                //     eg_top_left,
+                //     style.background.get(),
+                //     style.color.get(),
+                // );
+                // ctx.renderer.draw_iter(icon.iter()).ok().unwrap();
+            }
+
+            Ok(())
+        })
+    }
+
+    fn on_event(&mut self, ctx: EventCtx<'_, W>) -> EventResponse {
+        let _ = ctx;
+
+        ctx.ignore()
+    }
+}
+
 // NOTE: these run in NO CI job — `icon` is `#[cfg(feature = "tiny-icons")]` and
 // `ci-powerset.sh` excludes that feature as WIP (ISSUE-5). They were verified by
 // hand with `--features "std,embedded-graphics,tiny-icons"` and will start
@@ -283,57 +335,5 @@ mod tests {
                 "an icon-size change must mark the arena layout-dirty"
             );
         });
-    }
-}
-
-impl<W: WidgetCtx + 'static, I: IconSet + 'static> Widget<W> for Icon<W, I> {
-    // NOTE: no `flags`/`debug_name` override on the retained widget — both are
-    // read exactly once, pre-build, from `Build` (seeding `ElState`); a
-    // retained override would be dead duplication (M7). `Build::debug_name`
-    // on `IconBuilder` returns "Icon".
-    #[track_caller]
-    fn render(&self, mut ctx: RenderCtx<'_, W>) -> RenderResult {
-        ctx.render_self(|ctx| {
-            if !self.visible.get() {
-                return Ok(());
-            }
-
-            let viewport = ctx.shared.viewport;
-            let _style = ctx.get_style(self.style.as_deref());
-
-            let _icon_raw = match &self.value {
-                &IconValue::Fixed(icon_raw) => icon_raw,
-                IconValue::Relative(size, kind) => {
-                    // `viewport` is a plain `Size` now, so it drops out of the
-                    // `with!` — only `size` and `kind` are still reactive here.
-                    with!(move |size, kind| kind.size(size.resolve(viewport)))
-                },
-            };
-
-            #[cfg(feature = "embedded-graphics")]
-            {
-                let _eg_top_left: embedded_graphics::geometry::Point =
-                    ctx.layout.inner.top_left.into();
-                // TODO(unimplemented): draw the icon via rsact-icons. Until the
-                // draw path is wired up, degrade to not drawing rather than
-                // `todo!()` — which would abort the device on every frame an
-                // icon is on screen.
-                // let icon = rsact_icons::Icon::new(
-                //     icon_raw,
-                //     eg_top_left,
-                //     style.background.get(),
-                //     style.color.get(),
-                // );
-                // ctx.renderer.draw_iter(icon.iter()).ok().unwrap();
-            }
-
-            Ok(())
-        })
-    }
-
-    fn on_event(&mut self, ctx: EventCtx<'_, W>) -> EventResponse {
-        let _ = ctx;
-
-        ctx.ignore()
     }
 }

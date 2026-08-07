@@ -17,6 +17,15 @@ ctx.with_font_props(fp, |ctx| ctx.render_child(&self.content))
 
 Instead of this model must have had add layout to `render_child` method parameters and inherit font_props inside it.
 
+## File layout
+
+1. **`#[cfg(test)] mod tests` always goes at the END of the file.** Never insert a
+   test module between `impl` blocks or next to the code it tests, even when the
+   item under test is defined mid-file — a reader scrolling for production code
+   should never have to page through tests to reach the next `impl`, and diffs
+   stay readable when tests grow. Same for helper `fn`s that exist only for
+   tests: they belong inside that trailing `mod tests`.
+
 ## Never-do restrictions
 
 1. Never delete any `Note:` or `TODO:` comments until it is 100% done `TODO` or `Note` to a deleted code part.
