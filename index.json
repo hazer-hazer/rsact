@@ -29,6 +29,12 @@
     "branch": "master",
     "subject": "Merge pull request #35 from hazer-hazer/ws6.4a-tile-measurement"
   },
+  "24e5e1975aa8abe173ac119e0d768bad835394e8": {
+    "date": 1786143351,
+    "parent": "",
+    "branch": "issue2-label-layout",
+    "subject": "AGENTS.md: tests go at the end of the file; WS21 Environment specified"
+  },
   "2605dbf8e45d2d2f60214a8902c2cfab6c2c3947": {
     "date": 1785864549,
     "parent": "",
