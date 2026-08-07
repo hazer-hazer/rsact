@@ -9,7 +9,7 @@ use crate::{
     render::prelude::*,
     style::stylist::InternalStylist,
 };
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, rc::Rc, vec::Vec};
 use core::{fmt::Debug, marker::PhantomData};
 use log::info;
 use rsact_reactive::prelude::*;
@@ -58,7 +58,11 @@ pub struct UI<W: WidgetCtx, P: HasPages> {
     /// [`PageInitFn`] on navigation. Only the active page is kept built; each
     /// page owns its own arena, so dropping it (on navigation) frees its tree.
     active_page: Option<Page<W>>,
-    viewport: MaybeReactive<Size>,
+    /// The viewport, a plain `Size` — see the TODO on [`Self::new`]: rsact
+    /// targets fixed displays and has no windowing, so this is a constant taken
+    /// from the renderer at construction. It was a `MaybeReactive<Size>` that
+    /// was always built as `Inert`, i.e. a reactive wrapper around a constant.
+    viewport: Size,
     on_exit: Option<Box<dyn Fn()>>,
     // TODO: Get rid of Inert wrapper, it is at most RefCell
     stylist: Inert<W::Stylist>,
@@ -77,7 +81,19 @@ pub struct UI<W: WidgetCtx, P: HasPages> {
     message_queue: Option<UiQueue<W>>,
     options: UiOptions,
     has_pages: PhantomData<P>,
-    fonts: Signal<FontCtx>,
+    /// The font context. `Rc`, not a `Signal`: it is set only through the
+    /// consuming builder methods below and there is no runtime font work, so
+    /// the reactivity bought nothing and cost a node plus — once layout stopped
+    /// tracking it (ISSUE-2) — a binding effect per page.
+    ///
+    /// `Rc` rather than a per-page copy because `FixedFontCollection` holds a
+    /// nested `BTreeMap` of glyph data; duplicating that per page is not the
+    /// "1–3 element Vec" the `FontCtx` comment suggests. `Rc` rather than
+    /// lending `&FontCtx` into every `Page` method (the WS5.0b renderer
+    /// pattern) because that threads a parameter through six methods and their
+    /// tests to save one refcount — the renderer needs `&mut`, which forces the
+    /// borrow; fonts are read-only after build, which does not.
+    fonts: Rc<FontCtx>,
 }
 
 impl<R, I, S, E> UI<Wtf<R, I, S, E>, NoPages>
@@ -93,12 +109,12 @@ where
     // to change (e.g. window resize, etc). But as now we targeting embedded
     // devices with fixed displays and don't support any windowing, I hold it.
     pub fn new(stylist: S, renderer: R) -> Self {
-        let viewport = renderer.size().inert().maybe_reactive();
+        let viewport = renderer.size();
 
         let dev_tools =
             create_signal(DevTools { enabled: false, hovered: None });
 
-        let fonts = create_signal(FontCtx::new());
+        let fonts = Rc::new(FontCtx::new());
 
         Self {
             page_history: Default::default(),
@@ -191,18 +207,53 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
     }
 
     // Fonts //
-    /// Adds font import into UI.
+    //
+    // ORDERING NOW MATTERS, and is enforced rather than documented. Both are
+    // consuming *builder* methods, and `with_page` builds the first page
+    // immediately (it calls `goto`) — so a font added after it would have to
+    // retroactively re-measure a page that is already laid out.
+    //
+    // While `fonts` was a `Signal` the page shared the handle, so the ordering
+    // was merely invisible, not correct: the page's text had still been
+    // measured with the old fonts and nothing marked it dirty. Now the page
+    // holds an `Rc` clone, which makes `Rc::get_mut` a precise test for "has
+    // anyone built against these fonts yet" — so a late call is *rejected and
+    // reported* instead of half-applied.
+    //
+    // Supporting it properly means a `mark_full` binding at `Page::new`, i.e.
+    // making fonts dynamic again; see `Page::fonts`.
+
+    /// Adds font import into UI. Call **before** [`Self::with_page`].
     pub fn with_font(mut self, import: FontImport) -> Self {
-        self.fonts.update(|fonts| fonts.insert(import));
+        if let Some(fonts) = self.fonts_before_build() {
+            fonts.insert(import);
+        }
         self
     }
 
     // TODO: Can we support reactive default?
+    /// Sets the default font. Call **before** [`Self::with_page`].
     pub fn with_default_font(mut self, import: FontImport) -> Self {
-        self.fonts.update(|fonts| {
+        if let Some(fonts) = self.fonts_before_build() {
             fonts.set_default(import);
-        });
+        }
         self
+    }
+
+    /// `&mut FontCtx` iff no page holds a clone of it yet. `Rc::get_mut`
+    /// answers exactly that question — it succeeds only at refcount 1 — so this
+    /// cannot report "fine" for a page that has already measured its text.
+    fn fonts_before_build(&mut self) -> Option<&mut FontCtx> {
+        let already_built = Rc::get_mut(&mut self.fonts).is_none();
+        if already_built {
+            log::warn!(
+                "font set after a page was built — IGNORED. The page is \
+                 already laid out with the previous fonts and nothing marks it \
+                 dirty. Call `.with_font(..)`/`.with_default_font(..)` before \
+                 `.with_page(..)`, which builds a page immediately."
+            );
+        }
+        Rc::get_mut(&mut self.fonts)
     }
 }
 
@@ -316,7 +367,10 @@ impl<W: WidgetCtx> UI<W, WithPages> {
             // per-app config into the page (all stylists are Clone/Copy).
             self.stylist.clone(),
             self.dev_tools,
-            self.fonts,
+            // An `Rc` clone — a refcount bump, not a copy of the glyph data.
+            // It is also what makes `Rc::get_mut` in `fonts_before_build` a
+            // sound "has anything been built yet?" test.
+            Rc::clone(&self.fonts),
             scope,
         )
     }

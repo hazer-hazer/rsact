@@ -5,7 +5,6 @@ use crate::{
     prelude::BlockStyle,
     render::{color::Color, prelude::*},
 };
-use rsact_reactive::prelude::*;
 
 #[derive(Default)]
 pub struct DevTools {
@@ -36,7 +35,7 @@ impl DevHoveredEl {
     pub fn draw<W: WidgetCtx>(
         &self,
         r: &mut W::Renderer,
-        font_ctx: Signal<FontCtx, ReadOnly>,
+        font_ctx: &FontCtx,
         // TODO: Render on bottom right corner of the viewport.
         viewport: Size,
     ) -> RenderResult {
@@ -51,18 +50,16 @@ impl DevHoveredEl {
 
         // TODO: Viewport-dependent font props resolution similar to layout
         // computation for text widget.
-        font_ctx.with(|font_ctx| {
-            font_ctx.render::<W::Renderer>(
-                crate::font::Font::Auto,
-                &format!("{}", self.layout),
-                crate::font::ResolvedFontProps {
-                    size: 12,
-                    style: crate::font::FontStyle::Normal,
-                },
-                Rect::top_left(viewport),
-                text_color,
-                r,
-            )
-        })
+        font_ctx.render::<W::Renderer>(
+            crate::font::Font::Auto,
+            &format!("{}", self.layout),
+            crate::font::ResolvedFontProps {
+                size: 12,
+                style: crate::font::FontStyle::Normal,
+            },
+            Rect::top_left(viewport),
+            text_color,
+            r,
+        )
     }
 }

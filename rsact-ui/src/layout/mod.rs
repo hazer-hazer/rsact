@@ -15,6 +15,7 @@ use core::{
 };
 use length::Length;
 pub use limits::Limits;
+use log::warn;
 use num::traits::SaturatingAdd;
 use rsact_reactive::prelude::*;
 
@@ -549,6 +550,24 @@ pub enum LayoutKind {
     Scrollable(ScrollableLayout),
 }
 
+impl LayoutKind {
+    /// Discriminant name, for wrong-kind diagnostics (`LayoutData::set_text`
+    /// and friends). Distinguishes the `Content` arms, since "wrote text to an
+    /// Icon layout" is a different mistake from "wrote text to a Flex".
+    fn kind_name(&self) -> &'static str {
+        match self {
+            Self::Zero => "Zero",
+            Self::Edge => "Edge",
+            Self::Content(ContentLayout::Text { .. }) => "Content::Text",
+            Self::Content(ContentLayout::Icon(_)) => "Content::Icon",
+            Self::Content(ContentLayout::Fixed(_)) => "Content::Fixed",
+            Self::Container(_) => "Container",
+            Self::Flex(_) => "Flex",
+            Self::Scrollable(_) => "Scrollable",
+        }
+    }
+}
+
 // WS4.1: contains `LayoutKind`, no longer `Copy`.
 //
 // ISSUE-2: `show` was an `Option<Memo<bool>>` read by `is_shown()` during the
@@ -751,12 +770,22 @@ impl LayoutData {
     /// copy-at-write LVGL makes; the alternative was measuring through a live
     /// reactive handle, which is what made every text change a whole-tree
     /// relayout.
+    /// Wrong-kind writes are logged, not silently dropped: a `set_text` that
+    /// lands on a non-text layout means a widget wired a text binding to the
+    /// wrong node, and the symptom — text that never updates — looks exactly
+    /// like a missing dirty mark. Log-and-degrade rather than panic, per
+    /// "the UI must never panic" (WS1.8).
     pub fn set_text(&mut self, text: &str) {
-        if let LayoutKind::Content(ContentLayout::Text { content, .. }) =
-            &mut self.kind
-        {
-            content.clear();
-            content.push_str(text);
+        match &mut self.kind {
+            LayoutKind::Content(ContentLayout::Text { content, .. }) => {
+                content.clear();
+                content.push_str(text);
+            },
+            other => warn!(
+                "set_text on a {} layout — the text binding is wired to a \
+                 non-text node and this write is lost",
+                other.kind_name()
+            ),
         }
     }
 
@@ -764,10 +793,15 @@ impl LayoutData {
     /// [`set_text`](Self::set_text) — same shape, and the resolved
     /// `TODO: MaybeReactive problem` that used to sit on `ContentLayout::Icon`.
     pub fn set_icon_size(&mut self, size: FontSize) {
-        if let LayoutKind::Content(ContentLayout::Icon(current)) =
-            &mut self.kind
-        {
-            *current = size;
+        match &mut self.kind {
+            LayoutKind::Content(ContentLayout::Icon(current)) => {
+                *current = size
+            },
+            other => warn!(
+                "set_icon_size on a {} layout — the icon-size binding is \
+                 wired to a non-icon node and this write is lost",
+                other.kind_name()
+            ),
         }
     }
 }

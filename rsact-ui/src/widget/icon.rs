@@ -183,8 +183,9 @@ impl<W: WidgetCtx + 'static, I: IconSet + 'static> Widget<W> for Icon<W, I> {
             let _icon_raw = match &self.value {
                 &IconValue::Fixed(icon_raw) => icon_raw,
                 IconValue::Relative(size, kind) => {
-                    with!(move |size, kind, viewport| kind
-                        .size(size.resolve(*viewport)))
+                    // `viewport` is a plain `Size` now, so it drops out of the
+                    // `with!` — only `size` and `kind` are still reactive here.
+                    with!(move |size, kind| kind.size(size.resolve(viewport)))
                 },
             };
 

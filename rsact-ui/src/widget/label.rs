@@ -151,7 +151,7 @@ impl<W: WidgetCtx> Widget<W> for Label<W> {
 
             with!(move |content| {
                 let font = props.font();
-                let props = props.resolve(ctx.shared.viewport.get());
+                let props = props.resolve(ctx.shared.viewport);
 
                 ctx.render_font(
                     font,
