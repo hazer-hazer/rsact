@@ -307,24 +307,30 @@ fn impl_builder(input: &mut DeriveInput) -> Result<proc_macro2::TokenStream> {
             ));
         }
 
+        // WS5.5: `layout` is BUILD-ONLY. It used to carry `#[widget]` and be
+        // moved into the retained widget as `layout: this.layout.into_data()`,
+        // giving every widget a non-reactive `LayoutData` snapshot that drifted
+        // from the arena's authoritative copy the moment a reactive padding
+        // changed (`button.rs` carried the admission). The only thing render
+        // ever read from it was `block_model().border_width`, and the border is
+        // a style property now — so the snapshot has no readers, and the
+        // arena's `LayoutData` (from `Build::layout()`, which finds this field
+        // by NAME and does not care about attributes) is the single source of
+        // truth.
+        //
+        // Rejected rather than silently ignored: an ignored `#[widget]` here
+        // would read as "this moves into the widget" while doing nothing.
+        if !is_delegate && ident == "layout" && has_widget {
+            return Err(syn::Error::new_spanned(
+                field,
+                "`layout` is build-only since WS5.5 — drop the #[widget] \
+                 attribute. It is consumed for `Build::layout()` (found by \
+                 name) and must not be duplicated into the retained widget, \
+                 which is what used to let a reactive padding/border drift",
+            ));
+        }
+
         if has_widget {
-            // WS5.5: the builder's `layout` is **not** moved into the retained
-            // widget any more.
-            //
-            // It used to be (`layout: this.layout.into_data()`), giving every
-            // widget a non-reactive `LayoutData` snapshot that drifted from the
-            // arena's authoritative copy the moment a reactive padding changed
-            // — `button.rs` carried the admission. The only thing render ever
-            // read from that snapshot was `block_model().border_width`, and the
-            // border is a style property now, so the snapshot has no readers
-            // left. The arena's `LayoutData` (built from `Build::layout()`) is
-            // the single source of truth.
-            //
-            // The field is still consumed for `Build::layout()` above; it just
-            // stops being duplicated into the widget.
-            if !is_delegate && ident == "layout" {
-                continue;
-            }
             widget_ctor_fields.push(quote! { #ident: this.#ident });
         }
 

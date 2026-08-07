@@ -127,7 +127,6 @@ impl<W: WidgetCtx, K: PartialEq> PartialEq for SelectOption<W, K> {
 #[builds(Select<W, K>)]
 #[flags(focusable)]
 pub struct SelectBuilder<W: WidgetCtx, K: PartialEq + 'static> {
-    #[widget]
     layout: LayoutBuilder<W>,
     #[widget]
     state: Signal<SelectState>,

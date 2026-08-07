@@ -43,7 +43,6 @@ impl<C: Color> BarStyle<C> {
 pub struct BarBuilder<W: WidgetCtx, V: RangeValue> {
     #[widget]
     value: MaybeReactive<V>,
-    #[widget]
     layout: LayoutBuilder<W>,
     #[widget]
     style: WidgetStyleFn<BarStyle<W::Color>>,

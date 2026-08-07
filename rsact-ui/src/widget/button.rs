@@ -14,7 +14,6 @@ declare_widget_style! {
 #[builds(Button<W>)]
 #[flags(hoverable, hoverable_from_children, clickable, focusable)]
 pub struct ButtonBuilder<W: WidgetCtx> {
-    #[widget]
     layout: LayoutBuilder<W>,
     #[child(single)]
     content: El<W>,

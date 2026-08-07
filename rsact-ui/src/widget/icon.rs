@@ -47,7 +47,6 @@ pub enum IconValue<I: IconSet> {
 pub struct IconBuilder<W: WidgetCtx, I: IconSet, R: ReactivityMarker> {
     #[widget]
     value: IconValue<I>,
-    #[widget]
     layout: LayoutBuilder<W>,
     #[widget]
     style: WidgetStyleFn<IconStyle<W::Color>>,

@@ -29,7 +29,6 @@ declare_widget_style! {
 #[builds(Checkbox<W>)]
 #[flags(hoverable, clickable, focusable)]
 pub struct CheckboxBuilder<W: WidgetCtx> {
-    #[widget]
     layout: LayoutBuilder<W>,
     #[widget]
     value: Signal<bool>,

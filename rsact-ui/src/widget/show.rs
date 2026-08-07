@@ -19,7 +19,6 @@ pub struct ShowBuilder<W: WidgetCtx> {
     // always be hidden or shown?
     #[child(single)]
     el: El<W>,
-    #[widget]
     layout: LayoutBuilder<W>,
     // Moved 1:1 by the derive into the retained `Show { layout, ctx }`:
     // `layout: LayoutData` alone doesn't use `W`, so `ctx: PhantomData<W>`

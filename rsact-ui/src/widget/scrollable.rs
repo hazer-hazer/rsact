@@ -117,7 +117,6 @@ pub struct ScrollableBuilder<W: WidgetCtx> {
     style: WidgetStyleFn<ScrollableStyle<W::Color>>,
     #[child(single)]
     content: El<W>,
-    #[widget]
     layout: LayoutBuilder<W>,
     #[widget]
     mode: ScrollableMode,

@@ -56,7 +56,6 @@ pub struct CanvasBuilder<W: WidgetCtx> {
     // the immediate-mode model.
     #[widget]
     draw: Box<dyn Fn(&mut RenderCtx<'_, W, CtxReady>) -> RenderResult>,
-    #[widget]
     layout: LayoutBuilder<W>,
 }
 

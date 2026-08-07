@@ -17,7 +17,6 @@ declare_widget_style! {
 #[derive(Builder)]
 #[builds(Container<W>)]
 pub struct ContainerBuilder<W: WidgetCtx> {
-    #[widget]
     layout: LayoutBuilder<W>,
     #[child(single)]
     content: El<W>,

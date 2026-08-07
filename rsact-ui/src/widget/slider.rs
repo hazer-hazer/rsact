@@ -91,7 +91,6 @@ pub struct SliderBuilder<W: WidgetCtx> {
     // widget-local value-adjust mode.
     #[widget]
     state: SliderState,
-    #[widget]
     layout: LayoutBuilder<W>,
     #[widget]
     style: WidgetStyleFn<SliderStyle<W::Color>>,

@@ -60,7 +60,6 @@ impl<C: Color> KnobStyle<C> {
 #[builds(Knob<W, V>)]
 #[flags(focusable)]
 pub struct KnobBuilder<W: WidgetCtx, V: RangeValue> {
-    #[widget]
     layout: LayoutBuilder<W>,
     #[widget]
     value: Signal<V>,
