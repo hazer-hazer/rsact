@@ -15,7 +15,7 @@ use crate::{
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use dev::{DevHoveredEl, DevTools};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use rsact_reactive::prelude::*;
 use rsact_reactive::scope::ScopeHandle;
 
@@ -164,6 +164,24 @@ struct Relayout {
     layout: LayoutModel,
     blanket: bool,
 }
+
+/// Fired by [`Page::relayout_if_needed`]'s tripwire: a relayout happened that
+/// nobody asked for through the dirty set, so it must have come from a tracked
+/// read inside `compute_layout` — a layout input that skipped the one channel.
+///
+/// Consequences of leaving one in place: the empty dirty set makes
+/// `compute_layout` skip the incremental path and take the blanket
+/// `force_redraw`/`full_flush`, so *every* change of that input relayouts the
+/// whole tree and reflushes the whole viewport. Correct pixels, worst-case cost,
+/// no visible symptom — which is why this is an assert and not a comment.
+///
+/// The fix is always the same: give the input an `ElId` and route it through
+/// `LayoutBuilder::setter`, so its binding effect calls `mark_dirty`. If the
+/// input is genuinely page-wide (fonts, viewport), bind it to `mark_full`
+/// instead.
+const UNMARKED_LAYOUT_INPUT: &str = "relayout with an empty dirty set: some layout input changed reactively \
+     without marking the arena. Route it through `LayoutBuilder::setter` \
+     (per-element `mark_dirty`) or, if page-wide, `mark_full`.";
 
 fn compute_layout<W: WidgetCtx>(
     id: W::PageId,
@@ -328,6 +346,32 @@ impl<W: WidgetCtx> Page<W> {
 
         let root = BuildCtx::run(&mut root, arena);
 
+        // ISSUE-2: fonts and viewport are the two layout inputs owned OUTSIDE
+        // the tree, so no `ElId` can claim them — but they still belong on the
+        // one channel, just with `mark_full` as their blast radius (fonts feed
+        // every text node's measure; the viewport sets the root's limits). This
+        // is the same binding `LayoutBuilder::setter` makes for a per-element
+        // prop, hoisted to the page because the "element" is the whole tree.
+        //
+        // Owned by the page scope (current here), so it is disposed with the
+        // page. `viewport` is `Inert` today (`ui.rs`), which makes its arm a
+        // no-op — written anyway so that flipping it reactive, as its TODO
+        // anticipates, does not silently reintroduce an unmarked input.
+        {
+            create_effect(move |_| {
+                fonts.track();
+                let mut arena = arena;
+                arena.update_untracked(|arena| arena.mark_full_relayout());
+            });
+            if let MaybeReactive::Memo(viewport) = viewport {
+                create_effect(move |_| {
+                    viewport.track();
+                    let mut arena = arena;
+                    arena.update_untracked(|arena| arena.mark_full_relayout());
+                });
+            }
+        }
+
         // Untracked so the probe is owned by no observer/scope — the page owns
         // it and disposes it explicitly in `Drop` (WS2.3), like `render_probe`.
         let layout_probe = untrack(create_probe);
@@ -436,29 +480,50 @@ impl<W: WidgetCtx> Page<W> {
     /// - `force_redraw`/`full_flush` stop being written from inside a memo
     ///   callback, which is what lets them stop being reactive at all.
     ///
-    /// # Which inputs are tracked, and which are not
+    /// # One dirty channel
     ///
-    /// `viewport` and `fonts` are reactive values owned outside the page, so they
-    /// stay TRACKED — read inside the poll closure by `compute_layout`.
+    /// **Every layout input marks the arena's dirty set. That is the channel.**
+    /// A property setter marks its own element (`bind_layout`'s effect —
+    /// `mark_dirty`); a structure change or a font/viewport change marks the
+    /// whole tree (`BuildCtx::set_children`/`set_single_child`, and the
+    /// `Page::new` font binding — `mark_full`). The mark arrives here as the
+    /// poll's `force` flag; nothing about layout is *tracked* by design.
     ///
-    /// The structure/prop channel is **not** tracked; it arrives as the poll's
-    /// `force` flag, from the arena's own dirty set. That is sound because every
-    /// site which mutates layout marks the arena in the same breath —
-    /// `BuildCtx::set_children`/`set_single_child` (`mark_full_relayout`) and
-    /// `bind_layout`'s effect (`mark_dirty`). Those three used to *also* fire a
-    /// `relayout` Trigger for the memo to track; the mark and the request were
-    /// the same fact recorded twice, so the Trigger is gone. The marks are kept
-    /// on **both** feature paths — a default build never reads the dirty set to
-    /// choose incremental-vs-full, but it does maintain and drain it — so
-    /// `has_dirty` gates correctly with or without `incremental-layout`.
+    /// Those sites used to *also* fire a `relayout` Trigger for the memo to
+    /// track; the mark and the request were the same fact recorded twice, so the
+    /// Trigger is gone. The marks are kept on **both** feature paths — a default
+    /// build never reads the dirty set to choose incremental-vs-full, but it does
+    /// maintain and drain it — so the gate works with or without
+    /// `incremental-layout`.
+    ///
+    /// # The probe is a tripwire, not a channel
+    ///
+    /// `compute_layout` still runs inside `layout_probe.poll`, so any tracked
+    /// read it performs subscribes the probe. That is deliberately **not** a
+    /// second way to request a relayout — it is how we *detect* a layout input
+    /// that skipped the channel above.
+    ///
+    /// The distinction matters because the failure it catches is invisible
+    /// otherwise: an unmarked input still produces correct pixels, it just
+    /// recomputes and repaints the whole tree forever (an empty dirty set skips
+    /// the incremental path in `compute_layout`, and no `mark_needs_redraw` means
+    /// the blanket `force_redraw`/`full_flush`). That is exactly how ISSUE-2
+    /// (`Label` text) survived unnoticed — along with `ContentLayout::Icon`'s
+    /// size memo and `Layout::show`, which had the identical shape.
+    ///
+    /// So: `poll` runs when `marked || probe_dirty`. If it ran and nothing was
+    /// marked, the probe fired on its own and some input is on the wrong
+    /// channel — `debug_assert` in debug, `warn!` in release. Release stays
+    /// *correct*: `poll` has already recomputed by the time we look, so the
+    /// warning reports waste, not breakage.
     fn relayout_if_needed(&mut self) -> bool {
-        let force = self.arena.with_untracked(|arena| arena.is_layout_dirty());
+        let marked = self.arena.with_untracked(|arena| arena.is_layout_dirty());
 
         // `Probe` is `Copy`: taking it out first means `poll` does not borrow
         // `self`, so the closure can borrow `self.layout` as `prev` and the
         // assignment below can take `&mut self.layout` once the poll returns.
         let probe = self.layout_probe;
-        let recomputed = probe.poll(force, || {
+        let recomputed = probe.poll(marked, || {
             compute_layout::<W>(
                 self.id,
                 self.arena,
@@ -471,6 +536,16 @@ impl<W: WidgetCtx> Page<W> {
 
         match recomputed {
             Some(relayout) => {
+                // The tripwire (see this method's docs). `poll` runs on
+                // `marked || probe_dirty`; recomputing with nothing marked means
+                // the probe fired alone. Debug: hard failure. Release: warn and
+                // carry on — the recompute already happened, so the frame is
+                // correct, just needlessly whole-tree.
+                debug_assert!(marked, "{}", UNMARKED_LAYOUT_INPUT);
+                if !marked {
+                    warn!("{UNMARKED_LAYOUT_INPUT}");
+                }
+
                 self.layout = relayout.layout;
                 // Applied outside the poll closure: `compute_layout` reports
                 // rather than writes, so the redraw state is set here, by a
@@ -3868,13 +3943,20 @@ mod tests {
         //   Button   144 -> 32   (-112 B per instance)
         //   Flex     112 ->  0   (a ZST — Flex held NOTHING but the copy)
         //
-        // Builders are unchanged (272 / 160) and should be: they still own the
-        // `LayoutBuilder` until build hands it to the arena. That asymmetry is
-        // the point — build-time cost, no retained cost.
+        // Builders keep their `LayoutBuilder` until build hands it to the arena.
+        // That asymmetry is the point — build-time cost, no retained cost.
+        //
+        // ISSUE-2 shaved 8 B off every builder (272 -> 264, 160 -> 152): the
+        // `LayoutData.show` field was an `Option<Memo<bool>>` — a reactive
+        // handle stored so the layout pass could *read* it — and is now a plain
+        // `bool` written through the layout-prop channel. A rare win: the
+        // correctness fix is also the smaller representation, because storing a
+        // graph handle to re-read later is strictly more machinery than storing
+        // the value someone already computed.
         assert_eq!(core::mem::size_of::<Button<NullWtf>>(), 32);
-        assert_eq!(core::mem::size_of::<ButtonBuilder<NullWtf>>(), 272);
+        assert_eq!(core::mem::size_of::<ButtonBuilder<NullWtf>>(), 264);
         assert_eq!(core::mem::size_of::<Flex<NullWtf>>(), 0);
-        assert_eq!(core::mem::size_of::<FlexBuilder<NullWtf>>(), 160);
+        assert_eq!(core::mem::size_of::<FlexBuilder<NullWtf>>(), 152);
     }
 
     // Regression (WS5.1, off-graph): a reactive source set through the
@@ -3938,6 +4020,110 @@ mod tests {
                 arena.with_untracked(|a| a.is_layout_dirty()),
                 "a reactive layout-prop write must mark the arena layout-dirty \
                  — that mark is the relayout request"
+            );
+        });
+    }
+
+    // ISSUE-2. The same guarantee, for the property that did not have it: a
+    // `Label`'s TEXT. It used to live in `ContentLayout::Text` as a
+    // `MaybeReactive<String>` that the layout pass read while measuring, so a
+    // text write woke the page's layout probe and left the dirty set empty —
+    // which is exactly the condition `compute_layout` treats as "relayout
+    // everything" and `Page::relayout_if_needed`'s tripwire now rejects.
+    #[test]
+    fn reactive_text_persists_and_marks_dirty() {
+        use crate::el::build::BuildCtx;
+        use alloc::string::ToString;
+
+        with_new_runtime(|_| {
+            let mut caption = create_signal("before".to_string());
+            let mut root: El<NullWtf> =
+                Label::<NullWtf>::new(caption).into_el();
+            let arena = create_signal(ElArena::new());
+            let root_id = BuildCtx::run(&mut root, arena);
+
+            let text = |a: &ElArena<NullWtf>| {
+                a.layout(root_id).unwrap().text().map(|t| t.to_string())
+            };
+
+            // The binding wrote the signal's initial value into the arena.
+            assert_eq!(
+                arena.with_untracked(text),
+                Some("before".to_string()),
+                "the layout's text must be written at build, not read lazily"
+            );
+
+            arena.clone().update_untracked(|a| {
+                a.take_dirty();
+            });
+
+            caption.set("after".to_string());
+
+            assert_eq!(
+                arena.with_untracked(text),
+                Some("after".to_string()),
+                "the binding must rewrite the arena-owned text"
+            );
+            assert!(
+                arena.with_untracked(|a| a.is_layout_dirty()),
+                "a text change must mark the arena layout-dirty — that mark is \
+                 what lets WS5.2 relayout only this label and WS6.1 repaint only \
+                 its box, instead of the whole viewport (ISSUE-2)"
+            );
+        });
+    }
+
+    // ISSUE-2's other half, and the reason the fix is not simply "make text a
+    // plain value": an INERT label must stay free. `LayoutBuilder::setter`'s
+    // Inert arm writes the string into the owned `LayoutData` at build and
+    // records no binding, so a static label creates no effect — the cost lands
+    // only on labels that can actually change.
+    //
+    // Both cases are measured, deliberately. "Creates nothing" is the kind of
+    // assertion that passes for the wrong reason — a miscounted or always-zero
+    // profile satisfies it just as well as a correct one — so the reactive label
+    // next to it is what proves the instrument reads.
+    #[test]
+    fn an_inert_label_creates_no_binding_effect() {
+        use crate::el::build::BuildCtx;
+        use alloc::string::ToString;
+        use rsact_reactive::runtime::current_runtime_profile;
+
+        fn build_label(
+            content: impl SignalMapRefMaybeReactive<str, String>,
+        ) -> usize {
+            let before = current_runtime_profile().effects;
+            let mut root: El<NullWtf> =
+                Label::<NullWtf>::new(content).into_el();
+            let arena = create_signal(ElArena::new());
+            let root_id = BuildCtx::run(&mut root, arena);
+
+            assert!(
+                arena.with_untracked(|a| a
+                    .layout(root_id)
+                    .unwrap()
+                    .text()
+                    .is_some_and(|t| !t.is_empty())),
+                "the text must reach the layout either way"
+            );
+
+            current_runtime_profile().effects - before
+        }
+
+        with_new_runtime(|_| {
+            assert_eq!(
+                build_label("static".inert()),
+                0,
+                "an inert label must not create a layout binding effect"
+            );
+        });
+        with_new_runtime(|_| {
+            let caption = create_signal("dynamic".to_string());
+            assert_eq!(
+                build_label(caption),
+                1,
+                "a reactive label creates exactly one — if this reads 0 the \
+                 count above proves nothing"
             );
         });
     }

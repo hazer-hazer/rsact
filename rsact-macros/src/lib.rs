@@ -409,7 +409,10 @@ fn impl_builder(input: &mut DeriveInput) -> Result<proc_macro2::TokenStream> {
     // default no-op.
     let set_show_method = if drains_layout {
         quote! {
-            fn set_show(&mut self, show: rsact_reactive::prelude::Memo<bool>) {
+            fn set_show(
+                &mut self,
+                show: rsact_reactive::prelude::MaybeReactive<bool>,
+            ) {
                 self.layout.show(show);
             }
         }

@@ -64,42 +64,40 @@ impl Align {
     }
 }
 
-// WS4.1: `content: MaybeReactive<String>` is now stored inline, so
-// `ContentLayout` is no longer `Copy` (its text is a value, not a node handle).
-// `Clone` is kept — every field is `Clone`. `Layout` itself stays `Copy`: it is
-// still a runtime-node handle; only these layout payload structs lose `Copy`.
-#[derive(Clone, PartialEq)]
+// WS4.1: `content` is stored inline, so `ContentLayout` is no longer `Copy`
+// (its text is a value, not a node handle). `Clone` is kept — every field is
+// `Clone`. `Layout` itself stays `Copy`: it is still a runtime-node handle; only
+// these layout payload structs lose `Copy`.
+//
+// **ISSUE-2: both reactive payloads here became plain values.** `content` was a
+// `MaybeReactive<String>` and `Icon` held a `Memo<FontSize>`, which meant the
+// layout pass *read them reactively* while measuring. That is a second way to
+// request a relayout, and a strictly worse one: it wakes the page's layout probe
+// instead of marking the arena, so the dirty set is empty, `compute_layout`
+// skips the incremental path, and every text or icon-size change relayouts the
+// whole tree and reflushes the whole viewport.
+//
+// They are ordinary layout properties now, written through
+// `LayoutBuilder::setter` like width/padding/gap — the Inert case writes once at
+// build, the reactive case gets a binding effect that writes here and calls
+// `mark_dirty`. The layout pass performs no tracked reads on them at all;
+// `Page::relayout_if_needed`'s tripwire asserts that stays true.
+//
+// The `String` is a genuine second copy of the label's text — the widget keeps
+// its own `MaybeReactive<String>` for *render*. That is deliberate, not waste:
+// the two are separate damage channels. A same-size edit ("cat" → "dog") moves
+// no geometry, so WS5.3's changed-set is empty and the repaint can only come
+// from the render probe's tracked read of the widget's copy.
+// ISSUE-2 also retired the manual `Debug` impl this used to need. It existed
+// because the reactive payloads had no `Debug` (WS1.4) and formatting them would
+// have *subscribed the formatting observer* to the text — a debug print that
+// changed the dependency graph. Every field is a plain value now, so the derive
+// is both correct and side-effect-free.
+#[derive(Clone, Debug, PartialEq)]
 pub enum ContentLayout {
-    Text {
-        font_props: FontProps,
-        content: MaybeReactive<String>,
-        overflow: TextOverflow,
-    },
-    // TODO: MaybeReactive problem described in Icon widget
-    Icon(Memo<FontSize>),
+    Text { font_props: FontProps, content: String, overflow: TextOverflow },
+    Icon(FontSize),
     Fixed(Size),
-}
-
-// Manual Debug: the reactive fields (`content`, the icon `Memo`) no longer
-// implement Debug (WS1.4), and reading them here would subscribe the observer
-// that formats the layout. Elide their values.
-impl Debug for ContentLayout {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            ContentLayout::Text { font_props, overflow, .. } => f
-                .debug_struct("Text")
-                .field("font_props", font_props)
-                .field("content", &"<reactive>")
-                .field("overflow", overflow)
-                .finish(),
-            ContentLayout::Icon(_) => {
-                f.debug_tuple("Icon").field(&"<reactive>").finish()
-            },
-            ContentLayout::Fixed(size) => {
-                f.debug_tuple("Fixed").field(size).finish()
-            },
-        }
-    }
 }
 
 /// Intrinsic sizing of a content leaf: the inline-axis (width) range and the
@@ -115,19 +113,17 @@ pub struct ContentSizing {
 impl Display for ContentLayout {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            ContentLayout::Text { content, .. } => content.with(|content| {
+            ContentLayout::Text { content, .. } => {
                 write!(f, "Text [{}]", DisplayTruncated::new(content, 16))
-            }),
-            ContentLayout::Icon(size) => {
-                size.with(|size| write!(f, "Icon [{size}]"))
             },
+            ContentLayout::Icon(size) => write!(f, "Icon [{size}]"),
             ContentLayout::Fixed(size) => write!(f, "Fixed [{size}]"),
         }
     }
 }
 
 impl ContentLayout {
-    pub fn text(content: MaybeReactive<String>) -> Self {
+    pub fn text(content: String) -> Self {
         Self::Text {
             font_props: Default::default(),
             content,
@@ -135,7 +131,7 @@ impl ContentLayout {
         }
     }
 
-    pub fn icon(size: Memo<FontSize>) -> Self {
+    pub fn icon(size: FontSize) -> Self {
         Self::Icon(size)
     }
 
@@ -149,24 +145,21 @@ impl ContentLayout {
     pub fn content_sizing(&self, ctx: &LayoutCtx) -> ContentSizing {
         match self {
             ContentLayout::Text { font_props, content, overflow } => {
+                #[cfg(feature = "layout-counters")]
+                crate::layout::counters::count_measure();
                 let resolved = font_props.inherited(&ctx.font_props);
-                let overflow = *overflow;
-                with!(move |content| {
-                    #[cfg(feature = "layout-counters")]
-                    crate::layout::counters::count_measure();
-                    let props = resolved.resolve(ctx.viewport);
-                    let font = resolved.font();
-                    let intrinsics =
-                        ctx.fonts.measure_text(font, content, props, overflow);
-                    ContentSizing {
-                        min_content: intrinsics.min_content_width,
-                        max_content: intrinsics.max_content_width,
-                        line_height: intrinsics.line_height,
-                    }
-                })
+                let props = resolved.resolve(ctx.viewport);
+                let font = resolved.font();
+                let intrinsics =
+                    ctx.fonts.measure_text(font, content, props, *overflow);
+                ContentSizing {
+                    min_content: intrinsics.min_content_width,
+                    max_content: intrinsics.max_content_width,
+                    line_height: intrinsics.line_height,
+                }
             },
-            ContentLayout::Icon(memo) => {
-                let size = memo.with(|size| size.resolve(ctx.viewport));
+            ContentLayout::Icon(size) => {
+                let size = size.resolve(ctx.viewport);
                 ContentSizing {
                     min_content: size,
                     max_content: size,
@@ -186,21 +179,16 @@ impl ContentLayout {
     pub fn height_for_width(&self, ctx: &LayoutCtx, width: u32) -> u32 {
         match self {
             ContentLayout::Text { font_props, content, overflow } => {
+                #[cfg(feature = "layout-counters")]
+                crate::layout::counters::count_measure();
                 let resolved = font_props.inherited(&ctx.font_props);
-                let overflow = *overflow;
-                with!(move |content| {
-                    #[cfg(feature = "layout-counters")]
-                    crate::layout::counters::count_measure();
-                    let props = resolved.resolve(ctx.viewport);
-                    let font = resolved.font();
-                    ctx.fonts.text_height_for_width(
-                        font, content, props, width, overflow,
-                    )
-                })
+                let props = resolved.resolve(ctx.viewport);
+                let font = resolved.font();
+                ctx.fonts.text_height_for_width(
+                    font, content, props, width, *overflow,
+                )
             },
-            ContentLayout::Icon(memo) => {
-                memo.with(|size| size.resolve(ctx.viewport))
-            },
+            ContentLayout::Icon(size) => size.resolve(ctx.viewport),
             ContentLayout::Fixed(size) => size.height,
         }
     }
@@ -562,25 +550,18 @@ pub enum LayoutKind {
 }
 
 // WS4.1: contains `LayoutKind`, no longer `Copy`.
-#[derive(Clone, PartialEq)]
+//
+// ISSUE-2: `show` was an `Option<Memo<bool>>` read by `is_shown()` during the
+// layout pass — the same wrong-channel bug as text and icon size, and the one
+// with the largest blast radius, since hiding an element restructures the whole
+// subtree's geometry. It is a plain `bool` written through
+// `LayoutBuilder::setter` now.
+#[derive(Clone, Debug, PartialEq)]
 pub struct LayoutData {
     kind: LayoutKind,
     // TODO: Does any LayoutKind require size?
     pub size: LengthSize,
-    show: Option<Memo<bool>>,
-}
-
-// Manual Debug: `show` holds a reactive Memo that no longer implements Debug
-// (WS1.4); reading it here would subscribe the formatting observer. Show only
-// whether it is present.
-impl Debug for LayoutData {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("LayoutData")
-            .field("kind", &self.kind)
-            .field("size", &self.size)
-            .field("show", &self.show.map(|_| "<reactive>"))
-            .finish()
-    }
+    show: bool,
 }
 
 impl LayoutData {
@@ -590,7 +571,7 @@ impl LayoutData {
     // here during the transition; `scrollable` stays on `Layout` for now (it
     // takes a child `Layout` — the child-collection entanglement A1 removes).
     pub fn new(kind: LayoutKind, size: LengthSize) -> Self {
-        Self { kind, size, show: None }
+        Self { kind, size, show: true }
     }
 
     pub fn zero() -> Self {
@@ -623,10 +604,12 @@ impl LayoutData {
         )
     }
 
-    /// Set the `show` visibility memo (WS5.1: public so `LayoutBuilder<W>`,
-    /// outside the `layout` module, can set it).
-    pub fn set_show(&mut self, show: Memo<bool>) {
-        self.show = Some(show);
+    /// Set visibility (WS5.1: public so `LayoutBuilder<W>`, outside the `layout`
+    /// module, can set it). ISSUE-2: a plain `bool` — the reactive case goes
+    /// through `LayoutBuilder::setter`'s binding effect like any other layout
+    /// property, so toggling it marks the arena instead of waking the probe.
+    pub fn set_show(&mut self, show: bool) {
+        self.show = show;
     }
 
     pub fn expect_container_mut(&mut self) -> &mut ContainerLayout {
@@ -643,11 +626,10 @@ impl LayoutData {
         }
     }
 
-    /// Whether this layout is currently shown. A `show` memo evaluating to
-    /// `false` hides the element (zero layout, not drawn). Reads the memo, so
-    /// callers inside a reactive layout pass track visibility changes.
+    /// Whether this layout is currently shown. `false` hides the element (zero
+    /// layout, not drawn).
     pub fn is_shown(&self) -> bool {
-        self.show.map(|show| show.get()).unwrap_or(true)
+        self.show
     }
 
     // WS5.1: `tree`/`id` thread the arena walk down to the container/flex/
@@ -685,6 +667,18 @@ impl LayoutData {
             | LayoutKind::Scrollable(..) => BlockModel::zero(),
             LayoutKind::Container(ContainerLayout { block_model, .. })
             | LayoutKind::Flex(FlexLayout { block_model, .. }) => *block_model,
+        }
+    }
+
+    /// The text this layout measures, if it is a text leaf (ISSUE-2). The read
+    /// end of [`set_text`](Self::set_text) — a plain borrow, no tracking, which
+    /// is the whole point of the change.
+    pub fn text(&self) -> Option<&str> {
+        match &self.kind {
+            LayoutKind::Content(ContentLayout::Text { content, .. }) => {
+                Some(content)
+            },
+            _ => None,
         }
     }
 
@@ -745,6 +739,35 @@ impl LayoutData {
         }) = &mut self.kind
         {
             *current = overflow;
+        }
+    }
+
+    /// ISSUE-2: the write end of the text layout property. Called by
+    /// `Label::new`'s `LayoutBuilder::setter` — once at build for inert text, or
+    /// from the binding effect (which then calls `mark_dirty`) for reactive text.
+    ///
+    /// Clones the string on every change. That is the price of text being an
+    /// owned layout input rather than a tracked read, and it is the same eager
+    /// copy-at-write LVGL makes; the alternative was measuring through a live
+    /// reactive handle, which is what made every text change a whole-tree
+    /// relayout.
+    pub fn set_text(&mut self, text: &str) {
+        if let LayoutKind::Content(ContentLayout::Text { content, .. }) =
+            &mut self.kind
+        {
+            content.clear();
+            content.push_str(text);
+        }
+    }
+
+    /// ISSUE-2: the write end of the icon-size layout property. See
+    /// [`set_text`](Self::set_text) — same shape, and the resolved
+    /// `TODO: MaybeReactive problem` that used to sit on `ContentLayout::Icon`.
+    pub fn set_icon_size(&mut self, size: FontSize) {
+        if let LayoutKind::Content(ContentLayout::Icon(current)) =
+            &mut self.kind
+        {
+            *current = size;
         }
     }
 }

@@ -244,23 +244,28 @@ fn anti_aliased_widgets_replay_soundly() {
 ///
 /// - a **paint-only** change (a checkbox toggles — same size, no relayout) damages
 ///   exactly that widget's 16x16 rect, and is the case the cost model describes;
-/// - a **text** change damages the **whole viewport** — and, measured here,
-///   `incremental-layout` does **not** change that (identical numbers with the
-///   feature on). The reason is a channel mismatch, not a threshold: a `Label`'s
-///   text is held by its layout (`ContentLayout::text`) and read during
-///   measurement, so it reaches the relayout through the *tracked-read* channel
-///   and never marks `ElArena`'s dirty set. WS5.2's incremental path requires a
-///   non-empty dirty set, so it falls through to a full recompute, and WS6.1's
-///   targeted repaint roots are never computed ⇒ `blanket` ⇒ `full_flush`.
+/// - a **text** change used to damage the **whole viewport**, with
+///   `incremental-layout` making no difference whatsoever. That was ISSUE-2, and
+///   it was a channel mismatch rather than a threshold: a `Label`'s text lived in
+///   its layout (`ContentLayout::text`) as a reactive handle *read during
+///   measurement*, so it reached the relayout through the tracked-read channel
+///   and never marked `ElArena`'s dirty set. WS5.2's incremental path requires a
+///   non-empty dirty set, so it fell through to a full recompute, and WS6.1's
+///   targeted repaint roots were never computed ⇒ `blanket` ⇒ `full_flush`.
 ///
-/// Consequence for WS6.4d, and why this test exists: the "+0%" interactive claim
-/// covers paint-only changes only. A text change is a **cold** frame today, so
-/// under tiling it costs the cold multiplier, not zero — which makes this gap a
-/// precondition for the interactive case on any text-driven UI. Filed as an
-/// ISSUE rather than fixed here (6.4a measures).
+///   Fixed by routing text through `LayoutBuilder::setter` like every other
+///   layout property. **Measured here: coverage 1.00 → 0.01, required 478 → 93**
+///   — which also restores the WS6.4 cost model's "+0%" interactive claim for
+///   text-driven UIs, previously a WS6.4d precondition.
 ///
-/// Only the paint-only half is asserted; the text half is recorded in the golden,
-/// because it is a number that *should* move and a diff here is the signal.
+/// The two feature configurations legitimately differ now, so they keep separate
+/// goldens. A default build still blankets: it maintains the dirty set but never
+/// consumes it, so `compute_layout` always full-recomputes and always reports
+/// `blanket`. That is the designed default, not a leftover bug.
+///
+/// Both halves are asserted under `incremental-layout`. Recording alone is what
+/// let ISSUE-2 sit in a golden for months as a documented number rather than a
+/// failing test.
 #[test]
 fn an_interactive_frame_repaints_a_fraction_of_the_screen() {
     with_new_runtime(|_| {
@@ -304,11 +309,23 @@ fn an_interactive_frame_repaints_a_fraction_of_the_screen() {
             cold.total.full
         );
 
-        // Text: recorded, not asserted (see the doc comment) — the number is
-        // the same with `incremental-layout` on, which is the finding.
+        // Text. Same width ("value 0" -> "value 1"), so close to the best case:
+        // only the label's own box should move, if anything.
         let relayout =
             probe.damage_after(|_| caption.set(String::from("value 1")));
         let relayout_report = ScheduleReport::of(&probe.capture(&relayout));
+
+        // ISSUE-2's regression guard. Without `incremental-layout` the dirty set
+        // is maintained but never consumed, so a text change is still a blanket
+        // frame by design and there is nothing here to assert.
+        #[cfg(feature = "incremental-layout")]
+        assert!(
+            relayout.coverage() < 0.5,
+            "a text change damaged {:.0}% of the viewport — ISSUE-2 has \
+             regressed: the label's text is reaching relayout through a \
+             tracked read again instead of marking the arena dirty",
+            relayout.coverage() * 100.0
+        );
 
         let mut out = String::new();
         let _ = writeln!(
@@ -334,11 +351,15 @@ fn an_interactive_frame_repaints_a_fraction_of_the_screen() {
                 report.total.required
             );
         }
-        assert_text_golden(
-            env!("CARGO_MANIFEST_DIR"),
-            "tile_damage_240.txt",
-            &out,
-        );
+        // Separate goldens per feature config: the two now legitimately differ
+        // (see the doc comment), and folding them into one file would mean
+        // either blessing the worse number or leaving one config ungoldened.
+        #[cfg(not(feature = "incremental-layout"))]
+        let golden = "tile_damage_240.txt";
+        #[cfg(feature = "incremental-layout")]
+        let golden = "tile_damage_240_incremental.txt";
+
+        assert_text_golden(env!("CARGO_MANIFEST_DIR"), golden, &out);
     });
 }
 

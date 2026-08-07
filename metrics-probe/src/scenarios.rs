@@ -338,7 +338,7 @@ mod tests {
         );
 
         let ui5 = ui_labels(5);
-        assert_eq!(ui5.counts.total, 21, "ui_labels_5 node total moved");
+        assert_eq!(ui5.counts.total, 27, "ui_labels_5 node total moved");
         assert_eq!(
             ui5.counts.stored, 0,
             "ui_labels_5 stored = 0: WS5.1 moved every widget's LayoutData \
@@ -351,13 +351,31 @@ mod tests {
         );
 
         let ui10 = ui_labels(10);
-        assert_eq!(ui10.counts.total, 36, "ui_labels_10 node total moved");
+        assert_eq!(ui10.counts.total, 47, "ui_labels_10 node total moved");
         assert_eq!(
             ui10.counts.observers, 12,
             // 10 label render probes + the page render probe + the page LAYOUT
             // probe (WS6.4.0(iv) — the owned `LayoutModel`'s recompute gate; was
             // 11 while layout was a `Memo`, which counted as a memo, not a probe).
+            // `observers` counts Probe nodes only; ISSUE-2's bindings are
+            // Effects, locked separately below.
             "one render probe per label, plus the page's render and layout probes"
+        );
+        assert_eq!(
+            ui10.counts.effects, 11,
+            // ISSUE-2: the whole +11 on `total` (36 -> 47), and the price of one
+            // dirty channel. Text stopped being a reactive handle the layout pass
+            // reads and became a layout property with a binding effect, like
+            // width or padding — one per REACTIVE label (an inert label's `setter`
+            // writes the string at build and creates nothing) — plus one per page
+            // for fonts.
+            //
+            // Worth it: the alternative was every text change relayouting the
+            // whole tree and reflushing the whole viewport (measured in
+            // `tile_damage_240*`: coverage 1.00 -> 0.01). Recoverable, too — this
+            // is the concrete workload WS20's edge-map fold and a `SignalOnWrite`
+            // binding would shrink.
+            "one layout binding per reactive label, plus the page's fonts binding"
         );
         assert_eq!(
             ui10.counts.stored, 0,

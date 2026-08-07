@@ -38,6 +38,16 @@ echo "== rsact-ui (tile-schedule harness) =="
 cargo test -p rsact-ui --test tile_schedule \
     --features "std,embedded-graphics" -- --test-threads=1
 
+echo "== rsact-ui (tile-schedule harness, incremental-layout) =="
+# ISSUE-2: the damage numbers now DIFFER between the two configs — a text change
+# is a blanket frame on default features and a 1%-of-viewport frame with
+# incremental layout — so each config has its own golden and each needs a job.
+# Without this one, `tile_damage_240_incremental.txt` is written by nobody and
+# the assertion guarding ISSUE-2 against regression never executes. Same class of
+# gap as the two jobs above: a (target, feature) pair no job names runs nowhere.
+cargo test -p rsact-ui --test tile_schedule \
+    --features "std,embedded-graphics,incremental-layout" -- --test-threads=1
+
 echo "== rsact-render =="
 cargo test -p rsact-render --features "std,embedded-graphics,tiny-skia" -- \
     --test-threads=1

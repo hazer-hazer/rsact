@@ -55,9 +55,13 @@ pub struct IconBuilder<W: WidgetCtx, I: IconSet, R: ReactivityMarker> {
     is_reactive: PhantomData<R>,
 }
 
+// WS5.5 missed this one: the retained widget kept a `layout: LayoutData` copy
+// after every other widget dropped theirs. It compiled nowhere to notice —
+// `icon` is `#[cfg(feature = "tiny-icons")]` and `ci-powerset.sh` excludes that
+// feature as WIP, so no CI job builds this module. `render` reads `ctx.layout`,
+// never `self.layout`, so the copy was pure duplication of arena-owned state.
 pub struct Icon<W: WidgetCtx, I: IconSet> {
     value: IconValue<I>,
-    layout: LayoutData,
     style: WidgetStyleFn<IconStyle<W::Color>>,
     visible: MaybeReactive<bool>,
 }
@@ -101,9 +105,23 @@ impl<W: WidgetCtx + 'static, I: IconSet + 'static> Icon<W, I> {
         let size = FontSize::Relative(1.0).signal();
         let value = IconValue::Relative(size, icon);
 
-        let layout = LayoutBuilder::shrink(LayoutKind::Content(
-            ContentLayout::Icon(size.memo()),
+        // ISSUE-2: the layout holds a plain `FontSize`, fed by the standard
+        // layout-prop binding, instead of a `Memo<FontSize>` the layout pass
+        // read while measuring. A size change now marks this element dirty
+        // rather than waking the page's layout probe with an empty dirty set
+        // (which relayouts and reflushes everything).
+        //
+        // Cost, and it is the TODO above's fault rather than this change's:
+        // because `size` is unconditionally a `Signal`, every icon — including
+        // the overwhelmingly common one whose size is never touched — pays for
+        // the binding effect. The `SignalOnWrite` type that TODO asks for is
+        // what would make the untouched case inert and free.
+        let mut layout = LayoutBuilder::shrink(LayoutKind::Content(
+            ContentLayout::icon(FontSize::Relative(1.0)),
         ));
+        layout.setter(MaybeReactive::Memo(size.memo()), |data, &size| {
+            data.set_icon_size(size)
+        });
 
         IconBuilder {
             value,

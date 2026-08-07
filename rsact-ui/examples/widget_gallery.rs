@@ -73,14 +73,17 @@ fn container() -> impl View<W> {
             (
                 "Border [width 10px, color red, radius 10px]",
                 Space::col(10),
+                // WS5.5: `border_width` is a STYLE property, not a layout one.
+                // It paints inside the box rather than reserving space, so add
+                // padding if it must not overlap content.
                 Edge::new()
                     .size(Size::new_equal(50))
                     .Container()
-                    .border_width(10)
                     .style(
                         move |base, _| {
                             base.background_color(background_color)
                             .border_color(border_color)
+                            .border_width(10)
                             .border_radius(Radius::SizeEqual(10))
                         },
                     )
@@ -96,8 +99,7 @@ fn container() -> impl View<W> {
                     base.background_color(content_color)
                 })
                 .Container()
-                .style(move |base, _| base.background_color(background_color).border_color(border_color))
-                .border_width(5)
+                .style(move |base, _| base.background_color(background_color).border_color(border_color).border_width(5))
                 .horizontal_align(Align::Center)
                 .vertical_align(Align::End)
                 .size(Size::new_equal(100)),

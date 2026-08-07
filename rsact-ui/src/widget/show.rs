@@ -36,10 +36,15 @@ impl<W: WidgetCtx + 'static> Show<W> {
         el: El<W>,
         // fallback: Option<El<W>>,
     ) -> ShowBuilder<W> {
-        let show = show.memo();
+        // `IntoMemo` (not `IntoMaybeReactive`) because `Show`'s whole point is a
+        // reactive condition, and `IntoMaybeReactive` has no closure impl — so
+        // `Show::new(move || flag.get(), …)` would stop compiling.
+        let show = MaybeReactive::Memo(show.memo());
         // WS5.1: clone the wrapped child's initial layout and gate it by `show`.
-        // The child stays a real arena node; `Show`'s own layout mirrors it and
-        // carries the visibility memo (off the graph, no shared `ValueId`).
+        // The child stays a real arena node; `Show`'s own layout mirrors it.
+        // ISSUE-2: `show` is written through the layout-prop channel now, so
+        // toggling visibility marks this element dirty instead of waking the
+        // page's layout probe and forcing a whole-tree relayout.
         let mut layout = LayoutBuilder::new(el.layout_data());
         layout.show(show);
         ShowBuilder { el, layout, ctx: PhantomData }
