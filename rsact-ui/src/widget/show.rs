@@ -19,7 +19,6 @@ pub struct ShowBuilder<W: WidgetCtx> {
     // always be hidden or shown?
     #[child(single)]
     el: El<W>,
-    #[widget]
     layout: LayoutBuilder<W>,
     // Moved 1:1 by the derive into the retained `Show { layout, ctx }`:
     // `layout: LayoutData` alone doesn't use `W`, so `ctx: PhantomData<W>`
@@ -48,7 +47,6 @@ impl<W: WidgetCtx + 'static> Show<W> {
 }
 
 pub struct Show<W: WidgetCtx> {
-    layout: LayoutData,
     // `W` is otherwise unused on the retained widget (unlike `ShowBuilder`,
     // which threads it through `el: El<W>`) — kept only to satisfy
     // `Widget<W>`'s own `W` parameter, same as `space.rs`/`flex.rs`.

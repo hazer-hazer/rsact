@@ -21,7 +21,6 @@ pub struct FlexBuilder<W: WidgetCtx> {
     // TODO: Can we do fixed size?
     #[children(reactive)]
     children: MaybeSignal<Vec<El<W>>>,
-    #[widget]
     layout: LayoutBuilder<W>,
     // Moved 1:1 by the derive into the retained `Flex { layout, ctx }`:
     // the by-name build transform declares every field the widget has.
@@ -30,7 +29,6 @@ pub struct FlexBuilder<W: WidgetCtx> {
 }
 
 pub struct Flex<W: WidgetCtx> {
-    layout: LayoutData,
     // `W` is otherwise unused on the retained widget (unlike `FlexBuilder`,
     // which threads it through `children: MaybeSignal<Vec<El<W>>>`) — kept
     // only to satisfy `Widget<W>`'s own `W` parameter, same as `space.rs`.

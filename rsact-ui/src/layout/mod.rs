@@ -254,7 +254,7 @@ impl ContainerLayout {
                 tree.layout(cid).map(|l| l.min_size(&child_ctx, tree, cid))
             })
             .unwrap_or_else(Size::zero);
-        content + self.block_model.full_padding()
+        content + self.block_model.padding
     }
 }
 
@@ -723,16 +723,6 @@ impl LayoutData {
             LayoutKind::Scrollable(scrollable_layout) => {
                 Some(&mut scrollable_layout.font_props)
             },
-        }
-    }
-
-    pub fn set_border_width(&mut self, border_width: u32) {
-        match &mut self.kind {
-            LayoutKind::Container(ContainerLayout { block_model, .. })
-            | LayoutKind::Flex(FlexLayout { block_model, .. }) => {
-                block_model.border_width = border_width;
-            },
-            _ => {},
         }
     }
 

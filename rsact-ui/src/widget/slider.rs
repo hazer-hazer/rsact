@@ -91,7 +91,6 @@ pub struct SliderBuilder<W: WidgetCtx> {
     // widget-local value-adjust mode.
     #[widget]
     state: SliderState,
-    #[widget]
     layout: LayoutBuilder<W>,
     #[widget]
     style: WidgetStyleFn<SliderStyle<W::Color>>,
@@ -106,7 +105,6 @@ pub struct Slider<W: WidgetCtx> {
     range: MaybeReactive<RangeInclusive<f32>>,
     step: MaybeReactive<f32>,
     state: SliderState,
-    layout: LayoutData,
     style: WidgetStyleFn<SliderStyle<W::Color>>,
     axis: Axis,
 }

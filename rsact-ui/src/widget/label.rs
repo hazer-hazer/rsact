@@ -26,7 +26,6 @@ declare_widget_style! {
 pub struct LabelBuilder<W: WidgetCtx> {
     #[widget]
     content: MaybeReactive<String>,
-    #[widget]
     layout: LayoutBuilder<W>,
     #[widget]
     style: WidgetStyleFn<LabelStyle<W::Color>>,
@@ -34,7 +33,6 @@ pub struct LabelBuilder<W: WidgetCtx> {
 
 pub struct Label<W: WidgetCtx> {
     content: MaybeReactive<String>,
-    layout: LayoutData,
     style: WidgetStyleFn<LabelStyle<W::Color>>,
 }
 

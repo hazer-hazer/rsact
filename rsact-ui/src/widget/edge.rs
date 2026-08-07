@@ -11,14 +11,12 @@ declare_widget_style! {
 #[derive(Builder)]
 #[builds(Edge<W>)]
 pub struct EdgeBuilder<W: WidgetCtx> {
-    #[widget]
     layout: LayoutBuilder<W>,
     #[widget]
     style: WidgetStyleFn<EdgeStyle<W::Color>>,
 }
 
 pub struct Edge<W: WidgetCtx> {
-    layout: LayoutData,
     style: WidgetStyleFn<EdgeStyle<W::Color>>,
 }
 
@@ -61,12 +59,8 @@ impl<W: WidgetCtx + 'static> Widget<W> for Edge<W> {
 
             log::info!("Edge style: {:?}", style);
 
-            Block::from_layout_style(
-                ctx.layout.outer,
-                self.layout.block_model(),
-                style.container,
-            )
-            .render(&mut ctx)
+            Block::from_layout_style(ctx.layout.outer, style.container)
+                .render(&mut ctx)
         })
     }
 

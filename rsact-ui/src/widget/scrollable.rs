@@ -117,7 +117,6 @@ pub struct ScrollableBuilder<W: WidgetCtx> {
     style: WidgetStyleFn<ScrollableStyle<W::Color>>,
     #[child(single)]
     content: El<W>,
-    #[widget]
     layout: LayoutBuilder<W>,
     #[widget]
     mode: ScrollableMode,
@@ -128,7 +127,6 @@ pub struct ScrollableBuilder<W: WidgetCtx> {
 pub struct Scrollable<W: WidgetCtx> {
     state: Signal<ScrollableState>,
     style: WidgetStyleFn<ScrollableStyle<W::Color>>,
-    layout: LayoutData,
     mode: ScrollableMode,
     axis: Axis,
 }
@@ -268,12 +266,8 @@ impl<W: WidgetCtx> Widget<W> for Scrollable<W> {
             let style = ctx.get_style(self.style.as_deref());
 
             // WS5.1: `self.layout` is the owned build-time `LayoutData`.
-            Block::from_layout_style(
-                ctx.layout.outer,
-                self.layout.block_model(),
-                style.container,
-            )
-            .render(&mut ctx)?;
+            Block::from_layout_style(ctx.layout.outer, style.container)
+                .render(&mut ctx)?;
 
             let mut content_length = child_layout.outer.size.main(self.axis);
             let scrollable_length = ctx.layout.inner.size.main(self.axis);

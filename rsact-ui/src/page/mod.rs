@@ -2706,6 +2706,120 @@ mod tests {
 
     /// WS6.4c(F): clipping is widget behaviour the framework reads, not a call a
     /// widget makes inside its own `render`.
+    /// WS5.5: box-model and border behaviour after the retained layout copy was
+    /// deleted.
+    ///
+    /// **On what these do and do not prove.** The drift `button.rs` admitted —
+    /// *"a padding/border bound to a signal after build drifts here (the
+    /// retained snapshot isn't the live arena value)"* — is now impossible
+    /// **structurally**: the widget has no layout copy to go stale, so no test
+    /// can fail for it. A test asserting "reactive padding reaches the render"
+    /// would have passed before this change too, because padding always flowed
+    /// through the *arena's* live copy into the layout model; only
+    /// `border_width` was ever read from the snapshot.
+    ///
+    /// So these pin the two things that ARE newly true: the box model still
+    /// drives the render end-to-end after the deletion, and a border width can
+    /// now be set through the style — the capability the move bought, and one a
+    /// layout-side width could never have.
+    mod reactive_box_model {
+        use super::culling::RecWtf;
+        use super::*;
+        use crate::render::record::{DrawOp, RecordingRenderer};
+        use rsact_reactive::runtime::with_new_runtime;
+
+        #[test]
+        fn a_reactive_padding_moves_what_is_painted() {
+            with_new_runtime(|_| {
+                let mut padding = create_signal(2u32);
+                let renderer =
+                    RecordingRenderer::<NullColor>::new(Size::new_equal(64));
+                let recorder = renderer.clone();
+                let arena =
+                    create_signal(ElArena::<RecWtf>::new()).name("Page arena");
+                let scope = new_scope();
+                let mut page = TestPage::new(
+                    Page::new(
+                        (),
+                        Container::<RecWtf>::new(
+                            Checkbox::new(false).into_el(),
+                        )
+                        .padding(padding),
+                        arena,
+                        Size::new_equal(64).maybe_reactive(),
+                        ().inert(),
+                        DevTools::default().signal(),
+                        FontCtx::new().signal(),
+                        scope,
+                    ),
+                    renderer,
+                );
+                for _ in 0..4 {
+                    page.use_renderer(|_| {});
+                }
+
+                // Where does the inner content sit at padding = 2?
+                let inner_at = |recorder: &RecordingRenderer<NullColor>| {
+                    recorder
+                        .ops()
+                        .iter()
+                        .filter_map(DrawOp::bounds)
+                        .map(|b| b.top_left.x)
+                        .max()
+                };
+
+                recorder.clear();
+                page.force_redraw();
+                page.use_renderer(|_| {});
+                let before = inner_at(&recorder);
+
+                padding.set(10);
+                recorder.clear();
+                page.use_renderer(|_| {});
+                let after = inner_at(&recorder);
+
+                assert!(before.is_some() && after.is_some(), "nothing painted");
+                assert_ne!(
+                    before, after,
+                    "the box model stopped reaching the render after the \
+                     retained layout copy was deleted"
+                );
+            });
+        }
+
+        /// The capability the move bought: a border width that comes from the
+        /// style, and can therefore differ per pseudo-class — which a
+        /// layout-side width could never do, because layout must not consult
+        /// the stylist (a hover-driven relayout would be thrash).
+        ///
+        /// Asserted at the style layer rather than on pixels because an
+        /// inside-aligned stroke changes neither the primitive nor its bounds,
+        /// so the op log cannot see it; the plumbing is what is new here.
+        #[test]
+        fn a_border_width_is_a_style_property_and_resolves_per_pseudoclass() {
+            use crate::style::Style as _;
+            use crate::widget::button::ButtonStyle;
+
+            let base = ButtonStyle::<NullColor>::base();
+            assert_eq!(
+                base.container.border.width, 0,
+                "the base style must not invent a border"
+            );
+
+            // The setter `declare_widget_style!` generates beside
+            // `border_color`/`outline_width` (WS5.5).
+            let hovered = ButtonStyle::<NullColor>::base().border_width(3);
+            assert_eq!(hovered.container.border.width, 3);
+
+            // And it is a plain value on the style, so a style fn is free to
+            // return a different one per selector — the whole point.
+            assert_ne!(
+                base.container.border.width,
+                hovered.container.border.width
+            );
+        }
+    }
+
     mod widget_clipping {
         use super::*;
         use crate::{
@@ -3742,13 +3856,24 @@ mod tests {
         // ButtonBuilder 152, Flex 12, FlexBuilder 40). The retained widget and
         // its builder now embed an owned `LayoutData`/`LayoutBuilder` inline
         // instead of an 8-byte `Layout` (`ValueId`) handle into the reactive
-        // graph — that is the off-graph trade. (Follow-up: widgets whose
-        // `render` never reads `self.layout` could drop the retained copy and
-        // read the arena-owned `LayoutData`; tracked for the WS5.1 Commit-B
-        // cleanup — see the `field 'layout' is never read` warnings.)
-        assert_eq!(core::mem::size_of::<Button<NullWtf>>(), 144);
+        // graph — that is the off-graph trade.
+        //
+        // **WS5.5 paid that trade back, and then some.** The follow-up this
+        // comment predicted ("widgets whose `render` never reads `self.layout`
+        // could drop the retained copy") turned out to apply to ALL of them
+        // once the border moved to style: the only thing render ever read from
+        // the snapshot was `block_model().border_width`. With the copy gone the
+        // retained widget keeps just its own state:
+        //
+        //   Button   144 -> 32   (-112 B per instance)
+        //   Flex     112 ->  0   (a ZST — Flex held NOTHING but the copy)
+        //
+        // Builders are unchanged (272 / 160) and should be: they still own the
+        // `LayoutBuilder` until build hands it to the arena. That asymmetry is
+        // the point — build-time cost, no retained cost.
+        assert_eq!(core::mem::size_of::<Button<NullWtf>>(), 32);
         assert_eq!(core::mem::size_of::<ButtonBuilder<NullWtf>>(), 272);
-        assert_eq!(core::mem::size_of::<Flex<NullWtf>>(), 112);
+        assert_eq!(core::mem::size_of::<Flex<NullWtf>>(), 0);
         assert_eq!(core::mem::size_of::<FlexBuilder<NullWtf>>(), 160);
     }
 

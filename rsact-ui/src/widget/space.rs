@@ -10,7 +10,6 @@ use core::marker::PhantomData;
 #[derive(Builder)]
 #[builds(Space<W>)]
 pub struct SpaceBuilder<W: WidgetCtx> {
-    #[widget]
     layout: LayoutBuilder<W>,
     // Moved 1:1 by the derive into the retained `Space { layout, ctx }`:
     // `layout: LayoutData` alone doesn't use `W`, so `ctx: PhantomData<W>`
@@ -21,7 +20,6 @@ pub struct SpaceBuilder<W: WidgetCtx> {
 }
 
 pub struct Space<W: WidgetCtx> {
-    layout: LayoutData,
     // `W` is otherwise unused on the retained widget — kept only to satisfy
     // `Widget<W>`'s own `W` parameter, same as `flex.rs`/`show.rs`.
     ctx: PhantomData<W>,

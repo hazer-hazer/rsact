@@ -14,7 +14,6 @@ declare_widget_style! {
 #[builds(Button<W>)]
 #[flags(hoverable, hoverable_from_children, clickable, focusable)]
 pub struct ButtonBuilder<W: WidgetCtx> {
-    #[widget]
     layout: LayoutBuilder<W>,
     #[child(single)]
     content: El<W>,
@@ -25,7 +24,6 @@ pub struct ButtonBuilder<W: WidgetCtx> {
 }
 
 pub struct Button<W: WidgetCtx> {
-    layout: LayoutData,
     style: WidgetStyleFn<ButtonStyle<W::Color>>,
     on_click: Option<Box<dyn FnMut()>>,
 }
@@ -36,7 +34,22 @@ impl<W: WidgetCtx + 'static> Button<W> {
 
         let layout =
             LayoutBuilder::shrink(LayoutKind::Container(ContainerLayout {
-                block_model: BlockModel::zero().padding(5).border_width(1),
+                // WS5.5: the box reserves padding only — the border width
+                // moved to the style. **6, not 5**, and the +1 is the border
+                // width this used to add through `full_padding()`.
+                //
+                // `padding(5) + border_width(1)` under "the border insets
+                // content" is exactly `padding(6)` under "the border overlaps
+                // the padding ring": the border still occupies the outermost
+                // 1 px either way, and content still starts 6 px in. Verified,
+                // not assumed — with 5 the tile-schedule golden moved on two
+                // pages (buttons shrank 2 px per axis, which let one more row
+                // fit inside the scrollable window); with 6 it is byte-identical
+                // to the pre-change file.
+                //
+                // That equivalence IS the migration rule for users:
+                // `new_padding = old_padding + old_border_width`.
+                block_model: BlockModel::zero().padding(6),
                 horizontal_align: Align::Center,
                 vertical_align: Align::Center,
                 font_props: Default::default(),
@@ -94,12 +107,8 @@ impl<W: WidgetCtx + 'static> Widget<W> for Button<W> {
             // TODO: a padding/border bound to a signal after build drifts here
             // (the retained snapshot isn't the live arena value); accepted
             // narrow limitation until render reads block_model off the arena.
-            Block::from_layout_style(
-                ctx.layout.outer,
-                self.layout.block_model(),
-                style.container,
-            )
-            .render(&mut ctx)?;
+            Block::from_layout_style(ctx.layout.outer, style.container)
+                .render(&mut ctx)?;
 
             ctx.render_focus_outline(ctx.id)
         })

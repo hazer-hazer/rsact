@@ -28,7 +28,6 @@ impl DevHoveredEl {
     fn block<C: Color>(rect: Rect, color: C) -> Block<C> {
         Block::from_layout_style(
             rect,
-            BlockModel::zero(),
             BlockStyle::base()
                 .outline(OutlineStyle::base().width(1).color(color)),
         )

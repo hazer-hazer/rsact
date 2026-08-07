@@ -10,3 +10,8 @@
 # WS0.8 post-commit hook log (local).
 /metrics/hook.log
 .superpowers/
+
+# macOS Finder metadata. `.DS_Store` was tracked from bed692c until WS5.5 and
+# changed whenever Finder touched the directory — it turned up as binary noise
+# in an unrelated PR's diff, which is how it was noticed.
+.DS_Store

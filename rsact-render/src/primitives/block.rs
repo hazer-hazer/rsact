@@ -1,6 +1,6 @@
 use crate::{
     color::Color,
-    geometry::{CornerRadii, Rect, Size, block_model::BlockModel},
+    geometry::{CornerRadii, Rect, Size},
     renderer::{RenderResult, Renderer},
     style::{
         DrawStyle, StrokeAlignment,
@@ -65,13 +65,19 @@ impl<C: Color> Block<C> {
         Ok(())
     }
 
+    /// Build a block from a widget's rect and its resolved style.
+    ///
+    /// WS5.5: the `BlockModel` argument is gone. It was only ever read for
+    /// `border_width` (the padding was discarded right here in the pattern),
+    /// and that width now lives in `BorderStyle` — so this takes the rect and
+    /// the style, and nothing has to carry a copy of the layout to render.
     #[inline]
     pub fn from_layout_style(
         rect: Rect,
-        BlockModel { border_width, padding: _ }: BlockModel,
         BlockStyle {
             background_color,
-            border: BorderStyle { color: border_color, radius },
+            border:
+                BorderStyle { color: border_color, radius, width: border_width },
             outline:
                 OutlineStyle {
                     color: outline_color,
