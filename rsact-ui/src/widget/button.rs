@@ -34,9 +34,22 @@ impl<W: WidgetCtx + 'static> Button<W> {
 
         let layout =
             LayoutBuilder::shrink(LayoutKind::Container(ContainerLayout {
-                // WS5.5: the border width moved to `ButtonStyle`'s
-                // container border — the box reserves padding only.
-                block_model: BlockModel::zero().padding(5),
+                // WS5.5: the box reserves padding only — the border width
+                // moved to the style. **6, not 5**, and the +1 is the border
+                // width this used to add through `full_padding()`.
+                //
+                // `padding(5) + border_width(1)` under "the border insets
+                // content" is exactly `padding(6)` under "the border overlaps
+                // the padding ring": the border still occupies the outermost
+                // 1 px either way, and content still starts 6 px in. Verified,
+                // not assumed — with 5 the tile-schedule golden moved on two
+                // pages (buttons shrank 2 px per axis, which let one more row
+                // fit inside the scrollable window); with 6 it is byte-identical
+                // to the pre-change file.
+                //
+                // That equivalence IS the migration rule for users:
+                // `new_padding = old_padding + old_border_width`.
+                block_model: BlockModel::zero().padding(6),
                 horizontal_align: Align::Center,
                 vertical_align: Align::Center,
                 font_props: Default::default(),

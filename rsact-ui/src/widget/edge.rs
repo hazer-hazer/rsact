@@ -11,7 +11,6 @@ declare_widget_style! {
 #[derive(Builder)]
 #[builds(Edge<W>)]
 pub struct EdgeBuilder<W: WidgetCtx> {
-    #[widget]
     layout: LayoutBuilder<W>,
     #[widget]
     style: WidgetStyleFn<EdgeStyle<W::Color>>,
