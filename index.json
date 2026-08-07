@@ -5,6 +5,12 @@
     "branch": "ws6.4c-clip-events",
     "subject": "WS5.5: translate Button's default padding — the goldens should NOT have moved"
   },
+  "1ebd896708f3446b30ec46207fd087b063cf192d": {
+    "date": 1786117642,
+    "parent": "",
+    "branch": "ws6.4c-clip-events",
+    "subject": "Untrack .DS_Store and ignore it"
+  },
   "2446c0b2143b9220851eddb2f8a8e6775e20d546": {
     "date": 1785873598,
     "parent": "",
