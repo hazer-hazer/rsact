@@ -83,6 +83,12 @@
     "branch": "master",
     "subject": "Merge pull request #40 from hazer-hazer/ws6.4c-prune"
   },
+  "a1b00cda98ee2d4510ac420cf7a9e4bd665f1cbe": {
+    "date": 1786118582,
+    "parent": "",
+    "branch": "issue-4-style-traits",
+    "subject": "Roadmap: ISSUE-4 — style-property traits + a `Style` associated type"
+  },
   "b201ff3c175ac903994ab4ae3cba3660656e5e06": {
     "date": 1785963304,
     "parent": "",
