@@ -701,6 +701,15 @@ impl LayoutData {
         }
     }
 
+    /// The icon size this layout measures, if it is an icon leaf. Read end of
+    /// [`set_icon_size`](Self::set_icon_size); see [`text`](Self::text).
+    pub fn icon_size(&self) -> Option<FontSize> {
+        match &self.kind {
+            LayoutKind::Content(ContentLayout::Icon(size)) => Some(*size),
+            _ => None,
+        }
+    }
+
     pub fn font_props(&self) -> Option<FontProps> {
         match &self.kind {
             LayoutKind::Zero => None,
