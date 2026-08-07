@@ -41,6 +41,12 @@
     "branch": "master",
     "subject": "Merge pull request #18 from hazer-hazer/ws-home-hero"
   },
+  "3dc19c517e5e026622401065ae6a92fd6c8f6d9e": {
+    "date": 1786138105,
+    "parent": "",
+    "branch": "issue2-label-layout",
+    "subject": "Icon: the size binding belongs on size(), not on new()"
+  },
   "40b7aa96c3c83b4b0cf6c7d69702511806925ef5": {
     "date": 1786016813,
     "parent": "",
