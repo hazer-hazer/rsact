@@ -95,6 +95,12 @@
     "branch": "ws6.4.0-layout-owned",
     "subject": "WS6.4.0(iv): gate the test-only layout accessor"
   },
+  "bb32601866118e18444aa1dd83ae6895dbaaa538": {
+    "date": 1786117951,
+    "parent": "",
+    "branch": "master",
+    "subject": "Merge pull request #42 from hazer-hazer/ws6.4c-clip-events"
+  },
   "bee52074d4d4dc09f5c224350d0b4ec703b72bb0": {
     "date": 1786007360,
     "parent": "",
