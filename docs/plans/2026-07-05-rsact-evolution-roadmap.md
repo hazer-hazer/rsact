@@ -991,6 +991,43 @@ The staged collapse (D2's analysis, amended by G5: widgets vary over exactly TWO
 - [ ] 7.5 **`WidgetCtx` → two associated types (shape pending G4 sign-off)**: `WidgetCtx { type Renderer; type Event; type Color; }` where `Color` is set from the renderer's color in every impl (kept so `W::Color` keeps compiling), with a blanket `impl<R: Renderer> WidgetCtx for R { type Event = (); }` — `type W = MyRenderer` works with zero ceremony; apps with custom events write one small ctx impl. Existing `impl<W: WidgetCtx> Widget<W>` code compiles **unmodified**; delete `Wtf` + the `PhantomData` plumbing. Optional `default-backend` feature exporting `type W` sugar (D7-friendly). **Fold into the decision paper (final sweep):** `Renderer::set_options`/`type Options` is dead API (zero callers) while AA is a type-level parameter with a commented-out runtime ambition (`renderer.rs:12-41`) — decide runtime-vs-type-level AA before this trait shape locks and before WS16.1 designs the IR.
 - [ ] 7.6 **Widget trait method set**: remove `update` (no widget overrides it — framework applies Update bookkeeping directly to `ElState`), add the hooks widgets actually need (`post_render` for Scrollable's scrollbar overlay; child-focus notification for Select — their own TODOs). Decide `Widget: Any` (downcast: devtools plan or delete).
 - [ ] 7.7 `#[derive(View)]`: detect the `WidgetCtx`-bounded param instead of hardcoding the ident `W` (D2-F8).
+- [ ] 7.8 **Two-level `IntoMaybeReactive`: `impl IntoMaybeReactive<FontSize> for u32`** (maintainer, 2026-08-08). Same class as 7.2 — a per-method type parameter that exists only to route a value conversion, paid for in monomorphization.
+
+  **The gap.** `IntoMaybeReactive<T>` has **identity impls only**: a macro over the primitives (`impl IntoMaybeReactive<u32> for u32`, …) and `#[derive(IntoMaybeReactive)]` for domain types (`Padding`, `FontSize`, `Length`, …). There is no `impl IntoMaybeReactive<FontSize> for u32`, even though `impl From<u32> for FontSize` exists — so the reactive wrapper does not compose with the conversions the value layer already provides.
+
+  **The current workaround, and its cost.** Every affected setter carries an extra type parameter and converts at the write site:
+
+  ```rust
+  fn width<L: Into<Length> + PartialEq + Clone + 'static>(width: impl IntoMaybeReactive<L>)
+  fn padding<P: Into<Padding> + PartialEq + Copy + 'static>(padding: impl IntoMaybeReactive<P>)
+  fn font_size<S: Into<FontSize> + PartialEq + Clone + 'static>(font_size: impl IntoMaybeReactive<S>)
+  IconBuilder::size<S: Into<FontSize> + …>   // and LabelView::font_size
+  ```
+
+  It works and costs **zero reactive nodes** — that is the design's real virtue, so do not discard it thoughtlessly. What it costs is a second monomorphization axis on every such method, which is exactly 7.2's argument and is measurable on the audit's "+2.4 KiB per widget-type instantiation" axis via the size probe.
+
+  **Where the workaround was not applied at all**, leaving the setter inert-only — these are the places a user simply cannot pass a signal today:
+  `SizedWidget::size(impl Into<LengthSize>)` (`widget/mod.rs:143`) · `Space::row`/`col(impl Into<Length>)` (`space.rs:35`, `:45`) · `BorderStyle::radius`/`OutlineStyle::radius(impl Into<BorderRadius>)` (`render/style/block.rs:186`, `:233`) · `BlockModel::padding(impl Into<Padding>)` (`render/geometry/block_model.rs:28`) · theme `border_radius(impl Into<Radius>)` (`style/theme/rgb.rs:226`, `binary_color.rs:80`).
+
+  **Why a blanket impl is impossible.** `impl<T, U> IntoMaybeReactive<U> for T where T: Into<U>` collides with all four existing generic impls (`MaybeReactive<T>`, `Signal<T>`, `Memo<T>`, `Inert<T>`) — the reflexive `impl<T> From<T> for T` makes `MaybeReactive<T>: Into<MaybeReactive<T>>`, so E0119. It must be **per-pair and macro-generated**, e.g. `impl_into_maybe_reactive_from!(u32 => FontSize, Length, Padding, Size, Radius; f32 => FontSize, Radius; …)`.
+
+  **The inert and reactive halves are not the same problem, and this is the design decision.** For a literal (`.font_size(20)`) the conversion is free: convert, then wrap `Inert`. For a reactive source (`Signal<u32>` where `FontSize` is wanted) it is not: you need either a **mapping memo** — a new reactive node per conversion, on a framework whose whole thesis is node frugality — or conversion at the consumer, which is what the generic-`S` design already does for free. Recommendation: **add the direct impls for the inert/literal pairs, keep convert-at-write for reactive sources**, and let the setter accept `impl IntoMaybeReactive<Target>` once the literal case no longer needs the generic. Do not add mapping memos silently; if a reactive `Signal<u32> → FontSize` is wanted, it should be an explicit `.map()` at the call site so the node is visible.
+
+  **Coherence is fine** (checked): each crate impls its own target types — `Length`/`FontSize`/`LengthSize` in `rsact-ui`, `Padding`/`Size`/`Radius`/`BorderRadius` in `rsact-render`, which already depends on `rsact-reactive`. `impl IntoMaybeReactive<LocalType> for u32` is legal under the orphan rule (fully concrete, local type in the trait's parameter list).
+
+  **Inventory of missing pairs**, from the `From` impls that exist today:
+
+  | Target | Sources with a `From` impl | Where |
+  | --- | --- | --- |
+  | `FontSize` | `u32`, `f32` | `font/mod.rs:137`, `:143` |
+  | `Length` | `u32`, `DeterministicLength` | `layout/length.rs:381`, `:225` |
+  | `LengthSize` | `Size`, `Size<Length>` | `layout/length.rs:448`, `:101` |
+  | `Padding` | `u32`, `[u32; 2]`, `[u32; 4]` | `render/geometry/padding.rs:76`, `:82`, `:88` |
+  | `Size` | `u32`, `DivFactors`, `Padding` | `render/geometry/size.rs:164`, `layout/length.rs:62`, `render/geometry/padding.rs:70` |
+  | `Radius` | `u32`, `f32`, `(u32, u32)`, `(f32, f32)`, `Size`, `Size<f32>` | `render/style/block.rs:28`–`:58` |
+  | `UnitV1` | `i32` | `render/geometry/vector.rs:54` (niche — include only if a setter wants it) |
+
+  **Acceptance:** `.font_size(20)`, `.padding(5)`, `.padding([4, 8])`, `.width(50)` compile with the setter declared as `impl IntoMaybeReactive<Target>` (no method-level `Into` parameter); the inert-only setters above gain reactive variants; **no new reactive node** appears in the `metrics-probe` node counts for any inert call; size-probe `.text` does not grow (and ideally shrinks, per the 7.2 monomorphization argument).
 
 **Design sketch:**
 
