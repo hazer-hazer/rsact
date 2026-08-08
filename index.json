@@ -5,6 +5,12 @@
     "branch": "issue2-label-layout",
     "subject": "Roadmap: ISSUE-2 CLOSED, 6.4b/6.4c DONE, ISSUE-5 filed"
   },
+  "0b2e5f576e38fcb036674d9c72307c38f1d0fb41": {
+    "date": 1786183197,
+    "parent": "",
+    "branch": "issue2-label-layout",
+    "subject": "WS7.8: two-level IntoMaybeReactive (impl IntoMaybeReactive<FontSize> for u32)"
+  },
   "0f22335cac6da7baa1422bedef1584c28bb61426": {
     "date": 1786116953,
     "parent": "",
