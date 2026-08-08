@@ -29,6 +29,12 @@
     "branch": "ws6.4c-clip-events",
     "subject": "Untrack .DS_Store and ignore it"
   },
+  "1ee3bed0cd13d79cd5f5378b6a3f34af68b9fc92": {
+    "date": 1786217797,
+    "parent": "",
+    "branch": "ws6.4d-tiled-output",
+    "subject": "WS6.4d(1): measure the traversal term, and correct max_regions' justification"
+  },
   "22b3f94d8350acaf418573a087c608d8dd30f4c9": {
     "date": 1786133931,
     "parent": "",
