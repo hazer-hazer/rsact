@@ -81,7 +81,10 @@
 //! buffer cannot hold is a buffer overrun and an extra region is only a slower
 //! frame.
 
-use crate::geometry::{Point, Rect, Size};
+use crate::{
+    geometry::{Point, Rect, Size},
+    renderer::region_units,
+};
 use alloc::vec::Vec;
 
 /// What the output path can accept — the frame policy's constraints, flattened
@@ -160,6 +163,138 @@ impl RegionLimits {
             full_frame_percent: 90,
         }
     }
+}
+
+/// How a frame is cut into regions — **a type, not a value**.
+///
+/// The maintainer's requirement, verbatim (roadmap 6.4d(2)): *"FramePolicy is
+/// not a dynamic value but one that applies a constraint over the framebuffer
+/// that can be passed … so we are sure that user cannot pass a framebuffer
+/// smaller than needed."* Hence the largest region a policy can ask for is an
+/// associated const, which `UI::start_frame` compares against the renderer's
+/// [`SURFACE_UNITS`] in a `const` block: **a framebuffer too small for the
+/// policy is a compile error**, not a runtime check, and no `Frame` whose
+/// regions could overflow the surface can be obtained.
+///
+/// Implement it on a zero-sized type; the two below cover the cases that exist.
+///
+/// [`SURFACE_UNITS`]: crate::renderer::Renderer::SURFACE_UNITS
+pub trait FramePolicy {
+    /// The widest region this policy will emit.
+    const MAX_W: u32;
+    /// The tallest region this policy will emit.
+    const MAX_H: u32;
+
+    /// The runtime constraints, given the viewport being painted.
+    ///
+    /// A method rather than more consts because two of the four knobs are
+    /// genuinely viewport-relative, and because this is where a policy gets to
+    /// be opinionated without growing more type parameters.
+    fn limits(viewport: Size) -> RegionLimits;
+}
+
+/// One region per frame: the surface covers everything.
+///
+/// What a GPU wants (one walk, one scissor), what a host renderer wants, and
+/// what a full-size framebuffer wants. `W`/`H` are the display's own size, so
+/// the capacity proof still runs — it is exactly the check that the
+/// full-framebuffer path has a full framebuffer.
+///
+/// Damage still shrinks the *flush*: the single region is the damage bounding
+/// box, not unconditionally the viewport, so an idle-ish frame transfers a
+/// small rect even here.
+///
+/// `W`/`H` bound the emitted region rather than merely describing it, which
+/// matters when they and the viewport disagree: a `Whole<240, 240>` policy
+/// driving a 320×240 viewport degrades into chunks instead of handing the
+/// surface a region 80 px wider than it can hold. The compile-time proof only
+/// covers what the *policy* asks for, so the policy has to be honest.
+pub struct Whole<const W: u32, const H: u32>;
+
+impl<const W: u32, const H: u32> FramePolicy for Whole<W, H> {
+    const MAX_W: u32 = W;
+    const MAX_H: u32 = H;
+
+    fn limits(_viewport: Size) -> RegionLimits {
+        RegionLimits {
+            max_region: Some(Size::new(W, H)),
+            ..RegionLimits::whole()
+        }
+    }
+}
+
+/// Regions of at most `W × H`, at most `N` of them before capacity forces more.
+///
+/// The embedded case. `Tiles<240, 24>` on RGB565 is an 11.25 KiB tile against
+/// the 112.5 KiB a 240×240 framebuffer costs — the WS6.4 acceptance target — and
+/// `N` bounds the *traversal* term WS6.4a found to be the expensive one (every
+/// region is a full tree walk).
+///
+/// This is also where an app encodes its peripheral's transfer ceiling: nRF52
+/// SPIM's `MAXCNT` is a hard limit independent of RAM, and only the app knows
+/// it, so it belongs in the policy rather than anywhere in rsact.
+pub struct Tiles<const W: u32, const H: u32, const N: usize = 4>;
+
+impl<const W: u32, const H: u32, const N: usize> FramePolicy
+    for Tiles<W, H, N>
+{
+    const MAX_W: u32 = W;
+    const MAX_H: u32 = H;
+
+    fn limits(_viewport: Size) -> RegionLimits {
+        RegionLimits::tiled(Size::new(W, H), N)
+    }
+}
+
+/// WS6.4.0(iii): compile-time proof that a surface can hold policy `P`'s
+/// largest region.
+///
+/// Call it from a `const` block — `UI::start_frame` does, which is what makes a
+/// framebuffer too small for its policy a **compile error** rather than a
+/// runtime check, and what makes a `Frame` whose regions could overflow the
+/// surface unobtainable.
+///
+/// Takes the two surface numbers rather than the renderer type so the proof can
+/// be exercised directly, without standing up a whole `Renderer` impl — the
+/// doctests below are the real test of the assertion, and they run in this
+/// crate's suite.
+///
+/// ```
+/// # use rsact_render::region::{assert_policy_fits, Tiles, Whole};
+/// // 240x24 RGB565 needs 5760 u16 — exactly what the buffer holds.
+/// const _: () = assert_policy_fits::<Tiles<240, 24>>(5760, 1);
+/// // 1-bpp, rows padded to whole bytes: 122px -> 16 bytes, x24 = 384.
+/// const _: () = assert_policy_fits::<Tiles<122, 24>>(384, 8);
+/// // A full framebuffer is just the degenerate policy.
+/// const _: () = assert_policy_fits::<Whole<240, 240>>(57600, 1);
+/// ```
+///
+/// One row too tall does not compile:
+///
+/// ```compile_fail
+/// # use rsact_render::region::{assert_policy_fits, Tiles};
+/// // 240x25 needs 6000 units; the surface holds 5760.
+/// const _: () = assert_policy_fits::<Tiles<240, 25>>(5760, 1);
+/// ```
+///
+/// Nor does a mono surface sized by area instead of by padded rows — the case
+/// that silently corrupts every row after the first:
+///
+/// ```compile_fail
+/// # use rsact_render::region::{assert_policy_fits, Tiles};
+/// // 122x24 at 1bpp needs ceil(122/8)*24 = 384 bytes, not 122*24/8 = 366.
+/// const _: () = assert_policy_fits::<Tiles<122, 24>>(366, 8);
+/// ```
+pub const fn assert_policy_fits<P: FramePolicy>(
+    surface_units: usize,
+    pixels_per_unit: usize,
+) {
+    assert!(
+        region_units(P::MAX_W, P::MAX_H, pixels_per_unit) <= surface_units,
+        "the renderer's surface is too small for this frame policy: its \
+         largest region does not fit. Shrink the policy's region or enlarge \
+         the buffer — the instantiation in this error names both."
+    );
 }
 
 /// Plan `damage` into the regions to paint, appending them to `out`.
@@ -739,6 +874,37 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A policy's `MAX_W`/`MAX_H` are what the compile-time capacity proof
+    /// checks, so they have to bound what the planner actually emits — including
+    /// when the viewport disagrees with them. Checked for both policies, at a
+    /// viewport deliberately larger than the declared surface.
+    #[test]
+    fn a_policy_bounds_what_it_emits() {
+        let viewport = Rect::new(Point::zero(), Size::new(320, 240));
+        let damage =
+            [rect(0, 0, 320, 240), rect(10, 10, 8, 8), rect(300, 230, 8, 8)];
+
+        fn check<P: FramePolicy>(damage: &[Rect], viewport: Rect) {
+            let planned =
+                plan_regions(damage, viewport, &P::limits(viewport.size));
+            assert!(!planned.is_empty());
+            for region in &planned {
+                assert!(
+                    region.size.width <= P::MAX_W
+                        && region.size.height <= P::MAX_H,
+                    "{region:?} exceeds the declared {}x{} the capacity proof \
+                     was run against",
+                    P::MAX_W,
+                    P::MAX_H
+                );
+            }
+        }
+
+        check::<Whole<240, 240>>(&damage, viewport);
+        check::<Tiles<240, 24>>(&damage, viewport);
+        check::<Tiles<32, 32, 2>>(&damage, viewport);
     }
 
     #[test]

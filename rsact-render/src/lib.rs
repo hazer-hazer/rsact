@@ -92,9 +92,13 @@ pub mod prelude {
             ellipse::Ellipse, line::Line, polygon::Polygon,
             rounded_rect::RoundedRect, sector::Sector,
         },
+        region::{
+            FramePolicy, RegionLimits, Tiles, Whole, assert_policy_fits,
+            plan_regions, plan_regions_into,
+        },
         renderer::{
             AntiAliasing, NullColor, NullRenderer, RenderResult, Renderer,
-            ViewportKind,
+            ViewportKind, region_units,
         },
         style::{ColorStyle, DrawStyle, StrokeAlignment, block::*},
     };
