@@ -1,4 +1,10 @@
 {
+  "02315b368a9b81a6a4f0caeeeca0c082fc40242b": {
+    "date": 1786230159,
+    "parent": "",
+    "branch": "ws6.4d-tiled-output",
+    "subject": "WS6.4d(1): remove full_frame_percent — the same unpriced heuristic, again"
+  },
   "06c4d1352854eff4ae50f12512abd6e1b8ad17cf": {
     "date": 1786134480,
     "parent": "",
