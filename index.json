@@ -232,5 +232,11 @@
     "parent": "",
     "branch": "issue-4-style-traits",
     "subject": "Roadmap: ISSUE-4 — style-property traits + a `Style` associated type"
+  },
+  "fd8109d5bbf4821ce947275bb2824a69a197b4af": {
+    "date": 1786224574,
+    "parent": "",
+    "branch": "ws6.4d-tiled-output",
+    "subject": "Roadmap: 6.4d(7) — a tile is a capacity, not a shape (maintainer decision, measured)"
   }
 }
