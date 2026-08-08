@@ -107,6 +107,12 @@
     "branch": "ws6.4c-prune",
     "subject": "WS6.4c(E)+(G): the traversal prune, on the measured floor"
   },
+  "5c10d040f88cb4d40765696e702795288c248b00": {
+    "date": 1786211237,
+    "parent": "",
+    "branch": "master",
+    "subject": "Add UpdateNotification for bool"
+  },
   "5f09113e358ac676113a2aaf433ff23e09320dc3": {
     "date": 1786205218,
     "parent": "",
