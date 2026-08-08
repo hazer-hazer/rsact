@@ -76,6 +76,16 @@
 //! because chunking re-derives the split from the union's own origin rather
 //! than from where the damage actually was.
 //!
+//! **With exactly one exemption: containment.** When one rect contains the
+//! other the union *is* the container — a region already in the plan, already
+//! chunked in exactly this way — so merging adds no area and no boundary, and
+//! there is nothing for chunking to undo. Vetoing it instead orphans the inner
+//! rect as a second region whose pixels are then painted twice, once alone and
+//! once inside the container's chunk. This was a live bug until the explainer
+//! built for WS6.4d(1) surfaced it: `20,20 120×90` with `40,50 16×16` inside it
+//! planned as **five** regions under `Tiles<240, 24>` where four is correct.
+//! See [`capacity_allows`].
+//!
 //! Capacity also outranks [`RegionLimits::max_regions`]: when no pair can be
 //! merged within capacity the budget is simply not met, because a region the
 //! buffer cannot hold is a buffer overrun and an extra region is only a slower
@@ -463,14 +473,40 @@ fn merge_by_area(regions: &mut Vec<Rect>, limits: &RegionLimits) {
 /// merged.
 fn should_merge(a: Rect, b: Rect, limits: &RegionLimits) -> bool {
     let union = a.union(&b);
-    if let Some(max) = limits.max_region {
-        if !fits(union, max) {
-            return false;
-        }
+    if !capacity_allows(a, b, union, limits.max_region) {
+        return false;
     }
     let separate = a.size.area() as u64 + b.size.area() as u64;
     let merged = union.size.area() as u64;
     merged * 100 <= limits.merge_threshold_percent as u64 * separate
+}
+
+/// Whether the surface permits merging `a` and `b` into `union`.
+///
+/// The veto exists because a union the surface cannot hold gets chunked
+/// immediately, on the *union's* grid, adding dead space and possibly a cut
+/// through a widget neither rect split. **Containment is the one case where none
+/// of that applies**, and it must be exempt: when `b ⊆ a` the union *is* `a`, a
+/// region already in the plan and already chunked exactly this way. Merging adds
+/// no area and no boundary; refusing leaves `b` as a second region whose pixels
+/// are then painted twice — once in its own pass, once inside `a`'s chunk.
+///
+/// Found while building the WS6.4d(1) explainer: `20,20 120×90` with
+/// `40,50 16×16` inside it planned as **five** regions under `Tiles<240,24>`
+/// (four chunks plus the orphaned speck) where four is correct. Worth stating as
+/// a rule, because containment is not a corner case here — it is the shape
+/// WS6.1's repaint roots produce every time a widget and its stable ancestor are
+/// both damaged.
+fn capacity_allows(
+    a: Rect,
+    b: Rect,
+    union: Rect,
+    max_region: Option<Size>,
+) -> bool {
+    if union == a || union == b {
+        return true;
+    }
+    max_region.is_none_or(|max| fits(union, max))
 }
 
 /// The pair whose union adds the least dead space *and still fits the surface*,
@@ -484,7 +520,7 @@ fn cheapest_pair(
     for i in 0..regions.len() {
         for j in (i + 1)..regions.len() {
             let union = regions[i].union(&regions[j]);
-            if max_region.is_some_and(|max| !fits(union, max)) {
+            if !capacity_allows(regions[i], regions[j], union, max_region) {
                 continue;
             }
             let separate =
@@ -661,6 +697,31 @@ mod tests {
             ),
             vec![a, b],
             "a 240x24 surface cannot hold the union, so the merge is vetoed"
+        );
+    }
+
+    #[test]
+    fn containment_merges_even_when_the_union_does_not_fit() {
+        // The capacity veto's one exemption. The union IS the container, which
+        // the plan already holds and already chunks this way, so merging costs
+        // nothing; vetoing would leave the speck as a second region and paint
+        // its 256 px twice — once alone, once inside the container's chunk.
+        let container = rect(20, 20, 120, 90);
+        let speck = rect(40, 50, 16, 16);
+        let limits = RegionLimits::tiled(Size::new(240, 24), 8);
+
+        let planned = plan_regions(&[container, speck], VIEWPORT, &limits);
+        assert!(
+            !planned.iter().any(|r| *r == speck),
+            "the contained rect survived as its own region: {planned:?}"
+        );
+        // Exactly the container's own chunking: 90 / 24 -> 4 bands.
+        assert_eq!(planned.len(), 4, "{planned:?}");
+        let painted: u32 = planned.iter().map(|r| r.size.area()).sum();
+        assert_eq!(
+            painted,
+            container.size.area(),
+            "the plan paints more than the container: {planned:?}"
         );
     }
 
