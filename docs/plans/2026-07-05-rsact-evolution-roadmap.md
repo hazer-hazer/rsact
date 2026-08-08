@@ -567,6 +567,14 @@ Stages:
 
   The scrollbar case is worth naming because it is **`border_width` mirrored**: a property that genuinely consumes box space, sitting on the style side, failing silently (text simply sits under the scrollbar). The decision keeps it on the style side and makes the overlap explicit through `ext_draw` rather than reserving space for it — consistent with the border decision above, and with the same user-side remedy (add padding).
 
+- [ ] **5.6 Scope a structure change to its nearest size-stable ancestor** (maintainer TODO, `el/build.rs` `set_children`, moved here 2026-08-08). Today `set_children`/`set_single_child` call `mark_full_relayout()`, so **any** child-list change relayouts the whole page — 5.2's incremental path is skipped entirely, because it is gated on a non-`full` dirty set. The maintainer's observation is that the stop rule 5.2 already implements applies here too:
+
+  > `Page[A{fixed}[A.1[A.1.1, A.1.2], A.2[A.2.1]], B[B.1]]` — if `A.1.1` changed we can propagate relayout just to `A`.
+
+  If an ancestor's resolved size cannot change (fixed on both axes), the structure change below it cannot move its siblings, so the relayout — and, via WS6.1, the repaint roots — can stop there. That is exactly `recompute_upward`'s `(outer_size, min_size)`-unchanged rule, applied to a different kind of dirtiness. Note the mark is currently `full`, which is *strictly* coarser than `mark_dirty(ancestor)`: the fix is to walk up from the changed node to the nearest node with a deterministic size and mark **that**, falling back to `full` only when the walk reaches the root.
+
+  **Not free, and the reason 5.2 punted:** a structure change alters the child *count*, so the subtree's own layout is not a splice — it is a rebuild — and `RetainedInputs` for the new children do not exist yet. The stop rule still holds above the rebuilt subtree; it is the "resume from retained inputs" half that does not apply. Verify against 5.2's existing 500-seed differential fuzz (incremental == full) with structure mutations added to the generator, which is the only thing that will catch an unsound early stop.
+
   Related: **ISSUE-3** (the painted-area audit — `ext_draw`'s reason for existing), **ISSUE-2** (the other cross-channel case: content reaching layout by tracked read rather than the marked channel; this item makes its fix unambiguous by leaving exactly one place layout inputs live), and the standing TODO in `el/event.rs` about a scrollable wanting mouse events at its scrollbar only — the same rect, and it should be decided with the scrollbar's `ext_draw`.
 
 **Design sketch:**
@@ -1085,6 +1093,7 @@ Work items (build-list per D1's triage; YAGNI'd: stores/lenses, more batching en
 - [ ] 8.4 **Keyed list reactivity**: `KeyedSignal<K, T>`-style stable per-key child scopes with diffing on write — designed against rsact-ui's `Signal<Vec<El>>`/`Dynamic` (the bread-and-butter menu/list widget path; currently O(n) compare + full rebuild). Needs WS1.1 scopes + WS3 subtree disposal.
 - [ ] 8.5 `what_changed()` under `debug-info` (EVOLUTION.md TODO; the breadcrumbs already exist in `ValueDebugInfoState`).
 - [ ] 8.6 **(final sweep) `Resource`/`async` subsystem adoption**: `resource.rs` + `async_rt.rs` (behind the `async` feature) are a complete, tested primitive (generation-guarded cancellation, executor-agnostic) with **no owner in the roadmap** — audit them against WS3's scope ownership and WS9b's storage rework, add `async` to the sanctioned feature axes, and give it a showcase in WS10.4's embassy example.
+- [ ] 8.7 **`UpdateNotification` → `IsUpdated` rename, and the `bool` impl** (maintainer TODO, `rsact-reactive/src/write.rs`, moved here 2026-08-08). The trait names the *mechanism* ("a notification about an update") where every use site reads the *predicate* (`fn is_updated(&self) -> bool`) — the method already has the better name. Renaming is a breaking change to a public trait, so it belongs in a batch, and this is the reactive-side one. The maintainer also added `impl UpdateNotification for bool` in the same pass, which is the obvious missing impl and makes the naming mismatch louder: `true.is_updated()` reads correctly, `true: UpdateNotification` does not. The file's own standing note — _"Maybe better only add this to ControlFlow without `UpdateNotification` trait"_ — is the competing option and should be settled at the same time: with a `bool` impl the trait now has two implementors and an inherent `ControlFlow` helper would no longer cover the surface, so the trait earns its keep. Decide the name, keep the trait.
 
 **Design sketch:**
 
@@ -1356,6 +1365,7 @@ exists. 14.2 is the design item — protocol doc first, reviewed before implemen
 - [ ] 15.3 u8g2 soft-wrap gap (`font/fixed.rs:103`).
 - [ ] 15.4 `TextStyle` widget subsuming the `FontProps` TODO (`font/mod.rs`).
 - [ ] 15.5 Build-time glyph-subsetting notes/tooling (per-app font subsets for flash budgets).
+- [ ] 15.6 **Reactive text overflow, and `wrap` as a flag** (maintainer TODOs, `widget/label.rs`, moved here 2026-08-08). `LabelBuilder::overflow` is inert-only (its own `// TODO: MaybeReactive` predates this), and `wrap()` is a zero-argument alias for `overflow(TextOverflow::Wrap)` — so wrapping cannot be toggled at runtime, which is precisely what a responsive/ellipsis-on-demand UI wants. Maintainer's shape: **`wrap` takes a bool and is reactive**, i.e. `wrap(impl IntoMaybeReactive<bool>)`, with `overflow` reactive alongside it. Two notes for whoever takes it: (a) overflow is a **layout** input — it changes measurement (`ContentLayout::height_for_width` takes it) — so it must go through `LayoutBuilder::setter` and mark the arena dirty, not become a style property (ISSUE-2's rule); (b) `wrap(bool)` and `overflow(TextOverflow)` overlap — decide whether `wrap(false)` means `Clip` or restores a previously-set `Ellipsis`, or the two setters will fight. Related: **WS7.8** lists `overflow` among the inert-only setters, and **WS6.4b(ii)** parks closed-form text-run culling here because it wants the same custom line loop as `Clip`/`Ellipsis`.
 
 ```
 Read docs/plans/2026-07-05-rsact-evolution-roadmap.md — WS15. Verify WS5 landed and read
@@ -1511,6 +1521,8 @@ Stages:
 - [ ] **20.2 `state`/`height` → `Cell`:** convert the two `Copy` scalars; rewrite `storage.mark`/`set_height` to take `&Value` + `Cell::set`; confirm `values.borrow_mut()` disappears from every walk.
 - [ ] **20.3 `subscribers`/`sources` → per-node `RefCell<IdVec>` in `Value`:** migrate the coupled pair together; rewrite `update`/`mark_check_closure`/`clear_sources`/`dispose`/`subscribe`/`update_height`; delete the three `SecondaryMap`s from `Runtime`.
 - [ ] **20.4 Cold-path clone audit:** `Storage::get` (`storage.rs:457`) now clones three `IdVec`s — confirm no _hot_ caller regressed (hot paths already use `state_of`/`kind_of`/`value_rc`/`get_height`, which are unaffected).
+
+  **Audit ANSWERED before the workstream starts** (maintainer TODO on `Storage::get`, moved here 2026-08-08): the only caller is the **mermaid debug-graph output**, which needs nothing but the node's `kind` and its debug info. So 20.4 is not "confirm no hot caller regressed" — there is no hot caller to regress — and the item upgrades from an audit to a **deletion**: either drop `Storage::get` in favour of a borrowing accessor (`with_value(id, |v| …)`) or narrow it to exactly what the graph renders. Do it **before** 20.3, not after: a `get` that clones three per-node `IdVec`s is precisely the signature the AoS move makes more expensive, so removing the caller first means never having to port that clone at all.
 
 **Design sketch (borrow flow, after):**
 
@@ -1979,6 +1991,29 @@ Neither is subtle. Both are the kind of error a compiler catches instantly, and 
 **Options, cheapest first.** (a) Add a single `cargo check -p rsact-ui --lib --features "std,embedded-graphics,tiny-icons"` job — one compile, no powerset explosion, catches exactly this class. (b) Drop `--exclude-features tiny-icons` from the powerset — thorough, but multiplies the matrix and may surface real WIP breakage that then blocks unrelated PRs. (c) Add a compile-only job for the examples with their `required-features` — the examples have further pre-existing rot (`col!`/`row!` macros gone, a `u8g2_fonts` import, `ScrollableBuilder::el`), so this one is not free and should follow a cleanup, not precede it.
 
 (a) is the recommendation: it costs one job and would have caught both defects on the day they landed.
+
+### ISSUE-6 — `Flex` carries a block model it can never draw: should a transparent container be stylable?
+
+| | |
+| --- | --- |
+| **Filed** | 2026-08-08 (maintainer TODO on `Flex::render`, moved out of the code) |
+| **Kind** | design question — widget-model consistency, not a bug today |
+| **Status** | **OPEN** — nothing is currently mis-rendered; the question is whether the asymmetry is intended. |
+| **Area** | `rsact-ui` — `widget/flex.rs` (`Flex::render` is `Ok(())`) · `layout/flex.rs` (`FlexLayout` owns a `BlockModel`) · `widget/container.rs` (the widget that *does* draw one) |
+| **Relates** | **WS5.5** (the box/pixel rule that emptied `BlockModel`) · **WS6.1** (the transparent-container ghost fix, which depends on `Flex` drawing nothing) · **WS6.4c** (the traversal prune, same dependency) · **ISSUE-4** (fact: "`Flex` has no style, so the assoc type needs a `NoStyle` inhabitant") |
+
+**The observation.** `FlexLayout` owns a `BlockModel`, but `Flex::render` is `Ok(())` — it draws nothing at all. So the block model has no visual expression on a `Flex`, while the same field on a `Container` produces a background and a border.
+
+**Why nothing is broken today.** WS5.5 reduced `BlockModel` to `{ padding }`, and padding has no pixels — it only reserves space, which the layout pass does honour. So a `Flex`'s block model is fully respected in geometry and there is nothing left for `render` to draw. The TODO is accurate about the shape and harmless in effect.
+
+**The real question is whether `Flex` should be stylable at all.** Getting a background behind a flex row today means wrapping it in a `Container` — one extra element, one extra layout node. Against that:
+
+- **`Flex` drawing nothing is load-bearing.** WS6.1's ghost fix and WS6.4c's traversal prune both special-case transparent containers, and 6.1's `LayoutChange` handling exists *because* a no-op render clears nothing. Giving `Flex` a background makes it opaque and changes which of those paths apply — this is not a local change.
+- **ISSUE-4 already records `Flex` as the style-less case** — it is the reason a `NoStyle` inhabitant is needed for the `Style` associated type. Adding a style to `Flex` would remove that constraint, which is either a simplification or a lost invariant depending on how ISSUE-4 resolves.
+
+**Options.** (a) Leave it — `Flex` is a pure layout container, `Container` is the stylable one, and the split is the design. Document it on `Flex` so the next reader does not re-file this. (b) Give `Flex` a `BlockStyle` like `Container` — costs the transparent-container assumption above and wants a benchmark of "one Flex + style" vs "Container wrapping a Flex". (c) Remove `BlockModel` from `FlexLayout` and let padding come from a wrapper — the most consistent, and the most disruptive to existing call sites.
+
+**Promotion criteria.** Decide with **ISSUE-4** (the `Style` associated type forces an answer for `Flex` either way) or with any WS7.4 stylist session. Do not decide it inside a WS6 session — the transparent-container assumption is WS6's input, not its output.
 
 ## Parting notes — operating wisdom (2026-07-08)
 
