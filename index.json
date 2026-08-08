@@ -5,6 +5,12 @@
     "branch": "issue2-label-layout",
     "subject": "Roadmap: ISSUE-2 CLOSED, 6.4b/6.4c DONE, ISSUE-5 filed"
   },
+  "06ca6825a42662d17ca1d371a507bf7affe0bfcf": {
+    "date": 1786229122,
+    "parent": "",
+    "branch": "ws6.4d-tiled-output",
+    "subject": "WS6.4d(1): remove max_regions — a proven pessimisation, kept for a bad reason"
+  },
   "0b2e5f576e38fcb036674d9c72307c38f1d0fb41": {
     "date": 1786183197,
     "parent": "",
