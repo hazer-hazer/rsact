@@ -23,6 +23,7 @@ use rsact_render::{
     golden::assert_text_golden,
     record::DrawOp,
     region::{RegionLimits, plan_regions},
+    renderer::region_units,
     schedule::{
         ScheduleReport, TileSchedule, format_report, merge_verdict,
         tile_invariance,
@@ -564,7 +565,7 @@ fn the_planner_turns_real_damage_into_regions() {
 
         let policies = [
             ("whole", RegionLimits { max_regions: 4, ..RegionLimits::whole() }),
-            ("tile-24", RegionLimits::tiled(Size::new(240, 24), 4)),
+            ("tile-24", RegionLimits::tiled(region_units(240, 24, 1), 1, 4)),
         ];
 
         let mut out = String::new();
@@ -688,8 +689,11 @@ fn a_real_plan_never_exceeds_the_surface() {
         let mut probe =
             TileProbe::new(viewport, toggle_rows_page(checks.clone()));
 
-        let surface = Size::new(48, 16);
-        let limits = RegionLimits::tiled(surface, 4);
+        // A 48x16 tile's worth of storage — 768 units at one unit per pixel.
+        // What the planner is bound by is that COUNT, so a region may be any
+        // shape needing no more than it.
+        let surface_units = region_units(48, 16, 1);
+        let limits = RegionLimits::tiled(surface_units, 1, 4);
 
         for rows in [vec![0usize], vec![0usize, 5], (0..6).collect::<Vec<_>>()]
         {
@@ -702,10 +706,10 @@ fn a_real_plan_never_exceeds_the_surface() {
             assert!(!planned.is_empty(), "rows {rows:?} damaged nothing");
             for region in &planned {
                 assert!(
-                    region.size.width <= surface.width
-                        && region.size.height <= surface.height,
-                    "region {region:?} exceeds the {surface:?} surface \
-                     (damage {:?})",
+                    limits.holds(*region),
+                    "region {region:?} needs {} units, over the surface's \
+                     {surface_units} (damage {:?})",
+                    limits.units_of(*region),
                     damage.tiles()
                 );
             }

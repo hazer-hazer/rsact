@@ -59,22 +59,44 @@
 //! the same value — and it is waste the area test has already priced as cheaper
 //! than the alternative.
 //!
-//! # The capacity veto: a merge chunking would undo is never made
+//! # A tile is a budget, not a shape
 //!
-//! The area test alone is not enough once the surface is smaller than the
-//! frame, and the first real-page measurement is what showed it. Two 16×16
-//! checkboxes 22 px apart merge happily on area (×1.19) into a 16×38 region —
-//! which a 240×24 tile cannot hold, so step (5) immediately cuts it back into
-//! two. The count is unchanged, the paint is not: the chunk boundary falls on
-//! the *merged* region's grid at y = 24, slicing the lower checkbox in half so
-//! it is drawn in both chunks. Measured on `tile_plan_240.txt`: 8 required ops
-//! merged-then-chunked against 5 left alone.
+//! The surface constraint is a **unit count**, never a rectangle. A tile is a
+//! byte buffer plus an instruction about where to blit it, and the buffer does
+//! not care whether its 5760 units are laid out 240×24, 120×48 or 16×38. So
+//! `Tiles<240, 24>` reads *"a buffer big enough for a 240×24 tile"*, and a
+//! 16×38 damage region — 608 of those units — is emitted whole.
 //!
-//! So a union larger than [`RegionLimits::max_region`] is rejected outright,
-//! before the area test is even consulted. The rule generalises past this one
-//! case — **any merge that capacity will immediately undo can only lose**,
-//! because chunking re-derives the split from the union's own origin rather
-//! than from where the damage actually was.
+//! Constraining the *shape* would be a constraint rsact invented rather than
+//! one the hardware has. ST7789/ST7735 `CASET`/`RASET` take arbitrary column
+//! and row ranges, and a region strided at its own width is contiguous by
+//! construction, so any rect is one `set_window` plus one DMA burst — exactly
+//! like a band. The panels that *do* constrain geometry are the ones that never
+//! need tiling: SSD1306's 8-row pages and SH1106's page loop belong to 128×64
+//! mono displays whose entire framebuffer is 1 KiB. e-paper's byte-aligned
+//! columns are real, and they are roadmap 6.5's `RegionPolicy`, which composes
+//! with a capacity bound rather than replacing it. The other ceiling that
+//! exists — nRF52 SPIM's `MAXCNT` — limits a transfer's *byte count*, so a
+//! capacity bound states it directly where a `W × H` bound could only
+//! approximate it.
+//!
+//! This was not the first design. Bounding regions to `W × H` came first, and
+//! it produced a bug worth recording, because it looked like a subtle economic
+//! finding and was actually an artifact: two 16×16 rects 22 px apart merge on
+//! area (×1.19) into 16×38, which a shape-bound 240×24 tile could not hold, so
+//! chunking cut it at y = 24 and sliced the lower rect across both pieces — 8
+//! required ops against 5 left alone. Under a capacity bound that merge simply
+//! fits and none of it happens. The lesson generalises: *a constraint that
+//! looks like it belongs to the data often belongs to the storage decision*,
+//! and here it belonged to neither — it was invented.
+//!
+//! # The capacity veto, and its one exemption
+//!
+//! The veto survives for genuine overflow. When a union really does need more
+//! units than the surface holds, it is rejected **before** the area test is
+//! consulted, because chunking would undo it: **any merge that capacity will
+//! immediately undo can only lose**, since chunking re-derives the split from
+//! the union's own origin rather than from where the damage actually was.
 //!
 //! **With exactly one exemption: containment.** When one rect contains the
 //! other the union *is* the container — a region already in the plan, already
@@ -82,14 +104,23 @@
 //! there is nothing for chunking to undo. Vetoing it instead orphans the inner
 //! rect as a second region whose pixels are then painted twice, once alone and
 //! once inside the container's chunk. This was a live bug until the explainer
-//! built for WS6.4d(1) surfaced it: `20,20 120×90` with `40,50 16×16` inside it
-//! planned as **five** regions under `Tiles<240, 24>` where four is correct.
-//! See [`capacity_allows`].
+//! built for WS6.4d(1) surfaced it. See [`capacity_allows`].
 //!
 //! Capacity also outranks [`RegionLimits::max_regions`]: when no pair can be
 //! merged within capacity the budget is simply not met, because a region the
 //! buffer cannot hold is a buffer overrun and an extra region is only a slower
 //! frame.
+//!
+//! # Chunking preserves width
+//!
+//! Because the bound is one number, the natural cut keeps the region's full
+//! width and takes as many rows as fit — `max_units / row_units(width)`. That
+//! is simpler than a fixed grid and strictly better: it never introduces a
+//! vertical seam, so a widget can only ever be split horizontally, and each
+//! piece stays one `set_window` plus one burst. Bands still fall out as the
+//! degenerate case — a collapsed full-screen region chunked by a 5760-unit
+//! surface *is* ten 240×24 strips — which is what keeps the guarantee that
+//! tiling is never worse than a strip renderer.
 
 use crate::{
     geometry::{Point, Rect, Size},
@@ -106,16 +137,37 @@ use alloc::vec::Vec;
 /// struct's job is to respect it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RegionLimits {
-    /// The largest region the surface can hold, or `None` when it covers the
-    /// whole frame (a GPU, a host renderer, a full-size framebuffer).
+    /// Storage units the surface holds, or `None` when it covers the whole
+    /// frame (a GPU, a host renderer, a full-size framebuffer).
     ///
-    /// `Option` rather than a saturated `Size` because "unbounded" is a real,
-    /// common case and `Size::MAX.area()` would overflow the moment anything
-    /// asked how big it is. It also lines up one-to-one with
-    /// [`Renderer::SURFACE_UNITS`]'s `usize::MAX` default.
+    /// **A capacity, deliberately — not a shape.** A tile is a byte buffer plus
+    /// an instruction about where to blit it, and the buffer does not care
+    /// whether its 5760 units are laid out 240×24, 120×48 or 16×38. Constraining
+    /// the *shape* would be a constraint rsact invented, not one the hardware
+    /// has: ST7789/ST7735 `CASET`/`RASET` take arbitrary rects, and a region
+    /// strided at its own width is contiguous by construction, so any rect is
+    /// one `set_window` plus one DMA burst. (Panels that *do* constrain
+    /// geometry — SSD1306's 8-row pages, e-paper's byte-aligned columns — are
+    /// small enough not to need tiling at all, and their alignment rules are
+    /// roadmap 6.5's `RegionPolicy`, which composes with this rather than
+    /// replacing it.)
+    ///
+    /// It is also the shape the *other* ceiling has: nRF52 SPIM's `MAXCNT`
+    /// limits a transfer's byte count, not its rectangle. A capacity bound
+    /// states that directly; a `W × H` bound could only approximate it.
+    ///
+    /// `Option` rather than `usize::MAX` because "unbounded" is a real case, and
+    /// it lines up one-to-one with [`Renderer::SURFACE_UNITS`]'s default.
     ///
     /// [`Renderer::SURFACE_UNITS`]: crate::renderer::Renderer::SURFACE_UNITS
-    pub max_region: Option<Size>,
+    pub max_units: Option<usize>,
+
+    /// How the surface packs pixels into storage units — [`Renderer::
+    /// SURFACE_PIXELS_PER_UNIT`], carried here so the planner can convert a
+    /// candidate region into units without knowing anything about colour.
+    ///
+    /// [`Renderer::SURFACE_PIXELS_PER_UNIT`]: crate::renderer::Renderer::SURFACE_PIXELS_PER_UNIT
+    pub pixels_per_unit: usize,
 
     /// How many *damage* regions to keep before falling back to merging the
     /// cheapest pairs regardless of the area test.
@@ -156,26 +208,26 @@ pub struct RegionLimits {
     /// emitting a region the output cannot hold.
     ///
     /// It is also outranked by capacity when the two conflict: if every
-    /// candidate union exceeds [`RegionLimits::max_region`], no merge is made
-    /// and the plan comes out **over budget**. That is the optimum available,
-    /// not a compromise. Suppose `a` and `b` each fit the surface but their
-    /// union does not. Then chunking the union yields at least two pieces, so
-    /// the region count cannot improve; the paint grows by the union's dead
-    /// space; and the chunk boundary is re-derived from the *union's* origin,
-    /// so it can slice a widget that neither `a` nor `b` split. Merging there
-    /// can only lose. Under [`Whole`] (an unbounded region) nothing vetoes, so
-    /// the budget is a hard bound — which is why the fuzz asserts it only when
-    /// `max_region` is `None`.
+    /// candidate union needs more than [`RegionLimits::max_units`], no merge is
+    /// made and the plan comes out **over budget**. That is the optimum
+    /// available, not a compromise. Suppose `a` and `b` each fit the surface but
+    /// their union does not. Then chunking the union yields at least two pieces,
+    /// so the region count cannot improve; the paint grows by the union's dead
+    /// space; and the chunk boundary is re-derived from the *union's* origin, so
+    /// it can slice a widget that neither `a` nor `b` split. Merging there can
+    /// only lose. Where capacity is unbounded nothing vetoes, so the budget is a
+    /// hard bound — which is why the fuzz asserts it only when `max_units` is
+    /// `None`.
     pub max_regions: usize,
 
     /// Merge two regions when `union.area * 100 <= threshold * (a.area +
-    /// b.area)`, and the union fits [`RegionLimits::max_region`]. `200` is
+    /// b.area)`, and the union fits [`RegionLimits::max_units`]. `200` is
     /// WS6.4a's measured ×2.0.
     pub merge_threshold_percent: u32,
 
     /// When the planned regions already *paint* this much of the viewport's
     /// area, give up on being tight and plan the whole viewport as one region
-    /// (which [`RegionLimits::max_region`] then chunks into bands).
+    /// (which [`RegionLimits::max_units`] then chunks into bands).
     ///
     /// Paint area, not coverage: regions may overlap, and a set that paints
     /// 95% of a viewport's worth of pixels is worth collapsing whether that is
@@ -193,21 +245,44 @@ impl RegionLimits {
     /// a full-size framebuffer wants.
     pub const fn whole() -> Self {
         Self {
-            max_region: None,
+            max_units: None,
+            pixels_per_unit: 1,
             max_regions: 1,
             merge_threshold_percent: Self::MERGE_THRESHOLD_PERCENT,
             full_frame_percent: 90,
         }
     }
 
-    /// Tiles of at most `max_region`, at most `max_regions` of them before
-    /// chunking.
-    pub const fn tiled(max_region: Size, max_regions: usize) -> Self {
+    /// A surface of `max_units` storage units packing `pixels_per_unit` pixels
+    /// each, and at most `max_regions` regions before capacity forces more.
+    pub const fn tiled(
+        max_units: usize,
+        pixels_per_unit: usize,
+        max_regions: usize,
+    ) -> Self {
         Self {
-            max_region: Some(max_region),
+            max_units: Some(max_units),
+            pixels_per_unit,
             max_regions,
             merge_threshold_percent: Self::MERGE_THRESHOLD_PERCENT,
             full_frame_percent: 90,
+        }
+    }
+
+    /// Storage units `region` needs on this surface.
+    pub const fn units_of(&self, region: Rect) -> usize {
+        region_units(
+            region.size.width,
+            region.size.height,
+            self.pixels_per_unit,
+        )
+    }
+
+    /// Whether `region` fits the surface as-is.
+    pub const fn holds(&self, region: Rect) -> bool {
+        match self.max_units {
+            None => true,
+            Some(max) => self.units_of(region) <= max,
         }
     }
 }
@@ -225,19 +300,33 @@ impl RegionLimits {
 ///
 /// Implement it on a zero-sized type; the two below cover the cases that exist.
 ///
+/// # `W × H` is how you *spell* a budget, not a shape the planner obeys
+///
+/// A policy names a rectangle because that is what a person can picture and
+/// what the compile error should say — but what it actually declares is the
+/// **capacity** that rectangle implies. The planner is then free to emit any
+/// region needing no more storage units than that: under `Tiles<240, 24>` a
+/// 16×38 region (608 units) and a 120×48 one (5760) are both legal, and neither
+/// is chunked. Constraining the shape would be a constraint rsact invented —
+/// see [`RegionLimits::max_units`] for why the hardware does not have one.
+///
 /// [`SURFACE_UNITS`]: crate::renderer::Renderer::SURFACE_UNITS
 pub trait FramePolicy {
-    /// The widest region this policy will emit.
+    /// The width of the region whose capacity this policy declares.
     const MAX_W: u32;
-    /// The tallest region this policy will emit.
+    /// The height of the region whose capacity this policy declares.
     const MAX_H: u32;
 
-    /// The runtime constraints, given the viewport being painted.
+    /// The runtime constraints, given the viewport and how the surface packs.
     ///
-    /// A method rather than more consts because two of the four knobs are
-    /// genuinely viewport-relative, and because this is where a policy gets to
-    /// be opinionated without growing more type parameters.
-    fn limits(viewport: Size) -> RegionLimits;
+    /// A method rather than more consts because the knobs are viewport- and
+    /// renderer-relative, and because this is where a policy gets to be
+    /// opinionated without growing more type parameters. `pixels_per_unit` comes
+    /// from [`Renderer::SURFACE_PIXELS_PER_UNIT`] and is what turns the
+    /// declared `W × H` into a unit count.
+    ///
+    /// [`Renderer::SURFACE_PIXELS_PER_UNIT`]: crate::renderer::Renderer::SURFACE_PIXELS_PER_UNIT
+    fn limits(viewport: Size, pixels_per_unit: usize) -> RegionLimits;
 }
 
 /// One region per frame: the surface covers everything.
@@ -253,33 +342,37 @@ pub trait FramePolicy {
 ///
 /// `W`/`H` bound the emitted region rather than merely describing it, which
 /// matters when they and the viewport disagree: a `Whole<240, 240>` policy
-/// driving a 320×240 viewport degrades into chunks instead of handing the
-/// surface a region 80 px wider than it can hold. The compile-time proof only
-/// covers what the *policy* asks for, so the policy has to be honest.
+/// driving a 320×240 viewport degrades into bands instead of handing the surface
+/// a frame 25% larger than it can hold. The compile-time proof only covers what
+/// the *policy* asks for, so the policy has to be honest.
 pub struct Whole<const W: u32, const H: u32>;
 
 impl<const W: u32, const H: u32> FramePolicy for Whole<W, H> {
     const MAX_W: u32 = W;
     const MAX_H: u32 = H;
 
-    fn limits(_viewport: Size) -> RegionLimits {
-        RegionLimits {
-            max_region: Some(Size::new(W, H)),
-            ..RegionLimits::whole()
-        }
+    fn limits(_viewport: Size, pixels_per_unit: usize) -> RegionLimits {
+        RegionLimits::tiled(
+            region_units(W, H, pixels_per_unit),
+            pixels_per_unit,
+            1,
+        )
     }
 }
 
-/// Regions of at most `W × H`, at most `N` of them before capacity forces more.
+/// A surface the size of a `W × H` region, and at most `N` regions before
+/// capacity forces more.
 ///
-/// The embedded case. `Tiles<240, 24>` on RGB565 is an 11.25 KiB tile against
-/// the 112.5 KiB a 240×240 framebuffer costs — the WS6.4 acceptance target — and
-/// `N` bounds the *traversal* term WS6.4a found to be the expensive one (every
-/// region is a full tree walk).
+/// The embedded case. `Tiles<240, 24>` on RGB565 is an 11.25 KiB buffer against
+/// the 112.5 KiB a 240×240 framebuffer costs — the WS6.4 acceptance target.
+/// Read it as *"a buffer big enough for a 240×24 tile"*, not *"regions are at
+/// most 240×24"*: a 16×38 damage region needs 608 of those 5760 units and is
+/// emitted whole.
 ///
 /// This is also where an app encodes its peripheral's transfer ceiling: nRF52
 /// SPIM's `MAXCNT` is a hard limit independent of RAM, and only the app knows
-/// it, so it belongs in the policy rather than anywhere in rsact.
+/// it, so it belongs in the policy rather than anywhere in rsact. That ceiling
+/// is a byte count, which is exactly what this declares.
 pub struct Tiles<const W: u32, const H: u32, const N: usize = 4>;
 
 impl<const W: u32, const H: u32, const N: usize> FramePolicy
@@ -288,8 +381,12 @@ impl<const W: u32, const H: u32, const N: usize> FramePolicy
     const MAX_W: u32 = W;
     const MAX_H: u32 = H;
 
-    fn limits(_viewport: Size) -> RegionLimits {
-        RegionLimits::tiled(Size::new(W, H), N)
+    fn limits(_viewport: Size, pixels_per_unit: usize) -> RegionLimits {
+        RegionLimits::tiled(
+            region_units(W, H, pixels_per_unit),
+            pixels_per_unit,
+            N,
+        )
     }
 }
 
@@ -406,7 +503,7 @@ pub fn plan_regions_into(
     // loop stops over budget rather than emitting a region that overruns the
     // buffer.
     while out.len() > limits.max_regions.max(1) {
-        let Some((i, j)) = cheapest_pair(out, limits.max_region) else { break };
+        let Some((i, j)) = cheapest_pair(out, limits) else { break };
         let merged = out[i].union(&out[j]);
         // Remove the higher index first so the lower one stays valid.
         out.remove(j);
@@ -426,9 +523,7 @@ pub fn plan_regions_into(
     }
 
     // (5) Chunk to capacity.
-    if let Some(max_region) = limits.max_region {
-        chunk_to_capacity(out, max_region);
-    }
+    chunk_to_capacity(out, limits);
 
     // (6) Scan order.
     out.sort_unstable_by_key(|r| (r.top_left.y, r.top_left.x));
@@ -473,7 +568,7 @@ fn merge_by_area(regions: &mut Vec<Rect>, limits: &RegionLimits) {
 /// merged.
 fn should_merge(a: Rect, b: Rect, limits: &RegionLimits) -> bool {
     let union = a.union(&b);
-    if !capacity_allows(a, b, union, limits.max_region) {
+    if !capacity_allows(a, b, union, limits) {
         return false;
     }
     let separate = a.size.area() as u64 + b.size.area() as u64;
@@ -501,12 +596,12 @@ fn capacity_allows(
     a: Rect,
     b: Rect,
     union: Rect,
-    max_region: Option<Size>,
+    limits: &RegionLimits,
 ) -> bool {
     if union == a || union == b {
         return true;
     }
-    max_region.is_none_or(|max| fits(union, max))
+    limits.holds(union)
 }
 
 /// The pair whose union adds the least dead space *and still fits the surface*,
@@ -514,13 +609,13 @@ fn capacity_allows(
 /// is over capacity).
 fn cheapest_pair(
     regions: &[Rect],
-    max_region: Option<Size>,
+    limits: &RegionLimits,
 ) -> Option<(usize, usize)> {
     let mut best: Option<(usize, usize, u64)> = None;
     for i in 0..regions.len() {
         for j in (i + 1)..regions.len() {
             let union = regions[i].union(&regions[j]);
-            if !capacity_allows(regions[i], regions[j], union, max_region) {
+            if !capacity_allows(regions[i], regions[j], union, limits) {
                 continue;
             }
             let separate =
@@ -539,19 +634,49 @@ fn cheapest_pair(
 ///
 /// A zero on either axis would loop forever; treat it as "no limit on that
 /// axis", which is the degradation that costs paint rather than hanging.
-fn chunk_to_capacity(regions: &mut Vec<Rect>, max: Size) {
-    if regions.iter().all(|r| fits(*r, max)) {
+/// Cut every region down to something the surface can hold, **preserving width
+/// wherever possible** so the pieces come out as bands rather than a grid.
+///
+/// A capacity bound is one number, so the natural cut keeps the region's full
+/// width and takes as many rows as fit: `rows = max_units / row_units(width)`.
+/// That is both simpler than a fixed grid and strictly better — it never
+/// introduces a *vertical* seam, so a widget can only ever be split
+/// horizontally, and the pieces stay one `set_window` + one DMA burst each.
+///
+/// The width fallback below exists for the degenerate case where the surface
+/// cannot hold even a single row of this region (a very wide frame with a very
+/// small buffer). Then the width is cut first, to the widest row the buffer can
+/// hold, and the band arithmetic runs inside that. Keeping it total matters more
+/// than optimising it: this is the branch nobody exercises until the one board
+/// that hits it.
+fn chunk_to_capacity(regions: &mut Vec<Rect>, limits: &RegionLimits) {
+    let Some(max_units) = limits.max_units else { return };
+    if regions.iter().all(|r| limits.holds(*r)) {
         return;
     }
+    let pps = limits.pixels_per_unit.max(1);
     let mut chunked = Vec::with_capacity(regions.len());
+
     for region in regions.iter() {
-        if fits(*region, max) {
+        if limits.holds(*region) {
             chunked.push(*region);
             continue;
         }
-        let step_x = if max.width == 0 { region.size.width } else { max.width };
-        let step_y =
-            if max.height == 0 { region.size.height } else { max.height };
+
+        // Widest slice whose single row fits, capped at the region's own width.
+        // `max_units * pps` is the pixel count one row of storage can address;
+        // saturating because that product can be enormous on a host renderer.
+        let step_x = region
+            .size
+            .width
+            .min(max_units.saturating_mul(pps).min(u32::MAX as usize) as u32)
+            .max(1);
+        // Rows of that width that fit. `row` is at least 1 by construction, and
+        // `max_units >= row` because `step_x` was chosen to make it so — but
+        // clamp anyway rather than risk a zero step and an endless loop.
+        let row = region_units(step_x, 1, pps).max(1);
+        let step_y = (max_units / row).max(1) as u32;
+
         let right = region.top_left.x + region.size.width as i32;
         let bottom = region.top_left.y + region.size.height as i32;
         let mut y = region.top_left.y;
@@ -570,11 +695,6 @@ fn chunk_to_capacity(regions: &mut Vec<Rect>, max: Size) {
     *regions = chunked;
 }
 
-fn fits(region: Rect, max: Size) -> bool {
-    (max.width == 0 || region.size.width <= max.width)
-        && (max.height == 0 || region.size.height <= max.height)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -589,6 +709,13 @@ mod tests {
     /// limit — so what comes out is the merge policy alone.
     fn tight() -> RegionLimits {
         RegionLimits { max_regions: 8, ..RegionLimits::whole() }
+    }
+
+    /// A surface big enough for a `w × h` tile at one unit per pixel, spelled
+    /// the way a policy spells it. What the planner is bound by is the unit
+    /// COUNT — regions of any shape fitting `w * h` units are legal.
+    fn tiles(w: u32, h: u32, max_regions: usize) -> RegionLimits {
+        RegionLimits::tiled(region_units(w, h, 1), 1, max_regions)
     }
 
     #[test]
@@ -678,26 +805,40 @@ mod tests {
 
     #[test]
     fn a_merge_the_surface_cannot_hold_is_not_made() {
-        // The real-page case from `tile_plan_240.txt`: two 16x16 checkboxes 22 px
-        // apart. On area alone they merge (x1.19); the 16x38 union does not fit a
-        // 240x24 tile, so chunking would cut it at y=24 and slice the lower
-        // checkbox in two — 8 required ops instead of 5.
-        let a = rect(0, 0, 16, 16);
-        let b = rect(0, 22, 16, 16);
+        // Two 30x30 rects 40 px apart. The area test likes the merge — 3000 px
+        // against 1800 is x1.67, under the x2.0 threshold — but a 32x32 surface
+        // holds 1024 units and the 30x100 union needs 3000, so chunking would
+        // cut it straight back up on the UNION's grid.
+        let a = rect(0, 0, 30, 30);
+        let b = rect(0, 70, 30, 30);
         assert_eq!(
             plan_regions(&[a, b], VIEWPORT, &tight()),
-            vec![rect(0, 0, 16, 38)],
+            vec![rect(0, 0, 30, 100)],
             "with room to hold it, the area test merges this pair"
         );
         assert_eq!(
-            plan_regions(
-                &[a, b],
-                VIEWPORT,
-                &RegionLimits::tiled(Size::new(240, 24), 8)
-            ),
+            plan_regions(&[a, b], VIEWPORT, &tiles(32, 32, 8)),
             vec![a, b],
-            "a 240x24 surface cannot hold the union, so the merge is vetoed"
+            "a 1024-unit surface cannot hold the union, so the merge is vetoed"
         );
+    }
+
+    #[test]
+    fn capacity_is_a_budget_not_a_shape() {
+        // The maintainer's point, as a test. A tile is a byte buffer plus an
+        // instruction about where to blit it; the buffer does not care what
+        // shape those bytes are. So a 16x38 union — 608 units — is emitted
+        // WHOLE by a surface spelled `240x24`, even though it is 14 rows taller
+        // than that rectangle. Bounding the shape instead would chunk it at
+        // y=24 and slice the lower rect across both pieces for no reason.
+        let a = rect(0, 0, 16, 16);
+        let b = rect(0, 22, 16, 16);
+        let limits = tiles(240, 24, 8);
+        let planned = plan_regions(&[a, b], VIEWPORT, &limits);
+
+        assert_eq!(planned, vec![rect(0, 0, 16, 38)], "{planned:?}");
+        assert!(planned[0].size.height > 24, "taller than the spelled tile");
+        assert!(limits.holds(planned[0]), "and still fits: 608 of 5760 units");
     }
 
     #[test]
@@ -708,15 +849,18 @@ mod tests {
         // its 256 px twice — once alone, once inside the container's chunk.
         let container = rect(20, 20, 120, 90);
         let speck = rect(40, 50, 16, 16);
-        let limits = RegionLimits::tiled(Size::new(240, 24), 8);
+        let limits = tiles(240, 24, 8);
 
         let planned = plan_regions(&[container, speck], VIEWPORT, &limits);
         assert!(
             !planned.iter().any(|r| *r == speck),
             "the contained rect survived as its own region: {planned:?}"
         );
-        // Exactly the container's own chunking: 90 / 24 -> 4 bands.
-        assert_eq!(planned.len(), 4, "{planned:?}");
+        // The container's own chunking, capacity-bound: 5760 units / 120 per
+        // row = 48 rows, so 90 rows is two bands. A shape-bound 240x24 surface
+        // would have made four.
+        assert_eq!(planned.len(), 2, "{planned:?}");
+        assert!(planned.iter().all(|r| r.size.width == 120));
         let painted: u32 = planned.iter().map(|r| r.size.area()).sum();
         assert_eq!(
             painted,
@@ -727,14 +871,16 @@ mod tests {
 
     #[test]
     fn capacity_outranks_the_region_budget() {
-        // Six rects that no pair can merge within a 240x24 surface. The budget of
-        // 2 is then unsatisfiable, and being over budget (a slower frame) is the
-        // right way to fail — over capacity is a buffer overrun.
+        // Four 30x30 rects spread down the screen. No pair's union fits a
+        // 1024-unit surface, so the budget of 2 is unsatisfiable — and being
+        // over budget (a slower frame) is the right way to fail, because over
+        // capacity is a buffer overrun.
         let damage: Vec<Rect> =
-            (0..6).map(|i| rect(0, i * 22, 16, 16)).collect();
-        let limits = RegionLimits::tiled(Size::new(240, 24), 2);
+            (0..4).map(|i| rect(0, i * 70, 30, 30)).collect();
+        let limits = tiles(32, 32, 2);
         let planned = plan_regions(&damage, VIEWPORT, &limits);
         assert_eq!(planned, damage, "{planned:?}");
+        assert!(planned.len() > limits.max_regions, "over budget, on purpose");
     }
 
     #[test]
@@ -778,7 +924,7 @@ mod tests {
     fn a_full_screen_plan_chunks_into_bands() {
         // The degenerate case the original WS6.4 design started from, reached
         // rather than chosen: whole-viewport damage + a 240x24 surface.
-        let limits = RegionLimits::tiled(Size::new(240, 24), 8);
+        let limits = tiles(240, 24, 8);
         let planned = plan_regions(&[VIEWPORT], VIEWPORT, &limits);
         assert_eq!(planned.len(), 10, "240 / 24 = 10 bands: {planned:?}");
         assert_eq!(planned[0], rect(0, 0, 240, 24));
@@ -789,7 +935,7 @@ mod tests {
     fn chunking_is_not_capped_by_the_region_budget() {
         // `max_regions` bounds chosen regions; chunks are forced by capacity, and
         // capping them would emit a region the surface cannot hold.
-        let limits = RegionLimits::tiled(Size::new(240, 24), 2);
+        let limits = tiles(240, 24, 2);
         let planned = plan_regions(&[VIEWPORT], VIEWPORT, &limits);
         assert_eq!(planned.len(), 10);
         assert!(planned.iter().all(|r| r.size.height <= 24));
@@ -800,7 +946,7 @@ mod tests {
         // A region whose size does not divide evenly: the last chunk is clipped,
         // and the pieces still partition the region with no gap and no overlap.
         let damage = rect(10, 10, 100, 50);
-        let limits = RegionLimits::tiled(Size::new(32, 32), 8);
+        let limits = tiles(32, 32, 8);
         let planned = plan_regions(&[damage], VIEWPORT, &limits);
         let covered: u32 = planned.iter().map(|r| r.size.area()).sum();
         assert_eq!(
@@ -809,10 +955,12 @@ mod tests {
             "chunks must not overlap or gap"
         );
         assert!(planned.iter().all(|r| r.intersection(&damage) == *r));
+        assert!(planned.iter().all(|r| limits.holds(*r)));
+        // Width-preserving: a capacity bound cuts rows, never columns, so a
+        // widget can only ever be split horizontally.
         assert!(
-            planned
-                .iter()
-                .all(|r| r.size.width <= 32 && r.size.height <= 32)
+            planned.iter().all(|r| r.size.width == damage.size.width),
+            "chunking introduced a vertical seam: {planned:?}"
         );
     }
 
@@ -845,8 +993,8 @@ mod tests {
         ];
         for limits in [
             RegionLimits { max_regions: 8, ..RegionLimits::whole() },
-            RegionLimits::tiled(Size::new(16, 16), 4),
-            RegionLimits::tiled(Size::new(64, 4), 2),
+            tiles(16, 16, 4),
+            tiles(64, 4, 2),
         ] {
             for damage in cases {
                 let planned = plan_regions(damage, viewport, &limits);
@@ -890,8 +1038,8 @@ mod tests {
         let viewport = Rect::new(Point::new(0, 0), Size::new(48, 48));
         let policies = [
             RegionLimits { max_regions: 8, ..RegionLimits::whole() },
-            RegionLimits::tiled(Size::new(16, 16), 4),
-            RegionLimits::tiled(Size::new(48, 8), 3),
+            tiles(16, 16, 4),
+            tiles(48, 8, 3),
             RegionLimits::whole(),
         ];
 
@@ -927,21 +1075,20 @@ mod tests {
                     }
                 }
 
-                // (b) capacity — nothing exceeds the surface.
-                if let Some(max) = limits.max_region {
-                    assert!(
-                        planned.iter().all(|r| r.size.width <= max.width
-                            && r.size.height <= max.height),
-                        "region over capacity: {} -> {planned:?}",
-                        ctx()
-                    );
-                }
+                // (b) capacity — nothing needs more storage than the
+                // surface holds. A UNIT count, not a shape: a tall narrow
+                // region is fine as long as its bytes fit.
+                assert!(
+                    planned.iter().all(|r| limits.holds(*r)),
+                    "region over capacity: {} -> {planned:?}",
+                    ctx()
+                );
 
                 // (c) no containment — overlap is allowed (and priced), but a
                 // region wholly inside another is duplicated work with nothing
                 // bought back. Checked only where chunking is off: two chunks
                 // from different regions have no such guarantee.
-                if limits.max_region.is_none() {
+                if limits.max_units.is_none() {
                     for (i, a) in planned.iter().enumerate() {
                         for b in &planned[i + 1..] {
                             let shared = a.intersection(b);
@@ -963,7 +1110,7 @@ mod tests {
                 );
 
                 // (e) budget, where chunking is not in play to inflate it.
-                if limits.max_region.is_none() {
+                if limits.max_units.is_none() {
                     assert!(
                         planned.len() <= limits.max_regions.max(1),
                         "over budget: {} -> {planned:?}",
@@ -985,15 +1132,19 @@ mod tests {
             [rect(0, 0, 320, 240), rect(10, 10, 8, 8), rect(300, 230, 8, 8)];
 
         fn check<P: FramePolicy>(damage: &[Rect], viewport: Rect) {
-            let planned =
-                plan_regions(damage, viewport, &P::limits(viewport.size));
+            let limits = P::limits(viewport.size, 1);
+            let budget = region_units(P::MAX_W, P::MAX_H, 1);
+            let planned = plan_regions(damage, viewport, &limits);
             assert!(!planned.is_empty());
             for region in &planned {
+                // The bound is the UNIT COUNT the compile-time proof was run
+                // against — not the rectangle used to spell it. A region may be
+                // taller than `MAX_H` provided it is narrow enough to fit.
                 assert!(
-                    region.size.width <= P::MAX_W
-                        && region.size.height <= P::MAX_H,
-                    "{region:?} exceeds the declared {}x{} the capacity proof \
-                     was run against",
+                    limits.units_of(*region) <= budget,
+                    "{region:?} needs {} units, over the {budget} the capacity \
+                     proof was run against ({}x{})",
+                    limits.units_of(*region),
                     P::MAX_W,
                     P::MAX_H
                 );
@@ -1009,15 +1160,14 @@ mod tests {
     fn every_planned_region_fits_the_surface() {
         // The other half of the contract: a region larger than the surface is a
         // buffer overrun, not a slow frame.
-        let max = Size::new(32, 16);
-        let limits = RegionLimits::tiled(max, 8);
+        let limits = tiles(32, 16, 8);
         let damage =
             [rect(0, 0, 240, 240), rect(5, 5, 33, 5), rect(100, 100, 1, 200)];
         for planned in plan_regions(&damage, VIEWPORT, &limits) {
             assert!(
-                planned.size.width <= max.width
-                    && planned.size.height <= max.height,
-                "{planned:?} exceeds the surface {max:?}"
+                limits.holds(planned),
+                "{planned:?} needs {} units, over the surface's 512",
+                limits.units_of(planned)
             );
         }
     }

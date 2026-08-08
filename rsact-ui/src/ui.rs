@@ -495,7 +495,10 @@ impl<W: WidgetCtx> UI<W, WithPages> {
         plan_regions_into(
             &self.deferred_regions,
             viewport,
-            &P::limits(self.viewport),
+            &P::limits(
+                self.viewport,
+                <W::Renderer as Renderer>::SURFACE_PIXELS_PER_UNIT,
+            ),
             &mut planned,
         );
         self.frame_regions = planned;
