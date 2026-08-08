@@ -215,6 +215,12 @@
     "branch": "master",
     "subject": "Merge pull request #41 from hazer-hazer/ws6.4c-clip-events"
   },
+  "d9c706309bb3ec580783645685f0862d3b5a155e": {
+    "date": 1786227141,
+    "parent": "",
+    "branch": "ws6.4d-tiled-output",
+    "subject": "WS6.4d(1): demote max_regions to a list bound; reopen the merge threshold"
+  },
   "e335d321b28483920afc3a0d5cfdbad94b3c70a5": {
     "date": 1786119235,
     "parent": "",
