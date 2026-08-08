@@ -59,6 +59,12 @@
     "branch": "master",
     "subject": "Merge pull request #18 from hazer-hazer/ws-home-hero"
   },
+  "37dba96b5b1db987200546f2dd244d22592954ac": {
+    "date": 1786210699,
+    "parent": "",
+    "branch": "ws6.4d-tiled-output",
+    "subject": "WS6.4d(2)+(3): FramePolicy, the capacity proof, and the frame driver"
+  },
   "3dc19c517e5e026622401065ae6a92fd6c8f6d9e": {
     "date": 1786138105,
     "parent": "",
