@@ -129,8 +129,14 @@
 //! once inside the container's chunk. This was a live bug until the explainer
 //! built for WS6.4d(1) surfaced it. See [`capacity_allows`].
 //!
-//! There is deliberately **no region-count cap** alongside it. One existed for
-//! two days and was removed once the cost model showed it could not help: with
+//! # Two knobs that were here and are not, and the model that removed them
+//!
+//! Neither a **region-count cap** nor a **full-frame guard** survives, and they
+//! failed the same test. Both were rules of thumb over the *input* — "too many
+//! regions", "damage is basically everything" — standing in front of a decision
+//! the cost model already answers continuously, and better.
+//!
+//! The count cap first. with
 //! `Cost = N·F + p·Σarea`, merging changes cost by `p·Δ − F`, so it wins exactly
 //! when `Δ < F/p` — which is the comparison the area test already makes. At its
 //! fixpoint every surviving pair has been priced and rejected, so forcing one
@@ -211,17 +217,6 @@ pub struct RegionLimits {
     /// b.area)`, and the union fits [`RegionLimits::max_units`]. `200` is
     /// WS6.4a's measured ×2.0.
     pub merge_threshold_percent: u32,
-
-    /// When the planned regions already *paint* this much of the viewport's
-    /// area, give up on being tight and plan the whole viewport as one region
-    /// (which [`RegionLimits::max_units`] then chunks into bands).
-    ///
-    /// Paint area, not coverage: regions may overlap, and a set that paints
-    /// 95% of a viewport's worth of pixels is worth collapsing whether that is
-    /// 95% of the screen once or 50% of it twice. Both readings point the same
-    /// way — one region's dead space is bounded by 1/0.9 while a scattered plan
-    /// pays `CASET`/`RASET`/`RAMWR` and a full tree traversal per region.
-    pub full_frame_percent: u32,
 }
 
 impl RegionLimits {
@@ -240,7 +235,6 @@ impl RegionLimits {
             max_units: None,
             pixels_per_unit: 1,
             merge_threshold_percent: Self::MERGE_THRESHOLD_PERCENT,
-            full_frame_percent: 90,
         }
     }
 
@@ -251,7 +245,6 @@ impl RegionLimits {
             max_units: Some(max_units),
             pixels_per_unit,
             merge_threshold_percent: Self::MERGE_THRESHOLD_PERCENT,
-            full_frame_percent: 90,
         }
     }
 
@@ -441,11 +434,10 @@ pub const fn assert_policy_fits<P: FramePolicy>(
 ///
 /// 1. clamp to the viewport, drop what is left with no area;
 /// 2. merge to a fixpoint under the area test + the capacity veto;
-/// 3. if paint coverage crosses `full_frame_percent`, collapse to the viewport;
-/// 4. chunk anything the surface cannot hold (this is where bands come from);
-/// 5. sort.
+/// 3. chunk anything the surface cannot hold (this is where bands come from);
+/// 4. sort.
 ///
-/// Steps 2–3 choose; step 4 obeys. Keeping them in that order is what makes the
+/// Step 2 chooses; step 3 obeys. Keeping them in that order is what makes the
 /// degenerate case fall out: a nearly-full-screen damage set collapses to one
 /// rect and *then* becomes strips, rather than being planned as strips up front.
 pub fn plan_regions_into(
@@ -477,19 +469,10 @@ pub fn plan_regions_into(
     // more to maintain than it saves.
     merge_by_area(out, limits);
 
-    // (3) Full-frame guard. This sums *paint* area, which double-counts any
-    // surviving overlap — deliberately, since that overlap is painted twice.
-    let painted: u64 = out.iter().map(|r| r.size.area() as u64).sum();
-    let viewport_area = viewport.size.area() as u64;
-    if painted * 100 >= limits.full_frame_percent as u64 * viewport_area {
-        out.clear();
-        out.push(viewport);
-    }
-
-    // (4) Chunk to capacity.
+    // (3) Chunk to capacity.
     chunk_to_capacity(out, limits);
 
-    // (5) Scan order.
+    // (4) Scan order.
     out.sort_unstable_by_key(|r| (r.top_left.y, r.top_left.x));
 }
 
@@ -809,8 +792,14 @@ mod tests {
     }
 
     #[test]
-    fn near_full_coverage_collapses_to_the_viewport() {
-        // Four quadrants, each one pixel shy of meeting: 99.2% covered.
+    fn near_full_coverage_reaches_the_viewport_on_its_own() {
+        // Four quadrants, each a pixel shy of meeting: 98.3% of the screen.
+        //
+        // A `full_frame_percent` guard used to special-case this ("damage is
+        // basically everything, stop being tight"). It was removed because the
+        // area test gets here by itself and does it better — each merge is
+        // priced rather than triggered by a threshold. This assertion is
+        // unchanged from when the guard existed; only the reason is.
         let damage = [
             rect(0, 0, 119, 119),
             rect(121, 0, 119, 119),
@@ -820,7 +809,7 @@ mod tests {
         assert_eq!(
             plan_regions(&damage, VIEWPORT, &tight()),
             vec![VIEWPORT],
-            "at near-full coverage there is nothing left to be tight about"
+            "the union is x1.017 the parts, so the area test merges it"
         );
     }
 
