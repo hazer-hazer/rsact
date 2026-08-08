@@ -11,6 +11,9 @@ extern crate self as rsact_ui;
 
 pub mod anim;
 pub mod el;
+// WS21: properties that cascade down the tree — the third property category
+// beside layout (arena) and style (stylist). See the module docs.
+pub mod env;
 pub mod event;
 pub mod font;
 pub mod layout;

@@ -2,7 +2,7 @@
 use crate::layout::{DevLayout, DevLayoutKind};
 use crate::{
     el::ElId,
-    font::FontProps,
+    env::LayoutEnv,
     layout::{
         Align, ContainerLayout, ContentLayout, DevHoveredLayout, LayoutCtx,
         LayoutKind, Limits, ScrollableLayout,
@@ -43,8 +43,8 @@ impl<'a> LayoutModelNode<'a> {
         self.model.id
     }
 
-    pub fn font_props(&self) -> Option<FontProps> {
-        self.model.font_props
+    pub fn env(&self) -> Option<LayoutEnv> {
+        self.model.env
     }
 
     pub fn translate(&self, by: Point) -> Self {
@@ -98,7 +98,7 @@ impl<'a> LayoutModelNode<'a> {
 pub(crate) struct Retained {
     pub parent_limits: Limits,
     pub parent_size: LengthSize,
-    pub input_font_props: FontProps,
+    pub input_env: LayoutEnv,
     pub min_size: Size,
 }
 
@@ -117,7 +117,7 @@ pub struct LayoutModel {
     outer: Rect,
     inner: Rect,
 
-    font_props: Option<FontProps>,
+    env: Option<LayoutEnv>,
 
     children: Vec<LayoutModel>,
 
@@ -136,7 +136,7 @@ pub struct LayoutModel {
 }
 
 // WS5.2: geometry-only equality. The memo's change-detection (and the
-// differential fuzz test) compare what is VISIBLE — id + rects + font_props +
+// differential fuzz test) compare what is VISIBLE — id + rects + env +
 // children — never the retained recompute-metadata or the debug `dev`, both of
 // which are derived and would otherwise spuriously invalidate the memo.
 impl PartialEq for LayoutModel {
@@ -144,7 +144,7 @@ impl PartialEq for LayoutModel {
         self.id == other.id
             && self.outer == other.outer
             && self.inner == other.inner
-            && self.font_props == other.font_props
+            && self.env == other.env
             && self.children == other.children
     }
 }
@@ -163,7 +163,7 @@ impl LayoutModel {
             outer: Rect::new(Point::zero(), inner_size),
             inner: Rect::new(Point::zero(), inner_size),
             children,
-            font_props: None,
+            env: None,
             #[cfg(feature = "incremental-layout")]
             retained: None,
             #[cfg(feature = "debug-info")]
@@ -187,8 +187,8 @@ impl LayoutModel {
         self
     }
 
-    pub fn with_font_props(mut self, fp: Option<FontProps>) -> Self {
-        self.font_props = fp;
+    pub fn with_env(mut self, env: Option<LayoutEnv>) -> Self {
+        self.env = env;
         self
     }
 
@@ -221,7 +221,7 @@ impl LayoutModel {
             outer: Rect::zero(),
             inner: Rect::zero(),
             children: vec![],
-            font_props: None,
+            env: None,
             #[cfg(feature = "incremental-layout")]
             retained: None,
             #[cfg(feature = "debug-info")]
@@ -384,11 +384,11 @@ pub fn model_layout<T: LayoutTree + ?Sized>(
         ),
         LayoutKind::Content(content_layout) => {
             let sizing = content_layout.content_sizing(ctx);
-            let layout_font_props = match content_layout {
-                ContentLayout::Text { font_props: text_fp, .. }
-                    if text_fp.has_any() =>
+            let layout_env = match content_layout {
+                ContentLayout::Text { env: text_env, .. }
+                    if text_env.has_any() =>
                 {
-                    let resolved = text_fp.inherited(&ctx.font_props);
+                    let resolved = text_env.inherited(&ctx.env);
                     Some(resolved)
                 },
                 _ => None,
@@ -405,22 +405,22 @@ pub fn model_layout<T: LayoutTree + ?Sized>(
                     DevLayoutKind::Content(content_layout.clone()),
                 ),
             )
-            .with_font_props(layout_font_props)
+            .with_env(layout_env)
         },
         LayoutKind::Container(container_layout) => {
             let ContainerLayout {
                 block_model,
                 horizontal_align,
                 vertical_align,
-                font_props: container_fp,
+                env: container_env,
             } = container_layout;
 
             // let min_content = content_size.get().min();
 
             let full_padding = block_model.padding;
 
-            let child_fp = container_fp.inherited(&ctx.font_props);
-            let child_ctx = LayoutCtx { font_props: child_fp, ..*ctx };
+            let child_env = container_env.inherited(&ctx.env);
+            let child_ctx = LayoutCtx { env: child_env, ..*ctx };
 
             let content_limits =
                 parent_limits.child_limits(size).shrink(full_padding);
@@ -460,14 +460,13 @@ pub fn model_layout<T: LayoutTree + ?Sized>(
                 ),
             )
             .with_full_padding(full_padding)
-            .with_font_props(container_fp.has_any().then_some(child_fp))
+            .with_env(container_env.has_any().then_some(child_env))
         },
         LayoutKind::Scrollable(scrollable_layout) => {
-            let ScrollableLayout { font_props: scrollable_fp } =
-                scrollable_layout;
+            let ScrollableLayout { env: scrollable_env } = scrollable_layout;
 
-            let child_fp = scrollable_fp.inherited(&ctx.font_props);
-            let child_ctx = LayoutCtx { font_props: child_fp, ..*ctx };
+            let child_env = scrollable_env.inherited(&ctx.env);
+            let child_ctx = LayoutCtx { env: child_env, ..*ctx };
 
             let content_limits = parent_limits.child_limits(size);
             let content_layout = effective_single_child(tree, id)
@@ -497,7 +496,7 @@ pub fn model_layout<T: LayoutTree + ?Sized>(
                     DevLayoutKind::Scrollable(scrollable_layout.clone()),
                 ),
             )
-            .with_font_props(scrollable_fp.has_any().then_some(child_fp))
+            .with_env(scrollable_env.has_any().then_some(child_env))
         },
         LayoutKind::Flex(flex_layout) => {
             model_flex(ctx, tree, id, parent_limits, flex_layout, size)
@@ -515,7 +514,7 @@ pub fn model_layout<T: LayoutTree + ?Sized>(
     let model = model.with_retained(Retained {
         parent_limits,
         parent_size,
-        input_font_props: ctx.font_props,
+        input_env: ctx.env,
         // WS5.2: retain the RESOLVED min — exactly what a flex parent uses for
         // this child (`child_size.max_fixed(min, limits.max())`, see `model_flex`)
         // — not the raw content-min. For a fixed dimension this is the fixed
@@ -583,11 +582,7 @@ fn recompute_upward<T: LayoutTree + ?Sized>(
         };
         let old_min = retained.min_size;
 
-        let ctx = LayoutCtx {
-            fonts,
-            viewport,
-            font_props: retained.input_font_props,
-        };
+        let ctx = LayoutCtx { fonts, viewport, env: retained.input_env };
         let mut new_sub = model_layout(
             &ctx,
             tree,
@@ -633,7 +628,7 @@ fn rebuild_root<T: LayoutTree + ?Sized>(
     tree: &T,
 ) {
     if let Some(r) = result.retained {
-        let ctx = LayoutCtx { fonts, viewport, font_props: r.input_font_props };
+        let ctx = LayoutCtx { fonts, viewport, env: r.input_env };
         *result =
             model_layout(&ctx, tree, result.id, r.parent_limits, r.parent_size);
     }
@@ -850,7 +845,8 @@ mod incremental_fuzz {
     use super::{LayoutModel, model_layout, relayout_incremental};
     use crate::{
         el::ElId,
-        font::{FontCtx, FontProps},
+        env::LayoutEnv,
+        font::FontCtx,
         layout::{
             FlexLayout, LayoutCtx, LayoutData, LayoutKind, Limits,
             length::LengthSize, tree::LayoutTree,
@@ -973,11 +969,8 @@ mod incremental_fuzz {
     fn incremental_equals_full_recompute() {
         let fonts = FontCtx::new();
         let viewport = Size::new(200, 200);
-        let ctx = LayoutCtx {
-            fonts: &fonts,
-            viewport,
-            font_props: FontProps::default(),
-        };
+        let ctx =
+            LayoutCtx { fonts: &fonts, viewport, env: LayoutEnv::default() };
 
         for seed in 0u64..500 {
             let mut rng =
@@ -1039,8 +1032,8 @@ mod incremental_fuzz {
             fonts: &fonts,
             viewport,
             // Match the page memo: an inheritable auto font, so text nodes have a
-            // font to measure with (`FontProps::default()` has `font: None`).
-            font_props: FontProps {
+            // font to measure with (`LayoutEnv::default()` has `font: None`).
+            env: LayoutEnv {
                 font: Some(Font::Auto),
                 font_size: None,
                 font_style: None,
@@ -1108,11 +1101,8 @@ mod incremental_fuzz {
         use super::layout_changed_set;
         let fonts = FontCtx::new();
         let viewport = Size::new(200, 200);
-        let ctx = LayoutCtx {
-            fonts: &fonts,
-            viewport,
-            font_props: FontProps::default(),
-        };
+        let ctx =
+            LayoutCtx { fonts: &fonts, viewport, env: LayoutEnv::default() };
         let mut rng = Rng(12345);
         let mut tree = TestTree::new();
         let mut next = 1u64;
@@ -1146,11 +1136,8 @@ mod incremental_fuzz {
         use alloc::vec;
         let fonts = FontCtx::new();
         let viewport = Size::new(200, 200);
-        let ctx = LayoutCtx {
-            fonts: &fonts,
-            viewport,
-            font_props: FontProps::default(),
-        };
+        let ctx =
+            LayoutCtx { fonts: &fonts, viewport, env: LayoutEnv::default() };
         let (root, a, b) = (el_id(1), el_id(2), el_id(3));
         let mut tree = TestTree::new();
         tree.layouts
@@ -1212,11 +1199,8 @@ mod incremental_fuzz {
 
         let fonts = FontCtx::new();
         let viewport = Size::new(200, 200);
-        let ctx = LayoutCtx {
-            fonts: &fonts,
-            viewport,
-            font_props: FontProps::default(),
-        };
+        let ctx =
+            LayoutCtx { fonts: &fonts, viewport, env: LayoutEnv::default() };
 
         for seed in 0u64..500 {
             let mut rng =
@@ -1280,11 +1264,8 @@ mod incremental_fuzz {
         use super::layout_repaint_roots;
         let fonts = FontCtx::new();
         let viewport = Size::new(200, 200);
-        let ctx = LayoutCtx {
-            fonts: &fonts,
-            viewport,
-            font_props: FontProps::default(),
-        };
+        let ctx =
+            LayoutCtx { fonts: &fonts, viewport, env: LayoutEnv::default() };
         let mut rng = Rng(999);
         let mut tree = TestTree::new();
         let mut next = 1u64;
@@ -1316,11 +1297,8 @@ mod incremental_fuzz {
         use alloc::vec;
         let fonts = FontCtx::new();
         let viewport = Size::new(200, 200);
-        let ctx = LayoutCtx {
-            fonts: &fonts,
-            viewport,
-            font_props: FontProps::default(),
-        };
+        let ctx =
+            LayoutCtx { fonts: &fonts, viewport, env: LayoutEnv::default() };
         let (root, a, b) = (el_id(1), el_id(2), el_id(3));
         let mut tree = TestTree::new();
         tree.layouts
@@ -1373,11 +1351,8 @@ mod incremental_fuzz {
         use alloc::vec;
         let fonts = FontCtx::new();
         let viewport = Size::new(200, 200);
-        let ctx = LayoutCtx {
-            fonts: &fonts,
-            viewport,
-            font_props: FontProps::default(),
-        };
+        let ctx =
+            LayoutCtx { fonts: &fonts, viewport, env: LayoutEnv::default() };
         let (root, a) = (el_id(1), el_id(2));
         let mut tree = TestTree::new();
         tree.layouts
@@ -1439,11 +1414,8 @@ mod incremental_fuzz {
 
         let fonts = FontCtx::new();
         let viewport = Size::new(200, 200);
-        let ctx = LayoutCtx {
-            fonts: &fonts,
-            viewport,
-            font_props: FontProps::default(),
-        };
+        let ctx =
+            LayoutCtx { fonts: &fonts, viewport, env: LayoutEnv::default() };
 
         for seed in 0u64..500 {
             let mut rng =

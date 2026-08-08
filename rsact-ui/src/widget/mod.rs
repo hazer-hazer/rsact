@@ -249,7 +249,7 @@ pub trait BlockModelWidget<W: WidgetCtx>: LayoutWidget<W> {
 pub trait FontSettingWidget<W: WidgetCtx>:
     LayoutWidget<W> + Sized + 'static
 {
-    // WS5.1: the old `font_props(&self)` default read the now-removed
+    // WS5.1: the old `env(&self)` default read the now-removed
     // `Widget::layout()` handle and was uncalled anywhere — dropped. Font props
     // are read off the arena-owned `LayoutData` in the layout kernel now.
 
@@ -261,8 +261,8 @@ pub trait FontSettingWidget<W: WidgetCtx>:
         self.layout_mut().setter(
             font_size.maybe_reactive(),
             |layout, font_size| {
-                if let Some(font_props) = layout.font_props_mut() {
-                    font_props.font_size = Some(font_size.clone().into());
+                if let Some(env) = layout.env_mut() {
+                    env.font_size = Some(font_size.clone().into());
                 }
             },
         );
@@ -276,8 +276,8 @@ pub trait FontSettingWidget<W: WidgetCtx>:
         self.layout_mut().setter(
             font_style.maybe_reactive(),
             |layout, &font_style| {
-                if let Some(font_props) = layout.font_props_mut() {
-                    font_props.font_style = Some(font_style);
+                if let Some(env) = layout.env_mut() {
+                    env.font_style = Some(font_style);
                 }
             },
         );
@@ -290,8 +290,8 @@ pub trait FontSettingWidget<W: WidgetCtx>:
     ) -> Self {
         self.layout_mut()
             .setter(font.maybe_reactive(), |layout, font| {
-                if let Some(font_props) = layout.font_props_mut() {
-                    font_props.font = Some(font.clone().into());
+                if let Some(env) = layout.env_mut() {
+                    env.font = Some(font.clone().into());
                 }
             });
         self
@@ -301,12 +301,13 @@ pub trait FontSettingWidget<W: WidgetCtx>:
 pub mod prelude {
     pub use crate::{
         el::*,
+        env::LayoutEnv,
         event::{
             Capture, Event, EventResponse, FocusEvent, message::UiMessage,
         },
         font::{
             Font, FontCtx, FontFamily, FontHandler, FontId, FontImport,
-            FontProps, FontSize, FontStyle,
+            FontSize, FontStyle,
         },
         layout::{
             self, Align, ContainerLayout, FlexLayout, LayoutData, LayoutKind,

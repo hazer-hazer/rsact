@@ -409,9 +409,14 @@ impl<W: WidgetCtx, K: PartialEq + 'static> Widget<W> for Select<W, K> {
                         // to a no-op instead of `todo!()` so a Select with
                         // options does not abort the device on render.
                         Ok(())
-                        // ctx.with_tree_style(
-                        //     |tree_style| {
-                        //         tree_style.text_color(
+                        // WS21.1: `with_tree_style` is `with_visual_env` and
+                        // `TreeStyle` is `env::VisualEnv` — this is the only
+                        // caller the pixel-group cascade has ever had, and it is
+                        // commented out, which is why that group has no live
+                        // producer today.
+                        // ctx.with_visual_env(
+                        //     |visual| {
+                        //         visual.text_color(
                         //             (if Some(index) == state.selected {
                         //                 style.selected_text_color
                         //             } else {

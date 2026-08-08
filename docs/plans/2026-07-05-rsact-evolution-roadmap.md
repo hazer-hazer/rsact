@@ -1573,7 +1573,7 @@ benches/allocations.rs (no regression) + benches/reactivity. Coordinate with WS9
 
 **Sessions:** 2–3 · **Risk:** medium · **Directions:** D2 + D3 + D4 · **Depends on:** WS5 (arena-owned layout, ElId identity), ISSUE-2 (the one-dirty-channel rule this must obey) · **Feeds:** WS7.4, **ISSUE-4** (same "view that vanishes" mechanism), WS15 (i18n/locale cascade), WS5.4 (env is part of the text-measure cache key) · **Filed:** 2026-08-08, maintainer.
 
-**Status:** OPEN — analysed and specified, not scheduled. **Does not block WS6.4d** (see the blocking analysis at the end of this item).
+**Status:** IN PROGRESS — **21.1 done** (2026-08-09, branch `ws21-env-cascade`); 21.2–21.5 open. The four open questions are **settled** — see Decisions below. **Does not block WS6.4d** (see the blocking analysis at the end of this item).
 
 #### The problem
 
@@ -1590,13 +1590,15 @@ And neither cascades from an arbitrary ancestor: there is no way to say "this wh
 
 This is the strongest argument for it, and it is not a design argument — it is what the code already does. The cascade was discovered independently three times and never named:
 
-| Site | What it is |
-| --- | --- |
-| `LayoutCtx.font_props` (`layout/mod.rs`) | the **live** cascade, threaded down the layout walk and merged per node via `FontProps::inherited` (field-wise `Option::or`) |
-| `LayoutModel.font_props: Option<FontProps>` (`layout/model.rs:120`, `:391`, `:463`) | the **resolved** value cached per node, so render *replays* the cascade instead of recomputing it — `None` means "nothing new here, keep the parent's", which is why `render.rs:1118`'s `unwrap_or` is correct rather than the merge bug it looks like |
-| `RetainedInputs.input_font_props` (`layout/model.rs:101`) | the per-node **resume anchor** that lets WS5.2's `recompute_upward` re-run a subtree without walking from the root |
+The three differ only in **tense**, which is what makes them one concept — 21.1 renamed them accordingly (post-21.1 name in the last column):
 
-Plus a fourth, vestigial: `RenderVisual.tree_style` is a render-only cascade (`TreeStyle { text_color }`) with **no live producer at all** — its only mutator, `RenderCtx::with_tree_style`, is called from exactly one place, and that call is commented out in `select.rs:412`.
+| Site (pre-21.1) | What it is | Now |
+| --- | --- | --- |
+| `LayoutCtx.font_props` (`layout/mod.rs`) | the **live** cascade, threaded down the layout walk and merged per node via `FontProps::inherited` (field-wise `Option::or`) | `LayoutCtx.env` |
+| `LayoutModel.font_props: Option<FontProps>` (`layout/model.rs:120`, `:391`, `:463`) | the **resolved** value cached per node, so render *replays* the cascade instead of recomputing it — `None` means "nothing new here, keep the parent's", which is why `render.rs:1118`'s `unwrap_or` is correct rather than the merge bug it looks like | `LayoutModel.env` |
+| `RetainedInputs.input_font_props` (`layout/model.rs:101`) | the per-node **resume anchor** that lets WS5.2's `recompute_upward` re-run a subtree without walking from the root | `Retained.input_env` |
+
+Plus a fourth, vestigial: `RenderVisual.tree_style` is a render-only cascade (`TreeStyle { text_color }`) with **no live producer at all** — its only mutator, `RenderCtx::with_tree_style`, is called from exactly one place, and that call is commented out in `select.rs:412`. (21.1 found it has **no live consumer either** — see finding 1.) Now `RenderEnv.visual: VisualEnv<C>`, reached via `with_visual_env`.
 
 So WS21 does not introduce a mechanism. It **names one the codebase already built three-and-a-half times**, generalizes `FontProps` to an open `Env`, and moves the *override source* out of `LayoutData` into its own sparse structure.
 
@@ -1614,18 +1616,27 @@ Cascading is being adopted **deliberately and narrowly**, for properties that ge
 
 #### Design
 
-**`Env` is two groups, split by the box/pixel rule.** This is the one structural amendment to the proposal as sketched, and it matters:
+**`Env` is two groups, split by the box/pixel rule.** This is the one structural amendment to the proposal as sketched, and it matters. **21.1 landed it as two sibling types, not one struct** — see finding 2 for why the compiler, not a comment, enforces the split:
 
 ```rust
-pub struct Env {
-    // Resolved by the LAYOUT pass, cached into LayoutModel, replayed by render.
-    // A change MARKS THE ARENA DIRTY: it changes measurement.
+// crate::env — the BOX group. Resolved by the LAYOUT pass, cached into
+// LayoutModel, replayed by render. A change MARKS THE ARENA DIRTY.
+pub struct LayoutEnv {
     pub font: Option<Font>,
     pub font_size: Option<FontSize>,
     pub font_style: Option<FontStyle>,
-    // Resolved by the RENDER walk (what `tree_style` already is).
-    // A change must NEVER relayout — pixels only.
-    pub text_color: Option<ColorStyle<C>>,
+}
+
+// crate::env — the PIXEL group. Resolved by the RENDER walk (what `tree_style`
+// already was). A change must NEVER relayout.
+pub struct VisualEnv<C: Color> {
+    pub text_color: ColorStyle<C>,
+}
+
+// The one place both meet: the render walk (`el/render.rs`).
+pub struct RenderEnv<W: WidgetCtx> {
+    pub layout: LayoutEnv,          // replayed, already resolved
+    pub visual: VisualEnv<W::Color>, // cascaded by this walk
 }
 ```
 
@@ -1635,12 +1646,12 @@ Without the split, a cascading *colour* would mark the arena layout-dirty and tr
 
 **Lookup cost is once per relayout, not once per frame.** Only the layout pass consults the map; render reads the already-resolved value from the `LayoutModel`, exactly as it does today. This matters because WS6.4c just spent real effort making traversal cheap and instrumented it (`nodes_visited`) — a per-node map probe on every render frame would show up there. If the layout-side lookup ever measures, a `has_env` bit in `ElState` (already loaded during the walk) turns the common case into a branch instead of a search.
 
-**`EnvironmentView` — a build-only view that does not retain.** It writes onto its child's `ElId` and vanishes; no arena node, no runtime cost. This is precisely the Xilem shape **ISSUE-4** describes — _"a view can consume a child, set one property on it, and vanish"_ — so the two items should be co-designed rather than inventing the mechanism twice.
+**`EnvScope` — a build-only view that does not retain.** It writes onto its child's `ElId` and vanishes; no arena node, no runtime cost. This is precisely the Xilem shape **ISSUE-4** describes — _"a view can consume a child, set one property on it, and vanish"_ — so the two items should be co-designed rather than inventing the mechanism twice.
 
 Two entry points, one mechanism:
 
 - `.font_size(x)` on a widget builder — sugar that writes that builder's **own** env entry. No wrapper type, so the builder chain's type does not change and `.width()` still chains.
-- `EnvironmentView` (`.environment(|e| …)`) wrapping any subtree — the "20px for this whole Flex" case.
+- `EnvScope` (`.environment(|e| …)`) wrapping any subtree — the "20px for this whole Flex" case.
 
 Precedence: **innermost wins**, field-wise `Option::or` child-first — `FontProps::inherited`'s existing semantics, unchanged.
 
@@ -1652,17 +1663,17 @@ Precedence: **innermost wins**, field-wise `Option::or` child-first — `FontPro
 2. **Subtree invalidation semantics.** An env change on an ancestor changes every descendant's measurement. Verified feasible: `recompute_upward` re-runs `model_layout` from the dirty node *downward* with `retained.input_font_props` as the seed, so marking the ancestor already re-measures the subtree — and `input_font_props` generalizes to `input_env` for free. Needs a differential-fuzz case (env change vs full rebuild) in WS5.2's existing harness.
 3. **The two-group split leaks if `Env` grows carelessly.** Every new field must be classified by the box/pixel rule at the point it is added, or the "colour relayouts the page" bug arrives later. Encode it in the type (two structs, or a marker), not in a comment.
 4. **Do not let it become CSS.** Cascading is justified for properties that genuinely inherit down a text/reading context. Resist selectors, specificity, and "any style property may cascade" — that repeals the anti-CSS decision by increments.
-5. **`.font_size()` ergonomics if it becomes a wrapper.** Solved by keeping the sugar (entry point 1) rather than making every `.font_size()` return `EnvironmentView<Inner>` and forcing users to order builder calls. Flagged because the wrapper-only design is the obvious first sketch and it is a trap.
+5. **`.font_size()` ergonomics if it becomes a wrapper.** Solved by keeping the sugar (entry point 1) rather than making every `.font_size()` return `EnvScope<Inner>` and forcing users to order builder calls. Flagged because the wrapper-only design is the obvious first sketch and it is a trap.
 
 #### What it deletes
 
-Worth stating, because the payoff is subtractive: `ContentLayout::Text.font_props`, `ContainerLayout.font_props`, `FlexLayout.font_props`, `ScrollableLayout.font_props`, `ContentLayout::Icon(FontSize)` with its `set_icon_size`/`icon_size` accessors, `FontSettingWidget`'s layout setters, and — because `Icon` would read its resolved size from the model like `Label` reads font props — the `Signal<FontSize>` relay in `IconValue::Relative` and its second effect. The `SignalOnWrite` TODO is answered by removing the need for it rather than by building it.
+Worth stating, because the payoff is subtractive: `ContentLayout::Text.env`, `ContainerLayout.env`, `FlexLayout.env`, `ScrollableLayout.env` (all four named `font_props` before 21.1), `ContentLayout::Icon(FontSize)` with its `set_icon_size`/`icon_size` accessors, `FontSettingWidget`'s layout setters, and — because `Icon` would read its resolved size from the model like `Label` reads its env — the `Signal<FontSize>` relay in `IconValue::Relative` and its second effect. The `SignalOnWrite` TODO is answered by removing the need for it rather than by building it. The `TODO` at the head of `env::LayoutEnv` (moved there from `font/mod.rs` by 21.1) is this list written by the maintainer before WS21 existed; it stays until 21.4.
 
 #### Stages
 
-- [ ] **21.1 Name the concept, no behaviour change.** `FontProps` → `Env` (layout group only) across `LayoutCtx`, `LayoutModel`, `RetainedInputs`; `RenderVisual.tree_style` → the visual group. Pure rename + regroup; every golden byte-identical. This is the commit that proves the three sites really are one concept.
+- [x] **21.1 Name the concept, no behaviour change.** `FontProps` → `Env` (layout group only) across `LayoutCtx`, `LayoutModel`, `RetainedInputs`; `RenderVisual.tree_style` → the visual group. Pure rename + regroup; every golden byte-identical. This is the commit that proves the three sites really are one concept. **DONE 2026-08-09** — new `rsact-ui/src/env/` module: `FontProps` → `env::LayoutEnv`, `TreeStyle<C>` → `env::VisualEnv<C>`, `LayoutCtx.env`, `LayoutModel.env`, `Retained.input_env`, `RenderVisual` → `RenderEnv { layout, visual }` (the one place both groups meet), `with_tree_style` → `with_visual_env`. 399 tests green, all 7 goldens byte-identical, `--depth 2` powerset green. Two findings, below.
 - [ ] **21.2 Move the override source.** Sorted `Vec<(ElId, Env)>` in the arena; `FontSettingWidget`'s setters retarget from `layout.setter` to `env.setter`; delete the `font_props` fields from all four layout kinds. Both marks (dirty + needs_redraw) land here — risk 1 is this stage's acceptance criterion, with a same-metrics font-style change as the regression test.
-- [ ] **21.3 `EnvironmentView`.** Build-only, non-retaining, writes the child's entry; co-designed with ISSUE-4's view vocabulary. Acceptance: wrapping a `Flex` sets the size for all descendants and creates **zero** arena nodes.
+- [ ] **21.3 `EnvScope`.** Build-only, non-retaining, writes the child's entry; co-designed with ISSUE-4's view vocabulary. Acceptance: wrapping a `Flex` sets the size for all descendants and creates **zero** arena nodes.
 - [ ] **21.4 Fold `Icon` in.** Size becomes an env property; `ContentLayout::Icon` loses its payload; the `Signal<FontSize>` relay and its effect disappear. Acceptance: `only_a_reactive_size_costs_an_effect` drops 2 → 1.
 - [ ] **21.5 (optional) Prove generality with a second property.** `enabled` or `locale` — one that is not font-shaped — to confirm the mechanism is not font-specific in disguise.
 
@@ -1670,11 +1681,21 @@ Worth stating, because the payoff is subtractive: `ContentLayout::Text.font_prop
 
 Goldens byte-identical through 21.1. A same-metrics font-style change on a nested subtree repaints (risk 1). Wrapping a subtree costs zero nodes. `nodes_visited` unchanged on the render path. WS5.2's differential fuzz extended with env changes. Effects: an inert env costs none.
 
-#### Open questions for the maintainer
+#### 21.1 findings
 
-1. **Naming.** The maintainer is _"leaning towards calling builders views"_ — WS21 introduces the first view that is *only* a view (it never becomes a widget), so it is the natural place to settle that vocabulary, or the natural place to avoid pre-empting it.
-2. **Does `Env` subsume `MemoChain` style inheritance?** `EVOLUTION.md:31` wants `MemoChain` retired for styles; per-widget style *inheritance* is the overlapping concept. Decide whether WS21's visual group and WS7.4 converge or stay separate.
-3. **Viewport in `Env`?** `FontSize::Relative` resolves against the viewport, which is currently threaded separately in both `LayoutCtx` and `RenderShared`. It is a root-level environment value in all but name.
+Two things the 21.1 session learned that change later stages:
+
+1. **The vestigial fourth is more vestigial than this item recorded.** `TreeStyle` was known to have no live *producer*. It has no live **consumer** either: `Label` reads `text_color` from the *stylist* (`widget/label.rs`), never from `ctx.visual.tree_style`. The value was constructed at the page root, threaded through every `render_subtree` call, and read by nobody. Consequence for 21.2: the visual group is a free hand — renaming and regrouping it carried *zero* behaviour risk, and giving it a producer cannot regress anything, because nothing observes it yet. All of 21.1's byte-identity risk was on the layout half. It also means risk 1's second example (a cascading `text_color` that repaints nothing) is not yet reachable — it becomes reachable the moment 21.2 wires a consumer, which is exactly when the dual mark must already be in place.
+2. **The two-group split is compiler-enforced, not merely disciplined.** `VisualEnv<C>` is generic over the colour; `LayoutEnv` is not. `LayoutCtx`, `LayoutModel` and `Retained` are colour-free today, and a single `Env<C>` holding both groups would have dragged `W::Color` into all three — the WS5.5 anti-pattern expressed as a type parameter. So risk 3 ("the split leaks if `Env` grows carelessly") is now a compile error for the colour case rather than a review catch. Two sibling structs, no container type and no shared `EnvGroup` trait: `VisualEnv`'s `ColorStyle` has its own priority mechanism and no "unset" state, so a shared `has_any`/`inherited` contract would have been a stub on one side. Left as an honest gap for 21.2 to close if it needs one.
+
+#### Decisions (maintainer, 2026-08-09)
+
+The four open questions are settled. Recorded here rather than left open:
+
+1. **Naming — avoid pre-empting.** 21.3's wrapper is named for what it does (`EnvScope`), not for what it might be called. It does **not** claim the "view" word, so **ISSUE-4** stays free to settle the builders-are-views vocabulary on its own terms and WS21 stops being a blocker for that decision.
+2. **`Env` vs `MemoChain` — converge.** `MemoChain`'s `first`/`last` callbacks exist to inherit style down the tree, and that is what the visual group *is*. WS7.4 therefore becomes **"move the inheriting properties to `Env`"** rather than a parallel retirement of `MemoChain`; per-widget style *resolution* (with pseudo-classes) stays with the stylist. This is how `EVOLUTION.md:31` gets discharged.
+3. **Viewport — stays out of `Env`.** It is a root constant that no node ever overrides, so it would be an always-`Some` field on every `Env` and would make the `Option` semantics meaningless. `FontSize::Relative` keeps resolving against the separately-threaded viewport.
+4. **Session scope — 21.1 alone.** 21.2 carries risk 1 (the dual mark) and gets its own focused pass with the same-metrics font-style change as its acceptance gate.
 
 #### Blocking analysis — WS21 does **not** block WS6.4d
 
@@ -1699,18 +1720,26 @@ So **#44 is mergeable as-is**. Every item WS21 will remove is either correct-and
 
 #### Session prompt
 
+21.1 is done; this is the **21.2** prompt.
+
 ```text
-Read docs/plans/2026-07-05-rsact-evolution-roadmap.md — WS21. The mechanism ALREADY EXISTS
-three times (LayoutCtx.font_props live cascade, LayoutModel.font_props resolved cache,
-RetainedInputs.input_font_props resume anchor) plus a vestigial fourth (RenderVisual.
-tree_style, no live producer). Do 21.1 FIRST as a pure rename proving they are one concept —
-goldens must be byte-identical. Env is TWO groups split by the box/pixel rule (layout group
-marks the arena dirty; visual group must never relayout); encode the split in the type.
-The highest risk is NOT the cascade — it is that a same-metrics env change (font style,
-text colour) moves no geometry and wakes no render probe, so it would relayout and repaint
-NOTHING: ISSUE-2's failure mode in a new system. The binding must mark_needs_redraw as well
-as mark_dirty, and the tripwire will NOT catch this. Storage is a sorted Vec<(ElId, Env)>,
-not a SecondaryMap (dense — one slot per live node). Co-design EnvironmentView with ISSUE-4.
+Read docs/plans/2026-07-05-rsact-evolution-roadmap.md — WS21. 21.1 is DONE: crate::env holds
+LayoutEnv (box group) + VisualEnv<C> (pixel group) as sibling types, LayoutCtx.env /
+LayoutModel.env / Retained.input_env are the three tenses of one cascade, RenderEnv{layout,
+visual} is where both meet in the render walk. Do 21.2: move the OVERRIDE SOURCE out of the
+four layout kinds into a sorted Vec<(ElId, LayoutEnv)> in the arena (NOT a SecondaryMap —
+dense, one slot per live node) and retarget FontSettingWidget's setters from layout.setter
+to env.setter, reusing LayoutBuilder::setter's shape exactly (Inert writes at build, no
+effect; reactive wires one effect).
+
+The highest risk is NOT the cascade — it is that a same-metrics env change (font style, and
+text colour once the visual group HAS a consumer) moves no geometry and wakes no render
+probe, so it would relayout and repaint NOTHING: ISSUE-2's failure mode in a new system.
+The binding must mark_needs_redraw as well as mark_dirty, and the tripwire will NOT catch
+this — it watches the layout probe, not the paint channel. A same-metrics font-style change
+repainting is 21.2's acceptance test, and 21.1's finding 1 is why it is not optional: the
+visual group has no consumer today, so the bug cannot be observed until you wire one.
+Also extend WS5.2's differential fuzz with an env change (risk 2).
 ```
 
 ---

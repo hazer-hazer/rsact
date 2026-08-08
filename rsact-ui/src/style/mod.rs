@@ -1,4 +1,3 @@
-use crate::render::prelude::*;
 use alloc::boxed::Box;
 
 pub mod primary_gray;
@@ -72,21 +71,10 @@ impl<S: Style + 'static, F: Fn(S, &StyleSelector) -> S + 'static> StyleFn<S>
 {
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct TreeStyle<C: Color> {
-    pub text_color: ColorStyle<C>,
-}
-
-impl<C: Color> TreeStyle<C> {
-    pub fn base() -> Self {
-        Self { text_color: ColorStyle::DefaultForeground }
-    }
-
-    pub fn text_color(mut self, text_color: Option<C>) -> Self {
-        self.text_color.set_high_priority(text_color);
-        self
-    }
-}
+// WS21.1: `TreeStyle` is `env::VisualEnv` — the pixel group of the environment.
+// It was never a *style* in this module's sense (no pseudo-classes, no stylist,
+// no per-widget resolution); it was a tree cascade, which is what the env module
+// names. See `crate::env` for the box/pixel rule that separates the two groups.
 
 #[macro_export]
 macro_rules! declare_widget_style {

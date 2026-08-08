@@ -83,13 +83,13 @@ pub fn model_flex<T: LayoutTree + ?Sized>(
         gap,
         horizontal_align,
         vertical_align,
-        font_props: flex_fp,
+        env: flex_env,
     } = flex_layout;
 
     let full_padding = block_model.padding;
 
-    let child_fp = flex_fp.inherited(&ctx.font_props);
-    let child_ctx = LayoutCtx { font_props: child_fp, ..*ctx };
+    let child_env = flex_env.inherited(&ctx.env);
+    let child_ctx = LayoutCtx { env: child_env, ..*ctx };
     let ctx = &child_ctx;
 
     // WS5.1: structure comes from the arena; relayout-on-structure-change is
@@ -471,14 +471,15 @@ pub fn model_flex<T: LayoutTree + ?Sized>(
         ),
     )
     .with_full_padding(full_padding)
-    .with_font_props(flex_fp.has_any().then_some(child_fp))
+    .with_env(flex_env.has_any().then_some(child_env))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
-        font::{FontCtx, FontProps},
+        env::LayoutEnv,
+        font::FontCtx,
         layout::{LayoutData, LayoutKind},
     };
     // Test-only: `model_flex` no longer needs the reactive prelude off-graph,
@@ -525,7 +526,7 @@ mod tests {
         let ctx = LayoutCtx {
             fonts: &fonts,
             viewport: Size::new(1000, 1000),
-            font_props: FontProps::default(),
+            env: LayoutEnv::default(),
         };
         // Register each child + the flex in a mock arena keyed by ElId (the
         // WS5.1 layout walk sources structure from the tree).

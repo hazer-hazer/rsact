@@ -1,6 +1,7 @@
 use crate::{
     el::ElId,
-    font::{FontCtx, FontProps, FontSize, TextOverflow},
+    env::LayoutEnv,
+    font::{FontCtx, FontSize, TextOverflow},
     layout::{
         length::LengthSize,
         tree::{LayoutTree, effective_single_child, for_each_effective_child},
@@ -32,7 +33,7 @@ pub mod tree;
 pub struct LayoutCtx<'a> {
     pub fonts: &'a FontCtx,
     pub viewport: Size,
-    pub font_props: FontProps,
+    pub env: LayoutEnv,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, IntoMaybeReactive)]
@@ -96,7 +97,7 @@ impl Align {
 // is both correct and side-effect-free.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ContentLayout {
-    Text { font_props: FontProps, content: String, overflow: TextOverflow },
+    Text { env: LayoutEnv, content: String, overflow: TextOverflow },
     Icon(FontSize),
     Fixed(Size),
 }
@@ -126,7 +127,7 @@ impl Display for ContentLayout {
 impl ContentLayout {
     pub fn text(content: String) -> Self {
         Self::Text {
-            font_props: Default::default(),
+            env: Default::default(),
             content,
             overflow: TextOverflow::default(),
         }
@@ -145,10 +146,10 @@ impl ContentLayout {
     /// [`ContentLayout::height_for_width`].
     pub fn content_sizing(&self, ctx: &LayoutCtx) -> ContentSizing {
         match self {
-            ContentLayout::Text { font_props, content, overflow } => {
+            ContentLayout::Text { env, content, overflow } => {
                 #[cfg(feature = "layout-counters")]
                 crate::layout::counters::count_measure();
-                let resolved = font_props.inherited(&ctx.font_props);
+                let resolved = env.inherited(&ctx.env);
                 let props = resolved.resolve(ctx.viewport);
                 let font = resolved.font();
                 let intrinsics =
@@ -179,10 +180,10 @@ impl ContentLayout {
     /// wraps; icon/fixed ignore the width and return their fixed height.
     pub fn height_for_width(&self, ctx: &LayoutCtx, width: u32) -> u32 {
         match self {
-            ContentLayout::Text { font_props, content, overflow } => {
+            ContentLayout::Text { env, content, overflow } => {
                 #[cfg(feature = "layout-counters")]
                 crate::layout::counters::count_measure();
-                let resolved = font_props.inherited(&ctx.font_props);
+                let resolved = env.inherited(&ctx.env);
                 let props = resolved.resolve(ctx.viewport);
                 let font = resolved.font();
                 ctx.fonts.text_height_for_width(
@@ -210,7 +211,7 @@ pub struct ContainerLayout {
     pub block_model: BlockModel,
     pub horizontal_align: Align,
     pub vertical_align: Align,
-    pub font_props: FontProps,
+    pub env: LayoutEnv,
 }
 
 impl ContainerLayout {
@@ -219,7 +220,7 @@ impl ContainerLayout {
             block_model: BlockModel::zero(),
             horizontal_align: Align::Start,
             vertical_align: Align::Start,
-            font_props: Default::default(),
+            env: Default::default(),
         }
     }
 
@@ -236,8 +237,8 @@ impl ContainerLayout {
         tree: &T,
         id: ElId,
     ) -> Size {
-        let fp = self.font_props.inherited(&ctx.font_props);
-        let child_ctx = LayoutCtx { font_props: fp, ..*ctx };
+        let child_env = self.env.inherited(&ctx.env);
+        let child_ctx = LayoutCtx { env: child_env, ..*ctx };
         let content = effective_single_child(tree, id)
             .and_then(|cid| {
                 tree.layout(cid).map(|l| l.min_size(&child_ctx, tree, cid))
@@ -259,7 +260,7 @@ pub struct FlexLayout {
     pub gap: Size,
     pub horizontal_align: Align,
     pub vertical_align: Align,
-    pub font_props: FontProps,
+    pub env: LayoutEnv,
 }
 
 impl FlexLayout {
@@ -272,7 +273,7 @@ impl FlexLayout {
             gap: Size::zero(),
             horizontal_align: Align::Start,
             vertical_align: Align::Start,
-            font_props: Default::default(),
+            env: Default::default(),
         }
     }
 
@@ -323,8 +324,8 @@ impl FlexLayout {
         tree: &T,
         id: ElId,
     ) -> Size {
-        let fp = self.font_props.inherited(&ctx.font_props);
-        let child_ctx = LayoutCtx { font_props: fp, ..*ctx };
+        let child_env = self.env.inherited(&ctx.env);
+        let child_ctx = LayoutCtx { env: child_env, ..*ctx };
         let axis = self.axis;
         let mut min_size = Size::zero();
         for_each_effective_child(tree, id, |cid| {
@@ -362,12 +363,12 @@ impl FlexLayout {
 
 #[derive(Clone, Debug, Copy, PartialEq)]
 pub struct ScrollableLayout {
-    pub font_props: FontProps,
+    pub env: LayoutEnv,
 }
 
 impl ScrollableLayout {
     pub fn new() -> Self {
-        Self { font_props: Default::default() }
+        Self { env: Default::default() }
     }
 
     // WS5.1: content comes from the arena (`tree`) — this scrollable's single
@@ -378,8 +379,8 @@ impl ScrollableLayout {
         tree: &T,
         id: ElId,
     ) -> Size {
-        let fp = self.font_props.inherited(&ctx.font_props);
-        let child_ctx = LayoutCtx { font_props: fp, ..*ctx };
+        let child_env = self.env.inherited(&ctx.env);
+        let child_ctx = LayoutCtx { env: child_env, ..*ctx };
         effective_single_child(tree, id)
             .and_then(|cid| {
                 tree.layout(cid).map(|l| l.min_size(&child_ctx, tree, cid))
@@ -458,7 +459,7 @@ impl Display for DevLayoutKind {
                 horizontal_align,
                 vertical_align,
                 block_model: _,
-                font_props: _,
+                env: _,
             }) => write!(
                 f,
                 "Container align:h{},v{}",
@@ -474,7 +475,7 @@ impl Display for DevLayoutKind {
                         gap,
                         horizontal_align,
                         vertical_align,
-                        font_props: _,
+                        env: _,
                     },
                 // lines: _,
             }) => {
@@ -495,7 +496,7 @@ impl Display for DevLayoutKind {
                     vertical_align.display_code(Axis::Y)
                 )
             },
-            DevLayoutKind::Scrollable(ScrollableLayout { font_props: _ }) => {
+            DevLayoutKind::Scrollable(ScrollableLayout { env: _ }) => {
                 write!(f, "Scrollable content")
             },
         }
@@ -710,40 +711,40 @@ impl LayoutData {
         }
     }
 
-    pub fn font_props(&self) -> Option<FontProps> {
+    pub fn env(&self) -> Option<LayoutEnv> {
         match &self.kind {
             LayoutKind::Zero => None,
             LayoutKind::Edge => None,
             LayoutKind::Content(content_layout) => match content_layout {
-                ContentLayout::Text { font_props, .. } => Some(*font_props),
+                ContentLayout::Text { env, .. } => Some(*env),
                 ContentLayout::Icon(_) => None,
                 ContentLayout::Fixed(_) => None,
             },
             LayoutKind::Container(container_layout) => {
-                Some(container_layout.font_props)
+                Some(container_layout.env)
             },
-            LayoutKind::Flex(flex_layout) => Some(flex_layout.font_props),
+            LayoutKind::Flex(flex_layout) => Some(flex_layout.env),
             LayoutKind::Scrollable(scrollable_layout) => {
-                Some(scrollable_layout.font_props)
+                Some(scrollable_layout.env)
             },
         }
     }
 
-    pub fn font_props_mut(&mut self) -> Option<&mut FontProps> {
+    pub fn env_mut(&mut self) -> Option<&mut LayoutEnv> {
         match &mut self.kind {
             LayoutKind::Zero => None,
             LayoutKind::Edge => None,
             LayoutKind::Content(content_layout) => match content_layout {
-                ContentLayout::Text { font_props, .. } => Some(font_props),
+                ContentLayout::Text { env, .. } => Some(env),
                 ContentLayout::Icon(_) => None,
                 ContentLayout::Fixed(_) => None,
             },
             LayoutKind::Container(container_layout) => {
-                Some(&mut container_layout.font_props)
+                Some(&mut container_layout.env)
             },
-            LayoutKind::Flex(flex_layout) => Some(&mut flex_layout.font_props),
+            LayoutKind::Flex(flex_layout) => Some(&mut flex_layout.env),
             LayoutKind::Scrollable(scrollable_layout) => {
-                Some(&mut scrollable_layout.font_props)
+                Some(&mut scrollable_layout.env)
             },
         }
     }

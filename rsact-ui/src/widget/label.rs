@@ -147,7 +147,7 @@ impl<W: WidgetCtx> Widget<W> for Label<W> {
             // reactive and (now inline) static content.
             let content = &self.content;
             let style = ctx.get_style(self.style.as_deref());
-            let props = ctx.visual.font_props;
+            let props = ctx.env.layout;
 
             with!(move |content| {
                 let font = props.font();
