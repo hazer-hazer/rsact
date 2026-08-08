@@ -564,8 +564,17 @@ fn the_planner_turns_real_damage_into_regions() {
             TileProbe::new(viewport, toggle_rows_page(checks.clone()));
 
         let policies = [
-            ("whole", RegionLimits { max_regions: 4, ..RegionLimits::whole() }),
-            ("tile-24", RegionLimits::tiled(region_units(240, 24, 1), 1, 4)),
+            // Shipping defaults: the region budget is a bound on a finite
+            // list, not a plan-shaping knob, so it must not fire here.
+            ("whole", RegionLimits::whole()),
+            (
+                "tile-24",
+                RegionLimits::tiled(
+                    region_units(240, 24, 1),
+                    1,
+                    RegionLimits::DEFAULT_MAX_REGIONS,
+                ),
+            ),
         ];
 
         let mut out = String::new();
@@ -693,7 +702,11 @@ fn a_real_plan_never_exceeds_the_surface() {
         // What the planner is bound by is that COUNT, so a region may be any
         // shape needing no more than it.
         let surface_units = region_units(48, 16, 1);
-        let limits = RegionLimits::tiled(surface_units, 1, 4);
+        let limits = RegionLimits::tiled(
+            surface_units,
+            1,
+            RegionLimits::DEFAULT_MAX_REGIONS,
+        );
 
         for rows in [vec![0usize], vec![0usize, 5], (0..6).collect::<Vec<_>>()]
         {
