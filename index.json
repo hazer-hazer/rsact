@@ -131,6 +131,12 @@
     "branch": "ws6.4a-tile-measurement",
     "subject": "WS6.4a: correct the escaping-node note — nothing sets `clip_path` at all"
   },
+  "738ecc7ec3dc4c8a245c8e7f76cffb9515c4bbbe": {
+    "date": 1786222169,
+    "parent": "",
+    "branch": "ws6.4d-tiled-output",
+    "subject": "WS6.4d(1): exempt containment from the capacity veto — it was orphaning rects"
+  },
   "742dd5a0f9efbc6c80d5bed39b751eca3569790e": {
     "date": 1786108662,
     "parent": "",
