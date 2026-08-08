@@ -572,9 +572,11 @@ mod tests {
 
             // Same two visible children with a hidden one between them must
             // resolve to the identical width (no phantom gap/slot).
-            let hidden = create_memo(move || false);
+            // ISSUE-2: `show` is a plain `bool` on `LayoutData`; a reactive
+            // source reaches it through `LayoutBuilder::setter`, which this
+            // test bypasses by constructing `LayoutData` directly.
             let mut mid = fixed_child(20, 10);
-            mid.set_show(hidden);
+            mid.set_show(false);
             let with_hidden = row_size(
                 alloc::vec![fixed_child(20, 10), mid, fixed_child(20, 10)],
                 gap,

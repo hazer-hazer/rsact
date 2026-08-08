@@ -145,8 +145,12 @@ pub struct RenderShared<'a, W: WidgetCtx> {
     pub mode: RenderMode,
     pub page_state: &'a PageState<W>,
     pub page_style: Signal<PageStyle<W::Color>, ReadOnly>,
-    pub viewport: MaybeReactive<Size>,
-    pub fonts: Signal<FontCtx, ReadOnly>,
+    /// Both plain values, not reactive handles: rsact targets fixed displays
+    /// and has no runtime font work, so `Page` holds them as constants (see
+    /// `Page::fonts`). A borrow rides `Copy` `RenderShared` fine, alongside
+    /// `page_state`/`stylist`/`damage`.
+    pub viewport: Size,
+    pub fonts: &'a FontCtx,
     pub stylist: &'a W::Stylist,
     /// Page-level "repaint everything this frame" flag (e.g. after a layout
     /// change that reached the root, or an explicit `Page::force_redraw`).
@@ -253,24 +257,18 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
         bounds: Rect,
         color: W::Color,
     ) -> RenderResult {
-        // Render path uses try_* + log-and-degrade rather than panicking if the
-        // shared font-provider signal is ever disposed (WS1.8; "UI must never
-        // panic"). It is page-lifetime today, so the None arm is defensive.
-        //
         // WS6.4c(A): the font stack draws through `self` — the drawing seam —
         // not through the raw renderer, so text obeys the render mode like every
         // other primitive. `FontHandler::draw` is generic over the *renderer*
-        // for exactly this reason. The signal handle is copied out first so the
-        // closure can borrow `self` mutably (`Signal` is `Copy`).
+        // for exactly this reason. The borrow is copied out first so the call
+        // can borrow `self` mutably (`&FontCtx` is `Copy`).
+        //
+        // This used to be a `try_with` on a `Signal<FontCtx>` with a
+        // log-and-degrade arm for "the font provider was disposed". A plain
+        // borrow cannot be disposed, so the defensive path is gone rather than
+        // merely unreachable — one fewer never-taken branch on the text path.
         let fonts = self.shared.fonts;
-        fonts
-            .try_with(|font_ctx| {
-                font_ctx.render(font, content, props, bounds, color, self)
-            })
-            .unwrap_or_else(|| {
-                log::error!("text render skipped: font provider was disposed");
-                RenderResult::Ok(())
-            })
+        fonts.render(font, content, props, bounds, color, self)
     }
 
     // TODO: Call automatically based on behavior

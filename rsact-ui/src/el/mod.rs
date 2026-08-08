@@ -130,9 +130,10 @@ where
         }
     }
 
-    /// WS5.1: set the `show` visibility memo on this (pre-build) element's
-    /// builder layout. Used by `Show` to hide its wrapped child off the graph.
-    pub(crate) fn set_layout_show(&mut self, show: Memo<bool>) {
+    /// WS5.1: set the `show` visibility on this (pre-build) element's builder
+    /// layout. Used by `Show` to hide its wrapped child off the graph.
+    /// ISSUE-2: `MaybeReactive`, so it lands on the layout-prop channel.
+    pub(crate) fn set_layout_show(&mut self, show: MaybeReactive<bool>) {
         match self {
             Self::New(data) => match &mut data.stage {
                 ElStage::Unbuilt(b) => b.set_show(show),

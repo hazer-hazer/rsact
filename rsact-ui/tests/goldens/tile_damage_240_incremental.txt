@@ -1,0 +1,4 @@
+frame            regions coverage  required
+cold                   1     1.00       480
+paint-only             1     0.00         3
+text-change            1     0.01        93

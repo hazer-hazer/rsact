@@ -27,10 +27,14 @@ pub trait Build<W: WidgetCtx>: core::any::Any {
     /// builder returns a child's `layout_data()`.
     fn layout_data(&self) -> LayoutData;
 
-    /// WS5.1: set the `show` visibility memo on this builder's layout, used by
-    /// `Show` to hide the wrapped child. Default no-op — a builder that owns no
+    /// WS5.1: set the `show` visibility on this builder's layout, used by `Show`
+    /// to hide the wrapped child. Default no-op — a builder that owns no
     /// settable layout (delegate/identity builders) can't carry `show`.
-    fn set_show(&mut self, show: Memo<bool>) {
+    ///
+    /// ISSUE-2: takes `MaybeReactive<bool>`, not `Memo<bool>` — visibility is an
+    /// ordinary layout property now, so it goes through `LayoutBuilder::setter`
+    /// and its change marks the arena dirty.
+    fn set_show(&mut self, show: MaybeReactive<bool>) {
         let _ = show;
     }
 
@@ -280,8 +284,10 @@ impl<W: WidgetCtx> LayoutBuilder<W> {
         f(&mut self.data);
     }
 
-    pub fn show(&mut self, show: Memo<bool>) {
-        self.data.set_show(show);
+    /// ISSUE-2: routed through [`setter`](SignalSetter::setter) like every other
+    /// layout property, rather than storing the memo for the layout pass to read.
+    pub fn show(&mut self, show: MaybeReactive<bool>) {
+        self.setter(show, |data, &show| data.set_show(show));
     }
 
     pub fn size(mut self, size: LengthSize) -> Self {

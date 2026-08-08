@@ -567,6 +567,14 @@ Stages:
 
   The scrollbar case is worth naming because it is **`border_width` mirrored**: a property that genuinely consumes box space, sitting on the style side, failing silently (text simply sits under the scrollbar). The decision keeps it on the style side and makes the overlap explicit through `ext_draw` rather than reserving space for it — consistent with the border decision above, and with the same user-side remedy (add padding).
 
+- [ ] **5.6 Scope a structure change to its nearest size-stable ancestor** (maintainer TODO, `el/build.rs` `set_children`, moved here 2026-08-08). Today `set_children`/`set_single_child` call `mark_full_relayout()`, so **any** child-list change relayouts the whole page — 5.2's incremental path is skipped entirely, because it is gated on a non-`full` dirty set. The maintainer's observation is that the stop rule 5.2 already implements applies here too:
+
+  > `Page[A{fixed}[A.1[A.1.1, A.1.2], A.2[A.2.1]], B[B.1]]` — if `A.1.1` changed we can propagate relayout just to `A`.
+
+  If an ancestor's resolved size cannot change (fixed on both axes), the structure change below it cannot move its siblings, so the relayout — and, via WS6.1, the repaint roots — can stop there. That is exactly `recompute_upward`'s `(outer_size, min_size)`-unchanged rule, applied to a different kind of dirtiness. Note the mark is currently `full`, which is *strictly* coarser than `mark_dirty(ancestor)`: the fix is to walk up from the changed node to the nearest node with a deterministic size and mark **that**, falling back to `full` only when the walk reaches the root.
+
+  **Not free, and the reason 5.2 punted:** a structure change alters the child *count*, so the subtree's own layout is not a splice — it is a rebuild — and `RetainedInputs` for the new children do not exist yet. The stop rule still holds above the rebuilt subtree; it is the "resume from retained inputs" half that does not apply. Verify against 5.2's existing 500-seed differential fuzz (incremental == full) with structure mutations added to the generator, which is the only thing that will catch an unsound early stop.
+
   Related: **ISSUE-3** (the painted-area audit — `ext_draw`'s reason for existing), **ISSUE-2** (the other cross-channel case: content reaching layout by tracked read rather than the marked channel; this item makes its fix unambiguous by leaving exactly one place layout inputs live), and the standing TODO in `el/event.rs` about a scrollable wanting mouse events at its scrollbar only — the same rect, and it should be decided with the scrollbar's `ext_draw`.
 
 **Design sketch:**
@@ -626,6 +634,8 @@ fuzz test has soaked.
 
 **Status 2026-08-04 (execution session):** 6.4.0 **COMPLETE** — (i)+(ii)+(iii) merged as PR #33, (iv) as PR #34 (layout de-memoized: `Memo<LayoutModel>` → owned field + `relayout_if_needed`; `force_redraw`/`full_flush` demoted to plain `bool`s, killing the per-part broadcast; −3 reactive nodes per page). **6.4a DONE** (branch `ws6.4a-tile-measurement`) — the estimates are now measurements; see the item for the table and the five findings. Net effect on the plan: **6.4b is promoted to a hard precondition for 6.4d** (uncalled ×emit is the region count outright), 6.4b's own subtree-prune spec is corrected for soundness, 6.4d(1)'s merge threshold is set at area ×2.0, and one new gap is filed as **ISSUE-2** (text changes bypass the arena dirty set, so every one is a blanket relayout — with `incremental-layout` on as well). Suites 75 / 95 / 104 / 5 / 48+3+2 / 19.
 
+**Status 2026-08-07 (execution session):** **6.4b and 6.4c both DONE** (PRs #36–#42) and **ISSUE-2 CLOSED** (PR #44). 6.4b's paint side hit the ×1.00–1.02 floor, discharging the 6.4d precondition 6.4a created; its traversal half landed inside 6.4c's prune. 6.4c delivered `RenderMode` behind a private renderer inside `RenderCtx`, then chased the clipping fallout to the end — hit-testing, the event-walk prune, 6.11's dead tiny-skia clip — and WS5.5 settled the box/pixel rule that pulled `border_width` out of the box model. ISSUE-2 turned out to be **three** inputs on the wrong channel, not one; its fix retires 6.4a's Amendment 2, so "interactive +0%" now covers text. One new process gap filed as **ISSUE-5** (`widget/icon.rs` compiles in no CI job — two merged PRs' breakage found there). **Next: 6.4d.** Suites 75 / 110 / 119 / 6 / 6 / 62 / 19.
+
 Why: P5's render half — the biggest _practical_ gap vs LVGL/Slint. Fine-grained observers already know what re-rendered, then `finish_frame` streams **every pixel of the viewport** through a per-pixel iterator (`eg/framebuf.rs:147-161`, `eg/output.rs:7-25`); no dirty rects; e-paper region refresh impossible; full-screen SPI transfer per change. Also the blanket `force_redraw` defeats per-part gating (three directions demanded its death).
 
 Work items:
@@ -638,7 +648,7 @@ Work items:
 
   **Why the framing changed.** Screen strips and probe-gated damage rendering _are_ mutually exclusive — but the conflict is with **probe-as-paint-gate**, not with damage rendering. `render_part`'s `probe.poll` both detects change _and_ authorizes paint, so a second pass over a strip finds every probe clean and paints nothing. Separating those two roles dissolves it (6.4c). And once rendering goes **direct-to-tile** (6.7 decision 1), the tile buffer holds exactly its sub-rect in its own scan order, so it is contiguous by construction for _any_ rect anywhere on screen — damage never needs reshaping into full-width strips at all. Strips survive only as the degenerate chunking of a full-screen damage rect. **General principle worth reusing** (from the 6.7 research): a constraint that looks like it belongs to the _data_ (damage shape) often belongs to the _storage decision_ (who owns the pixels).
 
-  **Cost model** (AA rasterizers deliberately excluded — they are acknowledged stubs, see backlog; centering the decision on them would be measuring the wrong thing). Per-pixel work is **invariant**: each output pixel is written once across the whole schedule. Only **per-object** work repeats — node visit, style resolve, primitive setup, text-run dispatch — and at ×1.6–2.0, not ×K: an object of height `h` over bands of height `s` is visited `1 + (h−1)/s` times, leaves dominate by count, and full-height containers are transparent no-ops. Estimated cold-frame cost **+14%** (100 nodes) to **+49%** (500 nodes); interactive frames **+0%** (damage fits one tile, no repetition at all). **MEASURED 2026-08-04 by 6.4a — the model holds where it was checkable, with two amendments.** Per-object ×1.42–2.17 at 10 regions (estimate was ×1.6–2.0 ✓) and per-pixel ×1.00 exactly ✓. Amendment 1: **traversal is worse than drawing** (×1.19–2.44), because "full-height containers are transparent no-ops" is true for ops and false for node visits. Amendment 2: **"interactive +0%" holds only for paint-only changes** — a text change is a full cold frame today (ISSUE-2). All three figures are the *culled* floor; uncalled, ×emit is the region count outright, which is why 6.4b became a precondition. Cold frames are **flush-bound** — 57600 px × 16 bit @40 MHz SPI ≈ 23 ms against 4–9 ms of paint — so with 6.7's ping-pong the paint hides inside the transfer and tiled is expected **~20% faster wall-clock** than a single framebuffer, which cannot pipeline paint against DMA (one buffer is both paint target and DMA source; double-buffering recovers the pipeline at 225 KiB). **These are estimates. 6.4a exists to replace them with measurements before 6.4d is committed.**
+  **Cost model** (AA rasterizers deliberately excluded — they are acknowledged stubs, see backlog; centering the decision on them would be measuring the wrong thing). Per-pixel work is **invariant**: each output pixel is written once across the whole schedule. Only **per-object** work repeats — node visit, style resolve, primitive setup, text-run dispatch — and at ×1.6–2.0, not ×K: an object of height `h` over bands of height `s` is visited `1 + (h−1)/s` times, leaves dominate by count, and full-height containers are transparent no-ops. Estimated cold-frame cost **+14%** (100 nodes) to **+49%** (500 nodes); interactive frames **+0%** (damage fits one tile, no repetition at all). **MEASURED 2026-08-04 by 6.4a — the model holds where it was checkable, with two amendments.** Per-object ×1.42–2.17 at 10 regions (estimate was ×1.6–2.0 ✓) and per-pixel ×1.00 exactly ✓. Amendment 1: **traversal is worse than drawing** (×1.19–2.44), because "full-height containers are transparent no-ops" is true for ops and false for node visits. Amendment 2: **"interactive +0%" holds only for paint-only changes** — a text change is a full cold frame today (ISSUE-2). **Amendment 2 RETIRED 2026-08-07 (PR #44):** ISSUE-2 is closed, a text change now damages 1% of the viewport (93 ops vs 478), and "interactive +0%" covers text too. All three figures are the *culled* floor; uncalled, ×emit is the region count outright, which is why 6.4b became a precondition. Cold frames are **flush-bound** — 57600 px × 16 bit @40 MHz SPI ≈ 23 ms against 4–9 ms of paint — so with 6.7's ping-pong the paint hides inside the transfer and tiled is expected **~20% faster wall-clock** than a single framebuffer, which cannot pipeline paint against DMA (one buffer is both paint target and DMA source; double-buffering recovers the pipeline at 225 KiB). **These are estimates. 6.4a exists to replace them with measurements before 6.4d is committed.**
 
   - [~] **6.4.0 Prerequisites + interface spec (added 2026-08-04 — do these BEFORE 6.4a/b/c/d).**
 
@@ -692,12 +702,12 @@ Work items:
 
     **Merge threshold (`tile_merge_240.txt`) — 6.4d(1)'s knob, measured instead of guessed.** Paint and transfer terms for three pairs on one frame: adjacent (20 px apart) ops ×1.00, area **×1.12**; far (opposite corners) ops ×3.62, area **×23.62**; overlapping ops ×0.98, area **×0.75**. Reading: the **area ratio is the discriminator** and the decision gap is enormous (1.12 vs 23.62), so the threshold is not delicate — **anything in ×1.5–×4 separates these cases; take ×2.0** (LVGL's neighbourhood) and revisit only if a real page lands inside the gap. Two corollaries: overlapping rects must **always** merge (both terms improve — the overlap was being painted twice), and a merge that leaves the op count unchanged is still a win because it halves the per-region command overhead.
 
-    **Interactive frames (`tile_damage_240.txt`) — the "+0%" claim is HALF true.** Measured on rsact's own damage rects: cold frame 480 ops; **paint-only** change (checkbox toggle) → 1 region, 0.4% coverage, **3 required ops** — the claim holds, emphatically; **text** change → 1 region, **100% coverage, 478 ops**, i.e. a full cold frame. Cause is a channel mismatch, not a threshold: a `Label`'s text lives in its layout (`ContentLayout::text`) and is read during measurement, so it arrives through the *tracked-read* channel and never marks `ElArena`'s dirty set — WS5.2's incremental path requires a non-empty dirty set and falls through to a full recompute, so WS6.1's targeted roots are never computed and `blanket`/`full_flush` follow. **Measured identical with `incremental-layout` ON**, which is the surprising half. Filed as **ISSUE-2**; consequence for 6.4d is that the interactive win covers paint-only changes, while every text change costs the cold multiplier until that channel is fixed.
+    **Interactive frames (`tile_damage_240.txt`) — the "+0%" claim is HALF true.** Measured on rsact's own damage rects: cold frame 480 ops; **paint-only** change (checkbox toggle) → 1 region, 0.4% coverage, **3 required ops** — the claim holds, emphatically; **text** change → 1 region, **100% coverage, 478 ops**, i.e. a full cold frame. Cause is a channel mismatch, not a threshold: a `Label`'s text lives in its layout (`ContentLayout::text`) and is read during measurement, so it arrives through the *tracked-read* channel and never marks `ElArena`'s dirty set — WS5.2's incremental path requires a non-empty dirty set and falls through to a full recompute, so WS6.1's targeted roots are never computed and `blanket`/`full_flush` follow. **Measured identical with `incremental-layout` ON**, which is the surprising half. Filed as **ISSUE-2**; consequence for 6.4d is that the interactive win covers paint-only changes, while every text change costs the cold multiplier until that channel is fixed. **FIXED 2026-08-07 (PR #44)** — text/icon-size/`show` all moved onto the marked channel; with `incremental-layout` the text row is now 1 region, **1% coverage, 93 ops** (`tile_damage_240_incremental.txt`). The default-features row is unchanged and stays 1.00/478 by design, since that build maintains the dirty set but never consumes it.
 
     **Also measured and worth keeping:** `FillSolid` ×req is exactly the region count (10.00) wherever a page has a full-viewport fill — the harness independently rediscovers constraint (b)'s "every tile must be initialized to the true background", at its true price of one whole-tile fill per region.
 
     **Test discipline.** Every assertion in the integration test passes for rsact *today* (nothing culls yet), so on its own it proves nothing about what the check would catch — the teeth are six unit tests in `schedule` that feed the checker deliberately broken replays (a dropped op, a half-drawn straddler, region-relative coordinates), plus one end-to-end inversion: making region passes skip the force turns the golden test red with 2490 `Missing` violations. `ci-test.sh` gained a job for the new target, because `--lib` cannot reach an integration test and the integration form is deliberate (metrics-probe will consume the harness from outside the crate) — same gap class as the incremental-layout job.
-  - [~] **6.4b Culling** — what turns the per-object multiplier from ×K into ×1.8. **Promoted by 6.4a from "ships value" to a hard PRECONDITION for 6.4d:** measured ×emit is exactly the region count on every page (10.00 at 10 regions), per-pixel work included, because today's clip is a write filter — so tiling without culling costs ×N paint, which no flush saving recovers. **And two 6.4a corrections to this item's own spec:** (a) **(i) as written is UNSOUND** — the harness counts 1 node per scrollable page whose `outer` escapes its parent's `outer` (`VisitReport::escaping`), so a subtree prune on the parent's rect drops scrolled content; prune on the subtree's **union extent** — and note the tempting alternative is unavailable: "prune on `outer` except where a clip bounds the children" needs a clip, and `ElState::clip_path` is only ever initialised to `None` (`el/state.rs:86`, set nowhere), so `render_subtree`'s `ClipPath::InnerRect` arm is dead and `Scrollable`'s own clip call is commented out with a TODO (`widget/scrollable.rs:344-350`). Overflowing content is bounded only by the framebuffer viewport today, on every backend — which also sharpens 6.11: no widget requests clipping at all, so the observable Scrollable overflow is not tiny-skia-specific. Keep `escaping` at 0 as the guard; (b) the prune predicate must be `DrawOp::bounds`-compatible — a cull tighter than that bound passes review and cracks on screen, and 6.4a's invariance check is written against exactly that predicate. **Value without tiles, now measured:** on the scrollable page a single full-viewport pass draws 11 of 21 `RoundedRect`s entirely off-screen — half the block work on that page. (i) hierarchical subtree culling on `layout.outer ∩ tile` in `render_subtree`; (ii) arithmetic text-run culling — first/last visible glyph index is closed-form from the fixed advance (`font/measure.rs`), plus skipping lines outside the clip's y-range; converges with the existing `Clip`/`Ellipsis` TODO in `font/fixed.rs`, which already wants a custom line loop; (iii) hoist the per-pixel `layers.binary_search` out of `EGRenderer::draw_pixels`. **Ships value with or without tiles** — every `ClipPath::InnerRect` subtree and every Scrollable pays full cost for off-screen content today.
+  - [x] **6.4b Culling — DONE.** Paint side 2026-08-06 (PR #36: `Renderer::clip_bounds()` + geometry gate in `render_part` + glyph-pixel filter, region replay ×10.00 → ×1.00–1.02, wasted ops tens-of-thousands → 0–5, which discharged the 6.4d precondition; also fixed a latent bug where nested clips did not compose). Traversal side completed inside 6.4c (PR #40's prune: measured `== cullable` exactly on every page/schedule, ×10.00 → ×2.15 at rows-24, and −52% on the scrollable page's whole frame with no tiles at all). Closed-form text-run culling (ii) deferred to WS15/Clip-Ellipsis, which already wants the same custom line loop. Original text: — what turns the per-object multiplier from ×K into ×1.8. **Promoted by 6.4a from "ships value" to a hard PRECONDITION for 6.4d:** measured ×emit is exactly the region count on every page (10.00 at 10 regions), per-pixel work included, because today's clip is a write filter — so tiling without culling costs ×N paint, which no flush saving recovers. **And two 6.4a corrections to this item's own spec:** (a) **(i) as written is UNSOUND** — the harness counts 1 node per scrollable page whose `outer` escapes its parent's `outer` (`VisitReport::escaping`), so a subtree prune on the parent's rect drops scrolled content; prune on the subtree's **union extent** — and note the tempting alternative is unavailable: "prune on `outer` except where a clip bounds the children" needs a clip, and `ElState::clip_path` is only ever initialised to `None` (`el/state.rs:86`, set nowhere), so `render_subtree`'s `ClipPath::InnerRect` arm is dead and `Scrollable`'s own clip call is commented out with a TODO (`widget/scrollable.rs:344-350`). Overflowing content is bounded only by the framebuffer viewport today, on every backend — which also sharpens 6.11: no widget requests clipping at all, so the observable Scrollable overflow is not tiny-skia-specific. Keep `escaping` at 0 as the guard; (b) the prune predicate must be `DrawOp::bounds`-compatible — a cull tighter than that bound passes review and cracks on screen, and 6.4a's invariance check is written against exactly that predicate. **Value without tiles, now measured:** on the scrollable page a single full-viewport pass draws 11 of 21 `RoundedRect`s entirely off-screen — half the block work on that page. (i) hierarchical subtree culling on `layout.outer ∩ tile` in `render_subtree`; (ii) arithmetic text-run culling — first/last visible glyph index is closed-form from the fixed advance (`font/measure.rs`), plus skipping lines outside the clip's y-range; converges with the existing `Clip`/`Ellipsis` TODO in `font/fixed.rs`, which already wants a custom line loop; (iii) hoist the per-pixel `layers.binary_search` out of `EGRenderer::draw_pixels`. **Ships value with or without tiles** — every `ClipPath::InnerRect` subtree and every Scrollable pays full cost for off-screen content today.
 
     **PAINT SIDE DONE 2026-08-05 (PR TBD, branch `ws6.4b-culling`); traversal side DEFERRED to 6.4c by maintainer decision.** (iii) was already retired by PR #31. What landed:
 
@@ -728,7 +738,7 @@ Work items:
     - **(ii-loop) the real text-run culling.** Closed-form first/last visible glyph index needs rsact to own the line loop, which means implementing text layout instead of delegating to `embedded-text`. That is the same work `font/fixed.rs`'s `Clip`/`Ellipsis` TODO already wants (it renders as wrap-into-a-short-box today, no ellipsis glyph), so the two should land together — **WS15 (font stack) or the TODO itself**, not 6.4. The pixel filter above already takes the *measurable* cost to its floor, so this is now about the glyph iteration, not the writes.
 
     **Constraint pinned for 6.4d:** `clip_bounds()` reports in the **caller's (absolute) space for every variant, including `Cropped`**, whose rebasing is the renderer's private business (ii-3). Both consumers compare against it directly — the cull holds an absolute `layout.outer`, the pixel filter sees the coordinates the drawing code emitted — so a variant reporting a viewport-local rect would silently invert both tests the moment 6.4d starts constructing `Cropped`.
-  - [ ] **6.4c Collect/paint split** — probes stop gating paint. `render_part` gains a mode: **Collect** (tracked, probe-gated, `NullRenderer`, pushes damage) and **Paint** (untracked, no probe, selected by geometry). The collect pass must genuinely run the body so dynamic dependencies re-track — an `is_dirty()` peek would freeze the recorded source set and silently break conditional reads. Paint passes must be **untracked** so `run_probe`'s `clear_sources` + re-subscribe + `mark_clean` round-trip is paid **once per frame regardless of tile count**; force-polling K times is K× graph churn (~24–48 ms at 8 tiles, comparable to the entire rest of the frame). Probes are marked clean **by the collect pass** (`run_probe` cleans after its closure runs) — **CORRECTED 2026-08-04, this item originally said "after the final paint pass", which is wrong and harmful**: deferring the clean until after the last paint swallows any write that lands mid-frame, so the torn region never re-plans and the tear becomes permanent instead of self-healing on the next frame. Cleaning in collect is what makes accepting class A/B skew reasonable at all. (The original wording is a leftover from when paint did the polling.) The damage sink stops clearing per pass (`page/mod.rs`) and unions across the flush boundary per 6.7's defer+coalesce. **Coherence invariant:** `tick()` between `begin_flush` and drain is a documented contract violation + `debug_assert`. Rationale: direct-to-tile makes the **widget tree** the frame snapshot, and a tree of live signals is not frozen unless something freezes it — 6.7 §8 defers new _frames_, but nothing otherwise stops a signal write between `next_tile` calls in an async app, which is the same generation-mixing §8 rejects arriving through a different door. (Copy-from-framebuffer would not have this hazard: there the framebuffer _is_ the snapshot. It is the price of decision 6.7-1.)
+  - [x] **6.4c Collect/paint split — DONE 2026-08-07** (PRs #37 `RenderMode`, #38 the drawing seam, #39 the stacked-PR sync, #40 the traversal prune, #41 clip-aware hit-testing, #42 WS5.5 box/pixel rule). `RenderMode::{Fused, Collect, Paint}` with the renderer made **private** to `RenderCtx`, which itself implements `Renderer` — muting is an encapsulation boundary, not a capability asked of backends (all three of the original mute mechanisms were rejected by the maintainer, correctly: `set_muted` pushed our problem into user impls, zero-area was a hack, and a generic `RenderCtx` would have monomorphized the widget tree twice). `dyn Renderer` is impossible here (E0038 — the associated const `SURFACE_UNITS`), which is what forced the seam to be a concrete forwarding impl. Clipping became widget-behaviour-backed (`CLIPS_CHILDREN`/`CLIPS_SELF`), and its fallout was chased down rather than left: hit-testing (`hit = outer ∩ clips`, no `ext_draw` outset), the event-walk prune, and 6.11's no-op tiny-skia clip. Original text: — probes stop gating paint. `render_part` gains a mode: **Collect** (tracked, probe-gated, `NullRenderer`, pushes damage) and **Paint** (untracked, no probe, selected by geometry). The collect pass must genuinely run the body so dynamic dependencies re-track — an `is_dirty()` peek would freeze the recorded source set and silently break conditional reads. Paint passes must be **untracked** so `run_probe`'s `clear_sources` + re-subscribe + `mark_clean` round-trip is paid **once per frame regardless of tile count**; force-polling K times is K× graph churn (~24–48 ms at 8 tiles, comparable to the entire rest of the frame). Probes are marked clean **by the collect pass** (`run_probe` cleans after its closure runs) — **CORRECTED 2026-08-04, this item originally said "after the final paint pass", which is wrong and harmful**: deferring the clean until after the last paint swallows any write that lands mid-frame, so the torn region never re-plans and the tear becomes permanent instead of self-healing on the next frame. Cleaning in collect is what makes accepting class A/B skew reasonable at all. (The original wording is a leftover from when paint did the polling.) The damage sink stops clearing per pass (`page/mod.rs`) and unions across the flush boundary per 6.7's defer+coalesce. **Coherence invariant:** `tick()` between `begin_flush` and drain is a documented contract violation + `debug_assert`. Rationale: direct-to-tile makes the **widget tree** the frame snapshot, and a tree of live signals is not frozen unless something freezes it — 6.7 §8 defers new _frames_, but nothing otherwise stops a signal write between `next_tile` calls in an async app, which is the same generation-mixing §8 rejects arriving through a different door. (Copy-from-framebuffer would not have this hazard: there the framebuffer _is_ the snapshot. It is the price of decision 6.7-1.)
 
     **INHERITS 6.4b's traversal item (maintainer decision 2026-08-05).** 6.4b delivered the paint cull (×emit 10.00 → 1.00–1.02, at the geometric floor) but left node **traversal** at ×10.00 against a measured ×1.19–2.85 floor. It lands here rather than there because *this* item decides how many walks a frame makes: the collect pass must visit every node regardless (tracked + probe-gated for all widgets), so a subtree cull only shrinks the K paint walks — building it before the collect/paint split exists means building it against a shape about to change. Two consequences to carry: the cull predicate must stay `DrawOp::bounds`-compatible (6.4a's invariance check is written against it, and a tighter cull passes review then cracks on screen), and pruning on `layout.outer` alone is **unsound** — see 6.4b for the `escaping` measurement and the costed `bool`-flag vs union-`Rect` storage choice. 6.6's dirty-list walk attacks the same term from the invalidation end; re-measure with 6.4a before committing to both.
 
@@ -989,6 +999,43 @@ The staged collapse (D2's analysis, amended by G5: widgets vary over exactly TWO
 - [ ] 7.5 **`WidgetCtx` → two associated types (shape pending G4 sign-off)**: `WidgetCtx { type Renderer; type Event; type Color; }` where `Color` is set from the renderer's color in every impl (kept so `W::Color` keeps compiling), with a blanket `impl<R: Renderer> WidgetCtx for R { type Event = (); }` — `type W = MyRenderer` works with zero ceremony; apps with custom events write one small ctx impl. Existing `impl<W: WidgetCtx> Widget<W>` code compiles **unmodified**; delete `Wtf` + the `PhantomData` plumbing. Optional `default-backend` feature exporting `type W` sugar (D7-friendly). **Fold into the decision paper (final sweep):** `Renderer::set_options`/`type Options` is dead API (zero callers) while AA is a type-level parameter with a commented-out runtime ambition (`renderer.rs:12-41`) — decide runtime-vs-type-level AA before this trait shape locks and before WS16.1 designs the IR.
 - [ ] 7.6 **Widget trait method set**: remove `update` (no widget overrides it — framework applies Update bookkeeping directly to `ElState`), add the hooks widgets actually need (`post_render` for Scrollable's scrollbar overlay; child-focus notification for Select — their own TODOs). Decide `Widget: Any` (downcast: devtools plan or delete).
 - [ ] 7.7 `#[derive(View)]`: detect the `WidgetCtx`-bounded param instead of hardcoding the ident `W` (D2-F8).
+- [ ] 7.8 **Two-level `IntoMaybeReactive`: `impl IntoMaybeReactive<FontSize> for u32`** (maintainer, 2026-08-08). Same class as 7.2 — a per-method type parameter that exists only to route a value conversion, paid for in monomorphization.
+
+  **The gap.** `IntoMaybeReactive<T>` has **identity impls only**: a macro over the primitives (`impl IntoMaybeReactive<u32> for u32`, …) and `#[derive(IntoMaybeReactive)]` for domain types (`Padding`, `FontSize`, `Length`, …). There is no `impl IntoMaybeReactive<FontSize> for u32`, even though `impl From<u32> for FontSize` exists — so the reactive wrapper does not compose with the conversions the value layer already provides.
+
+  **The current workaround, and its cost.** Every affected setter carries an extra type parameter and converts at the write site:
+
+  ```rust
+  fn width<L: Into<Length> + PartialEq + Clone + 'static>(width: impl IntoMaybeReactive<L>)
+  fn padding<P: Into<Padding> + PartialEq + Copy + 'static>(padding: impl IntoMaybeReactive<P>)
+  fn font_size<S: Into<FontSize> + PartialEq + Clone + 'static>(font_size: impl IntoMaybeReactive<S>)
+  IconBuilder::size<S: Into<FontSize> + …>   // and LabelView::font_size
+  ```
+
+  It works and costs **zero reactive nodes** — that is the design's real virtue, so do not discard it thoughtlessly. What it costs is a second monomorphization axis on every such method, which is exactly 7.2's argument and is measurable on the audit's "+2.4 KiB per widget-type instantiation" axis via the size probe.
+
+  **Where the workaround was not applied at all**, leaving the setter inert-only — these are the places a user simply cannot pass a signal today:
+  `SizedWidget::size(impl Into<LengthSize>)` (`widget/mod.rs:143`) · `Space::row`/`col(impl Into<Length>)` (`space.rs:35`, `:45`) · `BorderStyle::radius`/`OutlineStyle::radius(impl Into<BorderRadius>)` (`render/style/block.rs:186`, `:233`) · `BlockModel::padding(impl Into<Padding>)` (`render/geometry/block_model.rs:28`) · theme `border_radius(impl Into<Radius>)` (`style/theme/rgb.rs:226`, `binary_color.rs:80`).
+
+  **Why a blanket impl is impossible.** `impl<T, U> IntoMaybeReactive<U> for T where T: Into<U>` collides with all four existing generic impls (`MaybeReactive<T>`, `Signal<T>`, `Memo<T>`, `Inert<T>`) — the reflexive `impl<T> From<T> for T` makes `MaybeReactive<T>: Into<MaybeReactive<T>>`, so E0119. It must be **per-pair and macro-generated**, e.g. `impl_into_maybe_reactive_from!(u32 => FontSize, Length, Padding, Size, Radius; f32 => FontSize, Radius; …)`.
+
+  **The inert and reactive halves are not the same problem, and this is the design decision.** For a literal (`.font_size(20)`) the conversion is free: convert, then wrap `Inert`. For a reactive source (`Signal<u32>` where `FontSize` is wanted) it is not: you need either a **mapping memo** — a new reactive node per conversion, on a framework whose whole thesis is node frugality — or conversion at the consumer, which is what the generic-`S` design already does for free. Recommendation: **add the direct impls for the inert/literal pairs, keep convert-at-write for reactive sources**, and let the setter accept `impl IntoMaybeReactive<Target>` once the literal case no longer needs the generic. Do not add mapping memos silently; if a reactive `Signal<u32> → FontSize` is wanted, it should be an explicit `.map()` at the call site so the node is visible.
+
+  **Coherence is fine** (checked): each crate impls its own target types — `Length`/`FontSize`/`LengthSize` in `rsact-ui`, `Padding`/`Size`/`Radius`/`BorderRadius` in `rsact-render`, which already depends on `rsact-reactive`. `impl IntoMaybeReactive<LocalType> for u32` is legal under the orphan rule (fully concrete, local type in the trait's parameter list).
+
+  **Inventory of missing pairs**, from the `From` impls that exist today:
+
+  | Target | Sources with a `From` impl | Where |
+  | --- | --- | --- |
+  | `FontSize` | `u32`, `f32` | `font/mod.rs:137`, `:143` |
+  | `Length` | `u32`, `DeterministicLength` | `layout/length.rs:381`, `:225` |
+  | `LengthSize` | `Size`, `Size<Length>` | `layout/length.rs:448`, `:101` |
+  | `Padding` | `u32`, `[u32; 2]`, `[u32; 4]` | `render/geometry/padding.rs:76`, `:82`, `:88` |
+  | `Size` | `u32`, `DivFactors`, `Padding` | `render/geometry/size.rs:164`, `layout/length.rs:62`, `render/geometry/padding.rs:70` |
+  | `Radius` | `u32`, `f32`, `(u32, u32)`, `(f32, f32)`, `Size`, `Size<f32>` | `render/style/block.rs:28`–`:58` |
+  | `UnitV1` | `i32` | `render/geometry/vector.rs:54` (niche — include only if a setter wants it) |
+
+  **Acceptance:** `.font_size(20)`, `.padding(5)`, `.padding([4, 8])`, `.width(50)` compile with the setter declared as `impl IntoMaybeReactive<Target>` (no method-level `Into` parameter); the inert-only setters above gain reactive variants; **no new reactive node** appears in the `metrics-probe` node counts for any inert call; size-probe `.text` does not grow (and ideally shrinks, per the 7.2 monomorphization argument).
 
 **Design sketch:**
 
@@ -1046,6 +1093,7 @@ Work items (build-list per D1's triage; YAGNI'd: stores/lenses, more batching en
 - [ ] 8.4 **Keyed list reactivity**: `KeyedSignal<K, T>`-style stable per-key child scopes with diffing on write — designed against rsact-ui's `Signal<Vec<El>>`/`Dynamic` (the bread-and-butter menu/list widget path; currently O(n) compare + full rebuild). Needs WS1.1 scopes + WS3 subtree disposal.
 - [ ] 8.5 `what_changed()` under `debug-info` (EVOLUTION.md TODO; the breadcrumbs already exist in `ValueDebugInfoState`).
 - [ ] 8.6 **(final sweep) `Resource`/`async` subsystem adoption**: `resource.rs` + `async_rt.rs` (behind the `async` feature) are a complete, tested primitive (generation-guarded cancellation, executor-agnostic) with **no owner in the roadmap** — audit them against WS3's scope ownership and WS9b's storage rework, add `async` to the sanctioned feature axes, and give it a showcase in WS10.4's embassy example.
+- [ ] 8.7 **`UpdateNotification` → `IsUpdated` rename, and the `bool` impl** (maintainer TODO, `rsact-reactive/src/write.rs`, moved here 2026-08-08). The trait names the *mechanism* ("a notification about an update") where every use site reads the *predicate* (`fn is_updated(&self) -> bool`) — the method already has the better name. Renaming is a breaking change to a public trait, so it belongs in a batch, and this is the reactive-side one. The maintainer also added `impl UpdateNotification for bool` in the same pass, which is the obvious missing impl and makes the naming mismatch louder: `true.is_updated()` reads correctly, `true: UpdateNotification` does not. The file's own standing note — _"Maybe better only add this to ControlFlow without `UpdateNotification` trait"_ — is the competing option and should be settled at the same time: with a `bool` impl the trait now has two implementors and an inherent `ControlFlow` helper would no longer cover the surface, so the trait earns its keep. Decide the name, keep the trait.
 
 **Design sketch:**
 
@@ -1317,6 +1365,7 @@ exists. 14.2 is the design item — protocol doc first, reviewed before implemen
 - [ ] 15.3 u8g2 soft-wrap gap (`font/fixed.rs:103`).
 - [ ] 15.4 `TextStyle` widget subsuming the `FontProps` TODO (`font/mod.rs`).
 - [ ] 15.5 Build-time glyph-subsetting notes/tooling (per-app font subsets for flash budgets).
+- [ ] 15.6 **Reactive text overflow, and `wrap` as a flag** (maintainer TODOs, `widget/label.rs`, moved here 2026-08-08). `LabelBuilder::overflow` is inert-only (its own `// TODO: MaybeReactive` predates this), and `wrap()` is a zero-argument alias for `overflow(TextOverflow::Wrap)` — so wrapping cannot be toggled at runtime, which is precisely what a responsive/ellipsis-on-demand UI wants. Maintainer's shape: **`wrap` takes a bool and is reactive**, i.e. `wrap(impl IntoMaybeReactive<bool>)`, with `overflow` reactive alongside it. Two notes for whoever takes it: (a) overflow is a **layout** input — it changes measurement (`ContentLayout::height_for_width` takes it) — so it must go through `LayoutBuilder::setter` and mark the arena dirty, not become a style property (ISSUE-2's rule); (b) `wrap(bool)` and `overflow(TextOverflow)` overlap — decide whether `wrap(false)` means `Clip` or restores a previously-set `Ellipsis`, or the two setters will fight. Related: **WS7.8** lists `overflow` among the inert-only setters, and **WS6.4b(ii)** parks closed-form text-run culling here because it wants the same custom line loop as `Clip`/`Ellipsis`.
 
 ```
 Read docs/plans/2026-07-05-rsact-evolution-roadmap.md — WS15. Verify WS5 landed and read
@@ -1473,6 +1522,8 @@ Stages:
 - [ ] **20.3 `subscribers`/`sources` → per-node `RefCell<IdVec>` in `Value`:** migrate the coupled pair together; rewrite `update`/`mark_check_closure`/`clear_sources`/`dispose`/`subscribe`/`update_height`; delete the three `SecondaryMap`s from `Runtime`.
 - [ ] **20.4 Cold-path clone audit:** `Storage::get` (`storage.rs:457`) now clones three `IdVec`s — confirm no _hot_ caller regressed (hot paths already use `state_of`/`kind_of`/`value_rc`/`get_height`, which are unaffected).
 
+  **Audit ANSWERED before the workstream starts** (maintainer TODO on `Storage::get`, moved here 2026-08-08): the only caller is the **mermaid debug-graph output**, which needs nothing but the node's `kind` and its debug info. So 20.4 is not "confirm no hot caller regressed" — there is no hot caller to regress — and the item upgrades from an audit to a **deletion**: either drop `Storage::get` in favour of a borrowing accessor (`with_value(id, |v| …)`) or narrow it to exactly what the graph renders. Do it **before** 20.3, not after: a `get` that clones three per-node `IdVec`s is precisely the signature the AoS move makes more expensive, so removing the caller first means never having to port that clone at all.
+
 **Design sketch (borrow flow, after):**
 
 ```text
@@ -1498,6 +1549,152 @@ RefCell<IdVec>, so the SlotMap only needs borrow_mut at insert/remove. Land 20.1
 as a standalone proof, then 20.2, then the coupled 20.3. Gate every stage on
 benches/allocations.rs (no regression) + benches/reactivity. Coordinate with WS9b
 (Decision 2) so the read path is not churned twice.
+```
+
+---
+
+### WS21 — Environment: a sparse, cascading property tree (SwiftUI-style)
+
+**Sessions:** 2–3 · **Risk:** medium · **Directions:** D2 + D3 + D4 · **Depends on:** WS5 (arena-owned layout, ElId identity), ISSUE-2 (the one-dirty-channel rule this must obey) · **Feeds:** WS7.4, **ISSUE-4** (same "view that vanishes" mechanism), WS15 (i18n/locale cascade), WS5.4 (env is part of the text-measure cache key) · **Filed:** 2026-08-08, maintainer.
+
+**Status:** OPEN — analysed and specified, not scheduled. **Does not block WS6.4d** (see the blocking analysis at the end of this item).
+
+#### The problem
+
+Font size is **both** a layout property and a visual one: layout needs it for text intrinsics, render needs it to pick a raster and draw. WS5.5 settled the analogous `border_width` case with the box/pixel rule — *does it change the box, or only the pixels inside it?* — and pushed border into style. Font size cannot follow: pushing it into style loses it for measurement.
+
+Nor can it stay where it is. Today it lives in `LayoutData`, and the consequences are visible in two widgets:
+
+- **`Label`** carries `ContentLayout::Text.font_props`, written by `FontSettingWidget::font_size` → `layout.setter`.
+- **`Icon`** carries `ContentLayout::Icon(FontSize)` *and* a `Signal<FontSize>` in `IconValue::Relative`, because render needs the size too — so `IconBuilder::size()` spends **two** effects on a reactive size, one of which exists only to mirror one reactive value into another (measured; `only_a_reactive_size_costs_an_effect`). That relay is what `Icon::new`'s `SignalOnWrite` TODO has been asking about.
+
+And neither cascades from an arbitrary ancestor: there is no way to say "this whole `Flex` renders at 20px".
+
+#### Why the idea is right: the concept already exists **three times**
+
+This is the strongest argument for it, and it is not a design argument — it is what the code already does. The cascade was discovered independently three times and never named:
+
+| Site | What it is |
+| --- | --- |
+| `LayoutCtx.font_props` (`layout/mod.rs`) | the **live** cascade, threaded down the layout walk and merged per node via `FontProps::inherited` (field-wise `Option::or`) |
+| `LayoutModel.font_props: Option<FontProps>` (`layout/model.rs:120`, `:391`, `:463`) | the **resolved** value cached per node, so render *replays* the cascade instead of recomputing it — `None` means "nothing new here, keep the parent's", which is why `render.rs:1118`'s `unwrap_or` is correct rather than the merge bug it looks like |
+| `RetainedInputs.input_font_props` (`layout/model.rs:101`) | the per-node **resume anchor** that lets WS5.2's `recompute_upward` re-run a subtree without walking from the root |
+
+Plus a fourth, vestigial: `RenderVisual.tree_style` is a render-only cascade (`TreeStyle { text_color }`) with **no live producer at all** — its only mutator, `RenderCtx::with_tree_style`, is called from exactly one place, and that call is commented out in `select.rs:412`.
+
+So WS21 does not introduce a mechanism. It **names one the codebase already built three-and-a-half times**, generalizes `FontProps` to an open `Env`, and moves the *override source* out of `LayoutData` into its own sparse structure.
+
+#### The taxonomy this completes
+
+WS5.5 gave us two property categories. Environment is the third, and the rule that separates them is the same one:
+
+| Category | Where it lives | Cascades? | Affects the box? | Pseudo-classes? |
+| --- | --- | --- | --- | --- |
+| **Layout** — width, padding, gap | arena `LayoutData`, per node | no | yes | no (a hover-driven relayout is thrash) |
+| **Environment** — font, font size, font style; later locale, direction | arena env map, sparse | **yes** | yes (measurement) | no, same reason |
+| **Style** — colors, border width, radius | stylist, per widget | no | no (pixels only) | yes |
+
+Cascading is being adopted **deliberately and narrowly**, for properties that genuinely inherit — not as a general styling model. The project's anti-CSS stance for styles is unchanged and this must not become a back door to it (see risks).
+
+#### Design
+
+**`Env` is two groups, split by the box/pixel rule.** This is the one structural amendment to the proposal as sketched, and it matters:
+
+```rust
+pub struct Env {
+    // Resolved by the LAYOUT pass, cached into LayoutModel, replayed by render.
+    // A change MARKS THE ARENA DIRTY: it changes measurement.
+    pub font: Option<Font>,
+    pub font_size: Option<FontSize>,
+    pub font_style: Option<FontStyle>,
+    // Resolved by the RENDER walk (what `tree_style` already is).
+    // A change must NEVER relayout — pixels only.
+    pub text_color: Option<ColorStyle<C>>,
+}
+```
+
+Without the split, a cascading *colour* would mark the arena layout-dirty and trigger a relayout — precisely the WS5.5 anti-pattern. With it, the box/pixel rule applies for the third time and the two halves keep their existing homes: the layout half is `LayoutCtx.font_props` generalized, the visual half is `RenderVisual.tree_style` generalized (and finally given a producer).
+
+**Storage.** Overrides go in a sparse arena structure keyed by `ElId`; resolved values keep their existing caches (`LayoutModel`, `RetainedInputs`), generalized from `FontProps` to `Env`. Note that `SecondaryMap<ElId, Env>` is a **dense** `Vec` sized to the high-water index — it would cost a slot per live node whether or not it carries an env. Per WS9a.2's flat-vec precedent (and the `DirtySet`'s own choice), use a **sorted `Vec<(ElId, Env)>`**: env-carrying nodes are a handful, `binary_search` is cheap, no per-node cost.
+
+**Lookup cost is once per relayout, not once per frame.** Only the layout pass consults the map; render reads the already-resolved value from the `LayoutModel`, exactly as it does today. This matters because WS6.4c just spent real effort making traversal cheap and instrumented it (`nodes_visited`) — a per-node map probe on every render frame would show up there. If the layout-side lookup ever measures, a `has_env` bit in `ElState` (already loaded during the walk) turns the common case into a branch instead of a search.
+
+**`EnvironmentView` — a build-only view that does not retain.** It writes onto its child's `ElId` and vanishes; no arena node, no runtime cost. This is precisely the Xilem shape **ISSUE-4** describes — _"a view can consume a child, set one property on it, and vanish"_ — so the two items should be co-designed rather than inventing the mechanism twice.
+
+Two entry points, one mechanism:
+
+- `.font_size(x)` on a widget builder — sugar that writes that builder's **own** env entry. No wrapper type, so the builder chain's type does not change and `.width()` still chains.
+- `EnvironmentView` (`.environment(|e| …)`) wrapping any subtree — the "20px for this whole Flex" case.
+
+Precedence: **innermost wins**, field-wise `Option::or` child-first — `FontProps::inherited`'s existing semantics, unchanged.
+
+**Bindings** reuse `LayoutBuilder::setter`'s shape exactly: `Inert` writes the entry at build (no node, no effect); a reactive source records a binding wired at build into an effect that writes the entry and marks. That is the ISSUE-2 channel, and using it is non-negotiable — see risk 1.
+
+#### Risks, hardest first
+
+1. **An env change must reach BOTH damage channels, and the geometry one is not enough.** A font-size change moves geometry, so WS5.3's changed-set catches it. But a font *style* change at identical metrics (or a cascading `text_color`) moves **nothing** — and because render replays the cascade from the `LayoutModel` as a plain walk parameter, no render probe subscribes to it either. The result would be an env change that relayouts and repaints *nothing*: ISSUE-2's exact failure mode, reintroduced in a new system. The binding must therefore `mark_needs_redraw` the subtree as well as `mark_dirty` it. **This is the single thing most likely to ship as a silent bug**, and the tripwire will not catch it (the tripwire watches the layout probe, not the paint channel).
+2. **Subtree invalidation semantics.** An env change on an ancestor changes every descendant's measurement. Verified feasible: `recompute_upward` re-runs `model_layout` from the dirty node *downward* with `retained.input_font_props` as the seed, so marking the ancestor already re-measures the subtree — and `input_font_props` generalizes to `input_env` for free. Needs a differential-fuzz case (env change vs full rebuild) in WS5.2's existing harness.
+3. **The two-group split leaks if `Env` grows carelessly.** Every new field must be classified by the box/pixel rule at the point it is added, or the "colour relayouts the page" bug arrives later. Encode it in the type (two structs, or a marker), not in a comment.
+4. **Do not let it become CSS.** Cascading is justified for properties that genuinely inherit down a text/reading context. Resist selectors, specificity, and "any style property may cascade" — that repeals the anti-CSS decision by increments.
+5. **`.font_size()` ergonomics if it becomes a wrapper.** Solved by keeping the sugar (entry point 1) rather than making every `.font_size()` return `EnvironmentView<Inner>` and forcing users to order builder calls. Flagged because the wrapper-only design is the obvious first sketch and it is a trap.
+
+#### What it deletes
+
+Worth stating, because the payoff is subtractive: `ContentLayout::Text.font_props`, `ContainerLayout.font_props`, `FlexLayout.font_props`, `ScrollableLayout.font_props`, `ContentLayout::Icon(FontSize)` with its `set_icon_size`/`icon_size` accessors, `FontSettingWidget`'s layout setters, and — because `Icon` would read its resolved size from the model like `Label` reads font props — the `Signal<FontSize>` relay in `IconValue::Relative` and its second effect. The `SignalOnWrite` TODO is answered by removing the need for it rather than by building it.
+
+#### Stages
+
+- [ ] **21.1 Name the concept, no behaviour change.** `FontProps` → `Env` (layout group only) across `LayoutCtx`, `LayoutModel`, `RetainedInputs`; `RenderVisual.tree_style` → the visual group. Pure rename + regroup; every golden byte-identical. This is the commit that proves the three sites really are one concept.
+- [ ] **21.2 Move the override source.** Sorted `Vec<(ElId, Env)>` in the arena; `FontSettingWidget`'s setters retarget from `layout.setter` to `env.setter`; delete the `font_props` fields from all four layout kinds. Both marks (dirty + needs_redraw) land here — risk 1 is this stage's acceptance criterion, with a same-metrics font-style change as the regression test.
+- [ ] **21.3 `EnvironmentView`.** Build-only, non-retaining, writes the child's entry; co-designed with ISSUE-4's view vocabulary. Acceptance: wrapping a `Flex` sets the size for all descendants and creates **zero** arena nodes.
+- [ ] **21.4 Fold `Icon` in.** Size becomes an env property; `ContentLayout::Icon` loses its payload; the `Signal<FontSize>` relay and its effect disappear. Acceptance: `only_a_reactive_size_costs_an_effect` drops 2 → 1.
+- [ ] **21.5 (optional) Prove generality with a second property.** `enabled` or `locale` — one that is not font-shaped — to confirm the mechanism is not font-specific in disguise.
+
+#### Acceptance
+
+Goldens byte-identical through 21.1. A same-metrics font-style change on a nested subtree repaints (risk 1). Wrapping a subtree costs zero nodes. `nodes_visited` unchanged on the render path. WS5.2's differential fuzz extended with env changes. Effects: an inert env costs none.
+
+#### Open questions for the maintainer
+
+1. **Naming.** The maintainer is _"leaning towards calling builders views"_ — WS21 introduces the first view that is *only* a view (it never becomes a widget), so it is the natural place to settle that vocabulary, or the natural place to avoid pre-empting it.
+2. **Does `Env` subsume `MemoChain` style inheritance?** `EVOLUTION.md:31` wants `MemoChain` retired for styles; per-widget style *inheritance* is the overlapping concept. Decide whether WS21's visual group and WS7.4 converge or stay separate.
+3. **Viewport in `Env`?** `FontSize::Relative` resolves against the viewport, which is currently threaded separately in both `LayoutCtx` and `RenderShared`. It is a root-level environment value in all but name.
+
+#### Blocking analysis — WS21 does **not** block WS6.4d
+
+Recorded because the session that produced WS21 stepped away from tiled rendering to get here, and the two must not stay entangled.
+
+**6.4d's preconditions are all discharged.** 6.4a (measurement) ✓ · 6.4b (culling — ×10.00 → ×1.00–1.02 paint, `measured == cullable` traversal) ✓ · 6.4c (collect/paint split) ✓ · and **ISSUE-2**, which 6.4a's Amendment 2 promoted into a precondition when it found that "interactive +0%" held only for paint-only changes — now closed and measured (1.00 → 0.01 coverage, 478 → 93 ops). Nothing on 6.4d's critical path passes through the environment question.
+
+**Why they look entangled but are not.** Both topics touch font properties, so it is tempting to sequence them. But 6.4d needs three things from the invalidation system, and WS21 changes none of them: that damage rects are tight (WS6.2/6.3a), that a region replay costs ×1 (WS6.4b), and that an interactive frame is genuinely interactive (ISSUE-2). WS21 changes **where a font property is stored and how it is inherited** — an architecture and ergonomics concern. A tile does not care whether `font_size` came from `LayoutData` or an env map; it cares that the damage it is handed is small and correct, which is already true.
+
+**Is anything in PR #44 a stopgap WS21 will delete?** Yes, and none of it is a hack:
+
+| Landed in #44 | WS21's fate for it | Honest today? |
+| --- | --- | --- |
+| `ContentLayout::Icon(FontSize)` + `set_icon_size`/`icon_size` | deleted (size becomes env) | yes — identical shape to `set_text`, on the same channel, tested |
+| `IconBuilder::size` writing two channels | one channel (render reads the resolved value from the model) | yes — measured, locked at 2 effects with the reason recorded |
+| `LayoutData::set_text`/`text` | survives (text is content, not environment) | yes |
+| the `Signal<FontSize>` relay in `IconValue::Relative` | deleted | **pre-existing**, not introduced by #44; #44 only measured it and wrote down where it goes |
+
+So **#44 is mergeable as-is**. Every item WS21 will remove is either correct-and-tested today or predates the PR, and each carries a comment pointing at its successor. The one thing a reviewer might call unfinished — `Icon`'s second effect — has a cheap independent fix (collapse `Signal<FontSize>` → `MaybeReactive<FontSize>`), but that fix costs `.size(20)` → `.size(FontSize::Fixed(20))` at every call site and is a strict subset of 21.4, so doing it separately buys a week of slightly better numbers for a public API churn. Recommendation: let 21.4 do it.
+
+**The two tracks, then:** WS21 is its own session (start at 21.1, the rename that proves the three sites are one concept). WS6.4d resumes immediately after #44 merges, with no dependency on WS21 in either direction.
+
+#### Session prompt
+
+```text
+Read docs/plans/2026-07-05-rsact-evolution-roadmap.md — WS21. The mechanism ALREADY EXISTS
+three times (LayoutCtx.font_props live cascade, LayoutModel.font_props resolved cache,
+RetainedInputs.input_font_props resume anchor) plus a vestigial fourth (RenderVisual.
+tree_style, no live producer). Do 21.1 FIRST as a pure rename proving they are one concept —
+goldens must be byte-identical. Env is TWO groups split by the box/pixel rule (layout group
+marks the arena dirty; visual group must never relayout); encode the split in the type.
+The highest risk is NOT the cascade — it is that a same-metrics env change (font style,
+text colour) moves no geometry and wakes no render probe, so it would relayout and repaint
+NOTHING: ISSUE-2's failure mode in a new system. The binding must mark_needs_redraw as well
+as mark_dirty, and the tripwire will NOT catch this. Storage is a sorted Vec<(ElId, Env)>,
+not a SecondaryMap (dense — one slot per live node). Co-design EnvironmentView with ISSUE-4.
 ```
 
 ---
@@ -1595,7 +1792,7 @@ Failing (i) it cannot be measured; failing (iii) it is a net loss. The evidence 
 | --- | --- |
 | **Filed** | 2026-08-04 (found by WS6.4a's measurement harness, not by inspection) |
 | **Kind** | bug / gap — invalidation channel mismatch (CPU + flush bytes on the commonest dynamic change there is) |
-| **Status** | **OPEN** — recorded, not scheduled. Blocks nothing in flight; changes what 6.4d can promise. |
+| **Status** | **CLOSED 2026-08-07** (PR #44, branch `issue2-label-layout`) — see _Resolution_ at the end. Scope widened on the maintainer's reading: text was one of **three** inputs on the wrong channel. |
 | **Area** | `rsact-ui` (`widget/label.rs`, `layout/*` `ContentLayout::text`, `el/build.rs` `bind_layout`, `page/mod.rs` `compute_layout`) |
 | **Relates** | **WS5.2** (incremental relayout — its precondition is the dirty set) · **WS6.1** (targeted repaint roots — never reached) · **WS6.4a** (the measurement) · **WS6.4d** (the interactive-frame promise) · **WS5.4** (text-measure cache — same read path, different problem) |
 
@@ -1621,6 +1818,51 @@ Follow `compute_layout` with an empty dirty set: the incremental branch requires
 **Candidate directions (not a decision).** (a) Route the tracked read into the marked channel: have `ContentLayout::text` (or `Label`'s builder) `bind_layout` a memo of the *measured size*, so a text change marks its own node dirty and WS5.2/WS6.1 engage unchanged — smallest change, and it makes the content→layout edge explicit rather than implicit. (b) Let `relayout_if_needed` learn *which* probe sources changed and derive the dirty set from them — more general, needs a reactive-side capability rsact-reactive does not have, and 6.4c(2) is on record that 6.4 needs no reactive changes. (c) Accept it and rely on damage-driven flush alone — rejected by the measurement: the damage *is* the whole viewport, so there is nothing left to narrow. Direction (a) is the obvious first probe; the question it must answer is whether measurement inside `bind_layout`'s effect can see the font context it needs.
 
 **Verdict (recorded, not scheduled).** Do not fold into 6.4b/6.4c — it is an invalidation-channel question, not a rendering one, and either WS5 or a WS6.1 follow-up owns it. Promote when: (i) 6.4b/6.4c land, so the tiled interactive frame is the next thing measured; or (ii) any hardware profile shows text-driven pages dominated by flush bytes (WS17). The regression test already exists: the `text-change` row of `tile_damage_240.txt` is exactly the number a fix must move, and it is asserted-by-golden today, so a fix cannot land silently.
+
+---
+
+#### Resolution — 2026-08-07, PR #44 (`issue2-label-layout`)
+
+Promoted by condition (i): 6.4b and 6.4c landed, making the tiled interactive frame the next thing to measure.
+
+**Direction (a) as written was infeasible; a better variant of it shipped.** The recorded proposal — `bind_layout` a memo of the _measured size_ — cannot work, and the item's own closing question is why: measurement needs `LayoutCtx`, i.e. the font context, the viewport, and the **inherited** font props resolved during the tree walk. None of those exist inside a build-time effect. But the size was never what was needed — only the **mark**. Routing text through the existing `LayoutBuilder::setter` produces exactly that, with no new machinery: text becomes a plain `String` layout property, the Inert arm writes it once at build, the Memo arm gets the same binding effect every other reactive layout prop already has.
+
+**The scope was three inputs, not one.** The maintainer's question — _"do you have a feeling that we're kinda making two sources for the same logic … I don't feel confident saying 'layout can change when a widget sets a layout property' … 'oh, and also by reactive updates on fonts'"_ — prompted an audit of every tracked read inside the layout pass. Text was not special:
+
+| Input | Was | Now |
+| --- | --- | --- |
+| `ContentLayout::Text.content` | `MaybeReactive<String>` | `String` via `setter` |
+| `ContentLayout::Icon` | `Memo<FontSize>` (its own `TODO` flagged it) | `FontSize` via `setter` |
+| `LayoutData.show` | `Option<Memo<bool>>` | `bool` via `setter` |
+| `fonts` | `Signal<FontCtx>` | `Rc<FontCtx>` — **not reactive at all** (see below) |
+| `viewport` | `MaybeReactive<Size>` (always built `Inert`) | plain `Size` |
+
+**Maintainer amendment, same day: fonts and viewport are static, not bound.** The first cut gave them a `mark_full` binding effect at `Page::new`, on the principle that a page-wide input still belongs on the one channel. The maintainer's call was that there is no runtime font work and no resize path, so the binding bought a capability nothing exercises and cost a node per page: _"let's make viewport and fonts inert (static inline, not Inert primitive) for now … avoiding creation of useless effects to track them."_
+
+That turns out to be the stronger position, because it closes the invariant rather than merely satisfying it. With those two gone, **`compute_layout` performs no tracked reads at all** — the layout probe holds *zero* sources, so it is a pure tripwire that can only fire on a genuine regression. Previously "the probe is clean" merely meant fonts and the viewport had not changed. Pinned by `a_settled_page_never_relayouts_again`, which drives a real text change through the same call so the quiet half cannot pass vacuously.
+
+Two implementation notes worth keeping. `FontCtx` is shared as an `Rc`, not copied per page: `FixedFontCollection` holds a nested `BTreeMap` of glyph data, so the "1–3 element Vec" its own comment suggests is misleading. And because the page now holds an `Rc` clone, `Rc::get_mut` is an exact test for "has anything been built against these fonts yet" — so `UI::with_font` after `with_page` (which builds a page immediately via `goto`) is **rejected and logged** rather than half-applied. Under the old `Signal` that ordering was invisible but not correct: the page's text had already been measured with the old fonts and nothing marked it dirty.
+
+The discomfort was correct and the diagnosis sharper than "two mechanisms": the dirty set is a channel with a rule, and the probe was a **catch-all with no rule** that silently absorbed anything skipping it. It did not permit ISSUE-2 — it *hid* it, which is why an unmarked input has no symptom beyond being maximally pessimistic forever.
+
+The rule is now one sentence: **layout recomputes when something marks the arena dirty, and everything that affects layout marks it** — a property setter marks its `ElId`, a structure/font/viewport change marks the tree.
+
+**The probe stays, demoted to a tripwire** (maintainer's call: _"I'd rather make the assertion in debug and warn log in release"_). `poll` runs on `marked || probe_dirty`, so a recompute with nothing marked means an input skipped the channel: `debug_assert` in debug, `warn!` in release. Release stays correct — `poll` has already recomputed by the time the check runs, so the warning reports waste, not breakage. Cost of keeping it in release: the node survives (no −1/page) and the pass keeps its subscriptions; the benefit is that a detector absent from shipped builds never sees the app that ships. Proven before trusted: it fired on exactly 2 of ~120 tests pre-fix, both genuine text changes, zero false positives, and is silent after.
+
+**Measured** (`tile_damage_240_incremental.txt`, same-width edit `"value 0"` → `"value 1"`):
+
+| frame | regions | coverage | required ops |
+| --- | --- | --- | --- |
+| text — before | 1 | 1.00 | 478 |
+| text — after | 1 | **0.01** | **93** |
+
+This retires 6.4a's Amendment 2: **"interactive +0%" now covers text changes too**, so the WS6.4d precondition this item created is discharged. A default build still blankets by design (it maintains the dirty set but never consumes it), so the two feature configs legitimately differ — each has its own golden and its own `ci-test.sh` job, since a `(target, feature)` pair no job names runs nowhere.
+
+**Costs and secondary effects.** `ui_labels_10` node total 36 → **45**: +10 effects, one per _reactive_ label. An inert label still creates nothing — asserted in both directions, because "creates nothing" passes just as well when the instrument is broken. (It was 47 before the fonts amendment above: −1 effect per page and −1 `Signal` per UI.) Against that, every builder shrank 8 B (`ButtonBuilder` 272→264, `FlexBuilder` 160→152): `show` was a stored graph handle and is now a `bool`. `ContentLayout`'s manual `Debug` also went away — it existed because formatting the text would have subscribed the formatting observer to it, and `render_font`'s "font provider was disposed" arm went with the `Signal`, since a borrow cannot be disposed. The remaining effect count is the concrete workload **WS20**'s edge-map fold and a future `SignalOnWrite` binding would shrink.
+
+**Diagnostics added on the maintainer's request.** `LayoutData::set_text`/`set_icon_size` now `warn!` with the offending `LayoutKind` when the target is not a text/icon leaf. A binding wired to the wrong node used to drop its write silently, and the symptom — text that never updates — is indistinguishable from a missing dirty mark, which is the exact confusion ISSUE-2 was.
+
+**Left open.** `Show::new` still takes `impl IntoMemo<bool>` rather than `IntoMaybeReactive<bool>`, because `IntoMaybeReactive` has no closure impl (commented out at `maybe/maybe_reactive.rs:194`) and switching would break `Show::new(move || flag.get(), …)`. An inert `Show` therefore still pays for a memo. Restoring that impl is the prerequisite.
 
 ### ISSUE-3 — Widgets paint outside `layout.outer`, so damage under-reports and both culls can crack a tile
 
@@ -1729,6 +1971,49 @@ The way out is already in the data model: styles are `Copy` (the macro derives i
 - (iv) the blanket-vs-opt-in question (fact 5) is answered explicitly, since a blanket impl silently repeals `widget/mod.rs:138-140`'s deliberate veto.
 
 Failing (i) it churns the macro twice; failing (ii) it can trade ergonomics for per-frame allocations on the target class. The cheapest evidence that would promote it: implement `HasBlock` for the 8 `container` widgets behind the existing `.style()` API and measure flash + `style_resolution` before any new method is exposed. The align-trait bonus above needs none of this and can go whenever WS7 or a widget-hygiene pass touches `container.rs`.
+
+### ISSUE-5 — `widget/icon.rs` compiles in no CI job, and two merged PRs' breakage proves it
+
+| | |
+| --- | --- |
+| **Filed** | 2026-08-07 (found while fixing ISSUE-2 — `cargo check --features tiny-icons` failed on code merged five days earlier) |
+| **Kind** | bug / process gap — a coverage hole, not a code defect |
+| **Status** | **OPEN** — the two concrete breakages are fixed in PR #44; the hole that let them in is not. Reported rather than fixed, because un-excluding a WIP feature is the maintainer's call. |
+| **Area** | `scripts/ci-powerset.sh:32` (`--exclude-features tiny-icons`) · `rsact-ui/src/widget/icon.rs` · `rsact-ui/examples/*` |
+| **Relates** | **WS0.9a** (the CI baseline this is a hole in) · **WS5.5** (whose widget-`layout` deletion missed `Icon`) · **WS13** (the builder/widget split `Icon` silently fell out of) |
+
+**What happened.** `widget/icon.rs` is `#[cfg(feature = "tiny-icons")]`, and `ci-powerset.sh` excludes that feature as WIP. The `--lib` test jobs do not enable it either. So the module is compiled by **nothing** in CI, and it had been broken since PR #42: `Icon` still carried the retained `layout: LayoutData` field WS5.5 deleted from all 14 other widgets, which is a hard `E0063` from the `Builder` derive. Separately, `examples/widget_gallery.rs` still called the `ContainerBuilder::border_width` that PR #42 removed — examples declare `required-features`, so no job builds them either.
+
+Neither is subtle. Both are the kind of error a compiler catches instantly, and both survived a merge, which is the actual finding: **excluding a feature from the powerset does not park it, it un-tests it.** A WIP module still has to compile, and a module nothing compiles rots at the speed of every refactor that touches its neighbours.
+
+**And it recurred within the same session.** After those two were fixed, de-reactivating fonts/viewport broke `icon.rs` a _third_ time (a `with!` over a viewport that is no longer reactive) — caught only because that session was running `--features tiny-icons` by hand to verify the first fix. Three breakages, one day, one module, zero CI coverage: the frequency is the argument, not the severity.
+
+**Options, cheapest first.** (a) Add a single `cargo check -p rsact-ui --lib --features "std,embedded-graphics,tiny-icons"` job — one compile, no powerset explosion, catches exactly this class. (b) Drop `--exclude-features tiny-icons` from the powerset — thorough, but multiplies the matrix and may surface real WIP breakage that then blocks unrelated PRs. (c) Add a compile-only job for the examples with their `required-features` — the examples have further pre-existing rot (`col!`/`row!` macros gone, a `u8g2_fonts` import, `ScrollableBuilder::el`), so this one is not free and should follow a cleanup, not precede it.
+
+(a) is the recommendation: it costs one job and would have caught both defects on the day they landed.
+
+### ISSUE-6 — `Flex` carries a block model it can never draw: should a transparent container be stylable?
+
+| | |
+| --- | --- |
+| **Filed** | 2026-08-08 (maintainer TODO on `Flex::render`, moved out of the code) |
+| **Kind** | design question — widget-model consistency, not a bug today |
+| **Status** | **OPEN** — nothing is currently mis-rendered; the question is whether the asymmetry is intended. |
+| **Area** | `rsact-ui` — `widget/flex.rs` (`Flex::render` is `Ok(())`) · `layout/flex.rs` (`FlexLayout` owns a `BlockModel`) · `widget/container.rs` (the widget that *does* draw one) |
+| **Relates** | **WS5.5** (the box/pixel rule that emptied `BlockModel`) · **WS6.1** (the transparent-container ghost fix, which depends on `Flex` drawing nothing) · **WS6.4c** (the traversal prune, same dependency) · **ISSUE-4** (fact: "`Flex` has no style, so the assoc type needs a `NoStyle` inhabitant") |
+
+**The observation.** `FlexLayout` owns a `BlockModel`, but `Flex::render` is `Ok(())` — it draws nothing at all. So the block model has no visual expression on a `Flex`, while the same field on a `Container` produces a background and a border.
+
+**Why nothing is broken today.** WS5.5 reduced `BlockModel` to `{ padding }`, and padding has no pixels — it only reserves space, which the layout pass does honour. So a `Flex`'s block model is fully respected in geometry and there is nothing left for `render` to draw. The TODO is accurate about the shape and harmless in effect.
+
+**The real question is whether `Flex` should be stylable at all.** Getting a background behind a flex row today means wrapping it in a `Container` — one extra element, one extra layout node. Against that:
+
+- **`Flex` drawing nothing is load-bearing.** WS6.1's ghost fix and WS6.4c's traversal prune both special-case transparent containers, and 6.1's `LayoutChange` handling exists *because* a no-op render clears nothing. Giving `Flex` a background makes it opaque and changes which of those paths apply — this is not a local change.
+- **ISSUE-4 already records `Flex` as the style-less case** — it is the reason a `NoStyle` inhabitant is needed for the `Style` associated type. Adding a style to `Flex` would remove that constraint, which is either a simplification or a lost invariant depending on how ISSUE-4 resolves.
+
+**Options.** (a) Leave it — `Flex` is a pure layout container, `Container` is the stylable one, and the split is the design. Document it on `Flex` so the next reader does not re-file this. (b) Give `Flex` a `BlockStyle` like `Container` — costs the transparent-container assumption above and wants a benchmark of "one Flex + style" vs "Container wrapping a Flex". (c) Remove `BlockModel` from `FlexLayout` and let padding come from a wrapper — the most consistent, and the most disruptive to existing call sites.
+
+**Promotion criteria.** Decide with **ISSUE-4** (the `Style` associated type forces an answer for `Flex` either way) or with any WS7.4 stylist session. Do not decide it inside a WS6 session — the transparent-container assumption is WS6's input, not its output.
 
 ## Parting notes — operating wisdom (2026-07-08)
 

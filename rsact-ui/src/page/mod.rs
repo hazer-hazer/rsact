@@ -12,10 +12,10 @@ use crate::{
     render::prelude::*,
     style::TreeStyle,
 };
-use alloc::vec::Vec;
+use alloc::{rc::Rc, vec::Vec};
 use core::cell::{Cell, RefCell};
 use dev::{DevHoveredEl, DevTools};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use rsact_reactive::prelude::*;
 use rsact_reactive::scope::ScopeHandle;
 
@@ -82,7 +82,11 @@ pub struct Page<W: WidgetCtx> {
     // the call. It was a `Signal` only because `Inert` is read-only and `Signal`
     // was the one `Copy` handle giving `&mut` access — it never had a subscriber
     // (every access was `update_untracked`), so it was pure graph freight.
-    viewport: MaybeReactive<Size>,
+    /// The page's fixed viewport. A plain `Size`, not a reactive handle:
+    /// rsact targets fixed displays and there is no resize path (the standing
+    /// TODO on `UI::new`), so it is a build-time constant. Making it reactive
+    /// again means giving it a `mark_full` binding — see `fonts`.
+    viewport: Size,
     stylist: Inert<W::Stylist>,
     dev_tools: Signal<DevTools>,
     /// "Repaint every part this frame." WS6.4.0(iv): a plain `bool`, carried into
@@ -113,7 +117,21 @@ pub struct Page<W: WidgetCtx> {
     /// it; relayout is a `&mut self` call now, so a field suffices.
     full_flush: bool,
     render_calls: usize,
-    fonts: Signal<FontCtx>,
+    /// The font context, shared with the `UI` — an `Rc`, not a `Signal`.
+    ///
+    /// It was reactive so a font added after the page was built could reach it.
+    /// ISSUE-2's audit priced that: a graph node, plus — once layout stopped
+    /// tracking it — a binding effect per page, paid by every UI for a
+    /// capability nothing exercises. There is no runtime font work today
+    /// (`UI::with_font` is a consuming *builder* method), so it is deliberately
+    /// static, and `UI` now rejects a late font change outright rather than
+    /// half-applying one.
+    ///
+    /// **What is deliberately not supported:** changing fonts after build. To
+    /// restore it, make this dynamic again and give it a `mark_full` binding at
+    /// `Page::new` — the same shape every other layout input uses. Forgetting
+    /// the binding is what the tripwire in `relayout_if_needed` catches.
+    fonts: Rc<FontCtx>,
     /// The page's render gate (WS2). One probe, polled once per frame in
     /// [`use_renderer`](Self::use_renderer); it re-runs the page render only
     /// when a tracked dependency changed or a redraw is forced. Owned by the
@@ -165,12 +183,30 @@ struct Relayout {
     blanket: bool,
 }
 
+/// Fired by [`Page::relayout_if_needed`]'s tripwire: a relayout happened that
+/// nobody asked for through the dirty set, so it must have come from a tracked
+/// read inside `compute_layout` — a layout input that skipped the one channel.
+///
+/// Consequences of leaving one in place: the empty dirty set makes
+/// `compute_layout` skip the incremental path and take the blanket
+/// `force_redraw`/`full_flush`, so *every* change of that input relayouts the
+/// whole tree and reflushes the whole viewport. Correct pixels, worst-case cost,
+/// no visible symptom — which is why this is an assert and not a comment.
+///
+/// The fix is always the same: give the input an `ElId` and route it through
+/// `LayoutBuilder::setter`, so its binding effect calls `mark_dirty`. If the
+/// input is genuinely page-wide (fonts, viewport), bind it to `mark_full`
+/// instead.
+const UNMARKED_LAYOUT_INPUT: &str = "relayout with an empty dirty set: some layout input changed reactively \
+     without marking the arena. Route it through `LayoutBuilder::setter` \
+     (per-element `mark_dirty`) or, if page-wide, `mark_full`.";
+
 fn compute_layout<W: WidgetCtx>(
     id: W::PageId,
     arena: Signal<ElArena<W>>,
     root: ElId,
-    viewport: MaybeReactive<Size>,
-    fonts: Signal<FontCtx>,
+    viewport: Size,
+    fonts: &FontCtx,
     prev: Option<&LayoutModel>,
 ) -> Relayout {
     info!("Relayout page {:?}", id);
@@ -179,12 +215,14 @@ fn compute_layout<W: WidgetCtx>(
     #[cfg(not(feature = "incremental-layout"))]
     let _ = prev;
 
-    // WS6.4.0(iv): `viewport` and `fonts` are the only TRACKED
-    // dependencies — reading them here subscribes the caller's probe.
-    // The structure/prop channel is deliberately NOT tracked: it arrives
-    // as the poll's `force` flag from `ElArena::has_dirty()`, because
-    // every site that mutates layout marks the arena in the same breath.
-    let viewport = viewport.with(|v| *v);
+    // **This function performs NO tracked reads, and that is the invariant.**
+    // `viewport` and `fonts` were the last two, held as reactive handles and
+    // read here so the layout probe would subscribe to them. They are plain
+    // values now (see `Page::fonts`), which — with text/icon-size/`show` moved
+    // onto the dirty set by ISSUE-2 — leaves the layout pass with **zero**
+    // subscriptions. The probe wrapping this call is therefore a pure tripwire:
+    // it has no sources, so it can only ever fire if someone reintroduces a
+    // tracked read, which is exactly what it exists to catch.
 
     // WS6.1: set true by the incremental path below when it does a
     // TARGETED repaint (marked specific stable ancestors), so the
@@ -193,9 +231,7 @@ fn compute_layout<W: WidgetCtx>(
     #[cfg(feature = "incremental-layout")]
     let mut targeted = false;
 
-    // `fonts.with` tracks the font context (a change ⇒ whole-tree
-    // relayout — fonts feed every text node's measure).
-    let layout = fonts.with(|fonts| {
+    let layout = {
         // `take_dirty` mutates the arena, so `update_untracked` (needs
         // `&mut` on the Copy signal handle) rather than `with_untracked`.
         let mut arena = arena;
@@ -260,7 +296,7 @@ fn compute_layout<W: WidgetCtx>(
                 viewport.into(),
             )
         })
-    });
+    };
 
     // Whether the caller must do a BLANKET repaint + whole-viewport flush —
     // true unless the incremental path already did a TARGETED repaint above
@@ -304,10 +340,10 @@ impl<W: WidgetCtx> Page<W> {
         // provide
         root: impl View<W>,
         arena: Signal<ElArena<W>>,
-        viewport: MaybeReactive<Size>,
+        viewport: Size,
         stylist: Inert<W::Stylist>,
         dev_tools: Signal<DevTools>,
-        fonts: Signal<FontCtx>,
+        fonts: Rc<FontCtx>,
         // The page scope (WS3.1, G11). The caller creates it with `new_scope()`
         // *before* evaluating `root`/`init_page()` so it is current for the
         // whole build (the widget tree AND the per-page nodes below); `Page::new`
@@ -328,18 +364,30 @@ impl<W: WidgetCtx> Page<W> {
 
         let root = BuildCtx::run(&mut root, arena);
 
+        // ISSUE-2 originally gave `fonts` and `viewport` a `mark_full` binding
+        // here — they are the two layout inputs owned OUTSIDE the tree, so no
+        // `ElId` can claim them, but they still belonged on the one channel with
+        // the whole tree as their blast radius.
+        //
+        // Removed by maintainer decision the same day: neither is reactive any
+        // more (both are plain values — see the fields), because there is no
+        // runtime font work and no resize path, so the two effects bought a
+        // capability nothing exercises and cost one node each per page. When
+        // either becomes dynamic, the binding is what to restore — one
+        // `create_effect` per input calling `arena.mark_full_relayout()`.
+
         // Untracked so the probe is owned by no observer/scope — the page owns
         // it and disposes it explicitly in `Drop` (WS2.3), like `render_probe`.
         let layout_probe = untrack(create_probe);
 
-        // The initial layout. `Copy` closure (every capture is a `Copy` handle),
-        // so it can serve both the poll and the degraded path below.
+        // The initial layout.
         let compute =
-            || compute_layout::<W>(id, arena, root, viewport, fonts, None);
+            || compute_layout::<W>(id, arena, root, viewport, &fonts, None);
 
-        // `force: true` rather than leaning on the probe being born dirty: this
-        // poll's job is to register the `viewport`/`fonts` dependencies, and that
-        // should not depend on birth state. `None` for `prev` — nothing to splice.
+        // `force: true` — the probe has no sources to register any more (see
+        // `compute_layout`), so the first layout must be requested outright
+        // rather than relying on birth state. `None` for `prev` — nothing to
+        // splice.
         let relayout = layout_probe.poll(true, compute).unwrap_or_else(|| {
             // Unreachable: a probe created three lines above cannot already be
             // disposed. Logged and degraded rather than unwrapped (WS1.8).
@@ -376,8 +424,8 @@ impl<W: WidgetCtx> Page<W> {
             layout_probe,
             state,
             style,
-            // TODO: Signal viewport in Renderer? Windows can change size.
-            viewport: viewport.name("Viewport"),
+            // TODO: reactive viewport in Renderer? Windows can change size.
+            viewport,
             stylist,
             dev_tools,
             force_redraw,
@@ -436,41 +484,78 @@ impl<W: WidgetCtx> Page<W> {
     /// - `force_redraw`/`full_flush` stop being written from inside a memo
     ///   callback, which is what lets them stop being reactive at all.
     ///
-    /// # Which inputs are tracked, and which are not
+    /// # One dirty channel
     ///
-    /// `viewport` and `fonts` are reactive values owned outside the page, so they
-    /// stay TRACKED — read inside the poll closure by `compute_layout`.
+    /// **Every layout input marks the arena's dirty set. That is the channel.**
+    /// A property setter marks its own element (`bind_layout`'s effect —
+    /// `mark_dirty`); a structure change or a font/viewport change marks the
+    /// whole tree (`BuildCtx::set_children`/`set_single_child`, and the
+    /// `Page::new` font binding — `mark_full`). The mark arrives here as the
+    /// poll's `force` flag; nothing about layout is *tracked* by design.
     ///
-    /// The structure/prop channel is **not** tracked; it arrives as the poll's
-    /// `force` flag, from the arena's own dirty set. That is sound because every
-    /// site which mutates layout marks the arena in the same breath —
-    /// `BuildCtx::set_children`/`set_single_child` (`mark_full_relayout`) and
-    /// `bind_layout`'s effect (`mark_dirty`). Those three used to *also* fire a
-    /// `relayout` Trigger for the memo to track; the mark and the request were
-    /// the same fact recorded twice, so the Trigger is gone. The marks are kept
-    /// on **both** feature paths — a default build never reads the dirty set to
-    /// choose incremental-vs-full, but it does maintain and drain it — so
-    /// `has_dirty` gates correctly with or without `incremental-layout`.
+    /// Those sites used to *also* fire a `relayout` Trigger for the memo to
+    /// track; the mark and the request were the same fact recorded twice, so the
+    /// Trigger is gone. The marks are kept on **both** feature paths — a default
+    /// build never reads the dirty set to choose incremental-vs-full, but it does
+    /// maintain and drain it — so the gate works with or without
+    /// `incremental-layout`.
+    ///
+    /// # The probe is a tripwire, not a channel
+    ///
+    /// `compute_layout` still runs inside `layout_probe.poll`, so any tracked
+    /// read it performs subscribes the probe. That is deliberately **not** a
+    /// second way to request a relayout — it is how we *detect* a layout input
+    /// that skipped the channel above.
+    ///
+    /// The distinction matters because the failure it catches is invisible
+    /// otherwise: an unmarked input still produces correct pixels, it just
+    /// recomputes and repaints the whole tree forever (an empty dirty set skips
+    /// the incremental path in `compute_layout`, and no `mark_needs_redraw` means
+    /// the blanket `force_redraw`/`full_flush`). That is exactly how ISSUE-2
+    /// (`Label` text) survived unnoticed — along with `ContentLayout::Icon`'s
+    /// size memo and `Layout::show`, which had the identical shape.
+    ///
+    /// So: `poll` runs when `marked || probe_dirty`. If it ran and nothing was
+    /// marked, the probe fired on its own and some input is on the wrong
+    /// channel — `debug_assert` in debug, `warn!` in release. Release stays
+    /// *correct*: `poll` has already recomputed by the time we look, so the
+    /// warning reports waste, not breakage.
+    ///
+    /// Since `fonts`/`viewport` stopped being reactive too, `compute_layout`
+    /// has **no tracked reads at all**, so the probe holds no sources: the
+    /// tripwire is now unfireable except by a genuine regression. That is the
+    /// strongest form of it — before, "the probe is clean" merely meant fonts
+    /// and the viewport had not changed.
     fn relayout_if_needed(&mut self) -> bool {
-        let force = self.arena.with_untracked(|arena| arena.is_layout_dirty());
+        let marked = self.arena.with_untracked(|arena| arena.is_layout_dirty());
 
         // `Probe` is `Copy`: taking it out first means `poll` does not borrow
         // `self`, so the closure can borrow `self.layout` as `prev` and the
         // assignment below can take `&mut self.layout` once the poll returns.
         let probe = self.layout_probe;
-        let recomputed = probe.poll(force, || {
+        let recomputed = probe.poll(marked, || {
             compute_layout::<W>(
                 self.id,
                 self.arena,
                 self.root,
                 self.viewport,
-                self.fonts,
+                &self.fonts,
                 Some(&self.layout),
             )
         });
 
         match recomputed {
             Some(relayout) => {
+                // The tripwire (see this method's docs). `poll` runs on
+                // `marked || probe_dirty`; recomputing with nothing marked means
+                // the probe fired alone. Debug: hard failure. Release: warn and
+                // carry on — the recompute already happened, so the frame is
+                // correct, just needlessly whole-tree.
+                debug_assert!(marked, "{}", UNMARKED_LAYOUT_INPUT);
+                if !marked {
+                    warn!("{UNMARKED_LAYOUT_INPUT}");
+                }
+
                 self.layout = relayout.layout;
                 // Applied outside the poll closure: `compute_layout` reports
                 // rather than writes, so the redraw state is set here, by a
@@ -518,7 +603,7 @@ impl<W: WidgetCtx> Page<W> {
     /// WS5.0b: takes the renderer as a borrow (it is owned by `UI`, not the
     /// page).
     pub fn clear(&mut self, renderer: &mut W::Renderer) -> &mut Self {
-        let viewport = self.viewport.get();
+        let viewport = self.viewport;
         self.style.with(|style| {
             // TODO: Will not work without background, must always have a
             // background
@@ -958,7 +1043,7 @@ impl<W: WidgetCtx> Page<W> {
         //                 "Clear page {:?} with color {:?}",
         //                 self.id, background_color
         //             );
-        //             let viewport = self.viewport.get();
+        //             let viewport = self.viewport;
         //             Renderer::fill_solid(
         //                 renderer,
         //                 Rect::new(Point::zero(), viewport),
@@ -971,7 +1056,7 @@ impl<W: WidgetCtx> Page<W> {
         //     .ok()
         //     .unwrap();
 
-        let fonts = self.fonts.read_only();
+        let fonts = &self.fonts;
         // WS6.4.0(iv): the layout is an owned field, so it is a plain borrow —
         // no longer one of the reactive values `with!` unwraps. It is guaranteed
         // current because `use_renderer` calls `relayout_if_needed` before
@@ -1021,11 +1106,7 @@ impl<W: WidgetCtx> Page<W> {
         self.dev_tools.with(|dev_tools| {
             if dev_tools.enabled {
                 if let Some(hovered) = &dev_tools.hovered {
-                    return hovered.draw::<W>(
-                        renderer,
-                        fonts,
-                        self.viewport.get(),
-                    );
+                    return hovered.draw::<W>(renderer, fonts, self.viewport);
                 }
             }
             Ok(())
@@ -1233,7 +1314,7 @@ impl<W: WidgetCtx> Page<W> {
         // conservatively a full flush — never a regression.
         let full_flush = core::mem::take(&mut self.full_flush);
         if full_flush {
-            let viewport = self.viewport.get_untracked();
+            let viewport = self.viewport;
             let mut damage = self.damage.borrow_mut();
             damage.clear();
             damage.push(Rect::new(Point::zero(), viewport));
@@ -1252,7 +1333,7 @@ mod tests {
         prelude::*,
         test_support::TestPage,
     };
-    use alloc::string::String;
+    use alloc::{rc::Rc, string::String};
     use rsact_reactive::prelude::*;
     use rsact_reactive::scope::new_scope;
 
@@ -1283,10 +1364,10 @@ mod tests {
                 (),
                 root,
                 arena,
-                viewport.maybe_reactive(),
+                viewport,
                 ().inert(),
                 DevTools::default().signal(),
-                FontCtx::new().signal(),
+                Rc::new(FontCtx::new()),
                 scope,
             ),
             NullRenderer::default(),
@@ -2284,10 +2365,10 @@ mod tests {
                     (),
                     Checkbox::<RecWtf>::new(false),
                     arena,
-                    Size::new_equal(64).maybe_reactive(),
+                    Size::new_equal(64),
                     ().inert(),
                     DevTools::default().signal(),
-                    FontCtx::new().signal(),
+                    Rc::new(FontCtx::new()),
                     scope,
                 ),
                 renderer,
@@ -2356,10 +2437,10 @@ mod tests {
                     (),
                     dynamic(|| Checkbox::<RecWtf>::new(false)),
                     arena,
-                    Size::new_equal(64).maybe_reactive(),
+                    Size::new_equal(64),
                     ().inert(),
                     DevTools::default().signal(),
-                    FontCtx::new().signal(),
+                    Rc::new(FontCtx::new()),
                     scope,
                 ),
                 renderer,
@@ -2438,10 +2519,10 @@ mod tests {
                     (),
                     root,
                     arena,
-                    Size::new_equal(64).maybe_reactive(),
+                    Size::new_equal(64),
                     ().inert(),
                     DevTools::default().signal(),
-                    FontCtx::new().signal(),
+                    Rc::new(FontCtx::new()),
                     scope,
                 ),
                 renderer,
@@ -2746,10 +2827,10 @@ mod tests {
                         )
                         .padding(padding),
                         arena,
-                        Size::new_equal(64).maybe_reactive(),
+                        Size::new_equal(64),
                         ().inert(),
                         DevTools::default().signal(),
-                        FontCtx::new().signal(),
+                        Rc::new(FontCtx::new()),
                         scope,
                     ),
                     renderer,
@@ -2873,10 +2954,10 @@ mod tests {
                     )
                     .height(WINDOW_H),
                     arena,
-                    Size::new_equal(64).maybe_reactive(),
+                    Size::new_equal(64),
                     ().inert(),
                     DevTools::default().signal(),
-                    FontCtx::new().signal(),
+                    Rc::new(FontCtx::new()),
                     scope,
                 ),
                 renderer,
@@ -3029,10 +3110,10 @@ mod tests {
                     ])
                     .gap(4u32),
                     arena,
-                    Size::new_equal(64).maybe_reactive(),
+                    Size::new_equal(64),
                     ().inert(),
                     DevTools::default().signal(),
-                    FontCtx::new().signal(),
+                    Rc::new(FontCtx::new()),
                     scope,
                 ),
                 renderer,
@@ -3868,13 +3949,20 @@ mod tests {
         //   Button   144 -> 32   (-112 B per instance)
         //   Flex     112 ->  0   (a ZST — Flex held NOTHING but the copy)
         //
-        // Builders are unchanged (272 / 160) and should be: they still own the
-        // `LayoutBuilder` until build hands it to the arena. That asymmetry is
-        // the point — build-time cost, no retained cost.
+        // Builders keep their `LayoutBuilder` until build hands it to the arena.
+        // That asymmetry is the point — build-time cost, no retained cost.
+        //
+        // ISSUE-2 shaved 8 B off every builder (272 -> 264, 160 -> 152): the
+        // `LayoutData.show` field was an `Option<Memo<bool>>` — a reactive
+        // handle stored so the layout pass could *read* it — and is now a plain
+        // `bool` written through the layout-prop channel. A rare win: the
+        // correctness fix is also the smaller representation, because storing a
+        // graph handle to re-read later is strictly more machinery than storing
+        // the value someone already computed.
         assert_eq!(core::mem::size_of::<Button<NullWtf>>(), 32);
-        assert_eq!(core::mem::size_of::<ButtonBuilder<NullWtf>>(), 272);
+        assert_eq!(core::mem::size_of::<ButtonBuilder<NullWtf>>(), 264);
         assert_eq!(core::mem::size_of::<Flex<NullWtf>>(), 0);
-        assert_eq!(core::mem::size_of::<FlexBuilder<NullWtf>>(), 160);
+        assert_eq!(core::mem::size_of::<FlexBuilder<NullWtf>>(), 152);
     }
 
     // Regression (WS5.1, off-graph): a reactive source set through the
@@ -3938,6 +4026,174 @@ mod tests {
                 arena.with_untracked(|a| a.is_layout_dirty()),
                 "a reactive layout-prop write must mark the arena layout-dirty \
                  — that mark is the relayout request"
+            );
+        });
+    }
+
+    // The layout pass performs NO tracked reads — the invariant that makes
+    // `relayout_if_needed`'s tripwire meaningful rather than merely quiet.
+    //
+    // `compute_layout` runs inside the layout probe's `poll`, so anything it
+    // reads reactively becomes a probe source and can request a relayout behind
+    // the dirty set's back. ISSUE-2 moved the last three per-widget reads off
+    // that path, and dropping the reactive `fonts`/`viewport` removed the final
+    // two — so the probe should now hold no sources at all and a settled page
+    // should never relayout again, no matter how often it is asked.
+    //
+    // Asserted through behaviour rather than by counting sources, because the
+    // runtime's profile is global and cannot attribute a source to one probe.
+    // A page whose only content is INERT has nothing that could legitimately
+    // dirty the probe, so any recompute after the first is the bug.
+    //
+    // The reactive half is not decoration: "asked N times, relayouted zero" is
+    // satisfied just as well by a `relayout_if_needed` that can never return
+    // true. Driving a real text change through it is what proves the instrument
+    // reads before the quiet half is allowed to mean anything.
+    #[test]
+    fn a_settled_page_never_relayouts_again() {
+        use alloc::string::ToString;
+
+        with_new_runtime(|_| {
+            let mut page = create_null_page_sized(
+                Size::new_equal(64),
+                Label::<NullWtf>::new("static".inert()).into_el(),
+            );
+
+            // Drain the build-time marks by taking the first relayout.
+            page.relayout_if_needed();
+
+            for i in 0..4 {
+                assert!(
+                    !page.relayout_if_needed(),
+                    "settled page relayouted on ask #{i} — the layout pass has \
+                     a tracked read again, so the layout probe has sources and \
+                     the tripwire's silence no longer means anything"
+                );
+            }
+        });
+
+        with_new_runtime(|_| {
+            let mut caption = create_signal("before".to_string());
+            let mut page = create_null_page_sized(
+                Size::new_equal(64),
+                Label::<NullWtf>::new(caption).into_el(),
+            );
+            page.relayout_if_needed();
+            assert!(!page.relayout_if_needed(), "must settle first");
+
+            caption.set("after".to_string());
+            assert!(
+                page.relayout_if_needed(),
+                "a marked text change must relayout — without this the quiet \
+                 half above proves nothing"
+            );
+            assert!(
+                !page.relayout_if_needed(),
+                "…and then settle again immediately"
+            );
+        });
+    }
+
+    // ISSUE-2. The same guarantee, for the property that did not have it: a
+    // `Label`'s TEXT. It used to live in `ContentLayout::Text` as a
+    // `MaybeReactive<String>` that the layout pass read while measuring, so a
+    // text write woke the page's layout probe and left the dirty set empty —
+    // which is exactly the condition `compute_layout` treats as "relayout
+    // everything" and `Page::relayout_if_needed`'s tripwire now rejects.
+    #[test]
+    fn reactive_text_persists_and_marks_dirty() {
+        use crate::el::build::BuildCtx;
+        use alloc::string::ToString;
+
+        with_new_runtime(|_| {
+            let mut caption = create_signal("before".to_string());
+            let mut root: El<NullWtf> =
+                Label::<NullWtf>::new(caption).into_el();
+            let arena = create_signal(ElArena::new());
+            let root_id = BuildCtx::run(&mut root, arena);
+
+            let text = |a: &ElArena<NullWtf>| {
+                a.layout(root_id).unwrap().text().map(|t| t.to_string())
+            };
+
+            // The binding wrote the signal's initial value into the arena.
+            assert_eq!(
+                arena.with_untracked(text),
+                Some("before".to_string()),
+                "the layout's text must be written at build, not read lazily"
+            );
+
+            arena.clone().update_untracked(|a| {
+                a.take_dirty();
+            });
+
+            caption.set("after".to_string());
+
+            assert_eq!(
+                arena.with_untracked(text),
+                Some("after".to_string()),
+                "the binding must rewrite the arena-owned text"
+            );
+            assert!(
+                arena.with_untracked(|a| a.is_layout_dirty()),
+                "a text change must mark the arena layout-dirty — that mark is \
+                 what lets WS5.2 relayout only this label and WS6.1 repaint only \
+                 its box, instead of the whole viewport (ISSUE-2)"
+            );
+        });
+    }
+
+    // ISSUE-2's other half, and the reason the fix is not simply "make text a
+    // plain value": an INERT label must stay free. `LayoutBuilder::setter`'s
+    // Inert arm writes the string into the owned `LayoutData` at build and
+    // records no binding, so a static label creates no effect — the cost lands
+    // only on labels that can actually change.
+    //
+    // Both cases are measured, deliberately. "Creates nothing" is the kind of
+    // assertion that passes for the wrong reason — a miscounted or always-zero
+    // profile satisfies it just as well as a correct one — so the reactive label
+    // next to it is what proves the instrument reads.
+    #[test]
+    fn an_inert_label_creates_no_binding_effect() {
+        use crate::el::build::BuildCtx;
+        use alloc::string::ToString;
+        use rsact_reactive::runtime::current_runtime_profile;
+
+        fn build_label(
+            content: impl SignalMapRefMaybeReactive<str, String>,
+        ) -> usize {
+            let before = current_runtime_profile().effects;
+            let mut root: El<NullWtf> =
+                Label::<NullWtf>::new(content).into_el();
+            let arena = create_signal(ElArena::new());
+            let root_id = BuildCtx::run(&mut root, arena);
+
+            assert!(
+                arena.with_untracked(|a| a
+                    .layout(root_id)
+                    .unwrap()
+                    .text()
+                    .is_some_and(|t| !t.is_empty())),
+                "the text must reach the layout either way"
+            );
+
+            current_runtime_profile().effects - before
+        }
+
+        with_new_runtime(|_| {
+            assert_eq!(
+                build_label("static".inert()),
+                0,
+                "an inert label must not create a layout binding effect"
+            );
+        });
+        with_new_runtime(|_| {
+            let caption = create_signal("dynamic".to_string());
+            assert_eq!(
+                build_label(caption),
+                1,
+                "a reactive label creates exactly one — if this reads 0 the \
+                 count above proves nothing"
             );
         });
     }

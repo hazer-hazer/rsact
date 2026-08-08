@@ -338,7 +338,7 @@ mod tests {
         );
 
         let ui5 = ui_labels(5);
-        assert_eq!(ui5.counts.total, 21, "ui_labels_5 node total moved");
+        assert_eq!(ui5.counts.total, 25, "ui_labels_5 node total moved");
         assert_eq!(
             ui5.counts.stored, 0,
             "ui_labels_5 stored = 0: WS5.1 moved every widget's LayoutData \
@@ -351,13 +351,34 @@ mod tests {
         );
 
         let ui10 = ui_labels(10);
-        assert_eq!(ui10.counts.total, 36, "ui_labels_10 node total moved");
+        assert_eq!(ui10.counts.total, 45, "ui_labels_10 node total moved");
         assert_eq!(
             ui10.counts.observers, 12,
             // 10 label render probes + the page render probe + the page LAYOUT
             // probe (WS6.4.0(iv) — the owned `LayoutModel`'s recompute gate; was
             // 11 while layout was a `Memo`, which counted as a memo, not a probe).
+            // `observers` counts Probe nodes only; ISSUE-2's bindings are
+            // Effects, locked separately below.
             "one render probe per label, plus the page's render and layout probes"
+        );
+        assert_eq!(
+            ui10.counts.effects, 10,
+            // ISSUE-2's price: text stopped being a reactive handle the layout
+            // pass reads and became a layout property with a binding effect,
+            // like width or padding — one per REACTIVE label. An inert label's
+            // `setter` writes the string at build and creates nothing.
+            //
+            // Worth it: the alternative was every text change relayouting the
+            // whole tree and reflushing the whole viewport (measured in
+            // `tile_damage_240*`: coverage 1.00 -> 0.01). Recoverable, too — this
+            // is the concrete workload WS20's edge-map fold and a `SignalOnWrite`
+            // binding would shrink.
+            //
+            // It was 11 for part of a day: ISSUE-2 also gave `fonts` a page-level
+            // binding, which the maintainer then removed along with the `fonts`
+            // Signal itself (there is no runtime font work, so both bought a
+            // capability nothing exercises). Net -2 on `total`: 47 -> 45.
+            "one layout binding per reactive label — fonts no longer bind"
         );
         assert_eq!(
             ui10.counts.stored, 0,

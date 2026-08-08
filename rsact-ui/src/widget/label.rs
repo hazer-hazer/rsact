@@ -48,15 +48,20 @@ impl<W: WidgetCtx> Label<W> {
         // Shrink on both axes: the label hugs its text, but because the
         // resolved width is clamped to the available space, text that exceeds
         // it wraps and the height grows (see `Limits::resolve_content_size`).
-        // WS4.1: `content` (MaybeReactive<String>) is no longer `Copy`, and it
-        // is needed both in the layout (for text measurement) and in the field
-        // (for render). Clone the handle: for a reactive label this copies a
-        // Memo handle (cheap); for a static label it clones the String once, at
-        // build time. No runtime node is created either way (the double-*node*
-        // is gone — `Inert::map` no longer allocates).
-        let layout = LayoutBuilder::shrink(super::LayoutKind::Content(
-            ContentLayout::text(content.clone()),
+        //
+        // ISSUE-2: the layout gets its own plain `String`, written through
+        // `setter` — inert text lands here once at build (no node, no effect);
+        // reactive text gets a binding effect that rewrites it and marks this
+        // element dirty, which is what lets WS5.2/WS6.1 relayout and repaint
+        // just the label instead of the page.
+        //
+        // The widget keeps `content` for `render`. Two copies on purpose: this
+        // one drives *geometry*, the widget's drives *paint*. A same-width edit
+        // moves nothing, so only the render probe's tracked read can repaint it.
+        let mut layout = LayoutBuilder::shrink(super::LayoutKind::Content(
+            ContentLayout::text(String::new()),
         ));
+        layout.setter(content.clone(), |data, text| data.set_text(text));
 
         LabelBuilder { content, layout, style: None }
     }
@@ -146,7 +151,7 @@ impl<W: WidgetCtx> Widget<W> for Label<W> {
 
             with!(move |content| {
                 let font = props.font();
-                let props = props.resolve(ctx.shared.viewport.get());
+                let props = props.resolve(ctx.shared.viewport);
 
                 ctx.render_font(
                     font,
