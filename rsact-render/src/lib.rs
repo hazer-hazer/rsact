@@ -47,6 +47,10 @@ pub mod output;
 pub mod path;
 pub mod primitives;
 pub mod record;
+// WS6.4d(1): damage rects -> the regions a frame is painted in. Pure geometry,
+// no renderer and no steady-state allocation, so it belongs beside the geometry
+// it operates on rather than in the UI crate that drives it.
+pub mod region;
 pub mod renderer;
 // WS6.4a's measurement + tile-invariance arithmetic over `record`'s op logs.
 // Unconditional for the same reason `record` is: pure `alloc` math with no file
