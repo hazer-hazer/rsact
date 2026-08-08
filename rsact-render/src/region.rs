@@ -57,7 +57,7 @@
 //!
 //! The roadmap cites ×2.0 as "LVGL's neighbourhood". That citation is wrong.
 //! The replacement is not a better ratio but a measured `F/p` per target, which
-//! is a `RegionPolicy` (6.5) parameter — the same place `max_regions` belongs.
+//! is a `RegionPolicy` (6.5) parameter.
 //!
 //! The denominator double-counting any overlap is deliberate, not sloppiness:
 //! `a + b` is what painting them *separately* costs, and the overlap really is
@@ -129,10 +129,25 @@
 //! once inside the container's chunk. This was a live bug until the explainer
 //! built for WS6.4d(1) surfaced it. See [`capacity_allows`].
 //!
-//! Capacity also outranks [`RegionLimits::max_regions`]: when no pair can be
-//! merged within capacity the budget is simply not met, because a region the
-//! buffer cannot hold is a buffer overrun and an extra region is only a slower
-//! frame.
+//! There is deliberately **no region-count cap** alongside it. One existed for
+//! two days and was removed once the cost model showed it could not help: with
+//! `Cost = N·F + p·Σarea`, merging changes cost by `p·Δ − F`, so it wins exactly
+//! when `Δ < F/p` — which is the comparison the area test already makes. At its
+//! fixpoint every surviving pair has been priced and rejected, so forcing one
+//! through changes cost by `p·Δ − F > 0`: **strictly worse, always, for every
+//! display and every damage set.** Measured on six scattered changes, a cap of 4
+//! took the frame from 1092 px to 9860 px and a cap of 2 to 50600 px, 88% of the
+//! screen.
+//!
+//! The cases a cap seemed to be for are covered elsewhere or not at all. Panels
+//! that want everything coalesced — e-paper, whose refresh costs hundreds of
+//! milliseconds regardless of area — have an enormous `F` and a tiny `p`, so
+//! `F/p` exceeds the whole screen and a correctly-parameterised area test merges
+//! everything by itself. LVGL's `LV_INV_BUF_SIZE` looks like the same knob but
+//! is not one: it is the length of a fixed C array, and its overflow behaviour
+//! is to give up and invalidate the screen. rsact's damage list is a `Vec`, and
+//! a crate whose widget tree is `Box<dyn Widget>` per node does not get to call
+//! that its allocation problem.
 //!
 //! # Chunking preserves width
 //!
@@ -192,79 +207,6 @@ pub struct RegionLimits {
     /// [`Renderer::SURFACE_PIXELS_PER_UNIT`]: crate::renderer::Renderer::SURFACE_PIXELS_PER_UNIT
     pub pixels_per_unit: usize,
 
-    /// How many regions a plan may hold before merges are forced.
-    ///
-    /// # It is a bound, not an optimisation — and the difference is provable
-    ///
-    /// Write the cost of a plan as
-    ///
-    /// ```text
-    /// Cost = N·F + p·Σ area(region)
-    /// ```
-    ///
-    /// where `N` is the region count, `F` the fixed per-region cost (the
-    /// panel's `CASET`/`RASET`/`RAMWR` sequence, DMA setup, one
-    /// `begin_region`/`end_region` pair, the tree descent, one flush call) and
-    /// `p` the per-pixel cost of painting and shipping a pixel.
-    ///
-    /// Merging two regions removes one region and adds the union's dead space
-    /// `Δ = area(a ∪ b) − area(a) − area(b)`, so it changes cost by
-    /// `p·Δ − F`. **Merging wins exactly when `Δ < F/p`** — a break-even
-    /// measured in *pixels*, which is the number the merge test should be
-    /// comparing against (see the module docs: the current ratio test has the
-    /// wrong shape for this, and replacing it needs a measurement).
-    ///
-    /// Now the point. The area test's job *is* that comparison, so at its
-    /// fixpoint every surviving pair has already been priced and rejected.
-    /// Forcing one of them through therefore changes cost by `p·Δ − F > 0`:
-    /// **a budget-forced merge strictly increases cost, always.** There is no
-    /// configuration in which this knob makes a frame cheaper — if it fires, it
-    /// has overridden a decision that was made on the numbers.
-    ///
-    /// Measured, on six small scattered changes:
-    ///
-    /// | budget | regions | painted | share of a 240×240 screen |
-    /// |---|---|---|---|
-    /// | default | 6 | 1092 px | 1.9% |
-    /// | 4 | 4 | 9860 px | 17.1% |
-    /// | 2 | 1 | 50600 px | 87.8% |
-    ///
-    /// # So why keep it
-    ///
-    /// Because the *list* is finite. LVGL has exactly this and for exactly this
-    /// reason: `LV_INV_BUF_SIZE` is 32 because that is the length of its
-    /// invalid-area array, and on overflow it gives up and invalidates the
-    /// whole screen. WS18's no-alloc direction turns rsact's damage `Vec` into
-    /// a fixed-size array too, and then the bound is not a choice.
-    ///
-    /// rsact forces merges instead of collapsing to the screen, because under a
-    /// tile policy "the screen" chunks into bands — ten of them on the 240×240
-    /// reference target, 57600 px against the ~1000 the tight regions would
-    /// paint. Both are bad; forced merges are the less bad, and neither is
-    /// meant to happen.
-    ///
-    /// # What it is *not* needed for
-    ///
-    /// Hardware that wants one region per frame — e-paper, whose partial
-    /// refresh costs hundreds of milliseconds regardless of area — does **not**
-    /// need a count cap either. Its `F` is enormous and its `p` tiny, so
-    /// `F/p` exceeds the whole screen and a correctly-parameterised area test
-    /// merges everything on its own. A correct break-even subsumes every case
-    /// this cap was imagined for, except the finite list.
-    ///
-    /// Which is why the roadmap put `max_regions` in **6.5**'s `RegionPolicy`
-    /// (hardware constraints) and deferred it — "would leave it unexercised and
-    /// unvalidated" — and why pulling it forward into the planner as an
-    /// optimisation was a mistake.
-    ///
-    /// It does **not** bound the chunks a too-large region is cut into: those
-    /// are forced by surface capacity, and capping them would mean emitting a
-    /// region the output cannot hold. Capacity outranks it for the same reason
-    /// — if no pair can be merged within capacity the plan comes out over
-    /// budget, because an extra region is a slower frame and an oversized one
-    /// is a buffer overrun.
-    pub max_regions: usize,
-
     /// Merge two regions when `union.area * 100 <= threshold * (a.area +
     /// b.area)`, and the union fits [`RegionLimits::max_units`]. `200` is
     /// WS6.4a's measured ×2.0.
@@ -291,41 +233,23 @@ impl RegionLimits {
     /// value. Kept until the measurement that replaces it exists.
     pub const MERGE_THRESHOLD_PERCENT: u32 = 200;
 
-    /// How many regions a plan may hold before merges are forced.
-    ///
-    /// **32, and deliberately high enough never to fire in practice** — see
-    /// [`RegionLimits::max_regions`] for why forcing a merge can only cost.
-    /// The number is LVGL's `LV_INV_BUF_SIZE`, which is exactly the same kind
-    /// of bound: the length of its fixed invalid-area array, not a tuned knob.
-    ///
-    /// It was `4` for one day, which measured at **×9 the paint** on scattered
-    /// damage (1092 px → 9860 px) because it forced merges the area test had
-    /// already priced and rejected at ×23.
-    pub const DEFAULT_MAX_REGIONS: usize = 32;
-
     /// The whole-surface case: one unbounded region, no chunking. What a GPU or
     /// a full-size framebuffer wants.
     pub const fn whole() -> Self {
         Self {
             max_units: None,
             pixels_per_unit: 1,
-            max_regions: Self::DEFAULT_MAX_REGIONS,
             merge_threshold_percent: Self::MERGE_THRESHOLD_PERCENT,
             full_frame_percent: 90,
         }
     }
 
     /// A surface of `max_units` storage units packing `pixels_per_unit` pixels
-    /// each, and at most `max_regions` regions before capacity forces more.
-    pub const fn tiled(
-        max_units: usize,
-        pixels_per_unit: usize,
-        max_regions: usize,
-    ) -> Self {
+    /// each.
+    pub const fn tiled(max_units: usize, pixels_per_unit: usize) -> Self {
         Self {
             max_units: Some(max_units),
             pixels_per_unit,
-            max_regions,
             merge_threshold_percent: Self::MERGE_THRESHOLD_PERCENT,
             full_frame_percent: 90,
         }
@@ -397,12 +321,11 @@ pub trait FramePolicy {
 /// framebuffer.
 ///
 /// **A capacity claim, not a region-count claim.** This said "one region per
-/// frame" and forced `max_regions = 1`, justified as "a GPU wants one walk, one
-/// scissor" — which conflated two unrelated things and measured at **88% of the
-/// screen repainted for six small changes** (50600 px against 1092), because a
-/// single region has to be the bounding box of all damage. Region count is
-/// governed by the same area test as everywhere else; an app that genuinely
-/// wants one scissor spells it `Whole<W, H, 1>`.
+/// frame" and pinned the region count to one, justified as "a GPU wants one
+/// walk, one scissor" — which conflated two unrelated things and measured at
+/// **88% of the screen repainted for six small changes** (50600 px against
+/// 1092), because a single region has to be the bounding box of all damage.
+/// Region count is whatever the area test arrives at, here as everywhere.
 ///
 /// Damage still shrinks the flush: regions are the damage rects, so an idle-ish
 /// frame transfers very little even with a full framebuffer behind it.
@@ -412,15 +335,9 @@ pub trait FramePolicy {
 /// driving a 320×240 viewport degrades into bands instead of handing the surface
 /// a frame 25% larger than it can hold. The compile-time proof only covers what
 /// the *policy* asks for, so the policy has to be honest.
-pub struct Whole<
-    const W: u32,
-    const H: u32,
-    const N: usize = { RegionLimits::DEFAULT_MAX_REGIONS },
->;
+pub struct Whole<const W: u32, const H: u32>;
 
-impl<const W: u32, const H: u32, const N: usize> FramePolicy
-    for Whole<W, H, N>
-{
+impl<const W: u32, const H: u32> FramePolicy for Whole<W, H> {
     const MAX_W: u32 = W;
     const MAX_H: u32 = H;
 
@@ -428,13 +345,11 @@ impl<const W: u32, const H: u32, const N: usize> FramePolicy
         RegionLimits::tiled(
             region_units(W, H, pixels_per_unit),
             pixels_per_unit,
-            N,
         )
     }
 }
 
-/// A surface the size of a `W × H` region, and at most `N` regions before
-/// capacity forces more.
+/// A surface the size of a `W × H` region.
 ///
 /// The embedded case. `Tiles<240, 24>` on RGB565 is an 11.25 KiB buffer against
 /// the 112.5 KiB a 240×240 framebuffer costs — the WS6.4 acceptance target.
@@ -446,15 +361,9 @@ impl<const W: u32, const H: u32, const N: usize> FramePolicy
 /// SPIM's `MAXCNT` is a hard limit independent of RAM, and only the app knows
 /// it, so it belongs in the policy rather than anywhere in rsact. That ceiling
 /// is a byte count, which is exactly what this declares.
-pub struct Tiles<
-    const W: u32,
-    const H: u32,
-    const N: usize = { RegionLimits::DEFAULT_MAX_REGIONS },
->;
+pub struct Tiles<const W: u32, const H: u32>;
 
-impl<const W: u32, const H: u32, const N: usize> FramePolicy
-    for Tiles<W, H, N>
-{
+impl<const W: u32, const H: u32> FramePolicy for Tiles<W, H> {
     const MAX_W: u32 = W;
     const MAX_H: u32 = H;
 
@@ -462,7 +371,6 @@ impl<const W: u32, const H: u32, const N: usize> FramePolicy
         RegionLimits::tiled(
             region_units(W, H, pixels_per_unit),
             pixels_per_unit,
-            N,
         )
     }
 }
@@ -533,12 +441,11 @@ pub const fn assert_policy_fits<P: FramePolicy>(
 ///
 /// 1. clamp to the viewport, drop what is left with no area;
 /// 2. merge to a fixpoint under the area test + the capacity veto;
-/// 3. force merges, cheapest union-growth first, until `max_regions` is met;
-/// 4. if coverage crosses `full_frame_percent`, collapse to the viewport;
-/// 5. chunk anything larger than `max_region` (this is where bands come from);
-/// 6. sort.
+/// 3. if paint coverage crosses `full_frame_percent`, collapse to the viewport;
+/// 4. chunk anything the surface cannot hold (this is where bands come from);
+/// 5. sort.
 ///
-/// Steps 2–4 choose; step 5 obeys. Keeping them in that order is what makes the
+/// Steps 2–3 choose; step 4 obeys. Keeping them in that order is what makes the
 /// degenerate case fall out: a nearly-full-screen damage set collapses to one
 /// rect and *then* becomes strips, rather than being planned as strips up front.
 pub fn plan_regions_into(
@@ -566,31 +473,11 @@ pub fn plan_regions_into(
     }
 
     // (2) Merge to a fixpoint. O(n^3) worst case, on an `n` that is the damage
-    // count — single digits in practice, and `max_regions` bounds what survives
-    // anyway. A smarter structure here would cost more to maintain than it saves.
+    // count — single digits in practice. A smarter structure here would cost
+    // more to maintain than it saves.
     merge_by_area(out, limits);
 
-    // (3) Over budget: merge the pair whose union grows least, repeatedly. This
-    // ignores the area test by design — the test asks "is merging cheaper?",
-    // this asks "which merge hurts least?", and at this point one is mandatory.
-    //
-    // The budget can be genuinely unsatisfiable once capacity is in play (six
-    // 16x16 rects 22 px apart cannot be merged into anything a 240x24 surface
-    // holds). Capacity wins: `cheapest_pair` then finds no candidate and the
-    // loop stops over budget rather than emitting a region that overruns the
-    // buffer.
-    while out.len() > limits.max_regions.max(1) {
-        let Some((i, j)) = cheapest_pair(out, limits) else { break };
-        let merged = out[i].union(&out[j]);
-        // Remove the higher index first so the lower one stays valid.
-        out.remove(j);
-        out[i] = merged;
-        // A forced merge can bring the result within reach of the area test for
-        // other regions, so re-run it rather than only shrinking the count.
-        merge_by_area(out, limits);
-    }
-
-    // (4) Full-frame guard. This sums *paint* area, which double-counts any
+    // (3) Full-frame guard. This sums *paint* area, which double-counts any
     // surviving overlap — deliberately, since that overlap is painted twice.
     let painted: u64 = out.iter().map(|r| r.size.area() as u64).sum();
     let viewport_area = viewport.size.area() as u64;
@@ -599,10 +486,10 @@ pub fn plan_regions_into(
         out.push(viewport);
     }
 
-    // (5) Chunk to capacity.
+    // (4) Chunk to capacity.
     chunk_to_capacity(out, limits);
 
-    // (6) Scan order.
+    // (5) Scan order.
     out.sort_unstable_by_key(|r| (r.top_left.y, r.top_left.x));
 }
 
@@ -679,31 +566,6 @@ fn capacity_allows(
         return true;
     }
     limits.holds(union)
-}
-
-/// The pair whose union adds the least dead space *and still fits the surface*,
-/// or `None` when no such pair exists (fewer than two regions, or every union
-/// is over capacity).
-fn cheapest_pair(
-    regions: &[Rect],
-    limits: &RegionLimits,
-) -> Option<(usize, usize)> {
-    let mut best: Option<(usize, usize, u64)> = None;
-    for i in 0..regions.len() {
-        for j in (i + 1)..regions.len() {
-            let union = regions[i].union(&regions[j]);
-            if !capacity_allows(regions[i], regions[j], union, limits) {
-                continue;
-            }
-            let separate =
-                regions[i].size.area() as u64 + regions[j].size.area() as u64;
-            let growth = (union.size.area() as u64).saturating_sub(separate);
-            if best.is_none_or(|(_, _, b)| growth < b) {
-                best = Some((i, j, growth));
-            }
-        }
-    }
-    best.map(|(i, j, _)| (i, j))
 }
 
 /// Cut every region down to at most `max` on each axis, row-major from the
@@ -785,14 +647,14 @@ mod tests {
     /// The default for most tests: tight rects, generous budget, no capacity
     /// limit — so what comes out is the merge policy alone.
     fn tight() -> RegionLimits {
-        RegionLimits { max_regions: 8, ..RegionLimits::whole() }
+        RegionLimits::whole()
     }
 
     /// A surface big enough for a `w × h` tile at one unit per pixel, spelled
     /// the way a policy spells it. What the planner is bound by is the unit
     /// COUNT — regions of any shape fitting `w * h` units are legal.
-    fn tiles(w: u32, h: u32, max_regions: usize) -> RegionLimits {
-        RegionLimits::tiled(region_units(w, h, 1), 1, max_regions)
+    fn tiles(w: u32, h: u32) -> RegionLimits {
+        RegionLimits::tiled(region_units(w, h, 1), 1)
     }
 
     #[test]
@@ -894,7 +756,7 @@ mod tests {
             "with room to hold it, the area test merges this pair"
         );
         assert_eq!(
-            plan_regions(&[a, b], VIEWPORT, &tiles(32, 32, 8)),
+            plan_regions(&[a, b], VIEWPORT, &tiles(32, 32)),
             vec![a, b],
             "a 1024-unit surface cannot hold the union, so the merge is vetoed"
         );
@@ -910,7 +772,7 @@ mod tests {
         // y=24 and slice the lower rect across both pieces for no reason.
         let a = rect(0, 0, 16, 16);
         let b = rect(0, 22, 16, 16);
-        let limits = tiles(240, 24, 8);
+        let limits = tiles(240, 24);
         let planned = plan_regions(&[a, b], VIEWPORT, &limits);
 
         assert_eq!(planned, vec![rect(0, 0, 16, 38)], "{planned:?}");
@@ -926,7 +788,7 @@ mod tests {
         // its 256 px twice — once alone, once inside the container's chunk.
         let container = rect(20, 20, 120, 90);
         let speck = rect(40, 50, 16, 16);
-        let limits = tiles(240, 24, 8);
+        let limits = tiles(240, 24);
 
         let planned = plan_regions(&[container, speck], VIEWPORT, &limits);
         assert!(
@@ -944,113 +806,6 @@ mod tests {
             container.size.area(),
             "the plan paints more than the container: {planned:?}"
         );
-    }
-
-    /// The theorem behind [`RegionLimits::max_regions`], as a test: **a forced
-    /// merge can only cost**.
-    ///
-    /// With `Cost = N·F + p·Σarea` (F = fixed per-region cost, p = per-pixel),
-    /// merging changes cost by `p·Δ − F` where Δ is the dead space added. The
-    /// area test accepts exactly the pairs it judges worth it, so at its
-    /// fixpoint every surviving pair was already priced and rejected — and
-    /// forcing one of them through adds paint to save a region the test had
-    /// just said was worth keeping.
-    ///
-    /// So the budget is not an optimisation and cannot be made into one. It is
-    /// a bound on a finite list (LVGL's `LV_INV_BUF_SIZE` is the same thing),
-    /// which is why the default is high enough never to fire.
-    #[test]
-    fn forcing_merges_only_ever_adds_paint() {
-        // Six small changes scattered across the screen — nothing close enough
-        // for the area test, which is exactly when a low budget bites.
-        let damage = [
-            rect(4, 4, 12, 12),
-            rect(210, 10, 14, 14),
-            rect(120, 60, 10, 10),
-            rect(20, 150, 16, 16),
-            rect(200, 190, 12, 12),
-            rect(96, 220, 18, 14),
-        ];
-        let painted = |max_regions: usize| -> u32 {
-            plan_regions(
-                &damage,
-                VIEWPORT,
-                &RegionLimits { max_regions, ..RegionLimits::whole() },
-            )
-            .iter()
-            .map(|r| r.size.area())
-            .sum()
-        };
-
-        let unbounded = painted(RegionLimits::DEFAULT_MAX_REGIONS);
-        assert_eq!(unbounded, 1092, "the area test's own verdict");
-
-        // Every tightening is strictly worse, monotonically.
-        let four = painted(4);
-        let two = painted(2);
-        assert!(
-            unbounded < four && four < two,
-            "forcing merges must add paint monotonically: {unbounded} -> \
-             {four} -> {two}"
-        );
-        assert!(
-            two > unbounded * 40,
-            "a budget of 2 turns a 2%-of-screen frame into most of it: \
-             {two} vs {unbounded}"
-        );
-    }
-
-    #[test]
-    fn the_default_budget_never_fires_on_scattered_damage() {
-        // The default exists to bound a finite list, not to shape a plan. If it
-        // ever changes what a realistic frame plans, it has become a
-        // pessimisation — this is the tripwire for that.
-        let damage: Vec<Rect> = (0..8)
-            .map(|i| rect((i % 4) * 60, (i / 4) * 120, 12, 12))
-            .collect();
-        let with_default =
-            plan_regions(&damage, VIEWPORT, &RegionLimits::whole());
-        let unbounded = plan_regions(
-            &damage,
-            VIEWPORT,
-            &RegionLimits { max_regions: usize::MAX, ..RegionLimits::whole() },
-        );
-        assert_eq!(with_default, unbounded);
-    }
-
-    #[test]
-    fn capacity_outranks_the_region_budget() {
-        // Four 30x30 rects spread down the screen. No pair's union fits a
-        // 1024-unit surface, so the budget of 2 is unsatisfiable — and being
-        // over budget (a slower frame) is the right way to fail, because over
-        // capacity is a buffer overrun.
-        let damage: Vec<Rect> =
-            (0..4).map(|i| rect(0, i * 70, 30, 30)).collect();
-        let limits = tiles(32, 32, 2);
-        let planned = plan_regions(&damage, VIEWPORT, &limits);
-        assert_eq!(planned, damage, "{planned:?}");
-        assert!(planned.len() > limits.max_regions, "over budget, on purpose");
-    }
-
-    #[test]
-    fn the_budget_forces_merges_the_area_test_rejected() {
-        // Five scattered specks the area test would never join.
-        let damage = [
-            rect(0, 0, 8, 8),
-            rect(232, 0, 8, 8),
-            rect(0, 232, 8, 8),
-            rect(232, 232, 8, 8),
-            rect(116, 116, 8, 8),
-        ];
-        let limits = RegionLimits { max_regions: 2, ..tight() };
-        let planned = plan_regions(&damage, VIEWPORT, &limits);
-        assert!(planned.len() <= 2, "budget of 2 not respected: {planned:?}");
-        for d in &damage {
-            assert!(
-                planned.iter().any(|r| r.intersection(d) == *d),
-                "forced merges must still cover {d:?}, got {planned:?}"
-            );
-        }
     }
 
     #[test]
@@ -1073,7 +828,7 @@ mod tests {
     fn a_full_screen_plan_chunks_into_bands() {
         // The degenerate case the original WS6.4 design started from, reached
         // rather than chosen: whole-viewport damage + a 240x24 surface.
-        let limits = tiles(240, 24, 8);
+        let limits = tiles(240, 24);
         let planned = plan_regions(&[VIEWPORT], VIEWPORT, &limits);
         assert_eq!(planned.len(), 10, "240 / 24 = 10 bands: {planned:?}");
         assert_eq!(planned[0], rect(0, 0, 240, 24));
@@ -1081,21 +836,11 @@ mod tests {
     }
 
     #[test]
-    fn chunking_is_not_capped_by_the_region_budget() {
-        // `max_regions` bounds chosen regions; chunks are forced by capacity, and
-        // capping them would emit a region the surface cannot hold.
-        let limits = tiles(240, 24, 2);
-        let planned = plan_regions(&[VIEWPORT], VIEWPORT, &limits);
-        assert_eq!(planned.len(), 10);
-        assert!(planned.iter().all(|r| r.size.height <= 24));
-    }
-
-    #[test]
     fn chunks_tile_their_region_exactly() {
         // A region whose size does not divide evenly: the last chunk is clipped,
         // and the pieces still partition the region with no gap and no overlap.
         let damage = rect(10, 10, 100, 50);
-        let limits = tiles(32, 32, 8);
+        let limits = tiles(32, 32);
         let planned = plan_regions(&[damage], VIEWPORT, &limits);
         let covered: u32 = planned.iter().map(|r| r.size.area()).sum();
         assert_eq!(
@@ -1140,11 +885,7 @@ mod tests {
             &[rect(-4, -4, 8, 8), rect(60, 60, 8, 8)],
             &[rect(0, 0, 64, 8), rect(0, 56, 64, 8), rect(28, 28, 8, 8)],
         ];
-        for limits in [
-            RegionLimits { max_regions: 8, ..RegionLimits::whole() },
-            tiles(16, 16, 4),
-            tiles(64, 4, 2),
-        ] {
+        for limits in [RegionLimits::whole(), tiles(16, 16), tiles(64, 4)] {
             for damage in cases {
                 let planned = plan_regions(damage, viewport, &limits);
                 for d in damage {
@@ -1186,9 +927,9 @@ mod tests {
     fn the_plan_is_sound_fuzz() {
         let viewport = Rect::new(Point::new(0, 0), Size::new(48, 48));
         let policies = [
-            RegionLimits { max_regions: 8, ..RegionLimits::whole() },
-            tiles(16, 16, 4),
-            tiles(48, 8, 3),
+            RegionLimits::whole(),
+            tiles(16, 16),
+            tiles(48, 8),
             RegionLimits::whole(),
         ];
 
@@ -1257,15 +998,6 @@ mod tests {
                     "region off-screen: {} -> {planned:?}",
                     ctx()
                 );
-
-                // (e) budget, where chunking is not in play to inflate it.
-                if limits.max_units.is_none() {
-                    assert!(
-                        planned.len() <= limits.max_regions.max(1),
-                        "over budget: {} -> {planned:?}",
-                        ctx()
-                    );
-                }
             }
         }
     }
@@ -1302,14 +1034,14 @@ mod tests {
 
         check::<Whole<240, 240>>(&damage, viewport);
         check::<Tiles<240, 24>>(&damage, viewport);
-        check::<Tiles<32, 32, 2>>(&damage, viewport);
+        check::<Tiles<32, 32>>(&damage, viewport);
     }
 
     #[test]
     fn every_planned_region_fits_the_surface() {
         // The other half of the contract: a region larger than the surface is a
         // buffer overrun, not a slow frame.
-        let limits = tiles(32, 16, 8);
+        let limits = tiles(32, 16);
         let damage =
             [rect(0, 0, 240, 240), rect(5, 5, 33, 5), rect(100, 100, 1, 200)];
         for planned in plan_regions(&damage, VIEWPORT, &limits) {
