@@ -17,6 +17,12 @@
     "branch": "ws6.4c-clip-events",
     "subject": "WS5.5: translate Button's default padding — the goldens should NOT have moved"
   },
+  "189e0926ad9d4035add0fe3fb24873dbcc73dc4c": {
+    "date": 1786185643,
+    "parent": "",
+    "branch": "issue2-label-layout",
+    "subject": "Document the maintainer's five in-code TODOs in the plan, and remove them"
+  },
   "1ebd896708f3446b30ec46207fd087b063cf192d": {
     "date": 1786117642,
     "parent": "",
