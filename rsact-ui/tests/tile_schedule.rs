@@ -22,6 +22,7 @@ use rsact_reactive::runtime::with_new_runtime;
 use rsact_render::{
     golden::assert_text_golden,
     record::DrawOp,
+    region::{RegionLimits, plan_regions},
     schedule::{
         ScheduleReport, TileSchedule, format_report, merge_verdict,
         tile_invariance,
@@ -146,6 +147,29 @@ fn option_rows_page(n: usize) -> impl View<RecWtf> {
             .map(|i| {
                 Flex::row(vec![
                     Checkbox::new(true).into_el(),
+                    Label::new(format!("option {i}").inert()).into_el(),
+                ])
+                .width_fill()
+                .gap(6u32)
+                .into_el()
+            })
+            .collect::<Vec<_>>(),
+    )
+    .fill()
+    .gap(6u32)
+}
+
+/// [`option_rows_page`] with the checkboxes wired to caller-held signals, so a
+/// test can damage a chosen *set* of rows in one frame — which is what makes the
+/// WS6.4d(1) planner's merge decisions observable on real geometry.
+fn toggle_rows_page(checks: Vec<Signal<bool>>) -> impl View<RecWtf> {
+    Flex::col(
+        checks
+            .into_iter()
+            .enumerate()
+            .map(|(i, check)| {
+                Flex::row(vec![
+                    Checkbox::new(check).into_el(),
                     Label::new(format!("option {i}").inert()).into_el(),
                 ])
                 .width_fill()
@@ -489,6 +513,185 @@ fn merge_threshold_numbers() {
             "tile_merge_240.txt",
             &out,
         );
+    });
+}
+
+/// WS6.4d(1): the planner, driven by rsact's **own** damage rather than an
+/// invented partition — the first end-to-end measurement of what a real frame
+/// costs once the regions are the ones we would actually paint.
+///
+/// Three damage shapes, produced by real widget writes, because they are the
+/// three cases the area test has to tell apart:
+///
+/// - **adjacent** — two neighbouring rows toggle, 22 px apart. Their union is
+///   barely larger than the parts (×1.19), so they merge — *if* the surface can
+///   hold the result.
+/// - **far** — the first and last rows toggle. The union is half the screen, so
+///   they must stay separate; merging here is the mistake that turns a 2% frame
+///   into a full one.
+/// - **all** — every row toggles. Six rects that cascade into one tall region
+///   when there is room, and stay six when there is not.
+///
+/// Measured under **two** policies, which is the point of the table: `whole` is
+/// an unbounded surface (a GPU, a host renderer, a full framebuffer) where only
+/// the area test speaks, and `tile-24` is a 240×24 = 11.25 KiB tile — the
+/// embedded case, where capacity vetoes merges the area test would make. The
+/// veto is not cosmetic: without it `adjacent` merges to 16×38, chunking cuts it
+/// at y=24, and the lower checkbox is sliced across both chunks for 8 required
+/// ops instead of 5.
+///
+/// The `band-req` column is what a strip renderer would repaint for the same
+/// damage (every 24-row band the damage touches) — WS6.4d(1)'s tight-rect
+/// decision restated as a number on a real frame.
+#[test]
+fn the_planner_turns_real_damage_into_regions() {
+    with_new_runtime(|_| {
+        let viewport = viewport();
+        let frame = Rect::new(Point::zero(), viewport);
+        let mut checks: Vec<Signal<bool>> =
+            (0..6).map(|_| create_signal(false)).collect();
+        let mut probe =
+            TileProbe::new(viewport, toggle_rows_page(checks.clone()));
+
+        let policies = [
+            ("whole", RegionLimits { max_regions: 4, ..RegionLimits::whole() }),
+            ("tile-24", RegionLimits::tiled(Size::new(240, 24), 4)),
+        ];
+
+        let mut out = String::new();
+        let _ = writeln!(
+            out,
+            "{:<10}{:<9}{:>7}{:>9}{:>10}{:>6}{:>7}{:>10}",
+            "frame",
+            "policy",
+            "rects",
+            "planned",
+            "coverage",
+            "req",
+            "bands",
+            "band-req"
+        );
+
+        for (label, rows) in [
+            ("adjacent", vec![0usize, 1]),
+            ("far", vec![0usize, 5]),
+            ("all", (0..6).collect::<Vec<_>>()),
+        ] {
+            let damage = probe.damage_after(|_| {
+                for &row in &rows {
+                    checks[row].update(|checked| *checked = !*checked);
+                }
+            });
+            assert!(
+                !damage.is_empty(),
+                "{label}: the writes damaged nothing, so there is nothing to plan"
+            );
+
+            // What a strip renderer would paint for the same damage: every
+            // 24-row band any damage rect touches.
+            let bands = TileSchedule::from_regions(
+                frame,
+                TileSchedule::rows(frame, 24)
+                    .tiles()
+                    .iter()
+                    .copied()
+                    .filter(|band| {
+                        damage.tiles().iter().any(|d| d.intersects(band))
+                    })
+                    .collect::<Vec<_>>(),
+            );
+            let band_report = ScheduleReport::of(&probe.capture(&bands));
+
+            for (policy, limits) in &policies {
+                let planned = TileSchedule::from_regions(
+                    frame,
+                    plan_regions(damage.tiles(), frame, limits),
+                );
+                let log = probe.capture(&planned);
+
+                // The plan is a real schedule, so it owes the same soundness as
+                // any other: no op it is obliged to draw may go missing, and no
+                // region may invent geometry the full frame never produced.
+                let violations = tile_invariance(&log);
+                assert!(
+                    violations.is_empty(),
+                    "{label}/{policy}: {} violation(s), first: {}",
+                    violations.len(),
+                    violations[0]
+                );
+
+                let report = ScheduleReport::of(&log);
+                assert!(
+                    report.total.required <= band_report.total.required,
+                    "{label}/{policy}: the plan repaints MORE than the bands \
+                     covering the same damage ({} vs {}) — the tight-rect \
+                     premise is inverted",
+                    report.total.required,
+                    band_report.total.required
+                );
+
+                let _ = writeln!(
+                    out,
+                    "{:<10}{:<9}{:>7}{:>9}{:>10.2}{:>6}{:>7}{:>10}",
+                    label,
+                    policy,
+                    damage.len(),
+                    planned.len(),
+                    planned.coverage(),
+                    report.total.required,
+                    bands.len(),
+                    band_report.total.required
+                );
+            }
+        }
+
+        assert_text_golden(
+            env!("CARGO_MANIFEST_DIR"),
+            "tile_plan_240.txt",
+            &out,
+        );
+    });
+}
+
+/// Every region the planner emits must fit the surface it was planned for.
+///
+/// A plan that exceeds the tile buffer is not a slow frame, it is a buffer
+/// overrun — and unlike the coverage property it cannot be caught by looking at
+/// the screen. `rsact_render::region` fuzzes this over synthetic damage; this
+/// asserts it over the damage real widgets produce, against a surface small
+/// enough (48×16) that chunking is unavoidable.
+#[test]
+fn a_real_plan_never_exceeds_the_surface() {
+    with_new_runtime(|_| {
+        let viewport = viewport();
+        let frame = Rect::new(Point::zero(), viewport);
+        let mut checks: Vec<Signal<bool>> =
+            (0..6).map(|_| create_signal(false)).collect();
+        let mut probe =
+            TileProbe::new(viewport, toggle_rows_page(checks.clone()));
+
+        let surface = Size::new(48, 16);
+        let limits = RegionLimits::tiled(surface, 4);
+
+        for rows in [vec![0usize], vec![0usize, 5], (0..6).collect::<Vec<_>>()]
+        {
+            let damage = probe.damage_after(|_| {
+                for &row in &rows {
+                    checks[row].update(|checked| *checked = !*checked);
+                }
+            });
+            let planned = plan_regions(damage.tiles(), frame, &limits);
+            assert!(!planned.is_empty(), "rows {rows:?} damaged nothing");
+            for region in &planned {
+                assert!(
+                    region.size.width <= surface.width
+                        && region.size.height <= surface.height,
+                    "region {region:?} exceeds the {surface:?} surface \
+                     (damage {:?})",
+                    damage.tiles()
+                );
+            }
+        }
     });
 }
 

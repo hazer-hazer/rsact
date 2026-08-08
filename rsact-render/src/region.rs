@@ -58,6 +58,28 @@
 //! corruption — painting is a pure function of position, so both passes write
 //! the same value — and it is waste the area test has already priced as cheaper
 //! than the alternative.
+//!
+//! # The capacity veto: a merge chunking would undo is never made
+//!
+//! The area test alone is not enough once the surface is smaller than the
+//! frame, and the first real-page measurement is what showed it. Two 16×16
+//! checkboxes 22 px apart merge happily on area (×1.19) into a 16×38 region —
+//! which a 240×24 tile cannot hold, so step (5) immediately cuts it back into
+//! two. The count is unchanged, the paint is not: the chunk boundary falls on
+//! the *merged* region's grid at y = 24, slicing the lower checkbox in half so
+//! it is drawn in both chunks. Measured on `tile_plan_240.txt`: 8 required ops
+//! merged-then-chunked against 5 left alone.
+//!
+//! So a union larger than [`RegionLimits::max_region`] is rejected outright,
+//! before the area test is even consulted. The rule generalises past this one
+//! case — **any merge that capacity will immediately undo can only lose**,
+//! because chunking re-derives the split from the union's own origin rather
+//! than from where the damage actually was.
+//!
+//! Capacity also outranks [`RegionLimits::max_regions`]: when no pair can be
+//! merged within capacity the budget is simply not met, because a region the
+//! buffer cannot hold is a buffer overrun and an extra region is only a slower
+//! frame.
 
 use crate::geometry::{Point, Rect, Size};
 use alloc::vec::Vec;
@@ -91,11 +113,14 @@ pub struct RegionLimits {
     ///
     /// It does **not** bound the chunks a too-large region is cut into — those
     /// are forced by surface capacity, not chosen, and capping them would mean
-    /// emitting a region the output cannot hold.
+    /// emitting a region the output cannot hold. For the same reason it is a
+    /// *preference*: where capacity leaves no mergeable pair, the plan comes out
+    /// over budget rather than over capacity.
     pub max_regions: usize,
 
     /// Merge two regions when `union.area * 100 <= threshold * (a.area +
-    /// b.area)`. `200` is WS6.4a's measured ×2.0.
+    /// b.area)`, and the union fits [`RegionLimits::max_region`]. `200` is
+    /// WS6.4a's measured ×2.0.
     pub merge_threshold_percent: u32,
 
     /// When the planned regions already *paint* this much of the viewport's
@@ -151,7 +176,7 @@ impl RegionLimits {
 /// # Order of operations
 ///
 /// 1. clamp to the viewport, drop what is left with no area;
-/// 2. merge to a fixpoint under the area test;
+/// 2. merge to a fixpoint under the area test + the capacity veto;
 /// 3. force merges, cheapest union-growth first, until `max_regions` is met;
 /// 4. if coverage crosses `full_frame_percent`, collapse to the viewport;
 /// 5. chunk anything larger than `max_region` (this is where bands come from);
@@ -187,20 +212,26 @@ pub fn plan_regions_into(
     // (2) Merge to a fixpoint. O(n^3) worst case, on an `n` that is the damage
     // count — single digits in practice, and `max_regions` bounds what survives
     // anyway. A smarter structure here would cost more to maintain than it saves.
-    merge_by_area(out, limits.merge_threshold_percent);
+    merge_by_area(out, limits);
 
     // (3) Over budget: merge the pair whose union grows least, repeatedly. This
     // ignores the area test by design — the test asks "is merging cheaper?",
     // this asks "which merge hurts least?", and at this point one is mandatory.
+    //
+    // The budget can be genuinely unsatisfiable once capacity is in play (six
+    // 16x16 rects 22 px apart cannot be merged into anything a 240x24 surface
+    // holds). Capacity wins: `cheapest_pair` then finds no candidate and the
+    // loop stops over budget rather than emitting a region that overruns the
+    // buffer.
     while out.len() > limits.max_regions.max(1) {
-        let Some((i, j)) = cheapest_pair(out) else { break };
+        let Some((i, j)) = cheapest_pair(out, limits.max_region) else { break };
         let merged = out[i].union(&out[j]);
         // Remove the higher index first so the lower one stays valid.
         out.remove(j);
         out[i] = merged;
         // A forced merge can bring the result within reach of the area test for
         // other regions, so re-run it rather than only shrinking the count.
-        merge_by_area(out, limits.merge_threshold_percent);
+        merge_by_area(out, limits);
     }
 
     // (4) Full-frame guard. This sums *paint* area, which double-counts any
@@ -236,13 +267,13 @@ pub fn plan_regions(
 // -- internals --------------------------------------------------------------
 
 /// Merge pairs that pass the area test until none does.
-fn merge_by_area(regions: &mut Vec<Rect>, threshold_percent: u32) {
+fn merge_by_area(regions: &mut Vec<Rect>, limits: &RegionLimits) {
     let mut merged_any = true;
     while merged_any {
         merged_any = false;
         'outer: for i in 0..regions.len() {
             for j in (i + 1)..regions.len() {
-                if should_merge(regions[i], regions[j], threshold_percent) {
+                if should_merge(regions[i], regions[j], limits) {
                     let merged = regions[i].union(&regions[j]);
                     regions.remove(j);
                     regions[i] = merged;
@@ -254,23 +285,39 @@ fn merge_by_area(regions: &mut Vec<Rect>, threshold_percent: u32) {
     }
 }
 
-/// The area test, in integers. See the module docs for the measurement behind
-/// the threshold and for why the denominator double-counts overlap.
-fn should_merge(a: Rect, b: Rect, threshold_percent: u32) -> bool {
+/// The area test, in integers, **plus the capacity veto**. See the module docs
+/// for the measurement behind the threshold, for why the denominator
+/// double-counts overlap, and for why a union the surface cannot hold is never
+/// merged.
+fn should_merge(a: Rect, b: Rect, limits: &RegionLimits) -> bool {
+    let union = a.union(&b);
+    if let Some(max) = limits.max_region {
+        if !fits(union, max) {
+            return false;
+        }
+    }
     let separate = a.size.area() as u64 + b.size.area() as u64;
-    let merged = a.union(&b).size.area() as u64;
-    merged * 100 <= threshold_percent as u64 * separate
+    let merged = union.size.area() as u64;
+    merged * 100 <= limits.merge_threshold_percent as u64 * separate
 }
 
-/// The pair whose union adds the least dead space, or `None` below two regions.
-fn cheapest_pair(regions: &[Rect]) -> Option<(usize, usize)> {
+/// The pair whose union adds the least dead space *and still fits the surface*,
+/// or `None` when no such pair exists (fewer than two regions, or every union
+/// is over capacity).
+fn cheapest_pair(
+    regions: &[Rect],
+    max_region: Option<Size>,
+) -> Option<(usize, usize)> {
     let mut best: Option<(usize, usize, u64)> = None;
     for i in 0..regions.len() {
         for j in (i + 1)..regions.len() {
+            let union = regions[i].union(&regions[j]);
+            if max_region.is_some_and(|max| !fits(union, max)) {
+                continue;
+            }
             let separate =
                 regions[i].size.area() as u64 + regions[j].size.area() as u64;
-            let union = regions[i].union(&regions[j]).size.area() as u64;
-            let growth = union.saturating_sub(separate);
+            let growth = (union.size.area() as u64).saturating_sub(separate);
             if best.is_none_or(|(_, _, b)| growth < b) {
                 best = Some((i, j, growth));
             }
@@ -419,6 +466,42 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_merge_the_surface_cannot_hold_is_not_made() {
+        // The real-page case from `tile_plan_240.txt`: two 16x16 checkboxes 22 px
+        // apart. On area alone they merge (x1.19); the 16x38 union does not fit a
+        // 240x24 tile, so chunking would cut it at y=24 and slice the lower
+        // checkbox in two — 8 required ops instead of 5.
+        let a = rect(0, 0, 16, 16);
+        let b = rect(0, 22, 16, 16);
+        assert_eq!(
+            plan_regions(&[a, b], VIEWPORT, &tight()),
+            vec![rect(0, 0, 16, 38)],
+            "with room to hold it, the area test merges this pair"
+        );
+        assert_eq!(
+            plan_regions(
+                &[a, b],
+                VIEWPORT,
+                &RegionLimits::tiled(Size::new(240, 24), 8)
+            ),
+            vec![a, b],
+            "a 240x24 surface cannot hold the union, so the merge is vetoed"
+        );
+    }
+
+    #[test]
+    fn capacity_outranks_the_region_budget() {
+        // Six rects that no pair can merge within a 240x24 surface. The budget of
+        // 2 is then unsatisfiable, and being over budget (a slower frame) is the
+        // right way to fail — over capacity is a buffer overrun.
+        let damage: Vec<Rect> =
+            (0..6).map(|i| rect(0, i * 22, 16, 16)).collect();
+        let limits = RegionLimits::tiled(Size::new(240, 24), 2);
+        let planned = plan_regions(&damage, VIEWPORT, &limits);
+        assert_eq!(planned, damage, "{planned:?}");
     }
 
     #[test]

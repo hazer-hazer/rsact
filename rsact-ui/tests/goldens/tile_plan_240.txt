@@ -1,0 +1,7 @@
+frame     policy     rects  planned  coverage   req  bands  band-req
+adjacent  whole          2        1      0.01     6      2       241
+adjacent  tile-24        2        2      0.01     6      2       241
+far       whole          2        2      0.01     5      3       297
+far       tile-24        2        2      0.01     5      3       297
+all       whole          6        1      0.04    16      6       712
+all       tile-24        6        6      0.03    16      6       712
