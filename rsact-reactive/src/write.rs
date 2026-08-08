@@ -13,6 +13,12 @@ pub trait UpdateNotification {
     fn is_updated(&self) -> bool;
 }
 
+impl UpdateNotification for bool {
+    fn is_updated(&self) -> bool {
+        *self
+    }
+}
+
 // Maybe better only add this to ControlFlow without `UpdateNotification` trait
 impl<B, C> UpdateNotification for ControlFlow<B, C> {
     fn is_updated(&self) -> bool {
