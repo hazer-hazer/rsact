@@ -110,15 +110,52 @@ pub struct RegionLimits {
     /// How many *damage* regions to keep before falling back to merging the
     /// cheapest pairs regardless of the area test.
     ///
-    /// This bounds the term WS6.4a found to be the expensive one: every region
-    /// is a full tree traversal (×1.19–2.44 per region, worse than the drawing
-    /// it guards), so an unbounded damage list costs unbounded walks.
+    /// # What a region actually costs
+    ///
+    /// It bounds the **fixed** per-region overhead, and that is a smaller claim
+    /// than it first appears — worth stating carefully, because the obvious
+    /// justification is wrong. WS6.4a measured traversal at ×1.19–2.44 per
+    /// region and called it the worse term, which reads as "every region is a
+    /// full tree walk". It was, *then*: that figure predates WS6.4c's traversal
+    /// prune, and it was measured on **partition** schedules (rows, grids)
+    /// where each region genuinely does intersect most of the tree.
+    ///
+    /// A damage region is not a partition slice. With the prune, a region only
+    /// visits nodes whose `outer` intersects it — the root-to-widget path —
+    /// so its traversal cost is roughly the tree's *depth*, not its size.
+    /// Measured on `tile_plan_240.txt`, a 19-node page:
+    ///
+    /// | plan | regions | node visits |
+    /// |---|---|---|
+    /// | one merged region | 1 | 13 |
+    /// | six tight regions | 6 | 18 |
+    ///
+    /// Six regions cost **3 visits each**, and all six together still cost less
+    /// than one full-tree walk. So the budget is not rescuing us from N× the
+    /// traversal; what it buys is per-region *fixed* cost — the display's
+    /// `CASET`/`RASET`/`RAMWR` sequence and DMA setup, one `begin_region`/
+    /// `end_region` pair, one flush call, and that root-to-region descent. On
+    /// the same page, merging six regions into one saved 5 descents and 5
+    /// command sequences at **identical** paint (16 required ops either way).
+    /// Real, and modest.
+    ///
+    /// # Why it is a preference and not a bound
     ///
     /// It does **not** bound the chunks a too-large region is cut into — those
     /// are forced by surface capacity, not chosen, and capping them would mean
-    /// emitting a region the output cannot hold. For the same reason it is a
-    /// *preference*: where capacity leaves no mergeable pair, the plan comes out
-    /// over budget rather than over capacity.
+    /// emitting a region the output cannot hold.
+    ///
+    /// It is also outranked by capacity when the two conflict: if every
+    /// candidate union exceeds [`RegionLimits::max_region`], no merge is made
+    /// and the plan comes out **over budget**. That is the optimum available,
+    /// not a compromise. Suppose `a` and `b` each fit the surface but their
+    /// union does not. Then chunking the union yields at least two pieces, so
+    /// the region count cannot improve; the paint grows by the union's dead
+    /// space; and the chunk boundary is re-derived from the *union's* origin,
+    /// so it can slice a widget that neither `a` nor `b` split. Merging there
+    /// can only lose. Under [`Whole`] (an unbounded region) nothing vetoes, so
+    /// the budget is a hard bound — which is why the fuzz asserts it only when
+    /// `max_region` is `None`.
     pub max_regions: usize,
 
     /// Merge two regions when `union.area * 100 <= threshold * (a.area +

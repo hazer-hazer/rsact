@@ -543,6 +543,15 @@ fn merge_threshold_numbers() {
 /// The `band-req` column is what a strip renderer would repaint for the same
 /// damage (every 24-row band the damage touches) — WS6.4d(1)'s tight-rect
 /// decision restated as a number on a real frame.
+///
+/// `nodes`/`visits` carry the traversal term, and they are here because they
+/// **corrected** `RegionLimits::max_regions`' stated justification. WS6.4a
+/// measured traversal at ×1.19–2.44 per region and called it the worse term,
+/// which reads as "a region costs a full tree walk" — true then, and true of
+/// the *partition* schedules it measured, but not of damage regions after
+/// WS6.4c's prune. Six tight regions here visit 18 nodes on a 19-node page (3
+/// each: root, row, widget), i.e. all six together cost less than one full
+/// walk. The budget therefore bounds per-region *fixed* cost, not N× traversal.
 #[test]
 fn the_planner_turns_real_damage_into_regions() {
     with_new_runtime(|_| {
@@ -561,13 +570,15 @@ fn the_planner_turns_real_damage_into_regions() {
         let mut out = String::new();
         let _ = writeln!(
             out,
-            "{:<10}{:<9}{:>7}{:>9}{:>10}{:>6}{:>7}{:>10}",
+            "{:<10}{:<9}{:>7}{:>9}{:>10}{:>6}{:>7}{:>7}{:>10}{:>10}",
             "frame",
             "policy",
             "rects",
             "planned",
             "coverage",
             "req",
+            "nodes",
+            "visits",
             "bands",
             "band-req"
         );
@@ -630,15 +641,22 @@ fn the_planner_turns_real_damage_into_regions() {
                     band_report.total.required
                 );
 
+                // WS6.4a's traversal term, which no op log can see — the cost
+                // `max_regions` exists to bound, measured here per region count
+                // rather than assumed.
+                let visits = probe.visits(&planned);
+
                 let _ = writeln!(
                     out,
-                    "{:<10}{:<9}{:>7}{:>9}{:>10.2}{:>6}{:>7}{:>10}",
+                    "{:<10}{:<9}{:>7}{:>9}{:>10.2}{:>6}{:>7}{:>7}{:>10}{:>10}",
                     label,
                     policy,
                     damage.len(),
                     planned.len(),
                     planned.coverage(),
                     report.total.required,
+                    visits.nodes,
+                    visits.measured,
                     bands.len(),
                     band_report.total.required
                 );
