@@ -57,7 +57,6 @@ pub mod renderer;
 // I/O (unlike `golden`), so a no_std integration test can use it too.
 pub mod schedule;
 pub mod style;
-pub mod surface;
 
 #[macro_use]
 extern crate alloc;
@@ -85,7 +84,7 @@ pub mod prelude {
     pub use crate::{
         color::{BigEndian, ByteOrder, Color, LittleEndian, RgbColor as _},
         geometry::{Rect, Size, block_model::BlockModel, padding::Padding, *},
-        output::{ColorMapper, MapColor, RenderTarget},
+        output::MapColor,
         path::*,
         primitives::{
             Primitive, PrimitiveKind, arc::Arc, block::Block, circle::Circle,

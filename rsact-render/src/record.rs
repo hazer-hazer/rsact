@@ -18,7 +18,6 @@ use crate::{
     color::Color,
     geometry::{Angle, CornerRadii, Point, Rect, Size},
     image::DrawImage,
-    output::{RenderTarget, pixel::Pixel},
     path::Path,
     renderer::{RenderResult, Renderer, ViewportKind},
     style::DrawStyle,
@@ -334,14 +333,6 @@ fn points_bounds(points: &[Point]) -> Rect {
         min,
         Size::new((max.x - min.x + 1) as u32, (max.y - min.y + 1) as u32),
     )
-}
-
-impl<C: Color, P: crate::region::FramePolicy> RenderTarget
-    for RecordingRenderer<C, P>
-{
-    type Color = C;
-
-    fn draw(&mut self, _pixels: impl Iterator<Item = Pixel<Self::Color>>) {}
 }
 
 impl<C: Color, P: crate::region::FramePolicy> Renderer

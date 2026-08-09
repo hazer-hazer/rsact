@@ -6,7 +6,7 @@ use crate::{
     },
     geometry::*,
     image::DrawImage,
-    output::{MapColor, RenderTarget, pixel::Pixel},
+    output::pixel::Pixel,
     path::{Path, PathSegment},
     primitives::{
         arc::Arc, circle::Circle, ellipse::Ellipse, line::Line,
@@ -131,8 +131,13 @@ impl<C: Color + PixelColor> DrawStyle<C> {
 ///
 /// Preserves the PackedColor framebuffer optimization, alpha-channel blending,
 /// and anti-aliasing. Layer compositing was removed (see [`crate::surface`]).
-// TODO: Use the common [`crate::surface::Canvas`] surface + viewport helper
-// instead of holding `canvas` + `viewport_stack` inline here.
+// NOTE (WS6.4d): this used to carry a TODO to adopt `crate::surface::Canvas`,
+// the shared surface + viewport-stack helper. That module is gone instead, and
+// the direction reversed: `Canvas<T>` constructed its surface (`T::new(size)`),
+// which is precisely the allocation a renderer must not perform, and it could
+// not express a DETACHED surface at all. Both backends now hold
+// `Option<surface>` plus an inline `viewport_stack`, which is the same few
+// lines twice rather than an abstraction that fights the ownership rule.
 /// `B` is the **user's** surface. The renderer borrows it: it never allocates
 /// one, and [`detach`](Self::detach) hands it back. That is what makes the
 /// framebuffer the application's property while keeping `W::Renderer` free of a
@@ -483,34 +488,11 @@ impl<
         DrawTarget::fill_solid(canvas, &region.into(), C::default_background())
     }
 
-    fn renderer_output<TC>(&self, target: &mut impl RenderTarget<Color = TC>)
-    where
-        C: MapColor<TC>,
-    {
-        if let Some(canvas) = self.canvas.as_ref() {
-            canvas.output(target)
-        }
-    }
-
-    /// WS6.3: flush only `regions` (each clamped to the viewport) to `target`.
-    fn renderer_output_regions<TC>(
-        &self,
-        target: &mut impl RenderTarget<Color = TC>,
-        regions: &[Rect],
-    ) where
-        C: MapColor<TC>,
-    {
-        let Some(canvas) = self.canvas.as_ref() else { return };
-        for &region in regions {
-            canvas.output_region(target, region);
-        }
-    }
-
     // WS6.4b: narrowed by the active viewport so the top of the stack IS the
     // effective clip (`ViewportKind::nested_in` documents why that matters).
     // `EGRenderer` still keeps its viewport stack inline instead of using the
-    // shared `surface::Canvas` helper — see this file's TODO — so the same
-    // one-line composition lives in both places for now.
+    // same one-line composition as the tiny-skia backend's; see the note on the
+    // struct for why they are duplicated rather than shared.
     fn renderer_push_clip(&mut self, area: Rect) {
         let nested =
             ViewportKind::Clipped(area).nested_in(self.current_viewport());
@@ -606,39 +588,12 @@ impl<
     }
 }
 
-// TODO: Other colors mapping
-/// WS6.4d: streaming the surface out is this backend's own inherent API, not a
-/// trait rsact drives — see the note where `FinishRender` used to live
-/// (`output/mod.rs`). Nothing in the render path calls these; they exist for
-/// callers who have a `RenderTarget` to blit into (the simulator, the host
-/// goldens, a generic embedded-graphics driver) rather than a transport of
-/// their own. A tile pipeline uses [`detach`](EGRenderer::detach) instead.
-impl<
-    C: Color + PackedColor + PixelColor,
-    AA: AntiAliasing,
-    B: Framebuffer<C>,
-    P: FramePolicy,
-> EGRenderer<C, AA, B, P>
-{
-    /// Stream the whole attached surface into `target`. No-op if detached.
-    pub fn output<TC>(&self, target: &mut impl RenderTarget<Color = TC>)
-    where
-        C: MapColor<TC>,
-    {
-        self.renderer_output(target);
-    }
-
-    /// Stream only `regions` (each clamped to the surface) into `target`.
-    pub fn output_regions<TC>(
-        &self,
-        target: &mut impl RenderTarget<Color = TC>,
-        regions: &[Rect],
-    ) where
-        C: MapColor<TC>,
-    {
-        self.renderer_output_regions(target, regions);
-    }
-}
+// NOTE (WS6.4d): `output` / `output_regions` lived here and were removed with
+// the `RenderTarget` seam. `output_regions` in particular never made sense once
+// the surface became a loan: a tile IS one region, so "flush these several
+// regions at once" describes a full framebuffer being flushed under a damage
+// list — the pre-tiling flow, not this one. The loop is one region at a time,
+// and each iteration's buffer goes out on the caller's own transport.
 
 // TODO: Generalize AA and non-AA Renderer implementations
 
@@ -1057,16 +1012,14 @@ mod tests {
     /// sign wrong, or the stride, produces a plausible image and an intact op
     /// log.
     ///
-    /// Both paths stream out through the backend's own `output`/`output_regions`
-    /// into the same kind of pixel map, so what is compared is what would reach
-    /// the panel.
+    /// Both paths are read the way a **transport** reads them (WS6.4d): raw
+    /// units plus the rect they belong at, walked row by row at the region's own
+    /// width. Deliberately not through any rsact-provided flush — using rsact's
+    /// addressing to read back what rsact's addressing wrote would prove
+    /// nothing, and there is no such flush any more in any case.
     #[test]
     fn a_tiled_surface_paints_the_same_pixels_as_a_full_one() {
-        use crate::{
-            output::{RenderTarget, pixel::Pixel},
-            region::Tiles,
-            style::DrawStyle,
-        };
+        use crate::{region::Tiles, style::DrawStyle};
         use alloc::vec;
 
         const W: u32 = 64;
@@ -1078,21 +1031,25 @@ mod tests {
         struct Map {
             px: alloc::vec::Vec<Option<Rgb888>>,
         }
-        impl RenderTarget for Map {
-            type Color = Rgb888;
-            fn draw(
-                &mut self,
-                pixels: impl Iterator<Item = Pixel<Self::Color>>,
-            ) {
-                for Pixel(p, c) in pixels {
-                    if p.x >= 0
-                        && p.y >= 0
-                        && (p.x as u32) < W
-                        && (p.y as u32) < H
-                    {
-                        self.px[p.y as usize * W as usize + p.x as usize] =
-                            Some(c);
+
+        /// Blit raw storage units onto the map at `region` — what an ST7789
+        /// does after `CASET`/`RASET`, and the only way a caller ever reads a
+        /// detached buffer. Rows are strided at the **region's own width**,
+        /// which is the property a wrong origin or stride would break.
+        fn blit(map: &mut Map, units: &[u32], region: Rect) {
+            let w = region.size.width as usize;
+            for row in 0..region.size.height as usize {
+                for col in 0..w {
+                    let x = region.top_left.x + col as i32;
+                    let y = region.top_left.y + row as i32;
+                    if x < 0 || y < 0 || x as u32 >= W || y as u32 >= H {
+                        continue;
                     }
+                    map.px[y as usize * W as usize + x as usize] =
+                        Some(<Rgb888 as PackedColor>::as_color(
+                            &units[row * w + col],
+                            0,
+                        ));
                 }
             }
         }
@@ -1141,7 +1098,8 @@ mod tests {
         );
         content(&mut full);
         let mut full_map = blank();
-        full.output(&mut full_map);
+        let (full_units, full_at) = full.detach().expect("attached");
+        blit(&mut full_map, &full_units, full_at);
 
         // Tiled: a 64x8 surface — 512 units against the frame's 4096, an eighth
         // — repainted and flushed region by region.
@@ -1158,6 +1116,7 @@ mod tests {
         );
 
         let mut tiled_map = blank();
+        let mut spare = Some(surface_units::<Rgb888>(TILE_UNITS));
         for band in 0..8 {
             let region = Rect::new(Point::new(0, band * 8), Size::new(W, 8));
             tiled.begin_region(region).unwrap();
@@ -1165,7 +1124,11 @@ mod tests {
             content(&mut tiled);
             tiled.pop_clip();
             tiled.end_region().unwrap();
-            tiled.output_regions(&mut tiled_map, &[region]);
+            // Publish, then acquire — the ordering the loan API exists for.
+            let (units, at) = tiled.detach().expect("a painted tile");
+            blit(&mut tiled_map, &units, at);
+            tiled.attach(spare.take().unwrap());
+            spare = Some(units);
         }
 
         // Not vacuous: both paths must have painted a substantial frame. An

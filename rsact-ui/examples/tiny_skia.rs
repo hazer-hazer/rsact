@@ -1,7 +1,9 @@
+use embedded_graphics::draw_target::DrawTarget;
 use embedded_graphics::pixelcolor::Rgb888;
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
+use rsact_render::output::MapColor;
 use rsact_render::{
     image::{DrawImage, ImageOwned},
     primitives::Primitive,
@@ -153,14 +155,53 @@ fn main() {
     .fill()
     .into_el();
 
-    let mut renderer = TinySkiaRenderer::new(size);
+    // The pixmap is the application's — rsact borrows it (WS6.4d).
+    let mut renderer = TinySkiaRenderer::new(
+        size,
+        tiny_skia::Pixmap::new(size.width, size.height).unwrap(),
+    );
     let mut ui = UI::new(Theme::default(), size)
         .no_events()
         .on_exit(|| process::exit(0))
         .with_page(SinglePage, page);
 
     if ui.render(&mut renderer) {
-        ui.with_damage(|d| renderer.output_regions(&mut display, d));
+        let (pixmap, covers) = renderer.detach().expect("attached");
+        ui.with_damage(|rects| {
+            for r in rects {
+                flush_rect(&mut display, &pixmap, covers, *r);
+            }
+        });
+        renderer.attach(pixmap);
     }
     window.show_static(&display);
+}
+
+/// Flush a detached pixmap's damaged rects to the display.
+///
+/// The tiny-skia mirror of the framebuffer flush: rsact hands back a `Pixmap`
+/// and the rect it covers, and what happens next is the application's. Here it
+/// goes to a simulator window; it could equally be `pixmap.encode_png(..)`,
+/// which is the point of this backend keeping a real `Pixmap` rather than
+/// lowering to an embedded colour on the way out.
+fn flush_rect<D: DrawTarget<Color = Rgb888>>(
+    display: &mut D,
+    pixmap: &tiny_skia::Pixmap,
+    covers: Rect,
+    dirty: Rect,
+) {
+    let dirty = dirty.intersection(&covers);
+    let stride = covers.size.width as usize;
+    let px = pixmap.pixels();
+    let _ = display.fill_contiguous(
+        &embedded_graphics::primitives::Rectangle::new(
+            dirty.top_left.into(),
+            dirty.size.into(),
+        ),
+        dirty.points().map(|p| {
+            let col = (p.x - covers.top_left.x) as usize;
+            let row = (p.y - covers.top_left.y) as usize;
+            px[row * stride + col].map_color()
+        }),
+    );
 }

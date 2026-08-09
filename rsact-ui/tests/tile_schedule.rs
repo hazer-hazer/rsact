@@ -785,7 +785,6 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
     use embedded_graphics::pixelcolor::Rgb888;
     use rsact_render::{
         eg::{framebuf::PackedColor, renderer::EGRenderer},
-        output::{RenderTarget, pixel::Pixel},
         region::Tiles,
         renderer::AntiAliasingDisabled,
     };
@@ -796,19 +795,11 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
     let viewport = Size::new(W, H);
 
     /// A full-frame pixel map: what the panel would end up holding.
+    ///
+    /// A plain struct, not a `RenderTarget` — that trait is gone (WS6.4d). rsact
+    /// renders; the caller flushes, and here the caller is the test.
     struct Panel {
         px: Vec<Option<Rgb888>>,
-    }
-    impl RenderTarget for Panel {
-        type Color = Rgb888;
-        fn draw(&mut self, pixels: impl Iterator<Item = Pixel<Self::Color>>) {
-            for Pixel(p, c) in pixels {
-                if p.x >= 0 && p.y >= 0 && (p.x as u32) < W && (p.y as u32) < H
-                {
-                    self.px[p.y as usize * W as usize + p.x as usize] = Some(c);
-                }
-            }
-        }
     }
     let blank = || Panel { px: vec![None; (W * H) as usize] };
 
@@ -877,7 +868,8 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
         for _ in 0..8 {
             ui.render(&mut renderer);
         }
-        renderer.output(&mut panel);
+        let (units, at) = renderer.detach().expect("attached");
+        blit(&mut panel, &units, at);
         panel
     });
 

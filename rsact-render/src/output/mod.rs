@@ -1,33 +1,37 @@
-use crate::{color::Color, output::pixel::Pixel};
-use core::marker::PhantomData;
-
 pub mod pixel;
 
-pub trait RenderTarget {
-    type Color;
-
-    fn draw(&mut self, pixels: impl Iterator<Item = Pixel<Self::Color>>);
-}
-
-// NOTE (WS6.4d): `trait FinishRender<C>` lived here — `finish_frame` plus
-// WS6.3's `finish_frame_regions` override — and was removed when the renderer
-// stopped being owned by `UI`.
+// NOTE (WS6.4d): `trait RenderTarget` and `struct ColorMapper` lived here, along
+// with `trait FinishRender` before them. All three were one mistake wearing
+// three hats: a **second seam**.
 //
-// It existed so rsact could *drive* the flush: `UI` held the renderer, so it
-// also had to know how to get pixels out of one. Once the caller owns the
-// renderer it owns the transport too — an embedded app takes its buffer back
-// through the backend's own `detach` and ships it over its own SPI/DMA, with
-// every `.await` on its side of the boundary. A trait rsact never calls is not
-// an abstraction; it is a tax on every backend with no `RenderTarget` to flush
-// *to* (a GPU, a command encoder, a direct-to-panel renderer).
+// The first seam is the real one — `Renderer`, which takes primitives and puts
+// them somewhere. `RenderTarget` was a second: it took what a renderer had
+// already produced and moved it somewhere else, so a backend both rendered AND
+// flushed. Flushing is the application's prerogative. It owns the transport, it
+// owns the timing, and (once the surface became a loan rather than a
+// possession) it owns the pixels too — it takes them back from `detach` and
+// ships them.
 //
-// The flush code is NOT gone, only un-trait-ed: `PackedFramebuf::output` /
-// `output_region` and the backends' inherent `output_regions` still stream a
-// packed surface into any `RenderTarget`, which is what the simulator and the
-// host goldens use. Something like this may return as a *convenience* once the
-// N-buffered path has settled (roadmap 6.4d) — the point of removing it now is
-// to keep the render path free of a flush concept it does not need.
+// `RenderTarget` was also just a mirror of embedded-graphics' `DrawTarget`,
+// re-declared so rsact-render could name it without depending on that crate. We
+// do not need a mirror. The three renderer shapes each meet their output
+// directly and differently:
+//
+//   - a framebuffer renderer (`EGRenderer`) draws into storage the caller lends
+//     it and hands it back;
+//   - a direct renderer will take a `DrawTarget` as its own parameter, using the
+//     real trait rather than a copy of it;
+//   - a GPU renderer produces commands and never has pixels at all.
+//
+// `MapColor` survives because it is not part of that seam: it is a plain colour
+// conversion, and it is what a future `PixmapExt::map_to_framebuffer` would use
+// to bring tiny-skia's `PremultipliedColorU8` down to an embedded-friendly
+// colour.
 
+/// Convert one colour representation into another.
+///
+/// Not an output abstraction — just a conversion, which is why it outlived the
+/// `RenderTarget`/`ColorMapper` pair it used to serve.
 pub trait MapColor<O> {
     fn map_color(&self) -> O;
 }
@@ -35,30 +39,5 @@ pub trait MapColor<O> {
 impl<O: Clone> MapColor<O> for O {
     fn map_color(&self) -> O {
         self.clone()
-    }
-}
-
-pub struct ColorMapper<C: Color, O: Color, T: RenderTarget<Color = O>> {
-    target: T,
-    _input: PhantomData<C>,
-    _output: PhantomData<O>,
-}
-
-impl<C: Color, O: Color, T: RenderTarget<Color = O>> ColorMapper<C, O, T> {
-    pub fn new(target: T) -> Self {
-        Self { target, _input: PhantomData, _output: PhantomData }
-    }
-}
-
-impl<C: Color, O: Color, T: RenderTarget<Color = O>> RenderTarget
-    for ColorMapper<C, O, T>
-where
-    C: MapColor<O>,
-{
-    type Color = C;
-
-    fn draw(&mut self, pixels: impl Iterator<Item = Pixel<Self::Color>>) {
-        self.target
-            .draw(pixels.map(|p| Pixel(p.0, p.1.map_color())));
     }
 }

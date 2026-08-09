@@ -2214,17 +2214,6 @@ mod tests {
             pub paths: Rc<Cell<usize>>,
         }
 
-        impl RenderTarget for RecordingRenderer {
-            type Color = NullColor;
-            fn draw(
-                &mut self,
-                _pixels: impl Iterator<
-                    Item = crate::render::output::pixel::Pixel<Self::Color>,
-                >,
-            ) {
-            }
-        }
-
         impl Renderer for RecordingRenderer {
             type Color = NullColor;
             type Policy = rsact_render::region::Unbounded;

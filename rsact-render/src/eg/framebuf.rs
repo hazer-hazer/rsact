@@ -1,7 +1,6 @@
 use crate::{
     color::Color,
     geometry::{Point, Rect, Size},
-    output::{MapColor, RenderTarget, pixel::Pixel},
     renderer::region_units,
 };
 use alloc::boxed::Box;
@@ -388,41 +387,17 @@ pub trait Framebuf<C: Color + PackedColor> {
         });
     }
 
-    fn output<T>(&self, target: &mut T)
-    where
-        T: RenderTarget,
-        C: MapColor<T::Color>,
-    {
-        // The whole-frame flush is just the region flush over the full viewport
-        // — one code path (WS6.3).
-        self.output_region(target, self.viewport());
-    }
-
-    /// WS6.3: stream only the pixels inside `region` (clamped to the viewport)
-    /// to `target`, instead of the whole framebuffer. This is the per-pixel
-    /// replacement the damage-driven flush needs — a one-label change flushes a
-    /// handful of rows, not the full screen.
-    ///
-    /// TODO: this FLUSH side is still pixel-at-a-time — it streams one `Pixel`
-    /// per point to the target. The DRAW side (filling INTO the framebuffer) is
-    /// now fast (`fill_solid`, WS6.3b); batching contiguous scanline RUNS to the
-    /// display driver here (vs per-pixel) is the remaining flush-side win, and
-    /// belongs with the strip/regions output work (6.3/6.4).
-    fn output_region<T>(&self, target: &mut T, region: Rect)
-    where
-        T: RenderTarget,
-        C: MapColor<T::Color>,
-    {
-        let region = region.intersection(&self.viewport());
-        let pixels = region
-            .points()
-            .map(|point| {
-                self.pixel(point)
-                    .map(|color| Pixel(point, color.map_color()))
-            })
-            .filter_map(|pixel| pixel);
-        target.draw(pixels);
-    }
+    // NOTE (WS6.4d): `output` / `output_region` lived here — a loop turning this
+    // buffer into `Pixel`s and pushing them at a `RenderTarget`. They went with
+    // that trait (see `output/mod.rs`): a framebuffer knows how to *be* read,
+    // not where its contents should go.
+    //
+    // Reading is still here, and is the only part that was ever rsact's:
+    // `pixel(point)` resolves an absolute coordinate against `viewport()`, and
+    // `data()` hands out the raw units. A caller flushing a detached buffer walks
+    // rows at `region.size.width` and converts with `PackedColor::as_color` —
+    // which is exactly what a DMA burst does with a `CASET`/`RASET` window, and
+    // what the host tests do to compare frames.
 
     /// Flat pixel index of `point`, in this buffer's own 0-based space.
     ///
@@ -786,29 +761,12 @@ mod tests {
         ]
         .into_boxed_slice()
     }
-    use crate::{
-        geometry::{Point, Rect, Size},
-        output::{RenderTarget, pixel::Pixel},
-    };
+    use crate::geometry::{Point, Rect, Size};
     use alloc::vec::Vec;
     use embedded_graphics::{
         pixelcolor::{BinaryColor, Rgb888},
         prelude::RgbColor,
     };
-
-    /// A [`RenderTarget`] that records the points it was asked to draw — lets a
-    /// test assert *which* pixels a flush streamed (WS6.3 region flush).
-
-    struct RecordTarget {
-        points: Vec<Point>,
-    }
-
-    impl RenderTarget for RecordTarget {
-        type Color = Rgb888;
-        fn draw(&mut self, pixels: impl Iterator<Item = Pixel<Self::Color>>) {
-            self.points.extend(pixels.map(|p| p.0));
-        }
-    }
 
     #[test]
     fn rgb_framebuf_indexing() {
@@ -865,35 +823,19 @@ mod tests {
         }
     }
 
-    /// WS6.3: `output_region` streams exactly the region's pixels (in draw
-    /// order), NOT the whole framebuffer — the flush-side scoping the damage
-    /// pipeline needs.
+    /// WS6.4d: what survived the flush seam is the **reading** contract, and
+    /// this is it — a buffer answers for the coordinates it covers and refuses
+    /// the rest.
+    ///
+    /// Three tests lived here (`output_region_streams_only_the_region`,
+    /// `output_region_clamps_to_viewport`, `output_covers_the_whole_framebuffer`)
+    /// and went with `output`/`output_region`: they asserted which pixels a
+    /// *flush* streamed, and flushing is no longer rsact's. The clamping they
+    /// pinned is not lost, because it was never a property of the loop — it is a
+    /// property of `pixel`, which is what a caller walking a detached buffer
+    /// actually calls.
     #[test]
-    fn output_region_streams_only_the_region() {
-        const W: u32 = 20;
-        const H: u32 = 16;
-        let framebuf = PackedFramebuf::<Rgb888, _>::new(
-            Size::new(W, H),
-            heap_surface::<Rgb888>(Size::new(W, H)),
-        );
-
-        let region = Rect::new(Point::new(5, 4), Size::new(6, 3));
-        let mut target = RecordTarget { points: Vec::new() };
-        framebuf.output_region(&mut target, region);
-
-        // Exactly the region's points, in the same order.
-        let expected: Vec<Point> = region.points().collect();
-        assert_eq!(target.points, expected);
-        assert_eq!(target.points.len(), (6 * 3) as usize);
-        // Emphatically not the whole 20x16 framebuffer.
-        assert!(target.points.len() < (W * H) as usize);
-    }
-
-    /// A region reaching past the framebuffer edge is clamped to the viewport —
-    /// no out-of-bounds points are streamed (and, with indexed backends, none
-    /// would index out of the buffer).
-    #[test]
-    fn output_region_clamps_to_viewport() {
+    fn a_buffer_answers_only_for_the_region_it_covers() {
         const W: u32 = 10;
         const H: u32 = 10;
         let framebuf = PackedFramebuf::<Rgb888, _>::new(
@@ -901,136 +843,39 @@ mod tests {
             heap_surface::<Rgb888>(Size::new(W, H)),
         );
 
-        // Overlaps the bottom-right corner and extends beyond → clamps to the
-        // 2x2 square at (8,8).
-        let region = Rect::new(Point::new(8, 8), Size::new(5, 5));
-        let mut target = RecordTarget { points: Vec::new() };
-        framebuf.output_region(&mut target, region);
+        // Inside: answered.
+        assert!(framebuf.pixel(Point::new(0, 0)).is_some());
+        assert!(framebuf.pixel(Point::new(9, 9)).is_some());
 
-        let expected: Vec<Point> = Rect::new(Point::new(8, 8), Size::new(2, 2))
-            .points()
-            .collect();
-        assert_eq!(target.points, expected);
-    }
+        // Outside, on every side: refused rather than wrapped to some other
+        // row. An indexed read that wrapped would produce a plausible image
+        // instead of an obvious failure.
+        for outside in [
+            Point::new(10, 0),
+            Point::new(0, 10),
+            Point::new(-1, 0),
+            Point::new(0, -1),
+            Point::new(100, 100),
+        ] {
+            assert!(
+                framebuf.pixel(outside).is_none(),
+                "{outside:?} is outside a {W}x{H} buffer and must not resolve"
+            );
+        }
 
-    /// The whole-frame `output` is the region flush over the full viewport, so
-    /// it streams every pixel — the region path did not change full-flush
-    /// behaviour.
-    #[test]
-    fn output_covers_the_whole_framebuffer() {
-        const W: u32 = 8;
-        const H: u32 = 6;
-        let framebuf = PackedFramebuf::<Rgb888, _>::new(
-            Size::new(W, H),
-            heap_surface::<Rgb888>(Size::new(W, H)),
+        // The same contract on a buffer with a non-zero origin — a tile. Only
+        // the covered rect answers, and it answers in ABSOLUTE coordinates.
+        let mut tile = PackedFramebuf::<Rgb888, _>::tile(
+            heap_surface::<Rgb888>(Size::new(4, 4)),
         );
-
-        let mut target = RecordTarget { points: Vec::new() };
-        framebuf.output(&mut target);
-
-        assert_eq!(target.points.len(), (W * H) as usize);
-        let expected: Vec<Point> = framebuf.viewport().points().collect();
-        assert_eq!(target.points, expected);
-    }
-
-    // A tiny LCG for the fill fuzz (no `rand` dep; deterministic per seed).
-    struct Rng(u64);
-    impl Rng {
-        fn next(&mut self) -> u64 {
-            self.0 = self.0.wrapping_mul(0x9e3779b97f4a7c15).wrapping_add(1);
-            self.0
-        }
-        fn range(&mut self, n: u32) -> u32 {
-            (self.next() % n as u64) as u32
-        }
-    }
-
-    /// WS6.3b: the fast `fill_solid` (whole-word `slice::fill` + bit-precise edge
-    /// words) must produce a BYTE-IDENTICAL framebuffer to the per-pixel
-    /// `draw_iter` path — for RGB (`pps == 1`) and, critically, for packed mono
-    /// (`pps == 8`, where partial edge bytes are shared with neighbouring rows).
-    /// 300 random rects each (many with negative / oversized coords, so clipping
-    /// and sub-word edges are exercised).
-    #[test]
-    fn fill_solid_matches_draw_iter_fuzz() {
-        use embedded_graphics::{
-            Pixel as EgPixel,
-            prelude::{DrawTarget, Point as EgPoint, Size as EgSize},
-            primitives::{PointsIter, Rectangle as EgRect},
-        };
-
-        // RGB: 20x16 (pps == 1, any area is valid).
-        for seed in 0..300u64 {
-            let mut rng =
-                Rng(seed.wrapping_mul(0x9e3779b97f4a7c15).wrapping_add(1));
-            let size = Size::new(20, 16);
-            let area = EgRect::new(
-                EgPoint::new(
-                    rng.range(24) as i32 - 2,
-                    rng.range(20) as i32 - 2,
-                ),
-                EgSize::new(rng.range(24), rng.range(20)),
-            );
-            let color = Rgb888::new(
-                rng.next() as u8,
-                rng.next() as u8,
-                rng.next() as u8,
-            );
-
-            let mut fast = PackedFramebuf::<Rgb888, _>::new(
-                size,
-                heap_surface::<Rgb888>(size),
-            );
-            let mut slow = PackedFramebuf::<Rgb888, _>::new(
-                size,
-                heap_surface::<Rgb888>(size),
-            );
-            fast.fill_solid(&area, color).unwrap();
-            slow.draw_iter(area.points().map(|p| EgPixel(p, color)))
-                .unwrap();
-            assert_eq!(
-                fast.data(),
-                slow.data(),
-                "rgb seed {seed}: fill_solid != draw_iter for {area:?}"
-            );
-        }
-
-        // Mono: 24x16 (area 384 divisible by 8). `width % 8 != 0` in some rows so
-        // rows straddle bytes — the partial-edge-byte correctness case.
-        for seed in 0..300u64 {
-            let mut rng =
-                Rng(seed.wrapping_mul(0x9e3779b97f4a7c15).wrapping_add(0xabc));
-            let size = Size::new(24, 16);
-            let area = EgRect::new(
-                EgPoint::new(
-                    rng.range(28) as i32 - 2,
-                    rng.range(20) as i32 - 2,
-                ),
-                EgSize::new(rng.range(28), rng.range(20)),
-            );
-            let color = if rng.next() & 1 == 0 {
-                BinaryColor::On
-            } else {
-                BinaryColor::Off
-            };
-
-            let mut fast = PackedFramebuf::<BinaryColor, _>::new(
-                size,
-                heap_surface::<BinaryColor>(size),
-            );
-            let mut slow = PackedFramebuf::<BinaryColor, _>::new(
-                size,
-                heap_surface::<BinaryColor>(size),
-            );
-            fast.fill_solid(&area, color).unwrap();
-            slow.draw_iter(area.points().map(|p| EgPixel(p, color)))
-                .unwrap();
-            assert_eq!(
-                fast.data(),
-                slow.data(),
-                "mono seed {seed}: fill_solid != draw_iter for {area:?}"
-            );
-        }
+        tile.retarget(Rect::new(Point::new(6, 6), Size::new(4, 4)));
+        assert!(tile.pixel(Point::new(6, 6)).is_some());
+        assert!(tile.pixel(Point::new(9, 9)).is_some());
+        assert!(
+            tile.pixel(Point::new(0, 0)).is_none(),
+            "a tile at (6,6) does not cover the frame origin"
+        );
+        assert!(tile.pixel(Point::new(10, 6)).is_none());
     }
 
     /// A buffer whose viewport has a **non-zero origin** — what a tile is.
@@ -1052,33 +897,6 @@ mod tests {
         fn viewport(&self) -> Rect {
             Rect::new(self.origin, self.size)
         }
-    }
-
-    /// WS6.4.0(iii): row padding is the whole subtlety of `units_for`, so pin
-    /// the boundaries rather than only the happy cases the doctests show.
-    ///
-    /// The rule is per-**row**, not per-area: a row that ends mid-storage-unit
-    /// still consumes the whole unit, because the next row starts on a fresh
-    /// one. Area arithmetic silently under-counts and is what makes
-    /// `PackedFramebuf::new`'s `area % pps == 0` assert reject real panels.
-    #[test]
-    fn units_for_pads_each_row_not_the_area() {
-        use super::units_for;
-
-        // Exactly one storage unit wide: no padding.
-        assert_eq!(units_for::<BinaryColor>(8, 1), 1);
-        // One pixel over: a whole second byte, for one row.
-        assert_eq!(units_for::<BinaryColor>(9, 1), 2);
-        // One pixel wide, ten rows: ten bytes, 79 of the 80 bits wasted. Area
-        // arithmetic would say ceil(10/8) = 2.
-        assert_eq!(units_for::<BinaryColor>(1, 10), 10);
-        // The e-paper case: 122 -> 16 bytes per row, not 15.25.
-        assert_eq!(units_for::<BinaryColor>(122, 24), 16 * 24);
-        // pps == 1 colours can never pad.
-        assert_eq!(units_for::<Rgb888>(7, 3), 21);
-        // Degenerate regions cost nothing.
-        assert_eq!(units_for::<Rgb888>(0, 5), 0);
-        assert_eq!(units_for::<BinaryColor>(5, 0), 0);
     }
 
     /// WS6.4.0(i-2): addressing is origin-aware, in ONE place.

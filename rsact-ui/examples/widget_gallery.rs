@@ -1,3 +1,4 @@
+use embedded_graphics::draw_target::DrawTarget;
 use embedded_graphics::{
     pixelcolor::Rgb888,
     prelude::{Dimensions, RgbColor},
@@ -5,6 +6,7 @@ use embedded_graphics::{
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
+use rsact_render::output::MapColor;
 use rsact_ui::{event::simulator::simulator_single_encoder, prelude::*};
 use std::{
     fmt::Display,
@@ -159,7 +161,11 @@ fn main() {
     window.update(&display);
 
     let viewport: Size = display.bounding_box().size.into();
-    let mut renderer = TinySkiaRenderer::new(viewport);
+    // The pixmap is the application's — rsact borrows it (WS6.4d).
+    let mut renderer = TinySkiaRenderer::new(
+        viewport,
+        tiny_skia::Pixmap::new(viewport.width, viewport.height).unwrap(),
+    );
 
     let mut ui = UI::new(Theme::<tiny_skia::Color>::default(), viewport)
         .with_page(SinglePage, page)
@@ -186,8 +192,43 @@ fn main() {
         );
 
         if ui.render(&mut renderer) {
-            ui.with_damage(|d| renderer.output_regions(&mut display, d));
+            let (pixmap, covers) = renderer.detach().expect("attached");
+            ui.with_damage(|rects| {
+                for r in rects {
+                    flush_rect(&mut display, &pixmap, covers, *r);
+                }
+            });
+            renderer.attach(pixmap);
         }
         window.update(&display);
     }
+}
+
+/// Flush a detached pixmap's damaged rects to the display.
+///
+/// The tiny-skia mirror of the framebuffer flush: rsact hands back a `Pixmap`
+/// and the rect it covers, and what happens next is the application's. Here it
+/// goes to a simulator window; it could equally be `pixmap.encode_png(..)`,
+/// which is the point of this backend keeping a real `Pixmap` rather than
+/// lowering to an embedded colour on the way out.
+fn flush_rect<D: DrawTarget<Color = Rgb888>>(
+    display: &mut D,
+    pixmap: &tiny_skia::Pixmap,
+    covers: Rect,
+    dirty: Rect,
+) {
+    let dirty = dirty.intersection(&covers);
+    let stride = covers.size.width as usize;
+    let px = pixmap.pixels();
+    let _ = display.fill_contiguous(
+        &embedded_graphics::primitives::Rectangle::new(
+            dirty.top_left.into(),
+            dirty.size.into(),
+        ),
+        dirty.points().map(|p| {
+            let col = (p.x - covers.top_left.x) as usize;
+            let row = (p.y - covers.top_left.y) as usize;
+            px[row * stride + col].map_color()
+        }),
+    );
 }

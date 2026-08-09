@@ -2,7 +2,6 @@ use crate::{
     color::{Color, Rgba},
     geometry::*,
     image::DrawImage,
-    output::RenderTarget,
     path::Path,
     style::DrawStyle,
 };
@@ -405,16 +404,6 @@ pub struct NullRenderer<C = NullColor> {
 impl<C> Default for NullRenderer<C> {
     fn default() -> Self {
         Self { _color: PhantomData }
-    }
-}
-
-impl<C: Color> RenderTarget for NullRenderer<C> {
-    type Color = C;
-
-    fn draw(
-        &mut self,
-        _pixels: impl Iterator<Item = crate::output::pixel::Pixel<Self::Color>>,
-    ) {
     }
 }
 
