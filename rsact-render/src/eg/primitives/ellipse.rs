@@ -1,27 +1,23 @@
 #[allow(unused)]
 use crate::FloatExt as _;
-use crate::region::FramePolicy;
 use crate::{
     color::Color,
-    eg::framebuf::Surface,
-    eg::{framebuf::PackedColor, primitives::EgPrimitive},
+    eg::{
+        framebuf::PackedColor,
+        primitives::{EgPrimitive, EgPrimitiveRenderer},
+    },
     geometry::{Point, PointExt as _, Size},
     output::pixel::Pixel,
     primitives::{circle::Circle, ellipse::Ellipse},
-    renderer::{AntiAliasingDisabled, AntiAliasingEnabled, RenderResult},
+    renderer::RenderResult,
     style::StrokeAlignment,
 };
 use embedded_graphics::{pixelcolor::PixelColor, primitives::StyledDrawable};
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Ellipse {
-    fn draw<B: Surface<C>, P: FramePolicy>(
+    fn draw<R: EgPrimitiveRenderer<C>>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<
-            C,
-            AntiAliasingDisabled,
-            B,
-            P,
-        >,
+        renderer: &mut R,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         embedded_graphics::primitives::Ellipse::new(
@@ -31,9 +27,9 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Ellipse {
         .draw_styled(&style.into_primitive_style(), renderer)
     }
 
-    fn draw_aa<B: Surface<C>, P: FramePolicy>(
+    fn draw_aa<R: EgPrimitiveRenderer<C>>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingEnabled, B, P>,
+        renderer: &mut R,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         if self.size.width == self.size.height {

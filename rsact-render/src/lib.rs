@@ -76,7 +76,7 @@ pub mod tiny_skia;
 pub mod prelude {
     #[cfg(feature = "embedded-graphics")]
     pub use crate::eg::{
-        framebuf::{Framebuf, PackedColor, PackedFramebuf, Surface},
+        framebuf::{Framebuf, PackedColor, PackedFramebuf},
         primitives::*,
         renderer::EGRenderer,
     };

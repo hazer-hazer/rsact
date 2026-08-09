@@ -5,7 +5,7 @@ pub trait Surface {
     fn new(size: Size) -> Self;
 }
 
-/// A single drawing [`Surface`] plus a stack of nested clip/crop viewports.
+/// A single drawing [`Framebuffer`] plus a stack of nested clip/crop viewports.
 ///
 /// Layer compositing was removed — it was a badly-fitting model (a `Vec` of
 /// full-screen surfaces blended per frame). Nested composition, when needed,

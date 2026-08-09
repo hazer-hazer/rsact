@@ -1,28 +1,24 @@
 #[allow(unused)]
 use crate::FloatExt as _;
-use crate::region::FramePolicy;
 use crate::{
     color::Color,
-    eg::framebuf::Surface,
-    eg::{framebuf::PackedColor, primitives::EgPrimitive},
+    eg::{
+        framebuf::PackedColor,
+        primitives::{EgPrimitive, EgPrimitiveRenderer},
+    },
     geometry::*,
     output::pixel::Pixel,
     primitives::arc::Arc,
-    renderer::{AntiAliasingDisabled, AntiAliasingEnabled, RenderResult},
+    renderer::RenderResult,
     style::StrokeAlignment,
 };
 use core::f32::consts::PI;
 use embedded_graphics::{pixelcolor::PixelColor, primitives::StyledDrawable};
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Arc {
-    fn draw<B: Surface<C>, P: FramePolicy>(
+    fn draw<R: EgPrimitiveRenderer<C>>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<
-            C,
-            AntiAliasingDisabled,
-            B,
-            P,
-        >,
+        renderer: &mut R,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         embedded_graphics::primitives::Arc::new(
@@ -34,9 +30,9 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Arc {
         .draw_styled(&style.into_primitive_style(), renderer)
     }
 
-    fn draw_aa<B: Surface<C>, P: FramePolicy>(
+    fn draw_aa<R: EgPrimitiveRenderer<C>>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingEnabled, B, P>,
+        renderer: &mut R,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         if style.stroke.is_none() || style.stroke_width == 0 {

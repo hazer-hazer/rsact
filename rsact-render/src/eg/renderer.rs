@@ -1,9 +1,7 @@
 use crate::{
     color::{Color, RgbColor},
     eg::{
-        framebuf::{
-            Framebuf as _, PackedColor, PackedFramebuf, PixelBuf, Surface,
-        },
+        framebuf::{Framebuf as _, Framebuffer, PackedColor, PackedFramebuf},
         primitives::EgPrimitive,
     },
     geometry::*,
@@ -147,11 +145,11 @@ impl<C: Color + PixelColor> DrawStyle<C> {
 /// region rsact may ask it to paint, and the only thing rsact knows about its
 /// storage. `B`'s capacity is checked against `P` when a buffer is
 /// [attached](Self::attach): at compile time for a fixed-size array
-/// ([`PixelBuf::UNITS`] is `Some`), at the hand-off for a runtime-length slice.
+/// ([`Framebuffer::UNITS`] is `Some`), at the hand-off for a runtime-length slice.
 pub struct EGRenderer<
     C: Color + PackedColor,
     AA: AntiAliasing,
-    B: Surface<C>,
+    B: Framebuffer<C>,
     P: FramePolicy = Unbounded,
 > {
     viewport_stack: Vec<ViewportKind>,
@@ -163,7 +161,7 @@ pub struct EGRenderer<
     policy: PhantomData<P>,
 }
 
-impl<C: Color + PackedColor, AA: AntiAliasing, B: Surface<C>>
+impl<C: Color + PackedColor, AA: AntiAliasing, B: Framebuffer<C>>
     EGRenderer<C, AA, B, Unbounded>
 {
     /// Full-frame: `buffer` covers the whole display, so no region can ever be
@@ -190,8 +188,12 @@ impl<C: Color + PackedColor, AA: AntiAliasing, B: Surface<C>>
     }
 }
 
-impl<C: Color + PackedColor, AA: AntiAliasing, B: Surface<C>, P: FramePolicy>
-    EGRenderer<C, AA, B, P>
+impl<
+    C: Color + PackedColor,
+    AA: AntiAliasing,
+    B: Framebuffer<C>,
+    P: FramePolicy,
+> EGRenderer<C, AA, B, P>
 {
     /// **WS6.4d: tiled.** `buffer` is *smaller* than the display, and is
     /// re-aimed at each region by [`Renderer::begin_region`].
@@ -278,7 +280,7 @@ impl<C: Color + PackedColor, AA: AntiAliasing, B: Surface<C>, P: FramePolicy>
                 );
             }
             if let (Some(units), Some(needed)) =
-                (<B as PixelBuf<C>>::UNITS, policy_units::<P>())
+                (<B as Framebuffer<C>>::UNITS, policy_units::<P>())
             {
                 assert!(
                     needed <= units,
@@ -339,7 +341,7 @@ impl<C: Color + PackedColor, AA: AntiAliasing, B: Surface<C>, P: FramePolicy>
 impl<
     C: Color + PackedColor + PixelColor,
     AA: AntiAliasing,
-    B: Surface<C>,
+    B: Framebuffer<C>,
     P: FramePolicy,
 > EGRenderer<C, AA, B, P>
 {
@@ -549,7 +551,7 @@ impl<
 impl<
     C: Color + PackedColor + PixelColor,
     AA: AntiAliasing,
-    B: Surface<C>,
+    B: Framebuffer<C>,
     P: FramePolicy,
 > DrawTarget for EGRenderer<C, AA, B, P>
 {
@@ -592,7 +594,7 @@ impl<
 impl<
     C: Color + PackedColor + PixelColor,
     AA: AntiAliasing,
-    B: Surface<C>,
+    B: Framebuffer<C>,
     P: FramePolicy,
 > Dimensions for EGRenderer<C, AA, B, P>
 {
@@ -614,7 +616,7 @@ impl<
 impl<
     C: Color + PackedColor + PixelColor,
     AA: AntiAliasing,
-    B: Surface<C>,
+    B: Framebuffer<C>,
     P: FramePolicy,
 > EGRenderer<C, AA, B, P>
 {
@@ -640,7 +642,7 @@ impl<
 
 // TODO: Generalize AA and non-AA Renderer implementations
 
-impl<C: Color + PackedColor + PixelColor, B: Surface<C>, P: FramePolicy>
+impl<C: Color + PackedColor + PixelColor, B: Framebuffer<C>, P: FramePolicy>
     Renderer for EGRenderer<C, AntiAliasingDisabled, B, P>
 {
     type Color = C;
@@ -811,7 +813,7 @@ impl<C: Color + PackedColor + PixelColor, B: Surface<C>, P: FramePolicy>
     }
 }
 
-impl<C: Color + PackedColor + PixelColor, B: Surface<C>, P: FramePolicy>
+impl<C: Color + PackedColor + PixelColor, B: Framebuffer<C>, P: FramePolicy>
     Renderer for EGRenderer<C, AntiAliasingEnabled, B, P>
 {
     type Color = C;
@@ -990,7 +992,7 @@ mod tests {
         geometry::{Point, Rect, Size},
         renderer::{NullColor, NullRenderer, Renderer},
     };
-    use embedded_graphics::pixelcolor::{BinaryColor, Rgb888};
+    use embedded_graphics::pixelcolor::Rgb888;
 
     /// Host-side test surfaces. **Deliberately local to the tests**: rsact-render
     /// exports no allocating helper, because the library must never choose where
@@ -1308,11 +1310,11 @@ mod tests {
         // The hole, closed: a heap surface no longer claims infinite capacity,
         // so it cannot silently satisfy a policy it does not fit.
         assert_eq!(
-            <alloc::boxed::Box<[u32]> as PixelBuf<Rgb888>>::UNITS,
+            <alloc::boxed::Box<[u32]> as Framebuffer<Rgb888>>::UNITS,
             None,
             "a runtime-sized surface must not state a compile-time capacity"
         );
-        assert_eq!(<[u32; 5760] as PixelBuf<Rgb888>>::UNITS, Some(5760));
+        assert_eq!(<[u32; 5760] as Framebuffer<Rgb888>>::UNITS, Some(5760));
     }
 
     /// The other half of that: a surface too small for the policy is refused at

@@ -151,7 +151,7 @@ impl PackedColor for BinaryColor {
 //
 // The chain, with no `generic_const_exprs`:
 //
-//   buffer type ─────────────▶ PixelBuf::UNITS ────┐
+//   buffer type ─────────────▶ Framebuffer::UNITS ────┐
 //                                                  ├─▶ EGRenderer::attach
 //   Renderer::Policy + PPS ──▶ policy_units ───────┘
 //
@@ -194,12 +194,24 @@ pub const fn units_for<C: PackedColor>(w: u32, h: u32) -> usize {
     crate::renderer::region_units(w, h, C::PPS)
 }
 
-/// A caller-owned buffer able to hold storage units of colour `C`.
+/// A caller-owned buffer the renderer can draw into — **capacity plus access**.
 ///
-/// rsact never holds one of these — the user hands it to their concrete
-/// renderer through that backend's own inherent API (roadmap 6.4.0, "surface
-/// ownership"). This trait exists only so the size can be *checked*.
-pub trait PixelBuf<C: PackedColor> {
+/// rsact never holds one of these. The user hands it to their concrete renderer
+/// through that backend's own inherent API (roadmap 6.4.0, "surface
+/// ownership"); the renderer borrows it for as long as the user chooses and
+/// gives it back with `detach`. That loan is a move in and a move out rather
+/// than a `&'a mut [T]` field, because `WidgetCtx: 'static` (`el/ctx.rs:5`)
+/// rules out a renderer with a lifetime parameter — and it is also the shape
+/// DMA wants, since a borrow the core could still write through is UB.
+///
+/// **This was two traits**, `Framebuffer` (capacity) and `Surface: PixelBuf`
+/// (access). The split existed for exactly one type — `AsBytes<[u8; N]>`, a
+/// wire-format view that could state a capacity but could not hand out
+/// `&mut [u16]` without an alignment guarantee a byte array does not carry. That
+/// type was never constructed anywhere, so the split cost two names, two bounds
+/// and two impls per buffer to describe a case that did not exist. See the note
+/// where `AsBytes` was removed for what reviving it would take.
+pub trait Framebuffer<C: PackedColor> {
     /// Capacity in storage units when the **type** knows it, `None` when only
     /// the value does.
     ///
@@ -213,51 +225,32 @@ pub trait PixelBuf<C: PackedColor> {
     /// The result was a total bypass: an **empty** `Box<[u16]>` satisfied
     /// `assert_policy_fits::<Tiles<240, 240>>` at compile time and constructed a
     /// tiled renderer over zero bytes of storage. A capacity a type cannot state
-    /// must be absent, not infinite; [`Surface::unit_count`] is where the real
-    /// number lives.
+    /// must be absent, not infinite; [`unit_count`](Self::unit_count) is where
+    /// the real number lives.
     const UNITS: Option<usize>;
-}
 
-/// A [`PixelBuf`] rsact can actually **draw into** — capacity plus access.
-///
-/// Split from `PixelBuf` because the two answer different questions and not
-/// every buffer answers both: [`AsBytes`] states a capacity for the
-/// compile-time check but is a *wire-format* view, and handing out
-/// `&mut [u16]` over a `[u8; N]` would need an alignment guarantee it does not
-/// carry. Capacity is checkable for both; drawing is not.
-///
-/// **The renderer never implements this and never allocates one.** A surface is
-/// the user's, lent to the renderer for as long as they choose and taken back
-/// with `detach` — which is what keeps `W::Renderer` free of a lifetime
-/// parameter (`WidgetCtx: 'static`, `el/ctx.rs:5`) while still making the
-/// framebuffer the application's property.
-pub trait Surface<C: PackedColor>: PixelBuf<C> {
     fn units(&self) -> &[C::Storage];
     fn units_mut(&mut self) -> &mut [C::Storage];
 
-    /// This surface's real capacity, in storage units.
+    /// This buffer's real capacity, in storage units.
     ///
-    /// Always available, unlike [`PixelBuf::UNITS`] — a slice knows its own
+    /// Always available, unlike [`UNITS`](Self::UNITS) — a slice knows its own
     /// length even when its type does not. The backend compares this against
-    /// its policy on every `attach`, so a runtime-sized surface is checked
+    /// its frame policy on every `attach`, so a runtime-sized buffer is checked
     /// exactly once, at the moment it is lent, rather than never.
     fn unit_count(&self) -> usize {
         self.units().len()
     }
 }
 
-macro_rules! native_pixel_buf {
+macro_rules! native_framebuffer {
     ($($storage:ty),* $(,)?) => {$(
         // The embedded case: extent is in the type, so the check is a `const`.
-        impl<C: PackedColor<Storage = $storage>, const N: usize> PixelBuf<C>
+        impl<C: PackedColor<Storage = $storage>, const N: usize> Framebuffer<C>
             for [$storage; N]
         {
             const UNITS: Option<usize> = Some(N);
-        }
 
-        impl<C: PackedColor<Storage = $storage>, const N: usize> Surface<C>
-            for [$storage; N]
-        {
             fn units(&self) -> &[$storage] { self }
             fn units_mut(&mut self) -> &mut [$storage] { self }
         }
@@ -270,11 +263,11 @@ macro_rules! native_pixel_buf {
         //
         // Extent is a runtime fact, so `UNITS` is `None` and the capacity check
         // happens at `attach`.
-        impl<C: PackedColor<Storage = $storage>> PixelBuf<C> for &mut [$storage] {
+        impl<C: PackedColor<Storage = $storage>> Framebuffer<C>
+            for &mut [$storage]
+        {
             const UNITS: Option<usize> = None;
-        }
 
-        impl<C: PackedColor<Storage = $storage>> Surface<C> for &mut [$storage] {
             fn units(&self) -> &[$storage] { self }
             fn units_mut(&mut self) -> &mut [$storage] { self }
         }
@@ -283,11 +276,11 @@ macro_rules! native_pixel_buf {
         // embedded target with a global allocator. Same runtime extent, same
         // `None`. Not `std`-gated: `Box` is `alloc`, which this crate always
         // has.
-        impl<C: PackedColor<Storage = $storage>> PixelBuf<C> for Box<[$storage]> {
+        impl<C: PackedColor<Storage = $storage>> Framebuffer<C>
+            for Box<[$storage]>
+        {
             const UNITS: Option<usize> = None;
-        }
 
-        impl<C: PackedColor<Storage = $storage>> Surface<C> for Box<[$storage]> {
             fn units(&self) -> &[$storage] { self }
             fn units_mut(&mut self) -> &mut [$storage] { self }
         }
@@ -296,35 +289,32 @@ macro_rules! native_pixel_buf {
 
 // Keyed by storage type, so each impl targets a distinct `Self` and coherence
 // holds without any negative reasoning.
-native_pixel_buf!(u8, u16, u32);
+native_framebuffer!(u8, u16, u32);
 
-/// A raw byte buffer viewed as storage for a wider colour — the DMA/wire-format
-/// case (an RGB565 tile handed to SPI as bytes).
-///
-/// A newtype rather than a second `impl … for [u8; N]`, and that is **forced**:
-/// `impl<C: PackedColor<Storage = u8>> PixelBuf<C> for [u8; N]` and
-/// `impl<C: PackedColor<Storage = u16>> PixelBuf<C> for [u8; N]` are `E0119`
-/// conflicting impls, because Rust does no negative reasoning over associated
-/// types and cannot see that a colour's `Storage` is only ever one of them.
-/// Wrapping also reads as documentation at the call site: `AsBytes` is precisely
-/// what you hand to the transport.
-///
-/// ```
-/// # use rsact_render::eg::framebuf::{AsBytes, PixelBuf, units_for};
-/// # use embedded_graphics::pixelcolor::Rgb565;
-/// // The same 240x24 RGB565 tile, expressed two ways — protocol-agnostic.
-/// assert_eq!(<[u16; 5760] as PixelBuf<Rgb565>>::UNITS, Some(5760));
-/// assert_eq!(<AsBytes<[u8; 11520]> as PixelBuf<Rgb565>>::UNITS, Some(5760));
-/// assert_eq!(units_for::<Rgb565>(240, 24), 5760);
-/// ```
-pub struct AsBytes<B>(pub B);
-
-impl<C: PackedColor, const N: usize> PixelBuf<C> for AsBytes<[u8; N]> {
-    // One impl covers every storage width, so there is no conflict to resolve.
-    // Integer division truncates, which is the safe direction: a buffer a byte
-    // short of a whole unit reports the smaller capacity and gets rejected.
-    const UNITS: Option<usize> = Some(N / core::mem::size_of::<C::Storage>());
-}
+// NOTE (WS6.4d): `pub struct AsBytes<B>(pub B)` lived here — a raw byte buffer
+// viewed as storage for a wider colour, i.e. an RGB565 tile handed to SPI as
+// bytes. It was removed as **unused and unusable**, but the idea is real and
+// this records what reviving it takes.
+//
+// It only ever implemented the capacity half of the buffer contract, never the
+// access half, so nothing could draw into one: `units_mut` would have to hand
+// out `&mut [u16]` over a `[u8; N]`, and a byte array carries no guarantee it is
+// 2-aligned. Nothing in the workspace ever constructed one, so the type was a
+// capacity claim about a buffer that could not be a buffer — and its existence
+// was the sole reason `Framebuffer` and `Framebuffer` were two traits rather than one
+// (see `Framebuffer`).
+//
+// The newtype itself was NOT gratuitous, and would be needed again:
+// `impl<C: PackedColor<Storage = u8>> Framebuffer<C> for [u8; N]` and
+// `impl<C: PackedColor<Storage = u16>> Framebuffer<C> for [u8; N]` are `E0119`
+// conflicting impls, because Rust does no negative reasoning over associated
+// types and cannot see that a colour's `Storage` is only ever one of them.
+//
+// To bring it back, the wrapper has to make alignment true rather than assumed —
+// `#[repr(align(4))]` on the newtype, or a constructor that fails on a
+// misaligned slice — and only then can it implement `Framebuffer`. That belongs
+// with the transport work (roadmap 6.7), where an actual caller would exist to
+// state what alignment its DMA engine needs.
 
 /// Compile-time proof that a `w × h` region fits in buffer `B`.
 ///
@@ -357,7 +347,7 @@ impl<C: PackedColor, const N: usize> PixelBuf<C> for AsBytes<[u8; N]> {
 /// // 122x24 needs ceil(122/8)*24 = 384 bytes, not 122*24/8 = 366.
 /// const _: () = assert_region_fits::<BinaryColor, [u8; 366]>(122, 24);
 /// ```
-pub const fn assert_region_fits<C: PackedColor, B: PixelBuf<C>>(
+pub const fn assert_region_fits<C: PackedColor, B: Framebuffer<C>>(
     w: u32,
     h: u32,
 ) {
@@ -499,7 +489,7 @@ pub trait Framebuf<C: Color + PackedColor> {
 /// Absolute coordinates throughout is what makes this cheap: [`Framebuf::
 /// flat_index`] resolves a point against `viewport`, so every write, read, fill
 /// and flush follows the origin without a single caller translating by hand.
-pub struct PackedFramebuf<C: Color + PackedColor, B: Surface<C>> {
+pub struct PackedFramebuf<C: Color + PackedColor, B: Framebuffer<C>> {
     viewport: Rect,
     pixels: B,
     color: core::marker::PhantomData<C>,
@@ -509,7 +499,7 @@ pub struct PackedFramebuf<C: Color + PackedColor, B: Surface<C>> {
 // intersect against this box, and rsact hands them ABSOLUTE rects. Reporting
 // origin-zero was correct only while the buffer always was the whole frame; a
 // tile at (0, 24) would have had its every write clipped away.
-impl<C: Color + PackedColor, B: Surface<C>> Dimensions
+impl<C: Color + PackedColor, B: Framebuffer<C>> Dimensions
     for PackedFramebuf<C, B>
 {
     fn bounding_box(&self) -> embedded_graphics::primitives::Rectangle {
@@ -519,7 +509,7 @@ impl<C: Color + PackedColor, B: Surface<C>> Dimensions
 
 impl<
     C: Color + PackedColor + embedded_graphics::prelude::PixelColor,
-    B: Surface<C>,
+    B: Framebuffer<C>,
 > DrawTarget for PackedFramebuf<C, B>
 {
     type Color = C;
@@ -612,7 +602,7 @@ impl<
     }
 }
 
-impl<C: Color + PackedColor, B: Surface<C>> Framebuf<C>
+impl<C: Color + PackedColor, B: Framebuffer<C>> Framebuf<C>
     for PackedFramebuf<C, B>
 {
     fn data(&self) -> &[C::Storage] {
@@ -628,7 +618,7 @@ impl<C: Color + PackedColor, B: Surface<C>> Framebuf<C>
     }
 }
 
-impl<C: Color + PackedColor, B: Surface<C>> PackedFramebuf<C, B> {
+impl<C: Color + PackedColor, B: Framebuffer<C>> PackedFramebuf<C, B> {
     /// Wrap the caller's `buffer`, aimed at `size` from the origin.
     ///
     /// **The buffer is the caller's.** This does not allocate and does not keep
@@ -1073,8 +1063,7 @@ mod tests {
     /// `PackedFramebuf::new`'s `area % pps == 0` assert reject real panels.
     #[test]
     fn units_for_pads_each_row_not_the_area() {
-        use super::{AsBytes, PixelBuf, units_for};
-        use embedded_graphics::pixelcolor::Rgb565;
+        use super::units_for;
 
         // Exactly one storage unit wide: no padding.
         assert_eq!(units_for::<BinaryColor>(8, 1), 1);
@@ -1090,18 +1079,6 @@ mod tests {
         // Degenerate regions cost nothing.
         assert_eq!(units_for::<Rgb888>(0, 5), 0);
         assert_eq!(units_for::<BinaryColor>(5, 0), 0);
-
-        // `AsBytes` truncates, which is the SAFE direction: a buffer one byte
-        // short of a whole unit reports the smaller capacity and gets rejected
-        // rather than over-promising.
-        assert_eq!(
-            <AsBytes<[u8; 11521]> as PixelBuf<Rgb565>>::UNITS,
-            Some(5760)
-        );
-        assert_eq!(
-            <AsBytes<[u8; 11519]> as PixelBuf<Rgb565>>::UNITS,
-            Some(5759)
-        );
     }
 
     /// WS6.4.0(i-2): addressing is origin-aware, in ONE place.

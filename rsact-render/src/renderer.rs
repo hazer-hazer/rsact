@@ -148,7 +148,7 @@ pub trait Renderer {
     /// is deliberately not a fact about storage at all: it says *how big a
     /// rectangle you may ask me to paint*, which a GPU streaming commands and a
     /// renderer holding an 11 KiB tile can both answer. rsact never sees a
-    /// surface — no `Surface` trait, no capacity number, no buffer type
+    /// surface — no `Framebuffer` trait, no capacity number, no buffer type
     /// parameter reaches this trait — because a renderer is free to have no
     /// surface at all.
     ///
