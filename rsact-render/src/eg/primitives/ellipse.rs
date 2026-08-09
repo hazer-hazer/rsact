@@ -1,5 +1,6 @@
 #[allow(unused)]
 use crate::FloatExt as _;
+use crate::region::FramePolicy;
 use crate::{
     color::Color,
     eg::framebuf::Surface,
@@ -13,9 +14,14 @@ use crate::{
 use embedded_graphics::{pixelcolor::PixelColor, primitives::StyledDrawable};
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Ellipse {
-    fn draw<B: Surface<C>>(
+    fn draw<B: Surface<C>, P: FramePolicy>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingDisabled, B>,
+        renderer: &mut crate::prelude::EGRenderer<
+            C,
+            AntiAliasingDisabled,
+            B,
+            P,
+        >,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         embedded_graphics::primitives::Ellipse::new(
@@ -25,9 +31,9 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Ellipse {
         .draw_styled(&style.into_primitive_style(), renderer)
     }
 
-    fn draw_aa<B: Surface<C>>(
+    fn draw_aa<B: Surface<C>, P: FramePolicy>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingEnabled, B>,
+        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingEnabled, B, P>,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         if self.size.width == self.size.height {

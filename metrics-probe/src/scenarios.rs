@@ -12,7 +12,9 @@ use rsact_reactive::{
 };
 use rsact_ui::{
     prelude::*,
-    test_support::{NullWtf, buttons_page, labels_page, nested_flex_page},
+    test_support::{
+        NullWtf, TestUi, buttons_page, labels_page, nested_flex_page,
+    },
     ui::{UI, WithPages},
 };
 use std::hint::black_box;
@@ -145,8 +147,11 @@ fn ui_scenario(
 
         // Build the canonical N-widget page. The returned `labels` are kept so
         // we can dirty one for the change frame.
-        let (build_allocs, build_bytes, (mut ui, labels)) =
-            charge(|| page_fn(n));
+        // WS6.4d: the renderer is the caller's, so the probe owns one and
+        // lends it per frame. `TestUi` bundles the pair, keeping what is
+        // measured (allocations per frame) free of borrow plumbing.
+        let (build_allocs, build_bytes, (ui, labels)) = charge(|| page_fn(n));
+        let mut ui = TestUi::new(ui, Default::default());
 
         // Warm-up: the first paint is always full work (page starts dirty and
         // the render gate's observe-nodes are created here), so it is not a
@@ -239,8 +244,8 @@ fn ui_nested_flex(n: usize) -> Scenario {
 /// null-theme note above). Uses `catch_unwind`; the closure only touches the
 /// UI, and a panic here just drops the optional metric.
 fn guarded_frame(
-    ui: &mut UI<NullWtf, WithPages>,
-    f: impl Fn(&mut UI<NullWtf, WithPages>),
+    ui: &mut TestUi<NullWtf>,
+    f: impl Fn(&mut TestUi<NullWtf>),
 ) -> Option<usize> {
     use std::panic::{AssertUnwindSafe, catch_unwind};
     let before = alloc::read();

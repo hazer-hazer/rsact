@@ -2,7 +2,7 @@ use crate::{
     color::{Color, Rgba},
     geometry::*,
     image::DrawImage,
-    output::{FinishRender, RenderTarget},
+    output::RenderTarget,
     path::Path,
     style::DrawStyle,
 };
@@ -14,8 +14,9 @@ pub type RenderResult = Result<(), ()>;
 /// Storage units a `w × h` region needs on a surface packing
 /// `pixels_per_unit` pixels per unit — **rows padded**, never area.
 ///
-/// The one place this arithmetic is written. [`Renderer::SURFACE_UNITS`] is
-/// compared against it for WS6.4.0(iii)'s compile-time proof, and
+/// The one place this arithmetic is written.
+/// [`assert_policy_fits`](crate::region::assert_policy_fits) compares a
+/// surface against it for WS6.4.0(iii)'s capacity proof, and
 /// [`units_for`](crate::eg::framebuf::units_for) is the colour-typed wrapper
 /// the embedded-graphics backend uses — they must not be allowed to drift,
 /// because a capacity check that disagrees with the buffer's real layout is
@@ -141,37 +142,33 @@ impl ViewportKind {
 pub trait Renderer {
     type Color: Color;
 
-    /// How many storage units this renderer's surface holds — the capacity side
-    /// of WS6.4.0(iii)'s compile-time tile check.
+    /// The largest region this renderer will accept, as a **type**.
     ///
-    /// `usize::MAX` means "my surface always covers the frame": a GPU, a host
-    /// renderer owning a resizable buffer, `NullRenderer`. Such a renderer
-    /// accepts any frame policy. A tile-backed renderer overrides this with its
-    /// buffer's `PixelBuf::UNITS`, after which a policy asking for a region
-    /// larger than the buffer fails to compile — see
-    /// [`assert_region_fits`](crate::eg::framebuf::assert_region_fits).
+    /// This is the whole of what rsact knows about a renderer's storage, and it
+    /// is deliberately not a fact about storage at all: it says *how big a
+    /// rectangle you may ask me to paint*, which a GPU streaming commands and a
+    /// renderer holding an 11 KiB tile can both answer. rsact never sees a
+    /// surface — no `Surface` trait, no capacity number, no buffer type
+    /// parameter reaches this trait — because a renderer is free to have no
+    /// surface at all.
     ///
-    /// The default sits at the permissive end on purpose: a renderer that has
-    /// not opted into tiling is one that never needed the check.
-    const SURFACE_UNITS: usize = usize::MAX;
-
-    /// How many pixels this renderer's surface packs into one storage unit —
-    /// the other half of the capacity arithmetic.
+    /// [`Unbounded`] is the answer for every renderer that never needed tiling,
+    /// and there is no default because associated *type* defaults are still
+    /// unstable. Having to write it out is a feature: a renderer that silently
+    /// inherited a bound it does not have would mislead the planner in the
+    /// expensive direction.
     ///
-    /// `1` (the default) is "one unit per pixel", which is right for every
-    /// 8-bit-or-wider colour and for any renderer that does not pack at all. A
-    /// 1-bpp mono framebuffer sets `8`, and the row padding this implies is the
-    /// reason capacity is not simply `w * h`: a 122-pixel mono row occupies 16
-    /// bytes, not 15.25 (see [`region_units`]).
+    /// **Where the surface is checked against this: not here.** A backend owns
+    /// both facts — the policy it declares and the buffer it was handed — so it
+    /// makes the comparison itself via
+    /// [`assert_policy_fits`](crate::region::assert_policy_fits): in a `const`
+    /// block when its surface is a fixed-size array, at `attach` when it is a
+    /// runtime-length slice. Hoisting the check up here would force every
+    /// renderer to describe a surface just so the ones that have one could be
+    /// checked.
     ///
-    /// This exists so [`UI::start_frame`]'s compile-time capacity proof can be
-    /// written **without** a `PackedColor` bound — that trait belongs to the
-    /// embedded-graphics backend, and neither rsact-ui nor a GPU renderer should
-    /// have to name it to be checked. A backend built on `PackedColor` forwards
-    /// `C::PPS` here and the two agree by construction.
-    ///
-    /// [`UI::start_frame`]: https://docs.rs/rsact-ui
-    const SURFACE_PIXELS_PER_UNIT: usize = 1;
+    /// [`Unbounded`]: crate::region::Unbounded
+    type Policy: crate::region::FramePolicy;
 
     // NOTE (WS6.4.0(ii-2)): `type Options` + `fn set_options` lived here and
     // were removed as dead — all seven implementors were `type Options = ()`
@@ -421,14 +418,11 @@ impl<C: Color> RenderTarget for NullRenderer<C> {
     }
 }
 
-impl<C, D> FinishRender<C> for NullRenderer<D> {
-    fn finish_frame(&mut self, target: &mut impl RenderTarget<Color = C>) {
-        let _ = target;
-    }
-}
-
 impl<C: Color> Renderer for NullRenderer<C> {
     type Color = C;
+
+    /// Draws nothing, so no region is ever too large.
+    type Policy = crate::region::Unbounded;
 
     fn size(&self) -> Size {
         Size::zero()

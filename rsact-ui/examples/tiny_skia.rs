@@ -153,11 +153,14 @@ fn main() {
     .fill()
     .into_el();
 
-    let mut ui = UI::new(Theme::default(), TinySkiaRenderer::new(size))
+    let mut renderer = TinySkiaRenderer::new(size);
+    let mut ui = UI::new(Theme::default(), size)
         .no_events()
         .on_exit(|| process::exit(0))
         .with_page(SinglePage, page);
 
-    ui.render(&mut display);
+    if ui.render(&mut renderer) {
+        ui.with_damage(|d| renderer.output_regions(&mut display, d));
+    }
     window.show_static(&display);
 }

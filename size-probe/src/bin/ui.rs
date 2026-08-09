@@ -24,8 +24,9 @@ fn main() -> ! {
         .collect();
     let init = labels.clone();
 
+    let mut renderer = NullRenderer::default();
     let mut ui: UI<NullWtf, _> =
-        UI::new((), NullRenderer::default()).with_page((), move || {
+        UI::new((), Size::zero()).with_page((), move || {
             Flex::col(
                 init.iter()
                     .map(|s| Label::new(*s).into_el())
@@ -34,7 +35,7 @@ fn main() -> ! {
             .into_el()
         });
     let _ = ui.current_page();
-    ui.use_renderer(|_| {});
+    ui.use_renderer(&mut renderer, |_| {});
 
     black_box(&ui);
     loop {}

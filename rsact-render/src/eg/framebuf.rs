@@ -147,17 +147,24 @@ impl PackedColor for BinaryColor {
     }
 }
 
-// ─────────────────────── WS6.4.0(iii): tile capacity, checked at compile time
+// ─────────────────────────────── WS6.4.0(iii): tile capacity, checked at attach
 //
-// The chain, all static, with no `generic_const_exprs`:
+// The chain, with no `generic_const_exprs`:
 //
-//   buffer type ─────────▶ PixelBuf::UNITS ─────▶ Renderer::SURFACE_UNITS
-//   region + PackedColor::PPS ─▶ units_for ──▶ assert_region_fits
+//   buffer type ─────────────▶ PixelBuf::UNITS ────┐
+//                                                  ├─▶ EGRenderer::attach
+//   Renderer::Policy + PPS ──▶ policy_units ───────┘
 //
-// so a frame policy whose largest region cannot fit the renderer's surface is a
-// **compile error**, not a runtime check. 6.4d wires the assert into
-// `UI::start_frame`; the pieces land here because they are pure additions with
-// no dependency on tiles existing yet.
+// so a surface too small for the policy its renderer declares is rejected
+// before anything paints into it — a **compile error** when the buffer is a
+// fixed-size array (`UNITS` is `Some`), an assert at the hand-off when it is a
+// runtime-length slice (`UNITS` is `None`).
+//
+// It is deliberately NOT in `UI::start_frame`, where it lived through 6.4d's
+// first shape. That required the `Renderer` trait to expose a capacity, which
+// forced every renderer — including ones with no surface at all — to describe
+// storage just so the ones that have it could be checked. The comparison now
+// happens in the one place that legitimately knows both numbers.
 
 /// Units of `C::Storage` needed to hold a `w × h` region, **including row
 /// padding**.
@@ -179,48 +186,36 @@ impl PackedColor for BinaryColor {
 ///
 /// The arithmetic itself lives in [`region_units`] — this is the colour-typed
 /// wrapper. Deliberately a delegation and not a copy: the same formula is what
-/// `UI::start_frame`'s capacity proof runs against
-/// [`Renderer::SURFACE_PIXELS_PER_UNIT`], and two spellings of it could drift
+/// [`policy_units`] runs a policy through, and two spellings of it could drift
 /// into a check that passes while the buffer is too small.
 ///
-/// [`Renderer::SURFACE_PIXELS_PER_UNIT`]: crate::renderer::Renderer::SURFACE_PIXELS_PER_UNIT
+/// [`policy_units`]: crate::region::policy_units
 pub const fn units_for<C: PackedColor>(w: u32, h: u32) -> usize {
     crate::renderer::region_units(w, h, C::PPS)
 }
 
-/// A caller-owned buffer able to hold `UNITS` storage units of colour `C`.
+/// A caller-owned buffer able to hold storage units of colour `C`.
 ///
-/// Implemented for plain arrays so capacity is part of the *type* and can be
-/// compared against a frame policy at compile time. rsact never holds one of
-/// these — the user hands it to their concrete renderer through that backend's
-/// own inherent API (roadmap 6.4.0, "surface ownership"). This trait exists only
-/// so the size can be *checked*.
+/// rsact never holds one of these — the user hands it to their concrete
+/// renderer through that backend's own inherent API (roadmap 6.4.0, "surface
+/// ownership"). This trait exists only so the size can be *checked*.
 pub trait PixelBuf<C: PackedColor> {
-    const UNITS: usize;
-}
-
-/// Allocate a heap surface large enough for a `size` frame.
-///
-/// A convenience for hosts, simulators and tests — **and deliberately a free
-/// function, not a renderer constructor.** The renderer borrows a surface and
-/// never allocates one; making the allocation happen at the call site is what
-/// keeps that visible. An embedded target calls nothing here: it hands in a
-/// `[u16; N]` from a `StaticCell`.
-#[cfg(feature = "std")]
-pub fn heap_surface<C: Color + PackedColor>(
-    size: Size,
-) -> Box<[<C as PackedColor>::Storage]> {
-    heap_surface_units::<C>(size.area() as usize / C::pps())
-}
-
-/// [`heap_surface`] by unit count — the tiled case, where the surface has a
-/// budget rather than a shape.
-#[cfg(feature = "std")]
-pub fn heap_surface_units<C: Color + PackedColor>(
-    units: usize,
-) -> Box<[<C as PackedColor>::Storage]> {
-    alloc::vec![C::default_background().into_storage(); units]
-        .into_boxed_slice()
+    /// Capacity in storage units when the **type** knows it, `None` when only
+    /// the value does.
+    ///
+    /// `Some(N)` for a fixed-size array, which is what lets a policy violation
+    /// be a compile error. `None` for a slice or a boxed slice, whose length is
+    /// a runtime fact — those are checked at `attach` instead.
+    ///
+    /// **`None` means "ask the value", never "unbounded".** This was
+    /// `const UNITS: usize` with `usize::MAX` for the heap case, which read as
+    /// "my surface always covers the frame" — the sentinel for *no constraint*.
+    /// The result was a total bypass: an **empty** `Box<[u16]>` satisfied
+    /// `assert_policy_fits::<Tiles<240, 240>>` at compile time and constructed a
+    /// tiled renderer over zero bytes of storage. A capacity a type cannot state
+    /// must be absent, not infinite; [`Surface::unit_count`] is where the real
+    /// number lives.
+    const UNITS: Option<usize>;
 }
 
 /// A [`PixelBuf`] rsact can actually **draw into** — capacity plus access.
@@ -239,14 +234,25 @@ pub fn heap_surface_units<C: Color + PackedColor>(
 pub trait Surface<C: PackedColor>: PixelBuf<C> {
     fn units(&self) -> &[C::Storage];
     fn units_mut(&mut self) -> &mut [C::Storage];
+
+    /// This surface's real capacity, in storage units.
+    ///
+    /// Always available, unlike [`PixelBuf::UNITS`] — a slice knows its own
+    /// length even when its type does not. The backend compares this against
+    /// its policy on every `attach`, so a runtime-sized surface is checked
+    /// exactly once, at the moment it is lent, rather than never.
+    fn unit_count(&self) -> usize {
+        self.units().len()
+    }
 }
 
 macro_rules! native_pixel_buf {
     ($($storage:ty),* $(,)?) => {$(
+        // The embedded case: extent is in the type, so the check is a `const`.
         impl<C: PackedColor<Storage = $storage>, const N: usize> PixelBuf<C>
             for [$storage; N]
         {
-            const UNITS: usize = N;
+            const UNITS: Option<usize> = Some(N);
         }
 
         impl<C: PackedColor<Storage = $storage>, const N: usize> Surface<C>
@@ -256,13 +262,29 @@ macro_rules! native_pixel_buf {
             fn units_mut(&mut self) -> &mut [$storage] { self }
         }
 
-        // The heap case — a host, a simulator, a desktop target. Capacity is
-        // `usize::MAX` because a boxed slice is sized when the USER builds it
-        // and carries no compile-time extent: it is the "my surface covers the
-        // frame" end of `Renderer::SURFACE_UNITS`, which is what a full
-        // framebuffer legitimately is.
+        // A borrowed slice — how an app places a buffer in a *particular* memory
+        // region (SDRAM, DTCM, a `#[link_section]` pool, a `StaticCell`) and
+        // lends it out. `'static` in practice, because `WidgetCtx: 'static`
+        // rules out a renderer with a lifetime parameter; nothing here demands
+        // it, so a shorter borrow works wherever the renderer is local.
+        //
+        // Extent is a runtime fact, so `UNITS` is `None` and the capacity check
+        // happens at `attach`.
+        impl<C: PackedColor<Storage = $storage>> PixelBuf<C> for &mut [$storage] {
+            const UNITS: Option<usize> = None;
+        }
+
+        impl<C: PackedColor<Storage = $storage>> Surface<C> for &mut [$storage] {
+            fn units(&self) -> &[$storage] { self }
+            fn units_mut(&mut self) -> &mut [$storage] { self }
+        }
+
+        // The heap case — a host, a simulator, a desktop target, or any
+        // embedded target with a global allocator. Same runtime extent, same
+        // `None`. Not `std`-gated: `Box` is `alloc`, which this crate always
+        // has.
         impl<C: PackedColor<Storage = $storage>> PixelBuf<C> for Box<[$storage]> {
-            const UNITS: usize = usize::MAX;
+            const UNITS: Option<usize> = None;
         }
 
         impl<C: PackedColor<Storage = $storage>> Surface<C> for Box<[$storage]> {
@@ -291,8 +313,8 @@ native_pixel_buf!(u8, u16, u32);
 /// # use rsact_render::eg::framebuf::{AsBytes, PixelBuf, units_for};
 /// # use embedded_graphics::pixelcolor::Rgb565;
 /// // The same 240x24 RGB565 tile, expressed two ways — protocol-agnostic.
-/// assert_eq!(<[u16; 5760] as PixelBuf<Rgb565>>::UNITS, 5760);
-/// assert_eq!(<AsBytes<[u8; 11520]> as PixelBuf<Rgb565>>::UNITS, 5760);
+/// assert_eq!(<[u16; 5760] as PixelBuf<Rgb565>>::UNITS, Some(5760));
+/// assert_eq!(<AsBytes<[u8; 11520]> as PixelBuf<Rgb565>>::UNITS, Some(5760));
 /// assert_eq!(units_for::<Rgb565>(240, 24), 5760);
 /// ```
 pub struct AsBytes<B>(pub B);
@@ -301,7 +323,7 @@ impl<C: PackedColor, const N: usize> PixelBuf<C> for AsBytes<[u8; N]> {
     // One impl covers every storage width, so there is no conflict to resolve.
     // Integer division truncates, which is the safe direction: a buffer a byte
     // short of a whole unit reports the smaller capacity and gets rejected.
-    const UNITS: usize = N / core::mem::size_of::<C::Storage>();
+    const UNITS: Option<usize> = Some(N / core::mem::size_of::<C::Storage>());
 }
 
 /// Compile-time proof that a `w × h` region fits in buffer `B`.
@@ -339,11 +361,16 @@ pub const fn assert_region_fits<C: PackedColor, B: PixelBuf<C>>(
     w: u32,
     h: u32,
 ) {
-    assert!(
-        units_for::<C>(w, h) <= B::UNITS,
-        "region does not fit the pixel buffer — see the instantiation in this \
-         error for the colour, buffer type and region size"
-    );
+    // A buffer whose extent is only a runtime fact cannot be proved here — and
+    // must not be silently *assumed* to fit, which is what the old `usize::MAX`
+    // sentinel did. It is checked against the same requirement at `attach`.
+    if let Some(units) = B::UNITS {
+        assert!(
+            units_for::<C>(w, h) <= units,
+            "region does not fit the pixel buffer — see the instantiation in \
+             this error for the colour, buffer type and region size"
+        );
+    }
 }
 
 pub trait Framebuf<C: Color + PackedColor> {
@@ -647,7 +674,7 @@ impl<C: Color + PackedColor, B: Surface<C>> PackedFramebuf<C, B> {
 
     /// Storage units this buffer can hold — its capacity, independent of shape.
     pub fn capacity_units(&self) -> usize {
-        self.pixels.units().len()
+        self.pixels.unit_count()
     }
 
     /// Re-aim the buffer at `region` (absolute screen coordinates).
@@ -656,6 +683,13 @@ impl<C: Color + PackedColor, B: Surface<C>> PackedFramebuf<C, B> {
     /// contiguous by construction and any shape fitting the capacity works. This
     /// is what lets a frame policy be a byte budget rather than a rectangle.
     ///
+    /// **Internal bookkeeping, not an API the user drives.** `begin_region`
+    /// calls it; nothing outside the backend should. Re-aiming a buffer is how
+    /// absolute coordinates land in storage smaller than the frame — a
+    /// consequence of where rsact is painting, never a request the caller
+    /// makes. (The caller's operations on a surface are `attach` and `detach`:
+    /// lend it, take it back, flush it, lend the next one.)
+    ///
     /// Contents are *not* cleared: a tile arrives holding whatever the last one
     /// left in it, which is exactly why every region must paint its own
     /// background before drawing (roadmap 6.4 constraint (b)).
@@ -663,10 +697,10 @@ impl<C: Color + PackedColor, B: Surface<C>> PackedFramebuf<C, B> {
     /// # Panics
     ///
     /// In debug builds, if `region` needs more units than the buffer holds. The
-    /// planner guarantees it never does, and `UI::start_frame`'s const assert
-    /// guarantees the planner's own bound fits — this is the runtime backstop
-    /// for a renderer driven outside that path.
-    pub fn retarget(&mut self, region: Rect) {
+    /// planner guarantees it never does, and the capacity check at `attach`
+    /// guarantees the planner's own bound fits — this is the backstop for a
+    /// renderer driven outside that path.
+    pub(crate) fn retarget(&mut self, region: Rect) {
         debug_assert!(
             region_units(region.size.width, region.size.height, C::PPS)
                 <= self.capacity_units(),
@@ -748,7 +782,20 @@ impl<C: Color + PackedColor, B: Surface<C>> PackedFramebuf<C, B> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Framebuf, PackedFramebuf, heap_surface};
+    use super::{Framebuf, PackedColor, PackedFramebuf};
+
+    /// Host-side test surfaces. Local to the tests on purpose — see the note in
+    /// `eg/renderer.rs`'s test module: the library exports no allocating helper
+    /// because it must not choose where a framebuffer lives.
+    fn heap_surface<C: crate::color::Color + PackedColor>(
+        size: Size,
+    ) -> alloc::boxed::Box<[<C as PackedColor>::Storage]> {
+        alloc::vec![
+            C::default_background().into_storage();
+            size.area() as usize / C::pps()
+        ]
+        .into_boxed_slice()
+    }
     use crate::{
         geometry::{Point, Rect, Size},
         output::{RenderTarget, pixel::Pixel},
@@ -1047,8 +1094,14 @@ mod tests {
         // `AsBytes` truncates, which is the SAFE direction: a buffer one byte
         // short of a whole unit reports the smaller capacity and gets rejected
         // rather than over-promising.
-        assert_eq!(<AsBytes<[u8; 11521]> as PixelBuf<Rgb565>>::UNITS, 5760);
-        assert_eq!(<AsBytes<[u8; 11519]> as PixelBuf<Rgb565>>::UNITS, 5759);
+        assert_eq!(
+            <AsBytes<[u8; 11521]> as PixelBuf<Rgb565>>::UNITS,
+            Some(5760)
+        );
+        assert_eq!(
+            <AsBytes<[u8; 11519]> as PixelBuf<Rgb565>>::UNITS,
+            Some(5759)
+        );
     }
 
     /// WS6.4.0(i-2): addressing is origin-aware, in ONE place.

@@ -1,7 +1,7 @@
 #[allow(unused)]
 use crate::FloatExt as _;
 use crate::{
-    output::{FinishRender, MapColor, pixel::Pixel},
+    output::{MapColor, RenderTarget, pixel::Pixel},
     prelude::{Angle, DrawStyle, Path, Point, Rect, RenderResult, Size, *},
     surface::{Canvas, Surface},
     tiny_skia::path::PathBuilderExt,
@@ -148,21 +148,32 @@ impl TinySkiaRenderer<tiny_skia::Color> {
     }
 }
 
-impl<C> FinishRender<C> for TinySkiaRenderer<tiny_skia::Color>
-where
-    PremultipliedColorU8: MapColor<C>,
-{
-    fn finish_frame(&mut self, target: &mut impl RenderTarget<Color = C>) {
-        // Whole-frame flush = region flush over the full viewport (WS6.3).
+/// WS6.4d: streaming the surface out is the backend's own inherent API, not a
+/// trait rsact drives — see the note where `FinishRender` used to live
+/// (`output/mod.rs`). This renderer always owns a full-frame pixmap, so its
+/// caller can flush whenever it likes; nothing in the render path calls these.
+impl TinySkiaRenderer<tiny_skia::Color> {
+    /// Stream the whole frame into `target`.
+    pub fn output<C>(&self, target: &mut impl RenderTarget<Color = C>)
+    where
+        PremultipliedColorU8: MapColor<C>,
+    {
         let full = Rect::new(Point::zero(), self.size);
-        self.finish_frame_regions(target, &[full]);
+        self.output_regions(target, &[full]);
     }
 
-    fn finish_frame_regions(
-        &mut self,
+    /// Stream only `regions` into `target` (WS6.3's damage-driven flush).
+    ///
+    /// Each region is clamped to the surface. Overlapping regions may write a
+    /// pixel more than once — harmless, it is the same value — and an empty
+    /// slice writes nothing.
+    pub fn output_regions<C>(
+        &self,
         target: &mut impl RenderTarget<Color = C>,
         regions: &[Rect],
-    ) {
+    ) where
+        PremultipliedColorU8: MapColor<C>,
+    {
         // The single surface already holds the fully-drawn frame — stream only
         // the requested regions. A sub-rect must INDEX the buffer per point
         // (`y * width + x`), unlike a whole-frame zip of the point sequence to
@@ -186,6 +197,11 @@ where
 
 impl Renderer for TinySkiaRenderer<tiny_skia::Color> {
     type Color = tiny_skia::Color;
+
+    /// Owns a pixmap the size of the whole frame, so no region can be too
+    /// large. Damage still shrinks what the caller flushes — see
+    /// [`output_regions`](Self::output_regions).
+    type Policy = crate::region::Unbounded;
 
     fn size(&self) -> Size {
         self.size

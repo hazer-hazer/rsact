@@ -760,3 +760,188 @@ fn the_traversal_prune_hits_the_modelled_floor() {
         }
     });
 }
+
+/// WS6.4d: the ownership contract, driven end to end — an **N-buffered** loop
+/// over a surface an eighth the size of the frame.
+///
+/// This is the shape the whole redesign exists to make expressible, and every
+/// line of it is the application's:
+///
+/// - the buffers are the app's, allocated where the app wants them (here a
+///   heap `Vec`; on a device a `StaticCell` in whatever memory region the board
+///   calls for);
+/// - the renderer is the app's, passed into rsact per call and owned by nobody
+///   else — `UI` has no renderer field to hold a surface hostage;
+/// - the transport is the app's: `detach` hands back the painted tile *with*
+///   the rect to blit it at, and what happens next (a channel, a DMA burst, a
+///   blocking `spi.write`) is not rsact's business.
+///
+/// The assertion is that the tiled loop reconstructs the frame a full-size
+/// surface would have painted, pixel for pixel. That is stronger than op-log
+/// invariance, which cannot see an addressing mistake: a wrong origin or stride
+/// leaves the op log intact and produces a *plausible* image.
+#[test]
+fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
+    use embedded_graphics::pixelcolor::Rgb888;
+    use rsact_render::{
+        eg::{framebuf::PackedColor, renderer::EGRenderer},
+        output::{RenderTarget, pixel::Pixel},
+        region::Tiles,
+        renderer::AntiAliasingDisabled,
+    };
+
+    const W: u32 = 64;
+    const H: u32 = 64;
+    const TILE_H: u32 = 8;
+    let viewport = Size::new(W, H);
+
+    /// A full-frame pixel map: what the panel would end up holding.
+    struct Panel {
+        px: Vec<Option<Rgb888>>,
+    }
+    impl RenderTarget for Panel {
+        type Color = Rgb888;
+        fn draw(&mut self, pixels: impl Iterator<Item = Pixel<Self::Color>>) {
+            for Pixel(p, c) in pixels {
+                if p.x >= 0 && p.y >= 0 && (p.x as u32) < W && (p.y as u32) < H
+                {
+                    self.px[p.y as usize * W as usize + p.x as usize] = Some(c);
+                }
+            }
+        }
+    }
+    let blank = || Panel { px: vec![None; (W * H) as usize] };
+
+    /// Blit a detached tile onto the panel: **raw units plus the rect to put
+    /// them at**, which is exactly what a real transport receives — an ST7789
+    /// takes `CASET`/`RASET` and then the bytes.
+    ///
+    /// Deliberately not re-wrapping the buffer in a `PackedFramebuf` to reuse
+    /// `output_region`. That would let the test lean on rsact's own addressing
+    /// to read back what rsact's addressing wrote, which proves nothing; this
+    /// asserts the contract from outside — the tile is strided at its **own**
+    /// region width, so row `i` starts at `i * region.width`.
+    fn blit(panel: &mut Panel, tile: &[u32], region: Rect) {
+        let w = region.size.width as usize;
+        for row in 0..region.size.height as usize {
+            for col in 0..w {
+                let x = region.top_left.x + col as i32;
+                let y = region.top_left.y + row as i32;
+                if x < 0 || y < 0 || x as u32 >= W || y as u32 >= H {
+                    continue;
+                }
+                let color =
+                    <Rgb888 as PackedColor>::as_color(&tile[row * w + col], 0);
+                panel.px[y as usize * W as usize + x as usize] = Some(color);
+            }
+        }
+    }
+
+    type Full = EGRenderer<Rgb888, AntiAliasingDisabled, Box<[u32]>>;
+    type Tiled =
+        EGRenderer<Rgb888, AntiAliasingDisabled, Box<[u32]>, Tiles<W, TILE_H>>;
+    type FullWtf = Wtf<Full, (), Theme<Rgb888>, ()>;
+    type TiledWtf = Wtf<Tiled, (), Theme<Rgb888>, ()>;
+
+    fn page() -> impl View<FullWtf> {
+        Flex::col(vec![
+            Label::new("alpha".inert()).into_el(),
+            Checkbox::new(true).into_el(),
+            Label::new("omega".inert()).into_el(),
+        ])
+        .fill()
+        .gap(4u32)
+    }
+    // Same tree, other context — `View` is generic over `W`, so this is the
+    // same page under a renderer whose surface is an eighth the size.
+    fn tiled_page() -> impl View<TiledWtf> {
+        Flex::col(vec![
+            Label::new("alpha".inert()).into_el(),
+            Checkbox::new(true).into_el(),
+            Label::new("omega".inert()).into_el(),
+        ])
+        .fill()
+        .gap(4u32)
+    }
+
+    // ---- reference: one full-size surface, the whole-frame path ------------
+    let reference = with_new_runtime(|_| {
+        let mut renderer = Full::new(
+            viewport,
+            vec![0u32; (W * H) as usize].into_boxed_slice(),
+        );
+        let mut ui: UI<FullWtf, _> =
+            UI::new(Theme::default(), viewport).with_page((), page);
+        let mut panel = blank();
+        // The first frame is a full invalidate; the rest settle reactive state.
+        for _ in 0..8 {
+            ui.render(&mut renderer);
+        }
+        renderer.output(&mut panel);
+        panel
+    });
+
+    // ---- the same frame through an N-buffered tiled loop -------------------
+    let tiled = with_new_runtime(|_| {
+        // Three tiles in a pool, so the loop really does rotate buffers rather
+        // than reuse one — the case a single-buffer test would not exercise.
+        const TILE_UNITS: usize = (W * TILE_H) as usize;
+        let mut free: Vec<Box<[u32]>> = (0..3)
+            .map(|_| vec![0u32; TILE_UNITS].into_boxed_slice())
+            .collect();
+
+        let mut renderer = Tiled::tiled(viewport, free.pop().unwrap());
+        let mut ui: UI<TiledWtf, _> =
+            UI::new(Theme::default(), viewport).with_page((), tiled_page);
+        let mut panel = blank();
+        let mut regions_painted = 0usize;
+
+        // Same eight frames. The first is a full invalidate, which at a
+        // 64x8 budget is the degenerate strip case — eight bands, every widget
+        // cut by some boundary.
+        for _ in 0..8 {
+            let mut frame = ui.start_frame(&mut renderer);
+            while frame.render(&mut renderer).is_some() {
+                regions_painted += 1;
+                // Publish first, acquire second — the ordering that keeps a
+                // single-buffer pool from deadlocking (see `EGRenderer::attach`).
+                let (tile, dirty) = renderer.detach().expect("a painted tile");
+                blit(&mut panel, &tile, dirty);
+                free.push(tile);
+                renderer.attach(free.remove(0));
+            }
+        }
+
+        assert!(
+            regions_painted > 1,
+            "the tiled loop painted {regions_painted} region(s); a {W}x{H} \
+             viewport at a {W}x{TILE_H} budget must take more than one"
+        );
+        panel
+    });
+
+    // Not vacuous: an all-`None` comparison would pass trivially, and an
+    // addressing bug is exactly the kind that can leave a map empty.
+    let painted = |p: &Panel| p.px.iter().filter(|c| c.is_some()).count();
+    assert!(
+        painted(&reference) > (W * H) as usize / 3,
+        "the reference frame painted only {} of {} pixels",
+        painted(&reference),
+        W * H
+    );
+
+    let mismatches: Vec<usize> = (0..(W * H) as usize)
+        .filter(|&i| reference.px[i] != tiled.px[i])
+        .collect();
+    assert!(
+        mismatches.is_empty(),
+        "{} of {} pixels differ between a full framebuffer and an N-buffered \
+         tiled loop; first at ({}, {}): full {:?} vs tiled {:?}",
+        mismatches.len(),
+        W * H,
+        mismatches[0] % W as usize,
+        mismatches[0] / W as usize,
+        reference.px[mismatches[0]],
+        tiled.px[mismatches[0]],
+    );
+}

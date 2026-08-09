@@ -5,6 +5,7 @@ use crate::{
     geometry::{Point, PointExt as _},
     output::pixel::Pixel,
     primitives::{line::Line, polygon::Polygon},
+    region::FramePolicy,
     renderer::{
         AntiAliasingDisabled, AntiAliasingEnabled, RenderResult, Renderer,
     },
@@ -59,9 +60,14 @@ impl Polygon {
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Polygon {
     // TODO: Review this implementation
-    fn draw<B: Surface<C>>(
+    fn draw<B: Surface<C>, P: FramePolicy>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingDisabled, B>,
+        renderer: &mut crate::prelude::EGRenderer<
+            C,
+            AntiAliasingDisabled,
+            B,
+            P,
+        >,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         if let Some(fill_color) = style.fill {
@@ -89,9 +95,9 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Polygon {
         Ok(())
     }
 
-    fn draw_aa<B: Surface<C>>(
+    fn draw_aa<B: Surface<C>, P: FramePolicy>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingEnabled, B>,
+        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingEnabled, B, P>,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         if let Some(fill_color) = style.fill {

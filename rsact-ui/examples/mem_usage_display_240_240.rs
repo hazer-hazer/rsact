@@ -435,7 +435,11 @@ fn main() {
                 println!("Unhandled event {unhandled:?}");
             });
 
-        ui.render(&mut display);
+        if ui.render(&mut renderer) {
+            // The transport is the application's too: rsact says WHAT changed,
+            // the app decides how it reaches the panel.
+            ui.with_damage(|d| renderer.output_regions(&mut display, d));
+        }
         mem_leaked += GLOBAL.allocated().saturating_sub(mem_start);
 
         window.update(&display);

@@ -5,7 +5,7 @@ use embedded_graphics::{
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
-use rsact_render::eg::{framebuf::heap_surface, renderer::EGRenderer};
+use rsact_render::eg::renderer::EGRenderer;
 use rsact_tiny_icons::{IconSet, common::CommonIcon, system::SystemIcon};
 use rsact_ui::{
     page::id::SinglePage,
@@ -62,7 +62,9 @@ fn main() {
         .fill()
         .el(),);
 
-    ui.render(&mut display);
+    if ui.render(&mut renderer) {
+        ui.with_damage(|d| renderer.output_regions(&mut display, d));
+    }
 
     unsafe { env::set_var("EG_SIMULATOR_DUMP", "assets/icons.png") };
     window.show_static(&display);

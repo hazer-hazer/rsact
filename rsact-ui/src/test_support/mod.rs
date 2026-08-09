@@ -9,7 +9,7 @@ use crate::{
     el::ctx::{WidgetCtx, Wtf},
     page::Page,
     prelude::*,
-    ui::{UI, WithPages},
+    ui::{Frame, UI, WithPages},
 };
 use alloc::{format, string::String, vec::Vec};
 
@@ -24,8 +24,8 @@ pub fn labels_page(n: usize) -> (UI<NullWtf, WithPages>, Vec<Signal<String>>) {
         .map(|i| create_signal(format!("label {i}")))
         .collect();
     let init = labels.clone();
-    let mut ui: UI<NullWtf, _> = UI::new((), NullRenderer::default())
-        .with_page((), move || {
+    let mut ui: UI<NullWtf, _> =
+        UI::new((), Size::zero()).with_page((), move || {
             Flex::col(
                 init.iter()
                     .map(|s| Label::new(*s).into_el())
@@ -46,8 +46,8 @@ pub fn buttons_page(n: usize) -> (UI<NullWtf, WithPages>, Vec<Signal<String>>) {
         .map(|i| create_signal(format!("button {i}")))
         .collect();
     let init = labels.clone();
-    let mut ui: UI<NullWtf, _> = UI::new((), NullRenderer::default())
-        .with_page((), move || {
+    let mut ui: UI<NullWtf, _> =
+        UI::new((), Size::zero()).with_page((), move || {
             Flex::col(
                 init.iter()
                     .map(|s| Button::new(Label::new(*s)).into_el())
@@ -71,8 +71,8 @@ pub fn nested_flex_page(
         .map(|i| create_signal(format!("nested {i}")))
         .collect();
     let init = labels.clone();
-    let mut ui: UI<NullWtf, _> = UI::new((), NullRenderer::default())
-        .with_page((), move || {
+    let mut ui: UI<NullWtf, _> =
+        UI::new((), Size::zero()).with_page((), move || {
             Flex::col(
                 init.iter()
                     .map(|s| Flex::row([Label::new(*s).into_el()]).into_el())
@@ -138,5 +138,70 @@ impl<W: WidgetCtx> core::ops::Deref for TestPage<W> {
 impl<W: WidgetCtx> core::ops::DerefMut for TestPage<W> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.page
+    }
+}
+
+/// A [`UI`] bundled with the renderer it draws into (WS6.4d).
+///
+/// rsact no longer owns a renderer — the application lends one to each render
+/// call — but a *test* is the application, and threading `&mut renderer` through
+/// every assertion in a suite whose subject is something else entirely (layout
+/// counts, damage rects, probe wake-ups) is noise. This owns the pair and
+/// shadows the render entry points to supply it, exactly as [`TestPage`] does
+/// one level down.
+///
+/// It `Deref`s to the `UI`, so navigation, events and page access work
+/// unchanged. Production code should **not** grow an equivalent: the point of
+/// the ownership split is that the application decides when a surface is
+/// attached, and a bundle that hides the renderer hides that decision too.
+pub struct TestUi<W: WidgetCtx> {
+    pub ui: UI<W, WithPages>,
+    pub renderer: W::Renderer,
+}
+
+impl<W: WidgetCtx> TestUi<W> {
+    pub fn new(ui: UI<W, WithPages>, renderer: W::Renderer) -> Self {
+        Self { ui, renderer }
+    }
+
+    /// One whole-frame render pass, lending the owned renderer.
+    pub fn render(&mut self) -> bool {
+        self.ui.render(&mut self.renderer)
+    }
+
+    /// Poll the render gate, lending the owned renderer.
+    pub fn use_renderer(&mut self, f: impl FnOnce(&mut W::Renderer)) -> bool {
+        self.ui.use_renderer(&mut self.renderer, f)
+    }
+
+    /// Begin a tiled frame, returning it **with** the renderer to paint into.
+    ///
+    /// Both, because [`Frame::render`] needs the renderer per region and a
+    /// `Frame` borrowing all of `self` would put `self.renderer` out of reach.
+    /// The two borrows are disjoint fields, which is exactly the shape a real
+    /// caller has for free — there `ui` and `renderer` are separate locals.
+    ///
+    /// ```ignore
+    /// let (mut frame, renderer) = ui.frame();
+    /// while let Some(region) = frame.render(renderer) { … }
+    /// ```
+    pub fn frame(&mut self) -> (Frame<'_, W>, &mut W::Renderer) {
+        let Self { ui, renderer } = self;
+        let frame = ui.start_frame(renderer);
+        (frame, renderer)
+    }
+}
+
+impl<W: WidgetCtx> core::ops::Deref for TestUi<W> {
+    type Target = UI<W, WithPages>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.ui
+    }
+}
+
+impl<W: WidgetCtx> core::ops::DerefMut for TestUi<W> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.ui
     }
 }

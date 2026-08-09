@@ -34,17 +34,18 @@ fn main() {
 
     let page = row![col![select]].center().fill();
 
-    let mut ui = UI::new(
-        Theme::default(),
-        EGRenderer::new(
-            display.bounding_box().size.into(),
-            // The framebuffer is the APPLICATION's — rsact borrows it and gives
-            // it back. On a device this would be a `StaticCell` array instead.
-            heap_surface::<Rgb888>(display.bounding_box().size.into()),
-        ),
-    )
-    .with_page(SinglePage, page.el())
-    .on_exit(|| std::process::exit(0));
+    let viewport: Size = display.bounding_box().size.into();
+    // The framebuffer is the APPLICATION's — rsact never allocates one
+    // and never owns one. On a device this would be a `StaticCell` array
+    // placed wherever that board wants it (SDRAM, DTCM, a DMA pool).
+    let mut renderer = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
+        viewport,
+        vec![0u32; viewport.area() as usize].into_boxed_slice(),
+    );
+
+    let mut ui = UI::new(Theme::default(), viewport)
+        .with_page(SinglePage, page.el())
+        .on_exit(|| std::process::exit(0));
 
     let mut fps = 0;
     let mut last_time = Instant::now();
@@ -66,7 +67,11 @@ fn main() {
                 .inspect(|e| println!("Event: {e:?}")),
         );
 
-        ui.render(&mut display);
+        if ui.render(&mut renderer) {
+            // The transport is the application's too: rsact says WHAT changed,
+            // the app decides how it reaches the panel.
+            ui.with_damage(|d| renderer.output_regions(&mut display, d));
+        }
         window.update(&display);
     }
 }

@@ -80,16 +80,12 @@ pub mod prelude {
         primitives::*,
         renderer::EGRenderer,
     };
-    // The host-side surface allocator: a convenience for simulators and tests,
-    // deliberately a free function so the allocation stays at the call site.
-    #[cfg(all(feature = "embedded-graphics", feature = "std"))]
-    pub use crate::eg::framebuf::{heap_surface, heap_surface_units};
     #[cfg(feature = "tiny-skia")]
     pub use crate::tiny_skia::TinySkiaRenderer;
     pub use crate::{
         color::{BigEndian, ByteOrder, Color, LittleEndian, RgbColor as _},
         geometry::{Rect, Size, block_model::BlockModel, padding::Padding, *},
-        output::{ColorMapper, FinishRender, MapColor, RenderTarget},
+        output::{ColorMapper, MapColor, RenderTarget},
         path::*,
         primitives::{
             Primitive, PrimitiveKind, arc::Arc, block::Block, circle::Circle,
@@ -97,8 +93,8 @@ pub mod prelude {
             rounded_rect::RoundedRect, sector::Sector,
         },
         region::{
-            FramePolicy, RegionLimits, Tiles, Whole, assert_policy_fits,
-            plan_regions, plan_regions_into,
+            FramePolicy, RegionLimits, Tiles, Unbounded, Whole,
+            assert_policy_fits, plan_regions, plan_regions_into, policy_units,
         },
         renderer::{
             AntiAliasing, NullColor, NullRenderer, RenderResult, Renderer,

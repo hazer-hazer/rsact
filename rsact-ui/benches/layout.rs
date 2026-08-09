@@ -15,7 +15,16 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use rsact_reactive::{prelude::*, runtime::with_new_runtime};
 // Shared with metrics-probe (WS0.7j) so the bench and the snapshot tool build
 // the same canonical page and their numbers stay comparable.
-use rsact_ui::test_support::labels_page as build_ui;
+use rsact_ui::test_support::{TestUi, labels_page};
+
+// The renderer is the caller's now (WS6.4d); `TestUi` bundles the pair so the
+// bench measures layout rather than borrow plumbing.
+fn build_ui(
+    n: usize,
+) -> (TestUi<rsact_ui::test_support::NullWtf>, Vec<Signal<String>>) {
+    let (ui, labels) = labels_page(n);
+    (TestUi::new(ui, Default::default()), labels)
+}
 use std::{hint::black_box, time::Instant};
 
 const LABELS: usize = 10;

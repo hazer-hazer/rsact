@@ -158,12 +158,12 @@ fn main() {
     window.set_max_fps(9999999);
     window.update(&display);
 
-    let mut ui = UI::new(
-        Theme::<tiny_skia::Color>::default(),
-        TinySkiaRenderer::new(display.bounding_box().size.into()),
-    )
-    .with_page(SinglePage, page)
-    .on_exit(|| std::process::exit(0));
+    let viewport: Size = display.bounding_box().size.into();
+    let mut renderer = TinySkiaRenderer::new(viewport);
+
+    let mut ui = UI::new(Theme::<tiny_skia::Color>::default(), viewport)
+        .with_page(SinglePage, page)
+        .on_exit(|| std::process::exit(0));
 
     let mut fps = 0;
     let mut last_time = Instant::now();
@@ -185,7 +185,9 @@ fn main() {
                 .inspect(|e| println!("Event: {e:?}")),
         );
 
-        ui.render(&mut display);
+        if ui.render(&mut renderer) {
+            ui.with_damage(|d| renderer.output_regions(&mut display, d));
+        }
         window.update(&display);
     }
 }

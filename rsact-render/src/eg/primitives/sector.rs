@@ -1,5 +1,6 @@
 #[allow(unused)]
 use crate::FloatExt as _;
+use crate::region::FramePolicy;
 use crate::{
     color::Color,
     eg::framebuf::Surface,
@@ -16,9 +17,14 @@ use embedded_graphics::{
 };
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Sector {
-    fn draw<B: Surface<C>>(
+    fn draw<B: Surface<C>, P: FramePolicy>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingDisabled, B>,
+        renderer: &mut crate::prelude::EGRenderer<
+            C,
+            AntiAliasingDisabled,
+            B,
+            P,
+        >,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         embedded_graphics::primitives::Sector::new(
@@ -30,9 +36,9 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Sector {
         .draw_styled(&style.into_primitive_style(), renderer)
     }
 
-    fn draw_aa<B: Surface<C>>(
+    fn draw_aa<B: Surface<C>, P: FramePolicy>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingEnabled, B>,
+        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingEnabled, B, P>,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         let radius = self.diameter as i32 / 2;

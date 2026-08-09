@@ -24,28 +24,57 @@ use tinyvec::TinyVec;
 /// tree between two regions of the same frame a compile error rather than a
 /// documented contract.
 ///
-/// Regions are handed out in the display's own scan order. Dropping the handle
-/// early is allowed and safe — the regions not yet handed out are **deferred**
+/// Regions are painted in the display's own scan order. Dropping the handle
+/// early is allowed and safe — the regions not yet painted are **deferred**
 /// into the next frame rather than dropped, so an abandoned frame costs latency
 /// and never leaves a stale rectangle on the screen.
-pub struct Frame<'a, W: WidgetCtx, P: FramePolicy> {
+pub struct Frame<'a, W: WidgetCtx> {
     ui: &'a mut UI<W, WithPages>,
+    /// How many of `ui.frame_regions` have been **painted**.
+    ///
+    /// Advanced by [`render`](Self::render) and by nothing else, which is what
+    /// makes `planned[cursor..]` exactly the unpainted set — the invariant
+    /// `Drop` relies on to defer the rest. An earlier shape advanced it when a
+    /// region was *handed out*, so a frame abandoned between "here is region 3"
+    /// and painting it counted region 3 as done and dropped the damage: a stale
+    /// rectangle that nothing would repaint until whatever is underneath
+    /// happened to change on its own.
     cursor: usize,
-    policy: PhantomData<P>,
 }
 
-impl<W: WidgetCtx, P: FramePolicy> Frame<'_, W, P> {
-    /// The next region to paint, or `None` when the frame is done.
+impl<W: WidgetCtx> Frame<'_, W> {
+    /// Paint the next region, returning **the region that was painted**, or
+    /// `None` when the frame is done.
     ///
-    /// A `&mut self` cursor rather than an `Iterator`: an iterator would borrow
-    /// the frame for the whole loop, and [`Self::render`] needs `&mut self`
-    /// inside it.
-    pub fn next_region(&mut self) -> Option<Rect> {
-        let region = self.ui.frame_regions.get(self.cursor).copied();
-        if region.is_some() {
-            self.cursor += 1;
+    /// The region is a result, not a parameter. rsact keeps the cursor; there is
+    /// no index, handle or rect for the caller to hold and hand back, so there
+    /// is nothing to hand back *wrongly* — the class of bug where a plausible
+    /// frame is produced from the right tile blitted to the wrong place cannot
+    /// be expressed. It is returned rather than merely consumed because the
+    /// caller still needs to know what to flush; for a surface-backed renderer
+    /// the same rect comes back from `detach`, and the two agree by
+    /// construction because both come from the `begin_region` that just ran.
+    ///
+    /// Painting is untracked and probe-free: **everything intersecting the
+    /// region repaints**, changed or not, because the surface arrives holding
+    /// whatever the last region left in it. That is the tile contract, and it is
+    /// why region *shape* (rather than region count) is what the planner
+    /// optimises.
+    ///
+    /// The renderer is the caller's, borrowed for exactly this call.
+    pub fn render(&mut self, renderer: &mut W::Renderer) -> Option<Rect> {
+        let region = *self.ui.frame_regions.get(self.cursor)?;
+        self.cursor += 1;
+        let page = self.ui.current_page();
+        if page.paint_region(renderer, region).is_err() {
+            // WS1.8: a failed region is logged, not propagated — the frame
+            // continues and the next one repaints. Returning the region anyway
+            // is correct: it was begun, so the surface holds *something* for it,
+            // and flushing a partially-painted region beats leaving the previous
+            // region's pixels on screen.
+            log::error!("painting region {region:?} failed");
         }
-        region
+        Some(region)
     }
 
     /// How many regions this frame was planned into. Constant for the frame.
@@ -53,42 +82,17 @@ impl<W: WidgetCtx, P: FramePolicy> Frame<'_, W, P> {
         self.ui.frame_regions.len()
     }
 
-    /// Paint `region`.
+    /// The region [`render`](Self::render) will paint next, without painting it.
     ///
-    /// Untracked and probe-free: **everything intersecting `region` repaints**,
-    /// changed or not, because the surface arrives holding whatever the last
-    /// region left in it. That is the tile contract, and it is why region shape
-    /// (rather than region count) is what the planner optimises.
-    pub fn render(&mut self, region: Rect) -> RenderResult {
-        let (page, renderer) = self.ui.current_page_and_renderer();
-        page.paint_region(renderer, region)
-    }
-
-    /// The renderer, for the backend's own inherent API between regions —
-    /// attaching and detaching tile buffers, submitting a GPU pass.
-    ///
-    /// rsact never sees a surface (roadmap 6.4.0, "surface ownership"), so this
-    /// is the seam where the caller's buffers meet their renderer.
-    pub fn renderer(&mut self) -> &mut W::Renderer {
-        &mut self.ui.renderer
-    }
-
-    /// Flush `region` to `target` — the convenience path for backends that hand
-    /// rsact a `DrawTarget` (the simulator, the host tests, any generic
-    /// embedded-graphics driver) rather than owning their transport.
-    ///
-    /// A real tile pipeline does not call this: it takes the buffer through
-    /// [`Self::renderer`] and ships it itself, which is what keeps the IO — and
-    /// every `.await` — on the caller's side.
-    pub fn flush<T: RenderTarget>(&mut self, target: &mut T, region: Rect)
-    where
-        W::Renderer: FinishRender<T::Color>,
-    {
-        self.ui.renderer.finish_frame_regions(target, &[region]);
+    /// Informational — for logging, metrics, or deciding how big a buffer to
+    /// attach. It cannot desynchronise the cursor because nothing consumes it:
+    /// `render` takes no region.
+    pub fn peek_region(&self) -> Option<Rect> {
+        self.ui.frame_regions.get(self.cursor).copied()
     }
 }
 
-impl<W: WidgetCtx, P: FramePolicy> Drop for Frame<'_, W, P> {
+impl<W: WidgetCtx> Drop for Frame<'_, W> {
     fn drop(&mut self) {
         let cursor = self.cursor;
         let planned = &self.ui.frame_regions;
@@ -151,25 +155,33 @@ pub struct UI<W: WidgetCtx, P: HasPages> {
     /// page owns its own arena, so dropping it (on navigation) frees its tree.
     active_page: Option<Page<W>>,
     /// The viewport, a plain `Size` — see the TODO on [`Self::new`]: rsact
-    /// targets fixed displays and has no windowing, so this is a constant taken
-    /// from the renderer at construction. It was a `MaybeReactive<Size>` that
-    /// was always built as `Inert`, i.e. a reactive wrapper around a constant.
+    /// targets fixed displays and has no windowing, so this is a constant.
+    ///
+    /// WS6.4d: supplied directly rather than read from a renderer at
+    /// construction. The viewport is a property of the *display* — what to lay
+    /// out and cull against — not of how one draws to it, and a `UI` that does
+    /// not own a renderer has none to ask.
     viewport: Size,
     on_exit: Option<Box<dyn Fn()>>,
     // TODO: Get rid of Inert wrapper, it is at most RefCell
     stylist: Inert<W::Stylist>,
     dev_tools: Signal<DevTools>,
-    /// The renderer. WS5.0b: a plain single-owner field.
-    ///
-    /// It was a `Signal<W::Renderer>` copied into every page — not for
-    /// reactivity (it never had a subscriber; every access went through
-    /// `update_untracked`) but because `Inert` is read-only and `Signal` was the
-    /// only `Copy` handle yielding `&mut`. Pages now borrow it for the duration
-    /// of a render call (see [`Self::current_page_and_renderer`]), which drops a
-    /// reactive node, removes the last `update_untracked` on the render path,
-    /// and keeps the renderer's size out of any move — relevant once WS6.4d's
-    /// `TiledOutput<C, const MAX>` holds its buffer inline.
-    renderer: W::Renderer,
+    // NOTE (WS6.4d): `renderer: W::Renderer` lived here, and before that
+    // (pre-WS5.0b) as a `Signal<W::Renderer>` copied into every page. Both were
+    // wrong in the same way: rsact does not need to own a renderer, and owning
+    // one drags the *surface* along with it — which is how buffer swapping ended
+    // up on rsact's side of the boundary instead of the application's.
+    //
+    // `W::Renderer` remains a `WidgetCtx` associated type: `El<W>` is a
+    // `Box<dyn Widget<W>>` and `Canvas` holds a `Box<dyn Fn(&mut W::Renderer)>`,
+    // so the *type* is load-bearing. Only the ownership moved. The caller passes
+    // `&mut R` into the render call, which is also what infers `W::Renderer` for
+    // them — no annotation needed at the `UI::new` site.
+    //
+    // What this buys: the application decides when to attach, detach and flush a
+    // surface; a renderer may have no surface at all (streaming straight to the
+    // panel, encoding GPU commands); and N-buffering is expressible without
+    // rsact knowing that N exists.
     message_queue: Option<UiQueue<W>>,
     options: UiOptions,
     has_pages: PhantomData<P>,
@@ -202,6 +214,13 @@ pub struct UI<W: WidgetCtx, P: HasPages> {
     /// into the next frame's damage and re-planned, so it merges rather than
     /// accumulates and cannot grow without bound.
     deferred_regions: Vec<Rect>,
+    /// WS6.4d: a page change happened and the framebuffer still holds the old
+    /// page's pixels — clear it at the start of the next render.
+    ///
+    /// The renderer is not available at navigation time (see
+    /// [`Self::on_page_change`]), so the *intent* is recorded and acted on where
+    /// a renderer is in hand.
+    pending_clear: bool,
 }
 
 impl<R, I, S, E> UI<Wtf<R, I, S, E>, NoPages>
@@ -216,9 +235,14 @@ where
     // TODO: For now I made viewport inert, but it is possible for the viewport
     // to change (e.g. window resize, etc). But as now we targeting embedded
     // devices with fixed displays and don't support any windowing, I hold it.
-    pub fn new(stylist: S, renderer: R) -> Self {
-        let viewport = renderer.size();
-
+    /// `viewport` is the display's size, in pixels.
+    ///
+    /// WS6.4d: this used to be `new(stylist, renderer)`, reading the size from
+    /// the renderer. The renderer is no longer rsact's to hold, and this is the
+    /// only thing rsact ever wanted from it — so it is passed directly. `W` (and
+    /// with it `W::Renderer`) is inferred from the eventual
+    /// [`render`](UI::render) call, so the change costs no annotation.
+    pub fn new(stylist: S, viewport: Size) -> Self {
         let dev_tools =
             create_signal(DevTools { enabled: false, hovered: None });
 
@@ -232,13 +256,13 @@ where
             on_exit: None,
             stylist: stylist.inert(),
             dev_tools,
-            renderer,
             message_queue: None,
             options: Default::default(),
             has_pages: PhantomData,
             fonts,
             frame_regions: Vec::new(),
             deferred_regions: Vec::new(),
+            pending_clear: false,
         }
     }
 
@@ -290,13 +314,13 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
             on_exit: self.on_exit,
             stylist: self.stylist,
             dev_tools: self.dev_tools,
-            renderer: self.renderer,
             message_queue: self.message_queue,
             options: self.options,
             has_pages: PhantomData,
             fonts: self.fonts,
             frame_regions: self.frame_regions,
             deferred_regions: self.deferred_regions,
+            pending_clear: self.pending_clear,
         };
 
         // Go to page if it is the first one
@@ -395,19 +419,14 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
 /// # let _ = drew;
 /// # }
 /// ```
-pub fn render_once<W, T>(
+pub fn render_once<W: WidgetCtx>(
     build: impl FnOnce() -> UI<W, WithPages>,
-    target: &mut T,
-) -> bool
-where
-    W: WidgetCtx,
-    T: RenderTarget,
-    W::Renderer: FinishRender<T::Color>,
-{
+    renderer: &mut W::Renderer,
+) -> bool {
     // Everything `build` and the first render create lands in this scope.
     let scope = new_scope();
     let mut ui = build();
-    let drew = ui.render(target);
+    let drew = ui.render(renderer);
     // Drop the UI first (its page's Drop disposes the arena + probes), then the
     // scope (disposes the UI's own signals and any page build-time nodes) —
     // leaving the runtime as it was before the call.
@@ -417,42 +436,79 @@ where
 }
 
 impl<W: WidgetCtx> UI<W, WithPages> {
-    pub fn render<T: RenderTarget>(&mut self, target: &mut T) -> bool
-    where
-        W::Renderer: FinishRender<T::Color>,
-    {
-        let (page, renderer) = self.current_page_and_renderer();
-        page.render(renderer, target)
+    /// Run one whole-frame render pass into `renderer`, returning whether
+    /// anything was repainted.
+    ///
+    /// The probe-gated path: only the parts whose content actually changed are
+    /// repainted. What it repainted is [`Self::with_damage`], and streaming that
+    /// to a display is the caller's — this never touches a transport.
+    ///
+    /// ```ignore
+    /// if ui.render(&mut renderer) {
+    ///     ui.with_damage(|d| renderer.output_regions(&mut display, d));
+    /// }
+    /// ```
+    ///
+    /// For a surface smaller than the frame, see [`Self::start_frame`].
+    pub fn render(&mut self, renderer: &mut W::Renderer) -> bool {
+        self.take_pending_clear(renderer);
+        self.current_page().use_renderer(renderer, |_| {})
+    }
+
+    /// Repaint the background over the whole viewport if a page change asked
+    /// for it, and forget the request.
+    ///
+    /// The framebuffer outlives every page, so a new page inherits whatever the
+    /// old one left wherever its own widgets do not paint — and a `Flex` root
+    /// paints nothing at all.
+    fn take_pending_clear(&mut self, renderer: &mut W::Renderer) {
+        if core::mem::take(&mut self.pending_clear) {
+            self.current_page().clear(renderer);
+        }
+    }
+
+    /// The rects the last [`render`](Self::render) repainted — what a caller
+    /// with a `RenderTarget` should stream out (WS6.2's damage-driven flush).
+    ///
+    /// Borrowed rather than cloned: this runs once per frame on a device.
+    /// Empty before the first render, or with no page loaded.
+    pub fn with_damage<R>(&self, f: impl FnOnce(&[Rect]) -> R) -> R {
+        match self.active_page.as_ref() {
+            Some(page) => page.with_damage(f),
+            None => f(&[]),
+        }
     }
 
     /// WS6.4d: begin a **tiled frame** — plan it once, then paint and ship one
     /// region at a time.
     ///
-    /// ```text
-    /// let mut frame = ui.start_frame::<Tiles<240, 24>>();
-    /// while let Some(region) = frame.next_region() {
-    ///     frame.render(region)?;          // paint into the renderer's surface
-    ///     let tile = frame.renderer().detach();
-    ///     spi.write(tile).await;          // the IO is yours, always
+    /// ```ignore
+    /// let mut frame = ui.start_frame(&mut renderer);
+    /// while let Some(_region) = frame.render(&mut renderer) {
+    ///     let (tile, dirty) = renderer.detach().unwrap();
+    ///     ready.send((tile, dirty)).await;      // publish…
+    ///     renderer.attach(free.receive().await); // …then take the next buffer
     /// }
     /// ```
     ///
     /// Three properties this shape buys, and each is a constraint rather than a
     /// convenience:
     ///
-    /// - **The IO is the caller's.** Nothing here awaits, blocks or owns a
-    ///   transport; the loop above is the app's and every `.await` in it belongs
-    ///   to the app. That is what lets one synchronous core serve blocking SPI,
-    ///   polled DMA, Embassy and an RTIC ISR alike (roadmap 6.7).
+    /// - **The renderer and its IO are the caller's.** rsact borrows a renderer
+    ///   for the duration of a call and owns none; nothing here awaits, blocks
+    ///   or holds a transport. That is what lets one synchronous core serve
+    ///   blocking SPI, polled DMA, Embassy and an RTIC ISR alike (roadmap 6.7),
+    ///   and it is why buffer swapping — including N-buffering, which rsact
+    ///   cannot see — lives in the loop above rather than in here.
     /// - **`tick()` mid-frame is a compile error.** The returned handle borrows
     ///   `&mut self` for the whole frame, so nothing can mutate the tree between
     ///   two regions of the same frame — where "region 3 paints a widget region
     ///   1 painted differently" is a tear no test would reliably catch.
-    /// - **A surface too small for the policy does not compile.** The `const`
-    ///   block below is WS6.4.0(iii)'s capacity proof: the policy's largest
-    ///   region, converted to storage units by the renderer's own packing, must
-    ///   fit [`Renderer::SURFACE_UNITS`]. Violating it is a
-    ///   post-monomorphization error naming the concrete renderer and policy.
+    /// - **The regions are bounded by the renderer's own declaration.** The plan
+    ///   obeys [`Renderer::Policy`], so a renderer holding an 11 KiB tile is
+    ///   never handed a region it cannot fit. rsact checks nothing about the
+    ///   *surface* here — it has none to check; the backend compares its buffer
+    ///   against the same policy when the buffer is attached.
     ///
     /// The frame is **planned here, once**: one probe-gated [`Page::collect`]
     /// walk decides what changed, and the damage it records (plus anything a
@@ -463,23 +519,14 @@ impl<W: WidgetCtx> UI<W, WithPages> {
     /// separated "what changed" from "what does it look like there".
     ///
     /// [`Page::collect`]: crate::page::Page::collect
-    /// [`Renderer::SURFACE_UNITS`]: rsact_render::renderer::Renderer::SURFACE_UNITS
-    pub fn start_frame<P: FramePolicy>(&mut self) -> Frame<'_, W, P> {
-        // WS6.4.0(iii). An inline `const` block, so this is evaluated at
-        // monomorphization and the error names the instantiation:
-        // `UI::<Wtf<EgTileRenderer<Rgb565, [u16; 5760]>, …>>::start_frame::<Tiles<240, 25>>`.
-        const {
-            assert_policy_fits::<P>(
-                <W::Renderer as Renderer>::SURFACE_UNITS,
-                <W::Renderer as Renderer>::SURFACE_PIXELS_PER_UNIT,
-            )
-        }
+    /// [`Renderer::Policy`]: rsact_render::renderer::Renderer::Policy
+    pub fn start_frame(&mut self, renderer: &mut W::Renderer) -> Frame<'_, W> {
+        self.take_pending_clear(renderer);
 
         let viewport = Rect::new(Point::zero(), self.viewport);
 
         // Plan the frame: one tracked, probe-gated walk that paints nothing.
-        let (page, renderer) = self.current_page_and_renderer();
-        page.collect(renderer);
+        self.current_page().collect(renderer);
 
         // Fold this frame's damage into whatever a previous frame deferred, and
         // plan the union. `active_page` and `deferred_regions` are disjoint
@@ -495,16 +542,15 @@ impl<W: WidgetCtx> UI<W, WithPages> {
         plan_regions_into(
             &self.deferred_regions,
             viewport,
-            &P::limits(
+            &<<W::Renderer as Renderer>::Policy as FramePolicy>::limits(
                 self.viewport,
-                <W::Renderer as Renderer>::SURFACE_PIXELS_PER_UNIT,
             ),
             &mut planned,
         );
         self.frame_regions = planned;
         self.deferred_regions.clear();
 
-        Frame { ui: self, cursor: 0, policy: PhantomData }
+        Frame { ui: self, cursor: 0 }
     }
 
     /// Poll the current page's render gate **without** flushing to a display —
@@ -515,9 +561,12 @@ impl<W: WidgetCtx> UI<W, WithPages> {
     /// `ui.current_page().use_renderer(…)`; with the renderer owned by `UI`
     /// they would each have to split the page/renderer borrow by hand, so the
     /// split lives here once instead.
-    pub fn use_renderer(&mut self, f: impl FnOnce(&mut W::Renderer)) -> bool {
-        let (page, renderer) = self.current_page_and_renderer();
-        page.use_renderer(renderer, f)
+    pub fn use_renderer(
+        &mut self,
+        renderer: &mut W::Renderer,
+        f: impl FnOnce(&mut W::Renderer),
+    ) -> bool {
+        self.current_page().use_renderer(renderer, f)
     }
 
     /// The id of the page on top of the navigation history.
@@ -576,18 +625,6 @@ impl<W: WidgetCtx> UI<W, WithPages> {
     /// Assigning the freshly built page drops the previous one, disposing its
     /// arena.
     pub fn current_page(&mut self) -> &mut Page<W> {
-        self.current_page_and_renderer().0
-    }
-
-    /// The current page **and** the renderer, as two disjoint mutable borrows.
-    ///
-    /// WS5.0b: rendering needs both at once, and `current_page` alone borrows
-    /// all of `self`. Splitting the borrow here (rather than at each call site)
-    /// keeps the lazy page-build in one place; borrowck accepts it because the
-    /// two are distinct fields.
-    pub fn current_page_and_renderer(
-        &mut self,
-    ) -> (&mut Page<W>, &mut W::Renderer) {
         let current_id = self.current_page_id();
 
         let needs_load = self
@@ -600,13 +637,15 @@ impl<W: WidgetCtx> UI<W, WithPages> {
             self.active_page = Some(page);
         }
 
-        (
-            self.active_page
-                .as_mut()
-                .expect("Active page must be initialized"),
-            &mut self.renderer,
-        )
+        self.active_page
+            .as_mut()
+            .expect("Active page must be initialized")
     }
+
+    // NOTE (WS6.4d): `current_page_and_renderer` lived here, splitting a borrow
+    // of two `UI` fields because rendering needed both at once. With the
+    // renderer passed in by the caller there is only one field left to borrow,
+    // so the split — and every call site's two-tuple — is gone.
 
     // TODO: Unused
     // pub fn page(&mut self, id: W::PageId) -> &mut Page<W> {
@@ -618,10 +657,9 @@ impl<W: WidgetCtx> UI<W, WithPages> {
     /// [`Self::current_page`], which is invoked here.
     fn on_page_change(&mut self) {
         info!("UI: Page changed to {:?}", self.current_page_id());
-        let (page, renderer) = self.current_page_and_renderer();
         // WS6.4.0(iv): `clear` only. The `.force_redraw()` that used to follow it
         // was residue from stored pages, and BOTH of the things it did are now
-        // redundant here, because `current_page_and_renderer` above BUILDS a
+        // redundant here, because `current_page` above BUILDS a
         // fresh `Page` on a change:
         //
         //   - its invalidation broadcast: every probe in a fresh page is newborn
@@ -638,7 +676,13 @@ impl<W: WidgetCtx> UI<W, WithPages> {
         //
         // `page_change_flushes_the_whole_viewport` (in this module's tests) pins
         // the observable end of this, which had NO coverage before.
-        page.clear(renderer);
+        //
+        // WS6.4d: *deferred*, because there is no renderer here any more —
+        // navigation is driven by `tick`/`goto`, which handle input and own no
+        // transport. The next render pass consumes the flag. Deferring is not a
+        // compromise: the clear only has to happen before the new page paints,
+        // and both entry points below run it first thing.
+        self.pending_clear = true;
 
         // TODO
         // if self.options.auto_focus {
@@ -800,7 +844,7 @@ mod tests {
     /// first principles. The argument, now pinned here:
     ///
     /// - the broadcast half of `force_redraw()` was residue from stored pages.
-    ///   `current_page_and_renderer` BUILDS a fresh `Page` on a change, so every
+    ///   `current_page` BUILDS a fresh `Page` on a change, so every
     ///   probe is newborn and therefore dirty — the tree renders regardless.
     /// - the whole-viewport FLUSH is not residue. The framebuffer is one
     ///   `UI`-owned value outliving every page, and a `Flex` root's `render` is a
@@ -817,15 +861,15 @@ mod tests {
             type RecWtf =
                 crate::el::ctx::Wtf<RecordingRenderer<NullColor>, u8, (), ()>;
 
-            let mut ui: UI<RecWtf, _> =
-                UI::new((), RecordingRenderer::<NullColor>::new(viewport))
-                    .with_page(0u8, || Label::new("a".inert()).into_el())
-                    .with_page(1u8, || Label::new("b".inert()).into_el());
+            let mut r = RecordingRenderer::<NullColor>::new(viewport);
+            let mut ui: UI<RecWtf, _> = UI::new((), viewport)
+                .with_page(0u8, || Label::new("a".inert()).into_el())
+                .with_page(1u8, || Label::new("b".inert()).into_el());
 
             // Settle page 0: the first frame is a full invalidate, so render
             // until the damage set stops covering everything.
             for _ in 0..6 {
-                ui.use_renderer(|_| {});
+                ui.render(&mut r);
             }
             assert!(
                 ui.current_page().damage_snapshot() != vec![full],
@@ -833,7 +877,7 @@ mod tests {
             );
 
             ui.goto(1u8);
-            ui.use_renderer(|_| {});
+            ui.render(&mut r);
 
             let d = ui.current_page().damage_snapshot();
             assert_eq!(
@@ -850,7 +894,7 @@ mod tests {
     ///
     /// This is the *end-to-end* version of what WS6.4a's harness checks on
     /// synthetic schedules: it goes through the real public entry point
-    /// ([`UI::start_frame`] → `next_region` → `render`), on a real `UI` with a
+    /// ([`UI::start_frame`] → `render` per region), on a real `UI` with a
     /// real page, and the schedule is the planner's own — not one the test
     /// invented. `tile_invariance` is the assertion: every op a region is
     /// obliged to draw appears in that region's log, and no region draws
@@ -866,13 +910,17 @@ mod tests {
 
         with_new_runtime(|_| {
             let viewport = Size::new_equal(64);
-            type RecWtf =
-                crate::el::ctx::Wtf<RecordingRenderer<NullColor>, u8, (), ()>;
+            // 64x16 is four bands on this viewport, so the plan is the
+            // degenerate strip case — exactly the one where every widget is cut
+            // by some boundary. The policy rides on the RENDERER type now, so a
+            // harness declares it the same way a device would.
+            type Rec = RecordingRenderer<NullColor, Tiles<64, 16>>;
+            type RecWtf = crate::el::ctx::Wtf<Rec, u8, (), ()>;
 
-            let renderer = RecordingRenderer::<NullColor>::new(viewport);
+            let mut renderer = Rec::new(viewport);
             let recorder = renderer.clone();
             let mut ui: UI<RecWtf, _> =
-                UI::new((), renderer).with_page(0u8, || {
+                UI::new((), viewport).with_page(0u8, || {
                     Flex::col(vec![
                         Label::new("alpha".inert()).into_el(),
                         Checkbox::new(true).into_el(),
@@ -886,32 +934,34 @@ mod tests {
             // Settle: the first frames are full invalidates while reactive
             // state stabilises (same warm-up the WS6.9 goldens use).
             for _ in 0..6 {
-                ui.use_renderer(|_| {});
+                ui.render(&mut renderer);
             }
 
             // The reference: one forced full-viewport frame.
             recorder.clear();
             ui.current_page().force_redraw();
-            ui.use_renderer(|_| {});
+            ui.render(&mut renderer);
             let full = recorder.ops();
             assert!(!full.is_empty(), "the reference frame drew nothing");
 
-            // The same frame, tiled. 64x16 is four bands on this viewport, so
-            // the plan is the degenerate strip case — which is exactly the one
-            // where every widget is cut by some boundary.
+            // The same frame, tiled.
             ui.current_page().force_redraw();
             let mut passes = Vec::new();
             {
-                let mut frame = ui.start_frame::<Tiles<64, 16>>();
+                let mut frame = ui.start_frame(&mut renderer);
                 assert!(
                     frame.regions() > 1,
                     "a forced full redraw on a 64x64 viewport must plan more \
                      than one 64x16 region, got {}",
                     frame.regions()
                 );
-                while let Some(region) = frame.next_region() {
+                // `render` clears the recorder itself would be wrong — the
+                // clear has to happen between regions, so it is the caller's.
+                loop {
                     recorder.clear();
-                    frame.render(region).expect("paint_region failed");
+                    let Some(region) = frame.render(&mut renderer) else {
+                        break;
+                    };
                     passes.push(TilePass { tile: region, ops: recorder.ops() });
                 }
             }
@@ -942,31 +992,30 @@ mod tests {
 
         with_new_runtime(|_| {
             let viewport = Size::new_equal(64);
-            type RecWtf =
-                crate::el::ctx::Wtf<RecordingRenderer<NullColor>, u8, (), ()>;
+            type Rec = RecordingRenderer<NullColor, Tiles<64, 16>>;
+            type RecWtf = crate::el::ctx::Wtf<Rec, u8, (), ()>;
 
-            let mut ui: UI<RecWtf, _> =
-                UI::new((), RecordingRenderer::<NullColor>::new(viewport))
-                    .with_page(0u8, || Label::new("abandon".inert()).into_el());
+            let mut renderer = Rec::new(viewport);
+            let mut ui: UI<RecWtf, _> = UI::new((), viewport)
+                .with_page(0u8, || Label::new("abandon".inert()).into_el());
 
             for _ in 0..6 {
-                ui.use_renderer(|_| {});
+                ui.render(&mut renderer);
             }
 
             ui.current_page().force_redraw();
             let planned = {
-                let mut frame = ui.start_frame::<Tiles<64, 16>>();
+                let mut frame = ui.start_frame(&mut renderer);
                 let planned = frame.regions();
                 assert!(planned >= 2, "need a multi-region frame to abandon");
-                let first = frame.next_region().unwrap();
-                frame.render(first).expect("paint_region failed");
+                frame.render(&mut renderer).expect("a region to paint");
                 planned
                 // dropped here with `planned - 1` regions unpainted
             };
 
             // Nothing changed in between, so anything this frame plans came
             // from the deferral.
-            let frame = ui.start_frame::<Tiles<64, 16>>();
+            let frame = ui.start_frame(&mut renderer);
             assert_eq!(
                 frame.regions(),
                 planned - 1,
@@ -991,25 +1040,23 @@ mod tests {
 
         with_new_runtime(|_| {
             let viewport = Size::new_equal(64);
-            type RecWtf =
-                crate::el::ctx::Wtf<RecordingRenderer<NullColor>, u8, (), ()>;
+            type Rec = RecordingRenderer<NullColor, Tiles<64, 16>>;
+            type RecWtf = crate::el::ctx::Wtf<Rec, u8, (), ()>;
 
-            let mut ui: UI<RecWtf, _> =
-                UI::new((), RecordingRenderer::<NullColor>::new(viewport))
-                    .with_page(0u8, || Label::new("settled".inert()).into_el());
+            let mut renderer = Rec::new(viewport);
+            let mut ui: UI<RecWtf, _> = UI::new((), viewport)
+                .with_page(0u8, || Label::new("settled".inert()).into_el());
 
             for _ in 0..6 {
-                ui.use_renderer(|_| {});
+                ui.render(&mut renderer);
             }
             // Drain any frame the warm-up left planned.
-            while ui.start_frame::<Tiles<64, 16>>().regions() > 0 {
-                let mut frame = ui.start_frame::<Tiles<64, 16>>();
-                while let Some(region) = frame.next_region() {
-                    frame.render(region).expect("paint_region failed");
-                }
+            while ui.start_frame(&mut renderer).regions() > 0 {
+                let mut frame = ui.start_frame(&mut renderer);
+                while frame.render(&mut renderer).is_some() {}
             }
 
-            let frame = ui.start_frame::<Tiles<64, 16>>();
+            let frame = ui.start_frame(&mut renderer);
             assert_eq!(
                 frame.regions(),
                 0,
@@ -1031,14 +1078,14 @@ mod tests {
             // Explicit colour: `NullRenderer` is generic since WS6.4.0(ii-4),
             // and a bare `default()` in a `&mut _` argument position has nothing
             // to infer `C` from.
-            let mut target = NullRenderer::<NullColor>::default();
+            let mut renderer = NullRenderer::<NullColor>::default();
             let drew = render_once(
                 || {
-                    UI::new((), NullRenderer::default())
+                    UI::new((), Size::new_equal(64))
                         .no_events()
                         .with_page((), || Label::new("x".inert()).into_el())
                 },
-                &mut target,
+                &mut renderer,
             );
 
             assert!(drew, "render_once must draw the first frame");

@@ -595,7 +595,7 @@ impl<W: WidgetCtx> Page<W> {
     /// path WS6.4/WS18 want allocation-free once warmed up.
     ///
     /// [`UI::start_frame`]: crate::ui::UI::start_frame
-    pub(crate) fn with_damage<R>(&self, f: impl FnOnce(&[Rect]) -> R) -> R {
+    pub fn with_damage<R>(&self, f: impl FnOnce(&[Rect]) -> R) -> R {
         f(&self.damage.borrow())
     }
 
@@ -1011,31 +1011,11 @@ impl<W: WidgetCtx> Page<W> {
         unhandled
     }
 
-    /// Render this page into `renderer`, then flush it to `target`.
-    ///
-    /// WS5.0b: the renderer is borrowed for the call, not owned by the page —
-    /// `UI` is its single owner (see [`UI::current_page_and_renderer`]).
-    ///
-    /// [`UI::current_page_and_renderer`]: crate::ui::UI::current_page_and_renderer
-    pub fn render<T: RenderTarget>(
-        &mut self,
-        renderer: &mut W::Renderer,
-        target: &mut T,
-    ) -> bool
-    where
-        W::Renderer: FinishRender<T::Color>,
-    {
-        // Run the render pass (fills `self.damage` with the repainted rects),
-        // then flush ONLY those rects (WS6.2 + WS6.3). A backend that doesn't
-        // implement region flushing falls back to a full `finish_frame`
-        // (default trait method), so this is safe for every renderer.
-        let drawn = self.use_renderer(renderer, |_| {});
-        if drawn {
-            let damage = self.damage.borrow();
-            renderer.finish_frame_regions(target, &damage);
-        }
-        drawn
-    }
+    // NOTE (WS6.4d): `render(renderer, target)` lived here and flushed the damage
+    // and flushed the damage itself through `FinishRender`. Both halves moved
+    // out: the renderer is the caller's, and so is the transport.
+    // `use_renderer` runs the pass; `with_damage` says what it repainted, and
+    // the caller streams that out however it likes.
 
     /// The render pass proper: walk the tree into `renderer`, then draw the
     /// dev-tools overlay. Split out of [`Self::use_renderer`] (WS5.0b) so the
@@ -2245,16 +2225,9 @@ mod tests {
             }
         }
 
-        impl<C> FinishRender<C> for RecordingRenderer {
-            fn finish_frame(
-                &mut self,
-                _target: &mut impl RenderTarget<Color = C>,
-            ) {
-            }
-        }
-
         impl Renderer for RecordingRenderer {
             type Color = NullColor;
+            type Policy = rsact_render::region::Unbounded;
             fn size(&self) -> Size {
                 Size::new_equal(64)
             }
