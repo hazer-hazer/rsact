@@ -53,6 +53,12 @@
     "branch": "ws6.4d-tiled-output",
     "subject": "WS6.4d(1): measure the traversal term, and correct max_regions' justification"
   },
+  "201deea1896eeaccdb2cfb9a1e97751309326d13": {
+    "date": 1786312411,
+    "parent": "",
+    "branch": "ws6.4d-tile-renderer",
+    "subject": "WS6.4d(9): a detached renderer cannot draw — it has no surface field to draw into"
+  },
   "22b3f94d8350acaf418573a087c608d8dd30f4c9": {
     "date": 1786133931,
     "parent": "",
