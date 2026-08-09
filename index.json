@@ -143,6 +143,12 @@
     "branch": "ws6.4d-tile-renderer",
     "subject": "WS6.4d(6): a tiled surface must DECLARE its capacity, or the proof cannot see it"
   },
+  "6e5c9a4d9dbf0c309fead72225b8f95d5d6b1631": {
+    "date": 1786281657,
+    "parent": "",
+    "branch": "ws6.4d-tile-renderer",
+    "subject": "WS6.4d(6): the renderer BORROWS its surface — attach/detach, no self-allocation"
+  },
   "73386c04d25c38e5ef2aae8ea982403cdfb2aca5": {
     "date": 1785871204,
     "parent": "",
