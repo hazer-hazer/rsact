@@ -192,13 +192,13 @@ fn main() {
         );
 
         if ui.render(&mut renderer) {
-            let (pixmap, covers) = renderer.detach().expect("attached");
+            let (parked, pixmap, covers) = renderer.detach();
             ui.with_damage(|rects| {
                 for r in rects {
                     flush_rect(&mut display, &pixmap, covers, *r);
                 }
             });
-            renderer.attach(pixmap);
+            renderer = parked.attach(pixmap);
         }
         window.update(&display);
     }

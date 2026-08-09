@@ -9,7 +9,7 @@ use crate::{
     geometry::PointExt as _,
     output::pixel::Pixel,
     primitives::line::Line,
-    renderer::RenderResult,
+    renderer::{AntiAliasingDisabled, AntiAliasingEnabled, RenderResult},
 };
 use embedded_graphics::{
     geometry::Point as EgPoint, pixelcolor::PixelColor,
@@ -17,7 +17,7 @@ use embedded_graphics::{
 };
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Line {
-    fn draw<R: EgPrimitiveRenderer<C>>(
+    fn draw<R: EgPrimitiveRenderer<C, AntiAliasingDisabled>>(
         &self,
         renderer: &mut R,
         style: crate::prelude::DrawStyle<C>,
@@ -29,7 +29,7 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Line {
         .draw_styled(&style.into_primitive_style(), renderer)
     }
 
-    fn draw_aa<R: EgPrimitiveRenderer<C>>(
+    fn draw_aa<R: EgPrimitiveRenderer<C, AntiAliasingEnabled>>(
         &self,
         renderer: &mut R,
         style: crate::prelude::DrawStyle<C>,

@@ -1,5 +1,6 @@
 #[allow(unused)]
 use crate::FloatExt as _;
+use crate::renderer::{Attached, Attachment, Detached};
 use crate::{
     prelude::{Angle, DrawStyle, Path, Point, Rect, RenderResult, Size, *},
     tiny_skia::path::PathBuilderExt,
@@ -55,10 +56,15 @@ pub mod path;
 /// [`EGRenderer`]: crate::eg::renderer::EGRenderer
 /// [`Frame::peek_region`]: https://docs.rs/rsact-ui
 /// [`begin_region`]: Renderer::begin_region
-pub struct TinySkiaRenderer<C, P = crate::region::Unbounded> {
-    /// `None` between a `detach` and the next `attach` — the window in which
-    /// the owner holds their pixmap (encoding a PNG, blitting it, dropping it).
-    pixmap: Option<Pixmap>,
+pub struct TinySkiaRenderer<
+    C,
+    P = crate::region::Unbounded,
+    A: Attachment<Pixmap> = Attached,
+> {
+    /// The lent pixmap — and only in the [`Attached`] state, where its type is
+    /// `Pixmap`. In [`Detached`] it is `()`: no field, nothing to unwrap, and
+    /// no "drawing with nothing attached" case for any method to handle.
+    pixmap: A::Slot,
     /// Where the attached pixmap's `(0, 0)` sits in absolute frame coordinates.
     ///
     /// rsact paints in absolute coordinates (WS6.4.0(ii-3)); rebasing them into
@@ -95,38 +101,67 @@ impl TinySkiaRenderer<tiny_skia::Color, crate::region::Unbounded> {
     /// [`tiled`](TinySkiaRenderer::tiled) is the constructor for a pixmap
     /// reused across regions under a declared policy.
     pub fn new(size: Size, pixmap: Pixmap) -> Self {
-        Self::build(size, pixmap)
+        TinySkiaRenderer::<tiny_skia::Color, _, Detached>::parked(size)
+            .attach(pixmap)
     }
 }
 
 impl<P: crate::region::FramePolicy> TinySkiaRenderer<tiny_skia::Color, P> {
     /// A pixmap reused across regions, bounded by policy `P` — checked as a
-    /// **shape** at [`attach`](Self::attach), for the reason in the type docs.
+    /// **shape** at [`attach`](TinySkiaRenderer::attach), for the reason in the
+    /// type docs.
     pub fn tiled(size: Size, pixmap: Pixmap) -> Self {
-        Self::build(size, pixmap)
+        TinySkiaRenderer::<tiny_skia::Color, P, Detached>::parked(size)
+            .attach(pixmap)
     }
 
-    fn build(size: Size, pixmap: Pixmap) -> Self {
-        let mut this = Self {
-            pixmap: None,
-            origin: Point::zero(),
-            size,
-            viewport_stack: vec![ViewportKind::root()],
-            clip_mask: None,
+    /// Take the pixmap back, with the region that was painted into it.
+    ///
+    /// Consumes the renderer and returns it [`Detached`]: the state with no
+    /// pixmap field, so nothing can paint into a surface the caller is holding.
+    ///
+    /// The rect comes from the renderer because `begin_region` told it where it
+    /// was painting — re-pairing a surface with a rect by hand produces a
+    /// plausible image rather than an obvious failure.
+    pub fn detach(
+        self,
+    ) -> (TinySkiaRenderer<tiny_skia::Color, P, Detached>, Pixmap, Rect) {
+        let at = Rect::new(
+            self.origin,
+            Size::new(self.pixmap.width(), self.pixmap.height()),
+        );
+        let parked = TinySkiaRenderer {
+            pixmap: (),
+            origin: self.origin,
+            size: self.size,
+            viewport_stack: self.viewport_stack,
+            clip_mask: self.clip_mask,
             _color: PhantomData,
             _policy: PhantomData,
         };
-        this.attach(pixmap);
-        this
+        (parked, self.pixmap, at)
     }
 
-    /// Lend the renderer a pixmap, returning whatever it held.
+    /// Exchange pixmaps in place, returning the painted one and its rect.
     ///
+    /// Sugar over detach + attach, and — unlike them — it keeps `&mut self`,
+    /// because the renderer is never observably without a surface. Not the
+    /// primitive: see `EGRenderer::detach` for why a single-buffer pool
+    /// deadlocks under swap-only.
+    pub fn swap(&mut self, next: Pixmap) -> (Pixmap, Rect) {
+        Self::check_shape(&next);
+        let at = Rect::new(
+            self.origin,
+            Size::new(self.pixmap.width(), self.pixmap.height()),
+        );
+        (core::mem::replace(&mut self.pixmap, next), at)
+    }
+
     /// # Panics
     ///
     /// If `pixmap` is smaller than policy `P`'s largest region in either
     /// dimension. A **shape** check, not a capacity one — see the type docs.
-    pub fn attach(&mut self, pixmap: Pixmap) -> Option<Pixmap> {
+    fn check_shape(pixmap: &Pixmap) {
         if let Some(max) = <P as crate::region::FramePolicy>::MAX_REGION {
             assert!(
                 pixmap.width() >= max.width && pixmap.height() >= max.height,
@@ -139,52 +174,58 @@ impl<P: crate::region::FramePolicy> TinySkiaRenderer<tiny_skia::Color, P> {
                 max.height,
             );
         }
-        self.pixmap.replace(pixmap)
     }
 
-    /// Take the pixmap back, with the region that was painted into it.
+    fn painted_size(&self) -> Size {
+        Size::new(self.pixmap.width(), self.pixmap.height())
+    }
+}
+
+impl<P: crate::region::FramePolicy>
+    TinySkiaRenderer<tiny_skia::Color, P, Detached>
+{
+    /// A renderer with no pixmap yet — the state one is attached *to*.
     ///
-    /// The rect comes from the renderer because `begin_region` told it where it
-    /// was painting — re-pairing a surface with a rect by hand produces a
-    /// plausible image rather than an obvious failure.
-    pub fn detach(&mut self) -> Option<(Pixmap, Rect)> {
-        let at = Rect::new(self.origin, self.painted_size()?);
-        self.pixmap.take().map(|pixmap| (pixmap, at))
-    }
-
-    /// [`detach`](Self::detach) then [`attach`](Self::attach), for callers with
-    /// two or more pixmaps who do not care about the ordering. See
-    /// `EGRenderer::attach` for why the split pair is the primitive.
-    pub fn swap(&mut self, next: Pixmap) -> Option<(Pixmap, Rect)> {
-        let ready = self.detach();
-        self.attach(next);
-        ready
-    }
-
-    pub fn is_attached(&self) -> bool {
-        self.pixmap.is_some()
-    }
-
-    fn painted_size(&self) -> Option<Size> {
-        let pixmap = self.pixmap.as_ref()?;
-        Some(Size::new(pixmap.width(), pixmap.height()))
-    }
-
-    /// The attached pixmap, or `None` while its owner holds it.
-    ///
-    /// Every drawing path goes through this and degrades to a logged no-op when
-    /// detached (WS1.8: the UI logs and continues; a panic in a render loop that
-    /// runs every frame is not recoverable).
-    fn surface_mut(&mut self) -> Option<&mut Pixmap> {
-        if self.pixmap.is_none() {
-            log::warn!(
-                "drawing with no pixmap attached — the region is discarded. \
-                 Attach one before painting, or paint before detaching."
-            );
+    /// Useful on its own: an app whose surfaces arrive from a channel can build
+    /// the renderer at boot and wait for the first one, which the `Option`-based
+    /// shape could express only as "constructed but secretly broken".
+    pub fn parked(size: Size) -> Self {
+        Self {
+            pixmap: (),
+            origin: Point::zero(),
+            size,
+            viewport_stack: vec![ViewportKind::root()],
+            clip_mask: None,
+            _color: PhantomData,
+            _policy: PhantomData,
         }
-        self.pixmap.as_mut()
     }
 
+    /// Lend the renderer a pixmap. Consumes the parked renderer and returns an
+    /// [`Attached`] one — the only state that can draw.
+    ///
+    /// # Panics
+    ///
+    /// If `pixmap` is smaller than policy `P`'s largest region in either
+    /// dimension — a **shape** check, not a capacity one (see the type docs).
+    pub fn attach(
+        self,
+        pixmap: Pixmap,
+    ) -> TinySkiaRenderer<tiny_skia::Color, P, Attached> {
+        TinySkiaRenderer::<tiny_skia::Color, P, Attached>::check_shape(&pixmap);
+        TinySkiaRenderer {
+            pixmap,
+            origin: self.origin,
+            size: self.size,
+            viewport_stack: self.viewport_stack,
+            clip_mask: self.clip_mask,
+            _color: PhantomData,
+            _policy: PhantomData,
+        }
+    }
+}
+
+impl<P: crate::region::FramePolicy> TinySkiaRenderer<tiny_skia::Color, P> {
     /// The transform that carries absolute frame coordinates into the attached
     /// pixmap's own space.
     ///
@@ -211,10 +252,7 @@ impl<P: crate::region::FramePolicy> TinySkiaRenderer<tiny_skia::Color, P> {
         // frame-sized mask over a tile-sized pixmap would both over-allocate and
         // mis-address, letting drawing escape the region — the exact failure
         // `ViewportKind::nested_in` exists to prevent one level up.
-        let Some(size) = self.painted_size() else {
-            self.clip_mask = None;
-            return;
-        };
+        let size = self.painted_size();
         let transform = self.base_transform();
         self.clip_mask = match self.current_viewport().clip_bounds() {
             None => None,
@@ -268,7 +306,6 @@ impl<P: crate::region::FramePolicy> TinySkiaRenderer<tiny_skia::Color, P> {
             paint.set_color(fill);
 
             let Self { pixmap, clip_mask, .. } = self;
-            let Some(pixmap) = pixmap.as_mut() else { return };
             pixmap.fill_path(
                 path,
                 &paint,
@@ -290,7 +327,6 @@ impl<P: crate::region::FramePolicy> TinySkiaRenderer<tiny_skia::Color, P> {
             stroke.line_cap = tiny_skia::LineCap::Round;
 
             let Self { pixmap, clip_mask, .. } = self;
-            let Some(pixmap) = pixmap.as_mut() else { return };
             pixmap.stroke_path(
                 path,
                 &paint,
@@ -336,11 +372,8 @@ impl<P: crate::region::FramePolicy> Renderer
     /// A pixmap already covering the frame skips both: it needs no rebase, and
     /// clearing it would erase the frame a damage-driven repaint relies on.
     fn begin_region(&mut self, region: Rect) -> RenderResult {
-        let full_frame = self.painted_size().is_some_and(|s| {
-            s.width >= self.size.width && s.height >= self.size.height
-        });
-        let Some(size) = self.painted_size() else { return Ok(()) };
-        if full_frame {
+        let size = self.painted_size();
+        if size.width >= self.size.width && size.height >= self.size.height {
             return Ok(());
         }
         if size.width < region.size.width || size.height < region.size.height {
@@ -358,9 +391,7 @@ impl<P: crate::region::FramePolicy> Renderer
             return Err(());
         }
         self.origin = region.top_left;
-        if let Some(pixmap) = self.pixmap.as_mut() {
-            pixmap.fill(tiny_skia::Color::WHITE);
-        }
+        self.pixmap.fill(tiny_skia::Color::WHITE);
         self.rebuild_clip_mask();
         Ok(())
     }
@@ -381,9 +412,11 @@ impl<P: crate::region::FramePolicy> Renderer
         // Fullscreen ⇒ the surface rect (see `EGRenderer::renderer_clip_bounds`).
         // Absolute, like every rect crossing this boundary: the pixmap's own
         // rect is `origin + its size`, not `(0,0) + its size`.
-        Some(self.current_viewport().clip_bounds().unwrap_or_else(|| {
-            Rect::new(self.origin, self.painted_size().unwrap_or(self.size))
-        }))
+        Some(
+            self.current_viewport()
+                .clip_bounds()
+                .unwrap_or_else(|| Rect::new(self.origin, self.painted_size())),
+        )
     }
 
     fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult {
@@ -393,7 +426,6 @@ impl<P: crate::region::FramePolicy> Renderer
 
         let transform = self.base_transform();
         let Self { pixmap, clip_mask, .. } = self;
-        let Some(pixmap) = pixmap.as_mut() else { return Ok(()) };
         pixmap.fill_rect(rect.into(), &paint, transform, clip_mask.as_ref());
 
         Ok(())
@@ -409,7 +441,7 @@ impl<P: crate::region::FramePolicy> Renderer
         // Indexes the pixmap directly, so it must apply the origin rebase by
         // hand — the `Transform` the draw calls get does not reach here.
         let local = point - self.origin;
-        let Some(pixmap) = self.surface_mut() else { return Ok(()) };
+        let pixmap = &mut self.pixmap;
         let (w, h) = (pixmap.width(), pixmap.height());
         if local.x < 0
             || local.y < 0
@@ -606,7 +638,6 @@ impl<P: crate::region::FramePolicy> Renderer
         let paint = PixmapPaint::default();
         let origin = self.origin;
         let Self { pixmap, clip_mask, .. } = self;
-        let Some(pixmap) = pixmap.as_mut() else { return Ok(()) };
         // `draw_pixmap` takes integer coordinates rather than a transform for
         // placement, so the rebase is a subtraction here too.
         pixmap.draw_pixmap(
@@ -679,9 +710,8 @@ mod tests {
     /// project — the first was a golden test drawing `WHITE` on a `WHITE`
     /// background.) So: paint BLACK, and look for pixels that are not white.
     fn row_has_ink(r: &TinySkiaRenderer<tiny_skia::Color>, y: u32) -> bool {
-        let pixmap = r.pixmap.as_ref().expect("attached");
-        let w = pixmap.width();
-        let px = pixmap.pixels();
+        let w = r.pixmap.width();
+        let px = r.pixmap.pixels();
         (0..w).any(|x| {
             let p = px[(y * w + x) as usize];
             (p.red(), p.green(), p.blue()) != (255, 255, 255)
@@ -811,14 +841,14 @@ mod tests {
         // Reference: one full-frame pixmap, one pass.
         let mut full = TinySkiaRenderer::new(viewport, pixmap(viewport));
         content(&mut full);
-        let (reference, _) = full.detach().expect("attached");
+        let (_, reference, _) = full.detach();
 
         // Tiled: a W x BAND pixmap — a quarter of the frame — reattached per
         // region, exactly as a caller sizing from `Frame::peek_region` would.
         let mut composed = pixmap(viewport);
         let band = Size::new(W, BAND);
         let mut tiled = TinySkiaRenderer::new(viewport, pixmap(band));
-        let mut spare = Some(pixmap(band));
+        let mut spare = pixmap(band);
 
         for i in 0..(H / BAND) as i32 {
             let region = Rect::new(Point::new(0, i * BAND as i32), band);
@@ -828,7 +858,7 @@ mod tests {
             tiled.pop_clip();
             tiled.end_region().unwrap();
 
-            let (tile, at) = tiled.detach().expect("a painted tile");
+            let (parked, tile, at) = tiled.detach();
             // The caller's blit: raw pixels plus where they go.
             for row in 0..at.size.height as usize {
                 for col in 0..at.size.width as usize {
@@ -838,8 +868,8 @@ mod tests {
                     composed.pixels_mut()[y * W as usize + x] = src;
                 }
             }
-            tiled.attach(spare.take().unwrap());
-            spare = Some(tile);
+            tiled = parked.attach(spare);
+            spare = tile;
         }
 
         // Not vacuous: the reference must actually hold a picture.

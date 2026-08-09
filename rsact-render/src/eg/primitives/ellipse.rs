@@ -9,13 +9,13 @@ use crate::{
     geometry::{Point, PointExt as _, Size},
     output::pixel::Pixel,
     primitives::{circle::Circle, ellipse::Ellipse},
-    renderer::RenderResult,
+    renderer::{AntiAliasingDisabled, AntiAliasingEnabled, RenderResult},
     style::StrokeAlignment,
 };
 use embedded_graphics::{pixelcolor::PixelColor, primitives::StyledDrawable};
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Ellipse {
-    fn draw<R: EgPrimitiveRenderer<C>>(
+    fn draw<R: EgPrimitiveRenderer<C, AntiAliasingDisabled>>(
         &self,
         renderer: &mut R,
         style: crate::prelude::DrawStyle<C>,
@@ -27,7 +27,7 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Ellipse {
         .draw_styled(&style.into_primitive_style(), renderer)
     }
 
-    fn draw_aa<R: EgPrimitiveRenderer<C>>(
+    fn draw_aa<R: EgPrimitiveRenderer<C, AntiAliasingEnabled>>(
         &self,
         renderer: &mut R,
         style: crate::prelude::DrawStyle<C>,

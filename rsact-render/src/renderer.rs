@@ -62,6 +62,73 @@ pub const fn region_units(w: u32, h: u32, pixels_per_unit: usize) -> usize {
 //     }
 // }
 
+/// Whether a renderer is holding its surface — a **type-state**, not a flag.
+///
+/// The same shape as `UI<W, HasPages>`: a marker parameter that decides which
+/// methods exist. The twist is [`Slot`](Attachment::Slot), and it is what makes
+/// this worth doing rather than decorative — a plain marker could only *guard*
+/// an `Option<B>` field, leaving the `unwrap` inside. An associated type lets
+/// the field itself change shape: the surface when attached, `()` when not. So
+/// there is no `Option`, no `unwrap`, and no "drawing while detached" branch on
+/// any hot path — that state is simply not a value a drawing method can be
+/// called on.
+///
+/// The invariant it removes was real. `EGRenderer` used to log a warning and
+/// discard the frame when something painted between a `detach` and the next
+/// `attach`; that is a scheduling mistake the caller could make silently, once
+/// per frame, forever. Now it does not compile.
+pub trait Attachment<S> {
+    /// The surface field's type in this state: `S` attached, `()` detached.
+    type Slot;
+}
+
+/// The renderer is holding a surface and can draw.
+///
+/// Every drawing impl — [`Renderer`], `DrawTarget`, `EgPrimitiveRenderer` — is
+/// written for this state and no other, so the guarantee is structural:
+///
+/// ```
+/// # use rsact_render::{eg::renderer::EGRenderer, geometry::Size,
+/// #                    renderer::{AntiAliasingDisabled, Renderer}};
+/// # use embedded_graphics::pixelcolor::Rgb888;
+/// let buf: Box<[u32]> = vec![0; 16 * 16].into_boxed_slice();
+/// let r = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
+///     Size::new_equal(16), buf,
+/// );
+/// // Attached: drawing is available.
+/// let _ = r.size();
+/// ```
+///
+/// and painting after a `detach` is not a logged no-op but a compile error:
+///
+/// ```compile_fail
+/// # use rsact_render::{eg::renderer::EGRenderer, geometry::Size,
+/// #                    renderer::{AntiAliasingDisabled, Renderer}};
+/// # use embedded_graphics::pixelcolor::Rgb888;
+/// let buf: Box<[u32]> = vec![0; 16 * 16].into_boxed_slice();
+/// let r = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
+///     Size::new_equal(16), buf,
+/// );
+/// let (parked, _buf, _at) = r.detach();
+/// // The application is holding the buffer — there is nothing to draw into.
+/// let _ = parked.size();
+/// ```
+pub struct Attached;
+
+impl<S> Attachment<S> for Attached {
+    type Slot = S;
+}
+
+/// The owner is holding the surface; the renderer keeps only its configuration.
+///
+/// A real, useful state rather than an error case: it is where an app's buffer
+/// lives while it is being shipped over SPI, encoded to a PNG, or waited on.
+pub struct Detached;
+
+impl<S> Attachment<S> for Detached {
+    type Slot = ();
+}
+
 pub trait AntiAliasing {}
 
 pub struct AntiAliasingEnabled;

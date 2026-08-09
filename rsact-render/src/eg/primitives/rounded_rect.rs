@@ -9,7 +9,7 @@ use crate::{
     geometry::*,
     output::pixel::Pixel,
     primitives::{line::Line, rounded_rect::RoundedRect},
-    renderer::RenderResult,
+    renderer::{AntiAliasingDisabled, AntiAliasingEnabled, RenderResult},
 };
 use embedded_graphics::{pixelcolor::PixelColor, primitives::StyledDrawable};
 
@@ -24,7 +24,7 @@ fn min_max_range_incl<T: Ord + Copy>(
 }
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for RoundedRect {
-    fn draw<R: EgPrimitiveRenderer<C>>(
+    fn draw<R: EgPrimitiveRenderer<C, AntiAliasingDisabled>>(
         &self,
         renderer: &mut R,
         style: crate::prelude::DrawStyle<C>,
@@ -36,7 +36,7 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for RoundedRect {
         .draw_styled(&style.into_primitive_style(), renderer)
     }
 
-    fn draw_aa<R: EgPrimitiveRenderer<C>>(
+    fn draw_aa<R: EgPrimitiveRenderer<C, AntiAliasingEnabled>>(
         &self,
         renderer: &mut R,
         style: crate::prelude::DrawStyle<C>,

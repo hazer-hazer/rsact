@@ -61,13 +61,15 @@ fn main() {
         );
         if ui.render(&mut renderer) {
             // Take the buffer back, ship what changed, hand it in again.
-            let (buf, covers) = renderer.detach().expect("attached");
+            // `detach` consumes the renderer and returns a parked one, so the
+            // buffer cannot be painted into while this loop holds it.
+            let (parked, buf, covers) = renderer.detach();
             ui.with_damage(|rects| {
                 for r in rects {
                     flush_rect(&mut display, &buf, covers, *r);
                 }
             });
-            renderer.attach(buf);
+            renderer = parked.attach(buf);
         }
 
         window.update(&display);

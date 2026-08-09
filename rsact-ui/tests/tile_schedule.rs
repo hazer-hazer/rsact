@@ -868,7 +868,7 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
         for _ in 0..8 {
             ui.render(&mut renderer);
         }
-        let (units, at) = renderer.detach().expect("attached");
+        let (_, units, at) = renderer.detach();
         blit(&mut panel, &units, at);
         panel
     });
@@ -896,11 +896,14 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
             while frame.render(&mut renderer).is_some() {
                 regions_painted += 1;
                 // Publish first, acquire second — the ordering that keeps a
-                // single-buffer pool from deadlocking (see `EGRenderer::attach`).
-                let (tile, dirty) = renderer.detach().expect("a painted tile");
+                // single-buffer pool from deadlocking (see `EGRenderer::detach`).
+                // `detach` consumes the renderer and hands back a parked one, so
+                // the buffer cannot be painted into while the app holds it: that
+                // is the type-state, not a convention.
+                let (parked, tile, dirty) = renderer.detach();
                 blit(&mut panel, &tile, dirty);
                 free.push(tile);
-                renderer.attach(free.remove(0));
+                renderer = parked.attach(free.remove(0));
             }
         }
 

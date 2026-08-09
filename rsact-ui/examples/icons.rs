@@ -65,13 +65,13 @@ fn main() {
 
     if ui.render(&mut renderer) {
         // Take the buffer back, ship what changed, hand it in again.
-        let (buf, covers) = renderer.detach().expect("attached");
+        let (parked, buf, covers) = renderer.detach();
         ui.with_damage(|rects| {
             for r in rects {
                 flush_rect(&mut display, &buf, covers, *r);
             }
         });
-        renderer.attach(buf);
+        renderer = parked.attach(buf);
     }
 
     unsafe { env::set_var("EG_SIMULATOR_DUMP", "assets/icons.png") };

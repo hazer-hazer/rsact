@@ -9,14 +9,14 @@ use crate::{
     geometry::*,
     output::pixel::Pixel,
     primitives::arc::Arc,
-    renderer::RenderResult,
+    renderer::{AntiAliasingDisabled, AntiAliasingEnabled, RenderResult},
     style::StrokeAlignment,
 };
 use core::f32::consts::PI;
 use embedded_graphics::{pixelcolor::PixelColor, primitives::StyledDrawable};
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Arc {
-    fn draw<R: EgPrimitiveRenderer<C>>(
+    fn draw<R: EgPrimitiveRenderer<C, AntiAliasingDisabled>>(
         &self,
         renderer: &mut R,
         style: crate::prelude::DrawStyle<C>,
@@ -30,7 +30,7 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Arc {
         .draw_styled(&style.into_primitive_style(), renderer)
     }
 
-    fn draw_aa<R: EgPrimitiveRenderer<C>>(
+    fn draw_aa<R: EgPrimitiveRenderer<C, AntiAliasingEnabled>>(
         &self,
         renderer: &mut R,
         style: crate::prelude::DrawStyle<C>,

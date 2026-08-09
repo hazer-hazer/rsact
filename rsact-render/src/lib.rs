@@ -75,7 +75,7 @@ pub mod tiny_skia;
 pub mod prelude {
     #[cfg(feature = "embedded-graphics")]
     pub use crate::eg::{
-        framebuf::{Framebuf, PackedColor, PackedFramebuf},
+        framebuf::{Framebuffer, PackedColor, PackedFramebuf},
         primitives::*,
         renderer::EGRenderer,
     };
@@ -96,8 +96,8 @@ pub mod prelude {
             assert_policy_fits, plan_regions, plan_regions_into, policy_units,
         },
         renderer::{
-            AntiAliasing, NullColor, NullRenderer, RenderResult, Renderer,
-            ViewportKind, region_units,
+            AntiAliasing, Attached, Attachment, Detached, NullColor,
+            NullRenderer, RenderResult, Renderer, ViewportKind, region_units,
         },
         style::{ColorStyle, DrawStyle, StrokeAlignment, block::*},
     };

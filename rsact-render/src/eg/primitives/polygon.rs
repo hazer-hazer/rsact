@@ -7,7 +7,7 @@ use crate::{
     geometry::{Point, PointExt as _},
     output::pixel::Pixel,
     primitives::{line::Line, polygon::Polygon},
-    renderer::RenderResult,
+    renderer::{AntiAliasingDisabled, AntiAliasingEnabled, RenderResult},
 };
 use embedded_graphics::pixelcolor::PixelColor;
 
@@ -59,7 +59,7 @@ impl Polygon {
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Polygon {
     // TODO: Review this implementation
-    fn draw<R: EgPrimitiveRenderer<C>>(
+    fn draw<R: EgPrimitiveRenderer<C, AntiAliasingDisabled>>(
         &self,
         renderer: &mut R,
         style: crate::prelude::DrawStyle<C>,
@@ -89,7 +89,7 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Polygon {
         Ok(())
     }
 
-    fn draw_aa<R: EgPrimitiveRenderer<C>>(
+    fn draw_aa<R: EgPrimitiveRenderer<C, AntiAliasingEnabled>>(
         &self,
         renderer: &mut R,
         style: crate::prelude::DrawStyle<C>,

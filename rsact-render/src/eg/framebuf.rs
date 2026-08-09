@@ -362,96 +362,21 @@ pub const fn assert_region_fits<C: PackedColor, B: Framebuffer<C>>(
     }
 }
 
-pub trait Framebuf<C: Color + PackedColor> {
-    fn data(&self) -> &[C::Storage];
-    fn data_mut(&mut self) -> &mut [C::Storage];
-    // fn pack(&self, pack: usize) -> &C::Storage;
-    // fn pack_mut(&mut self, pack: usize) -> &mut C::Storage;
-
-    fn pixel(&self, point: Point) -> Option<C> {
-        self.point_to_subpart(point)
-            .map(|(pack, offset)| C::as_color(&self.data()[pack], offset))
-    }
-
-    fn viewport(&self) -> Rect;
-
-    // fn reset_pixel(&mut self, point: Point) {
-    //     self.point_to_subpart(point).map(|(pack, offset)| {
-    //         C::set_color(&mut self.data_mut()[pack], offset, None);
-    //     });
-    // }
-
-    fn set_pixel(&mut self, point: Point, color: C) {
-        self.point_to_subpart(point).map(|(pack, offset)| {
-            C::set_color(&mut self.data_mut()[pack], offset, color);
-        });
-    }
-
-    // NOTE (WS6.4d): `output` / `output_region` lived here — a loop turning this
-    // buffer into `Pixel`s and pushing them at a `RenderTarget`. They went with
-    // that trait (see `output/mod.rs`): a framebuffer knows how to *be* read,
-    // not where its contents should go.
-    //
-    // Reading is still here, and is the only part that was ever rsact's:
-    // `pixel(point)` resolves an absolute coordinate against `viewport()`, and
-    // `data()` hands out the raw units. A caller flushing a detached buffer walks
-    // rows at `region.size.width` and converts with `PackedColor::as_color` —
-    // which is exactly what a DMA burst does with a `CASET`/`RASET` window, and
-    // what the host tests do to compare frames.
-
-    /// Flat pixel index of `point`, in this buffer's own 0-based space.
-    ///
-    /// **WS6.4.0(i-2): the single source of truth for addressing.** Every path
-    /// that turns a coordinate into a storage index must route through this (or
-    /// [`row_stride`] to step between rows). `point` must be inside
-    /// [`viewport`] — callers bounds-check first ([`point_to_subpart`]) or clip
-    /// first ([`local_bounds`]).
-    ///
-    /// It used to be open-coded in two places: here and in
-    /// `PackedFramebuf::fill_solid`'s row loop, whose comment even noted it was
-    /// "same as `point_to_subpart`". That duplication is a trap for the tiled
-    /// work: giving the buffer a non-zero origin and updating only one of them
-    /// lands WS6.3b's fast solid fills in the wrong row while per-pixel writes
-    /// stay correct — a *plausible* image rather than an obvious failure. Fold
-    /// the origin in here and both paths follow.
-    ///
-    /// [`row_stride`]: Framebuf::row_stride
-    /// [`viewport`]: Framebuf::viewport
-    /// [`point_to_subpart`]: Framebuf::point_to_subpart
-    /// [`local_bounds`]: Framebuf::local_bounds
-    fn flat_index(&self, point: Point) -> usize {
-        let viewport = self.viewport();
-        let local = point - viewport.top_left;
-        local.y as usize * viewport.size.width as usize + local.x as usize
-    }
-
-    /// Flat-index distance between vertically adjacent pixels — i.e. one row.
-    /// A buffer's own width *is* its stride, so this derives from [`viewport`]
-    /// like [`flat_index`] does.
-    ///
-    /// [`viewport`]: Framebuf::viewport
-    /// [`flat_index`]: Framebuf::flat_index
-    fn row_stride(&self) -> usize {
-        self.viewport().size.width as usize
-    }
-
-    /// `area` clipped to this buffer. A zero-sized result means nothing to do.
-    fn local_bounds(&self, area: Rect) -> Rect {
-        area.intersection(&self.viewport())
-    }
-
-    fn point_to_subpart(&self, point: Point) -> Option<(usize, usize)> {
-        if !self.viewport().contains(point) {
-            return None;
-        }
-        let index = self.flat_index(point);
-        Some((index / C::pps(), index % C::pps()))
-    }
-
-    fn draw_buffer(&self, f: impl FnOnce(&[C::Storage])) {
-        f(self.data())
-    }
-}
+// NOTE (WS6.4d): `pub trait Framebuf<C>` lived here — `data`/`data_mut`/
+// `viewport` as required methods, with `pixel`, `set_pixel`, `flat_index`,
+// `row_stride`, `local_bounds` and `point_to_subpart` defaulted on top. It had
+// exactly one real implementor, `PackedFramebuf`, plus one in a test
+// (`OffsetBuf`, which existed only to give the origin term a second value back
+// when `PackedFramebuf`'s viewport was pinned at the origin — no longer true
+// since `retarget`).
+//
+// A trait serving one type's own methods is not an abstraction; it is those
+// methods with an extra name and an extra import. The name cost was real too:
+// `Framebuf` sat two characters from `Framebuffer`, both public in this module,
+// and rustc was already emitting "similarly named trait" hints on a typo.
+//
+// The methods are now inherent on `PackedFramebuf`, unchanged. `flat_index` is
+// still the single source of truth for addressing, and its doc still says why.
 
 /// A packed pixel buffer that addresses an arbitrary rect of the screen.
 ///
@@ -524,17 +449,17 @@ impl<
         // `Framebuf::flat_index`. The row start is computed ONCE and stepped by
         // `row_stride`, so a non-zero buffer origin (the tiled work) lands here
         // for free.
-        let area = Framebuf::local_bounds(self, (*area).into());
+        let area = self.local_bounds((*area).into());
         if area.size.width == 0 || area.size.height == 0 {
             return Ok(());
         }
 
         let pps = C::pps();
         let solid = C::solid_storage(color);
-        let stride = Framebuf::row_stride(self);
+        let stride = self.row_stride();
         let w = area.size.width as usize;
         let h = area.size.height as usize;
-        let mut start = Framebuf::flat_index(self, area.top_left);
+        let mut start = self.flat_index(area.top_left);
 
         for _ in 0..h {
             let end = start + w;
@@ -577,19 +502,103 @@ impl<
     }
 }
 
-impl<C: Color + PackedColor, B: Framebuffer<C>> Framebuf<C>
-    for PackedFramebuf<C, B>
-{
-    fn data(&self) -> &[C::Storage] {
+impl<C: Color + PackedColor, B: Framebuffer<C>> PackedFramebuf<C, B> {
+    pub fn data(&self) -> &[C::Storage] {
         self.pixels.units()
     }
 
-    fn data_mut(&mut self) -> &mut [C::Storage] {
+    pub fn data_mut(&mut self) -> &mut [C::Storage] {
         self.pixels.units_mut()
     }
 
-    fn viewport(&self) -> Rect {
+    /// The absolute rect this buffer currently covers.
+    pub fn viewport(&self) -> Rect {
         self.viewport
+    }
+
+    // fn pack(&self, pack: usize) -> &C::Storage;
+    // fn pack_mut(&mut self, pack: usize) -> &mut C::Storage;
+
+    pub fn pixel(&self, point: Point) -> Option<C> {
+        self.point_to_subpart(point)
+            .map(|(pack, offset)| C::as_color(&self.data()[pack], offset))
+    }
+
+    // fn reset_pixel(&mut self, point: Point) {
+    //     self.point_to_subpart(point).map(|(pack, offset)| {
+    //         C::set_color(&mut self.data_mut()[pack], offset, None);
+    //     });
+    // }
+
+    pub fn set_pixel(&mut self, point: Point, color: C) {
+        self.point_to_subpart(point).map(|(pack, offset)| {
+            C::set_color(&mut self.data_mut()[pack], offset, color);
+        });
+    }
+
+    // NOTE (WS6.4d): `output` / `output_region` lived here — a loop turning this
+    // buffer into `Pixel`s and pushing them at a `RenderTarget`. They went with
+    // that trait (see `output/mod.rs`): a framebuffer knows how to *be* read,
+    // not where its contents should go.
+    //
+    // Reading is still here, and is the only part that was ever rsact's:
+    // `pixel(point)` resolves an absolute coordinate against `viewport()`, and
+    // `data()` hands out the raw units. A caller flushing a detached buffer walks
+    // rows at `region.size.width` and converts with `PackedColor::as_color` —
+    // which is exactly what a DMA burst does with a `CASET`/`RASET` window, and
+    // what the host tests do to compare frames.
+
+    /// Flat pixel index of `point`, in this buffer's own 0-based space.
+    ///
+    /// **WS6.4.0(i-2): the single source of truth for addressing.** Every path
+    /// that turns a coordinate into a storage index must route through this (or
+    /// [`row_stride`] to step between rows). `point` must be inside
+    /// [`viewport`] — callers bounds-check first ([`point_to_subpart`]) or clip
+    /// first ([`local_bounds`]).
+    ///
+    /// It used to be open-coded in two places: here and in
+    /// `PackedFramebuf::fill_solid`'s row loop, whose comment even noted it was
+    /// "same as `point_to_subpart`". That duplication is a trap for the tiled
+    /// work: giving the buffer a non-zero origin and updating only one of them
+    /// lands WS6.3b's fast solid fills in the wrong row while per-pixel writes
+    /// stay correct — a *plausible* image rather than an obvious failure. Fold
+    /// the origin in here and both paths follow.
+    ///
+    /// [`row_stride`]: Framebuf::row_stride
+    /// [`viewport`]: Framebuf::viewport
+    /// [`point_to_subpart`]: Framebuf::point_to_subpart
+    /// [`local_bounds`]: Framebuf::local_bounds
+    pub fn flat_index(&self, point: Point) -> usize {
+        let viewport = self.viewport();
+        let local = point - viewport.top_left;
+        local.y as usize * viewport.size.width as usize + local.x as usize
+    }
+
+    /// Flat-index distance between vertically adjacent pixels — i.e. one row.
+    /// A buffer's own width *is* its stride, so this derives from [`viewport`]
+    /// like [`flat_index`] does.
+    ///
+    /// [`viewport`]: Framebuf::viewport
+    /// [`flat_index`]: Framebuf::flat_index
+    pub fn row_stride(&self) -> usize {
+        self.viewport().size.width as usize
+    }
+
+    /// `area` clipped to this buffer. A zero-sized result means nothing to do.
+    pub fn local_bounds(&self, area: Rect) -> Rect {
+        area.intersection(&self.viewport())
+    }
+
+    pub fn point_to_subpart(&self, point: Point) -> Option<(usize, usize)> {
+        if !self.viewport().contains(point) {
+            return None;
+        }
+        let index = self.flat_index(point);
+        Some((index / C::pps(), index % C::pps()))
+    }
+
+    pub fn draw_buffer(&self, f: impl FnOnce(&[C::Storage])) {
+        f(self.data())
     }
 }
 
@@ -747,7 +756,7 @@ impl<C: Color + PackedColor, B: Framebuffer<C>> PackedFramebuf<C, B> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Framebuf, PackedColor, PackedFramebuf};
+    use super::{PackedColor, PackedFramebuf};
 
     /// Host-side test surfaces. Local to the tests on purpose — see the note in
     /// `eg/renderer.rs`'s test module: the library exports no allocating helper
@@ -878,27 +887,6 @@ mod tests {
         assert!(tile.pixel(Point::new(10, 6)).is_none());
     }
 
-    /// A buffer whose viewport has a **non-zero origin** — what a tile is.
-    /// `PackedFramebuf::viewport()` is hard-wired to `Point::zero()`, so this is
-    /// the only way to exercise the origin term today.
-    struct OffsetBuf {
-        origin: Point,
-        size: Size,
-        pixels: Vec<u8>,
-    }
-
-    impl super::Framebuf<BinaryColor> for OffsetBuf {
-        fn data(&self) -> &[u8] {
-            &self.pixels
-        }
-        fn data_mut(&mut self) -> &mut [u8] {
-            &mut self.pixels
-        }
-        fn viewport(&self) -> Rect {
-            Rect::new(self.origin, self.size)
-        }
-    }
-
     /// WS6.4.0(i-2): addressing is origin-aware, in ONE place.
     ///
     /// `flat_index` / `point_to_subpart` take **absolute** coordinates and
@@ -906,15 +894,20 @@ mod tests {
     /// the screen — a tile — indexes correctly without every caller translating
     /// by hand. This is what `fill_solid` now inherits instead of open-coding
     /// `y*width + x` against an assumed zero origin.
+    /// This used to need a bespoke `OffsetBuf` implementing the old `Framebuf`
+    /// trait, because `PackedFramebuf`'s viewport was pinned at the origin and a
+    /// second implementor was the only way to give the origin term a non-zero
+    /// value. `retarget` (WS6.4d) made a real tile expressible, so the test now
+    /// runs against the type that ships — and the trait it needed is gone.
     #[test]
     fn addressing_is_origin_aware() {
         let origin = Point::new(40, 100);
         let size = Size::new(16, 8);
-        let buf = OffsetBuf {
-            origin,
-            size,
-            pixels: Vec::from([0u8; 16]), // 16x8 mono = 128 px = 16 bytes
-        };
+        // 16x8 mono = 128 px = 16 bytes.
+        let mut buf = PackedFramebuf::<BinaryColor, _>::tile(
+            alloc::vec![0u8; 16].into_boxed_slice(),
+        );
+        buf.retarget(Rect::new(origin, size));
 
         // The origin itself is local (0, 0).
         assert_eq!(buf.flat_index(origin), 0);

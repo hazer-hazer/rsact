@@ -1,7 +1,7 @@
 use crate::{
     color::{Color, RgbColor},
     eg::{
-        framebuf::{Framebuf as _, Framebuffer, PackedColor, PackedFramebuf},
+        framebuf::{Framebuffer, PackedColor, PackedFramebuf},
         primitives::EgPrimitive,
     },
     geometry::*,
@@ -14,8 +14,8 @@ use crate::{
     },
     region::{FramePolicy, Unbounded, policy_units},
     renderer::{
-        AntiAliasing, AntiAliasingDisabled, AntiAliasingEnabled, RenderResult,
-        Renderer, ViewportKind,
+        AntiAliasing, AntiAliasingDisabled, AntiAliasingEnabled, Attached,
+        Attachment, Detached, RenderResult, Renderer, ViewportKind,
     },
     style::{DrawStyle, StrokeAlignment},
 };
@@ -156,11 +156,15 @@ pub struct EGRenderer<
     AA: AntiAliasing,
     B: Framebuffer<C>,
     P: FramePolicy = Unbounded,
+    A: Attachment<PackedFramebuf<C, B>> = Attached,
 > {
     viewport_stack: Vec<ViewportKind>,
-    /// `None` between a `detach` and the next `attach` — the window in which
-    /// the owner holds their buffer (shipping a tile over SPI, say).
-    canvas: Option<PackedFramebuf<C, B>>,
+    /// The lent surface — and **only** in the [`Attached`] state, where its type
+    /// is `PackedFramebuf<C, B>`. In [`Detached`] it is `()`: not an absent
+    /// buffer but no field at all, so there is nothing to unwrap and no
+    /// "drawing while detached" case for any method to handle. See
+    /// [`Attachment`].
+    canvas: A::Slot,
     main_viewport: Size,
     aa: PhantomData<AA>,
     policy: PhantomData<P>,
@@ -181,15 +185,8 @@ impl<C: Color + PackedColor, AA: AntiAliasing, B: Framebuffer<C>>
     /// policy annotation. For a surface smaller than the frame, see
     /// [`tiled`](EGRenderer::tiled).
     pub fn new(viewport: Size, buffer: B) -> Self {
-        let mut this = Self {
-            viewport_stack: vec![ViewportKind::root()],
-            canvas: None,
-            main_viewport: viewport,
-            aa: PhantomData,
-            policy: PhantomData,
-        };
-        this.canvas = Some(PackedFramebuf::new(viewport, buffer));
-        this
+        EGRenderer::<C, AA, B, Unbounded, Detached>::parked(viewport)
+            .attach(buffer)
     }
 }
 
@@ -222,42 +219,91 @@ impl<
     /// let renderer = Screen::tiled(Size::new_equal(240), tile);
     /// ```
     pub fn tiled(viewport: Size, buffer: B) -> Self {
-        let mut this = Self {
-            viewport_stack: vec![ViewportKind::root()],
-            canvas: None,
-            main_viewport: viewport,
+        EGRenderer::<C, AA, B, P, Detached>::parked(viewport).attach(buffer)
+    }
+
+    /// Take the surface back, with the region that was painted into it.
+    ///
+    /// Consumes the renderer and returns it [`Detached`] — the state where it
+    /// has no surface *field*, so nothing can paint into a buffer the caller is
+    /// holding. That is the invariant this type-state exists for; it used to be
+    /// a runtime `Option` plus a logged no-op, which meant a scheduling mistake
+    /// silently ate a frame, once per frame, forever.
+    ///
+    /// The dirty rect comes from the renderer rather than the caller's own
+    /// bookkeeping because the renderer is the authority: `begin_region` told it
+    /// where it was painting, and re-pairing a buffer with a rect by hand is the
+    /// kind of mistake that produces a *plausible* frame — the right tile
+    /// blitted to the wrong place — instead of an obvious one.
+    pub fn detach(self) -> (EGRenderer<C, AA, B, P, Detached>, B, Rect) {
+        let Self { viewport_stack, canvas, main_viewport, .. } = self;
+        let at = canvas.viewport();
+        let parked = EGRenderer {
+            viewport_stack,
+            canvas: (),
+            main_viewport,
             aa: PhantomData,
             policy: PhantomData,
         };
-        this.attach(buffer);
-        this
+        (parked, canvas.into_buffer(), at)
     }
 
-    /// Lend the renderer a surface, returning whatever it held.
+    /// Exchange surfaces in place, returning the painted one and its rect.
     ///
-    /// One half of the loan. The other is [`detach`](Self::detach), and keeping
-    /// them **separate** is what makes single-buffered rendering expressible:
-    /// `swap` alone would require holding two surfaces at the instant of the
-    /// exchange, so an app with exactly one buffer could never get it back —
-    /// the renderer would wait for a free buffer that only its own held buffer
-    /// could become. Release-then-acquire has no such cycle:
+    /// Sugar over [`detach`](Self::detach) + [`attach`], for callers with two or
+    /// more buffers — and, unlike those two, it keeps `&mut self`, because the
+    /// renderer is never observably without a surface. It is **not** the
+    /// primitive: `swap` demands two buffers at the instant of the exchange, so
+    /// a single-buffer pool deadlocks under it — the renderer waits for a free
+    /// buffer that only its own held buffer could become. Release-then-acquire
+    /// has no such cycle:
     ///
     /// ```ignore
     /// // works with one buffer, and with N
     /// frame.render(&mut renderer);
-    /// let (tile, dirty) = renderer.detach().unwrap();
-    /// ready.send((tile, dirty)).await;      // publish first…
-    /// renderer.attach(free.receive().await); // …then acquire
+    /// let (parked, tile, dirty) = renderer.detach();
+    /// ready.send((tile, dirty)).await;              // publish first…
+    /// renderer = parked.attach(free.receive().await); // …then acquire
     /// ```
+    pub fn swap(&mut self, next: B) -> (B, Rect) {
+        Self::check_capacity(&next);
+        let at = self.canvas.viewport();
+        let fresh = Self::wrap(self.main_viewport, next);
+        let prev = core::mem::replace(&mut self.canvas, fresh);
+        (prev.into_buffer(), at)
+    }
+
+    /// Aim a freshly-lent buffer.
     ///
-    /// # Capacity
+    /// A buffer big enough for the whole frame is aimed at the whole frame; a
+    /// smaller one is aimed at nothing until `begin_region` supplies a region.
     ///
-    /// `buffer` must hold policy `P`'s largest region. When `B` is a fixed-size
-    /// array that is proved in the `const` block below — a violation is a
-    /// compile error naming the colour, the buffer and the policy. When `B` is a
-    /// runtime-length slice (`&'static mut [u16]` from a `StaticCell`, a boxed
-    /// slice on a host) the type carries no extent, so the same requirement is
-    /// asserted here instead: once, at the hand-off, before anything paints.
+    /// **This is a bug fix, not bookkeeping.** `attach` used to build a *tile*
+    /// framebuf unconditionally, so a full-frame renderer that detached and
+    /// reattached (the ordinary flush loop) came back aimed at `Rect::zero()` —
+    /// and since `begin_region` returns early for a full-frame surface, nothing
+    /// ever re-aimed it. Every frame after the first reported a zero-sized dirty
+    /// rect and flushed nothing.
+    fn wrap(viewport: Size, buffer: B) -> PackedFramebuf<C, B> {
+        let full_frame = crate::eg::framebuf::units_for::<C>(
+            viewport.width,
+            viewport.height,
+        );
+        if buffer.unit_count() >= full_frame {
+            PackedFramebuf::new(viewport, buffer)
+        } else {
+            PackedFramebuf::tile(buffer)
+        }
+    }
+
+    /// `buffer` must hold policy `P`'s largest region.
+    ///
+    /// When `B` is a fixed-size array this is proved in a `const` block — a
+    /// violation is a compile error naming the colour, the buffer and the
+    /// policy. When `B` is a runtime-length slice (`&'static mut [u16]` from a
+    /// `StaticCell`, a boxed slice on a host) the type carries no extent, so the
+    /// same requirement is asserted at the hand-off instead: once, before
+    /// anything paints.
     ///
     /// # Panics
     ///
@@ -266,7 +312,7 @@ impl<
     /// is discovered at the first hand-off rather than in a frame, and the only
     /// available fallback — never render again — is a silent brick rather than
     /// a degraded picture.
-    pub fn attach(&mut self, buffer: B) -> Option<B> {
+    fn check_capacity(buffer: &B) {
         // Post-monomorphization: fires for the array case, where the extent is
         // in the type. `UNITS == None` (a slice) falls through to the runtime
         // check below rather than being assumed to fit — the distinction the
@@ -304,42 +350,54 @@ impl<
                  needs {needed}"
             );
         }
-        let previous = self.canvas.take().map(PackedFramebuf::into_buffer);
-        self.canvas = Some(PackedFramebuf::tile(buffer));
-        previous
+    }
+}
+
+impl<
+    C: Color + PackedColor,
+    AA: AntiAliasing,
+    B: Framebuffer<C>,
+    P: FramePolicy,
+> EGRenderer<C, AA, B, P, Detached>
+{
+    /// A renderer with no surface yet — the state a buffer is attached *to*.
+    ///
+    /// Useful on its own: an app whose tiles come from a channel can build the
+    /// renderer at boot and wait for the first buffer, which the old
+    /// `Option`-based shape could express only as "constructed but secretly
+    /// broken".
+    pub fn parked(viewport: Size) -> Self {
+        Self {
+            viewport_stack: vec![ViewportKind::root()],
+            canvas: (),
+            main_viewport: viewport,
+            aa: PhantomData,
+            policy: PhantomData,
+        }
     }
 
-    /// Take the surface back, with the region that was painted into it.
+    /// Lend the renderer a surface. Consumes the parked renderer and returns an
+    /// [`Attached`] one — the only state that can draw.
     ///
-    /// The dirty rect comes from the renderer rather than from the caller's own
-    /// bookkeeping because the renderer is the authority: `begin_region` told it
-    /// where it was painting, and re-pairing a buffer with a rect by hand is the
-    /// kind of mistake that produces a *plausible* frame — the right tile blitted
-    /// to the wrong place — instead of an obvious one.
+    /// See [`EGRenderer::detach`] for why this pair, rather than `swap`, is the
+    /// primitive.
     ///
-    /// `None` if nothing is attached. Drawing while detached is a logged no-op,
-    /// never a panic (WS1.8: the UI degrades rather than aborting the device).
-    pub fn detach(&mut self) -> Option<(B, Rect)> {
-        self.canvas.take().map(|canvas| {
-            let dirty = canvas.viewport();
-            (canvas.into_buffer(), dirty)
-        })
-    }
-
-    /// [`detach`](Self::detach) then [`attach`](Self::attach), for callers with
-    /// two or more buffers who do not care about the ordering.
+    /// # Panics
     ///
-    /// Sugar, not a primitive — see [`attach`](Self::attach) for why the split
-    /// pair is the one that has to exist. Returns `None` only if nothing was
-    /// attached.
-    pub fn swap(&mut self, next: B) -> Option<(B, Rect)> {
-        let ready = self.detach();
-        self.attach(next);
-        ready
-    }
-
-    pub fn is_attached(&self) -> bool {
-        self.canvas.is_some()
+    /// If `buffer` is too small for policy `P` — see `check_capacity`.
+    pub fn attach(self, buffer: B) -> EGRenderer<C, AA, B, P, Attached> {
+        EGRenderer::<C, AA, B, P, Attached>::check_capacity(&buffer);
+        let canvas = EGRenderer::<C, AA, B, P, Attached>::wrap(
+            self.main_viewport,
+            buffer,
+        );
+        EGRenderer {
+            viewport_stack: self.viewport_stack,
+            canvas,
+            main_viewport: self.main_viewport,
+            aa: PhantomData,
+            policy: PhantomData,
+        }
     }
 }
 
@@ -354,28 +412,16 @@ impl<
         self.viewport_stack.last().copied().unwrap()
     }
 
-    /// The lent surface, or `None` while its owner holds it.
-    ///
-    /// Every drawing path goes through this and degrades to a logged no-op when
-    /// detached (WS1.8: the UI logs and continues; a panic in a render loop that
-    /// runs every frame is not recoverable). Detached drawing is a *scheduling*
-    /// mistake — painting between `detach` and `attach` — not a broken frame,
-    /// and the next attached frame repaints anyway.
-    fn current_canvas(&mut self) -> Option<&mut PackedFramebuf<C, B>> {
-        if self.canvas.is_none() {
-            log::warn!(
-                "drawing with no surface attached — the frame is discarded. \
-                 Attach a buffer before painting, or paint before detaching."
-            );
-        }
-        self.canvas.as_mut()
-    }
+    // NOTE (WS6.4d): `current_canvas() -> Option<&mut _>` lived here, warning
+    // and returning `None` when nothing was attached, and every drawing path
+    // opened with `let Some(canvas) = self.current_canvas() else { … }`. The
+    // `Attached` type-state deleted all of it: this impl block only exists for
+    // a renderer that HAS a surface, so `self.canvas` is one — not an
+    // `Option<one>`.
 
-    /// Obtain the raw framebuffer data for hardware output. No-op if detached.
+    /// Obtain the raw framebuffer data for hardware output.
     pub fn draw_buffer(&self, f: impl FnOnce(&[<C as PackedColor>::Storage])) {
-        if let Some(canvas) = self.canvas.as_ref() {
-            canvas.draw_buffer(f);
-        }
+        self.canvas.draw_buffer(f);
     }
 
     /// Map a point from the active viewport's coordinate space into the layer
@@ -417,13 +463,12 @@ impl<
     // TODO: Real alpha-channel
     pub fn pixel_alpha(&mut self, pixel: Pixel<C>, blend: f32) -> RenderResult {
         let read_at = self.viewport_to_canvas(pixel.0);
-        let canvas = self.current_canvas();
+        let canvas = &self.canvas;
         // NOTE: an out-of-bounds read still degrades to the unblended colour
         // rather than an error, so a mis-addressed read yields a *plausible*
         // pixel, not a failure. Preserved as-is (a behaviour change is out of
         // scope here); it is why 6.4a's tile-invariance op-log check is the real
         // defence for this area.
-        let Some(canvas) = canvas else { return Ok(()) };
         let color = canvas
             .pixel(read_at)
             .map(|current| current.mix(blend, pixel.1))
@@ -436,7 +481,7 @@ impl<
         pixels: impl IntoIterator<Item = Pixel<C>>,
     ) -> Result<(), ()> {
         let viewport = self.current_viewport();
-        let Some(canvas) = self.current_canvas() else { return Ok(()) };
+        let canvas = &mut self.canvas;
         let eg_pixels = pixels
             .into_iter()
             .map(|p| embedded_graphics::prelude::Pixel(p.0.into(), p.1));
@@ -477,7 +522,7 @@ impl<
             self.main_viewport.width,
             self.main_viewport.height,
         );
-        let Some(canvas) = self.current_canvas() else { return Ok(()) };
+        let canvas = &mut self.canvas;
         if canvas.capacity_units() >= full_frame {
             return Ok(());
         }
@@ -560,7 +605,7 @@ impl<
         color: Self::Color,
     ) -> Result<(), Self::Error> {
         let viewport = self.current_viewport();
-        let Some(canvas) = self.current_canvas() else { return Ok(()) };
+        let canvas = &mut self.canvas;
         match viewport {
             ViewportKind::Fullscreen => canvas.fill_solid(area, color),
             ViewportKind::Clipped(clip) => {
@@ -1098,7 +1143,7 @@ mod tests {
         );
         content(&mut full);
         let mut full_map = blank();
-        let (full_units, full_at) = full.detach().expect("attached");
+        let (_, full_units, full_at) = full.detach();
         blit(&mut full_map, &full_units, full_at);
 
         // Tiled: a 64x8 surface — 512 units against the frame's 4096, an eighth
@@ -1116,7 +1161,7 @@ mod tests {
         );
 
         let mut tiled_map = blank();
-        let mut spare = Some(surface_units::<Rgb888>(TILE_UNITS));
+        let mut spare = surface_units::<Rgb888>(TILE_UNITS);
         for band in 0..8 {
             let region = Rect::new(Point::new(0, band * 8), Size::new(W, 8));
             tiled.begin_region(region).unwrap();
@@ -1124,11 +1169,12 @@ mod tests {
             content(&mut tiled);
             tiled.pop_clip();
             tiled.end_region().unwrap();
-            // Publish, then acquire — the ordering the loan API exists for.
-            let (units, at) = tiled.detach().expect("a painted tile");
+            // Publish, then acquire — the ordering the loan API exists for,
+            // and the one a single-buffer pool needs.
+            let (parked, units, at) = tiled.detach();
             blit(&mut tiled_map, &units, at);
-            tiled.attach(spare.take().unwrap());
-            spare = Some(units);
+            tiled = parked.attach(spare);
+            spare = units;
         }
 
         // Not vacuous: both paths must have painted a substantial frame. An
@@ -1181,14 +1227,13 @@ mod tests {
             viewport,
             surface::<Rgb888>(viewport),
         );
-        assert!(r.is_attached());
 
         // Paint something, then take the buffer back and inspect it — the owner
         // can read what was painted, which is what "ship this tile" means.
         let ink = Rgb888::new(9, 9, 9);
         Renderer::fill_solid(&mut r, Rect::new(Point::zero(), viewport), ink)
             .unwrap();
-        let (buffer, dirty) = r.detach().expect("the surface was attached");
+        let (parked, buffer, dirty) = r.detach();
         assert_eq!(buffer.len(), (16 * 16) as usize);
         assert_eq!(
             dirty,
@@ -1199,26 +1244,48 @@ mod tests {
             buffer.iter().all(|u| *u == ink.into_storage()),
             "the owner got back a buffer that does not hold what was painted"
         );
-        assert!(!r.is_attached());
 
-        // Painting while detached degrades: no panic, and nothing is lost that
-        // the next attached frame will not repaint.
-        Renderer::fill_solid(
-            &mut r,
-            Rect::new(Point::zero(), viewport),
-            Rgb888::new(1, 2, 3),
-        )
-        .expect("drawing detached must not be an error");
+        // `parked` has no drawing methods AT ALL — painting between a detach
+        // and the next attach is not a logged no-op any more, it does not
+        // compile. That is the invariant the type-state removed; there is
+        // nothing to assert here because there is nothing to call.
+        let mut r = parked.attach(surface::<Rgb888>(viewport));
 
-        // Hand a different buffer in; the renderer takes it and reports the old
-        // one (here: none, since we detached).
-        assert!(r.attach(surface::<Rgb888>(viewport)).is_none());
-        assert!(r.is_attached());
-        // ...and now a swap returns the buffer that was in place.
-        let swapped = r
-            .attach(surface::<Rgb888>(viewport))
-            .expect("attach over an attached surface returns the old one");
+        // A swap keeps `&mut self`, because the renderer is never observably
+        // without a surface — and hands back the one that was in place.
+        let (swapped, at) = r.swap(surface::<Rgb888>(viewport));
         assert_eq!(swapped.len(), (16 * 16) as usize);
+        assert_eq!(at, Rect::new(Point::zero(), viewport));
+    }
+
+    /// WS6.4d bug fix: a full-frame renderer that detaches and reattaches must
+    /// come back aimed at the **whole frame**, not at nothing.
+    ///
+    /// `attach` used to wrap every buffer as a tile (viewport `Rect::zero()`),
+    /// and `begin_region` returns early for a full-frame surface — so nothing
+    /// ever re-aimed it. The ordinary flush loop (render, detach, ship,
+    /// reattach) therefore reported a zero-sized dirty rect from the second
+    /// frame onward and flushed nothing at all. Silent, and invisible to the
+    /// op-log checks.
+    #[test]
+    fn reattaching_a_full_frame_surface_keeps_aiming_at_the_frame() {
+        let viewport = Size::new(16, 16);
+        let r = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
+            viewport,
+            surface::<Rgb888>(viewport),
+        );
+        let full = Rect::new(Point::zero(), viewport);
+
+        let (parked, buffer, first) = r.detach();
+        assert_eq!(first, full);
+
+        let r = parked.attach(buffer);
+        let (_, _, second) = r.detach();
+        assert_eq!(
+            second, full,
+            "a reattached full-frame surface must still cover the frame; a \
+             zero rect here means every flush after the first sends nothing"
+        );
     }
 
     /// WS6.4d: a renderer **declares** the largest region it will accept, and
@@ -1440,14 +1507,11 @@ mod tests {
         Renderer::pixel(&mut r, Point::new(15, 15), ink).unwrap();
 
         assert_eq!(
-            r.canvas.as_ref().unwrap().pixel(Point::new(25, 15)),
+            r.canvas.pixel(Point::new(25, 15)),
             Some(bg),
             "a write outside the PARENT clip escaped the nested clip"
         );
-        assert_eq!(
-            r.canvas.as_ref().unwrap().pixel(Point::new(15, 15)),
-            Some(ink)
-        );
+        assert_eq!(r.canvas.pixel(Point::new(15, 15)), Some(ink));
 
         // Popping restores the parent, not the raw inner rect.
         r.pop_clip();

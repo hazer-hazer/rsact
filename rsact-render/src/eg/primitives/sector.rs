@@ -9,7 +9,7 @@ use crate::{
     geometry::{Axial as _, Point},
     output::pixel::Pixel,
     primitives::{line::Line, sector::Sector},
-    renderer::RenderResult,
+    renderer::{AntiAliasingDisabled, AntiAliasingEnabled, RenderResult},
     style::StrokeAlignment,
 };
 use core::f32;
@@ -18,7 +18,7 @@ use embedded_graphics::{
 };
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Sector {
-    fn draw<R: EgPrimitiveRenderer<C>>(
+    fn draw<R: EgPrimitiveRenderer<C, AntiAliasingDisabled>>(
         &self,
         renderer: &mut R,
         style: crate::prelude::DrawStyle<C>,
@@ -32,7 +32,7 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Sector {
         .draw_styled(&style.into_primitive_style(), renderer)
     }
 
-    fn draw_aa<R: EgPrimitiveRenderer<C>>(
+    fn draw_aa<R: EgPrimitiveRenderer<C, AntiAliasingEnabled>>(
         &self,
         renderer: &mut R,
         style: crate::prelude::DrawStyle<C>,
