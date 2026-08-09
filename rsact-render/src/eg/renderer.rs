@@ -132,7 +132,16 @@ impl<C: Color + PixelColor> DrawStyle<C> {
 /// and anti-aliasing. Layer compositing was removed (see [`crate::surface`]).
 // TODO: Use the common [`crate::surface::Canvas`] surface + viewport helper
 // instead of holding `canvas` + `viewport_stack` inline here.
-pub struct EGRenderer<C: Color + PackedColor, AA: AntiAliasing> {
+/// `SURFACE_UNITS` is the surface's capacity **at the type level**, which is
+/// what lets [`Renderer::SURFACE_UNITS`] report it and `UI::start_frame` prove a
+/// frame policy fits at compile time. `usize::MAX` — the default, and what
+/// [`Self::new`] leaves it at — means "my surface always covers the frame",
+/// which is exactly true of a full framebuffer.
+pub struct EGRenderer<
+    C: Color + PackedColor,
+    AA: AntiAliasing,
+    const SURFACE_UNITS: usize = { usize::MAX },
+> {
     viewport_stack: Vec<ViewportKind>,
     canvas: PackedFramebuf<C>,
     main_viewport: Size,
@@ -149,15 +158,23 @@ impl<C: Color + PackedColor> EGRenderer<C, AntiAliasingDisabled> {
             aa: PhantomData,
         }
     }
+}
 
-    /// **WS6.4d: tiled.** A surface of `surface_units` storage units, driving a
+impl<C: Color + PackedColor, const SURFACE_UNITS: usize>
+    EGRenderer<C, AntiAliasingDisabled, SURFACE_UNITS>
+{
+    /// **WS6.4d: tiled.** A surface of `SURFACE_UNITS` storage units, driving a
     /// `viewport`-sized display — i.e. a buffer far smaller than the frame,
     /// re-aimed at each region by [`Renderer::begin_region`].
     ///
     /// This is the acceptance target made constructible: a 240×240 RGB565 frame
     /// needs 57600 units (112.5 KiB), while
-    /// `tiled(Size::new_equal(240), region_units(240, 24, 1))` needs **5760**
-    /// (11.25 KiB) and paints the same frame.
+    /// `EGRenderer::<Rgb565, _, 5760>::tiled(Size::new_equal(240))` needs
+    /// **5760** (11.25 KiB) and paints the same frame.
+    ///
+    /// The capacity is a **const parameter**, not an argument, so it reaches
+    /// [`Renderer::SURFACE_UNITS`] and a policy too large for the buffer fails
+    /// to compile rather than tripping a `debug_assert` mid-frame.
     ///
     /// `main_viewport` stays the display's size because that is what rsact lays
     /// out and culls against; only the *surface* shrinks. The two were already
@@ -166,11 +183,23 @@ impl<C: Color + PackedColor> EGRenderer<C, AntiAliasingDisabled> {
     ///
     /// Pair it with a frame policy whose largest region fits — `Tiles<240, 24>`
     /// here — and `UI::start_frame` proves the fit at compile time.
-    pub fn tiled(viewport: Size, surface_units: usize) -> Self {
+    pub fn tiled(viewport: Size) -> Self {
+        // A tiled renderer that kept the default capacity would report
+        // `usize::MAX` from `Renderer::SURFACE_UNITS`, i.e. claim it covers the
+        // frame — and the compile-time proof would wave through any policy.
+        // Catch that here rather than at the `vec![_; usize::MAX]` below.
+        const {
+            assert!(
+                SURFACE_UNITS != usize::MAX,
+                "EGRenderer::tiled needs an explicit surface capacity: write \
+                 EGRenderer::<C, _, 5760>::tiled(..), or use EGRenderer::new \
+                 for a full-frame surface"
+            )
+        }
         Self {
             viewport_stack: vec![ViewportKind::root()],
             canvas: PackedFramebuf::with_capacity(
-                surface_units,
+                SURFACE_UNITS,
                 C::default_background(),
             ),
             main_viewport: viewport,
@@ -179,7 +208,9 @@ impl<C: Color + PackedColor> EGRenderer<C, AntiAliasingDisabled> {
     }
 }
 
-impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> EGRenderer<C, AA> {
+impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing, const N: usize>
+    EGRenderer<C, AA, N>
+{
     fn current_viewport(&self) -> ViewportKind {
         self.viewport_stack.last().copied().unwrap()
     }
@@ -367,8 +398,8 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> EGRenderer<C, AA> {
     }
 }
 
-impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> DrawTarget
-    for EGRenderer<C, AA>
+impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing, const N: usize>
+    DrawTarget for EGRenderer<C, AA, N>
 {
     type Color = C;
     type Error = ();
@@ -406,8 +437,8 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> DrawTarget
     }
 }
 
-impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> Dimensions
-    for EGRenderer<C, AA>
+impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing, const N: usize>
+    Dimensions for EGRenderer<C, AA, N>
 {
     fn bounding_box(&self) -> embedded_graphics::primitives::Rectangle {
         embedded_graphics::primitives::Rectangle::new(
@@ -418,8 +449,8 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> Dimensions
 }
 
 // TODO: Other colors mapping
-impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> FinishRender<C>
-    for EGRenderer<C, AA>
+impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing, const N: usize>
+    FinishRender<C> for EGRenderer<C, AA, N>
 {
     fn finish_frame(&mut self, target: &mut impl RenderTarget<Color = C>) {
         self.renderer_output(target);
@@ -436,10 +467,19 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> FinishRender<C>
 
 // TODO: Generalize AA and non-AA Renderer implementations
 
-impl<C: Color + PackedColor + PixelColor> Renderer
-    for EGRenderer<C, AntiAliasingDisabled>
+impl<C: Color + PackedColor + PixelColor, const N: usize> Renderer
+    for EGRenderer<C, AntiAliasingDisabled, N>
 {
     type Color = C;
+
+    /// The surface's capacity, from the type — WS6.4.0(iii)'s compile-time
+    /// proof reads this. `usize::MAX` (a full-frame surface) accepts any policy,
+    /// which is correct rather than merely permissive.
+    const SURFACE_UNITS: usize = N;
+
+    /// How this surface packs pixels, straight from the colour. Leaving the
+    /// default of 1 would over-state a 1-bpp surface's capacity eightfold.
+    const SURFACE_PIXELS_PER_UNIT: usize = C::PPS;
 
     fn size(&self) -> Size {
         self.main_viewport
@@ -601,10 +641,19 @@ impl<C: Color + PackedColor + PixelColor> Renderer
     }
 }
 
-impl<C: Color + PackedColor + PixelColor> Renderer
-    for EGRenderer<C, AntiAliasingEnabled>
+impl<C: Color + PackedColor + PixelColor, const N: usize> Renderer
+    for EGRenderer<C, AntiAliasingEnabled, N>
 {
     type Color = C;
+
+    /// The surface's capacity, from the type — WS6.4.0(iii)'s compile-time
+    /// proof reads this. `usize::MAX` (a full-frame surface) accepts any policy,
+    /// which is correct rather than merely permissive.
+    const SURFACE_UNITS: usize = N;
+
+    /// How this surface packs pixels, straight from the colour. Leaving the
+    /// default of 1 would over-state a 1-bpp surface's capacity eightfold.
+    const SURFACE_PIXELS_PER_UNIT: usize = C::PPS;
 
     fn size(&self) -> Size {
         self.main_viewport
@@ -774,7 +823,7 @@ mod tests {
         geometry::{Point, Rect, Size},
         renderer::{NullColor, NullRenderer, Renderer},
     };
-    use embedded_graphics::pixelcolor::Rgb888;
+    use embedded_graphics::pixelcolor::{BinaryColor, Rgb888};
 
     /// WS6.3b: EGRenderer's fast `fill_solid` (routing to the framebuffer's
     /// whole-word writes) must land the SAME pixels as the per-pixel path —
@@ -899,10 +948,12 @@ mod tests {
 
         // Tiled: a 64x8 surface — 512 units against the frame's 4096, an eighth
         // — repainted and flushed region by region.
-        let tile_units = crate::eg::framebuf::units_for::<Rgb888>(W, 8);
-        let mut tiled = EGRenderer::<Rgb888, AntiAliasingDisabled>::tiled(
-            viewport, tile_units,
-        );
+        const TILE_UNITS: usize = (W * 8) as usize; // Rgb888: one unit per pixel
+        let tile_units = TILE_UNITS;
+        let mut tiled =
+            EGRenderer::<Rgb888, AntiAliasingDisabled, TILE_UNITS>::tiled(
+                viewport,
+            );
         assert!(
             tile_units * 8 == (W * H) as usize,
             "the point of the test is that the surface is a FRACTION of the frame"
@@ -949,6 +1000,46 @@ mod tests {
             mismatches[0] / W as usize,
             full_map.px[mismatches[0]],
             tiled_map.px[mismatches[0]],
+        );
+    }
+
+    /// WS6.4d: a tiled renderer must **declare** its capacity, so the
+    /// compile-time frame-policy proof can see it.
+    ///
+    /// This closes a hole the tiled constructor opened. `Renderer::
+    /// SURFACE_UNITS` defaults to `usize::MAX` — "my surface always covers the
+    /// frame" — which was simply true of `EGRenderer` while every instance was
+    /// a full framebuffer. The moment a 5760-unit surface could exist, that
+    /// default became a lie, and `UI::start_frame::<Tiles<240, 240>>()` against
+    /// it would have passed the const assert and failed at runtime on
+    /// `retarget`'s `debug_assert` — in debug builds only, after the plan was
+    /// already made.
+    ///
+    /// Hence the capacity is a const *parameter*: it reaches the trait, and the
+    /// proof is against the buffer that actually exists.
+    #[test]
+    fn a_tiled_renderer_declares_its_capacity() {
+        // Full-frame: unbounded, which is honest — it does cover the frame.
+        assert_eq!(
+            <EGRenderer<Rgb888, AntiAliasingDisabled> as Renderer>::SURFACE_UNITS,
+            usize::MAX
+        );
+        // Tiled: exactly what was allocated.
+        assert_eq!(
+            <EGRenderer<Rgb888, AntiAliasingDisabled, 5760> as Renderer>::SURFACE_UNITS,
+            5760
+        );
+
+        // And the packing, which the capacity arithmetic needs. Leaving this at
+        // the default of 1 would over-state a 1-bpp surface eightfold — a
+        // policy needing 384 bytes would "fit" a 48-byte buffer.
+        assert_eq!(
+            <EGRenderer<Rgb888, AntiAliasingDisabled> as Renderer>::SURFACE_PIXELS_PER_UNIT,
+            1
+        );
+        assert_eq!(
+            <EGRenderer<BinaryColor, AntiAliasingDisabled> as Renderer>::SURFACE_PIXELS_PER_UNIT,
+            8
         );
     }
 

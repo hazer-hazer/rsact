@@ -58,9 +58,9 @@ impl Polygon {
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Polygon {
     // TODO: Review this implementation
-    fn draw(
+    fn draw<const N: usize>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingDisabled>,
+        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingDisabled, N>,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         if let Some(fill_color) = style.fill {
@@ -88,9 +88,9 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Polygon {
         Ok(())
     }
 
-    fn draw_aa(
+    fn draw_aa<const N: usize>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingEnabled>,
+        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingEnabled, N>,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         if let Some(fill_color) = style.fill {

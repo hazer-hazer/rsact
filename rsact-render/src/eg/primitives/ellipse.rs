@@ -12,9 +12,9 @@ use crate::{
 use embedded_graphics::{pixelcolor::PixelColor, primitives::StyledDrawable};
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Ellipse {
-    fn draw(
+    fn draw<const N: usize>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingDisabled>,
+        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingDisabled, N>,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         embedded_graphics::primitives::Ellipse::new(
@@ -24,9 +24,9 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Ellipse {
         .draw_styled(&style.into_primitive_style(), renderer)
     }
 
-    fn draw_aa(
+    fn draw_aa<const N: usize>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingEnabled>,
+        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingEnabled, N>,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         if self.size.width == self.size.height {

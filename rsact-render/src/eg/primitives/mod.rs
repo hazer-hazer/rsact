@@ -15,15 +15,17 @@ pub mod rounded_rect;
 pub mod sector;
 
 pub trait EgPrimitive<C: Color + PackedColor + PixelColor> {
-    fn draw(
+    /// `N` is the renderer's surface capacity (WS6.4d) — generic here because a
+    /// primitive draws the same way into a full framebuffer and into a tile.
+    fn draw<const N: usize>(
         &self,
-        renderer: &mut EGRenderer<C, AntiAliasingDisabled>,
+        renderer: &mut EGRenderer<C, AntiAliasingDisabled, N>,
         style: DrawStyle<C>,
     ) -> RenderResult;
 
-    fn draw_aa(
+    fn draw_aa<const N: usize>(
         &self,
-        renderer: &mut EGRenderer<C, AntiAliasingEnabled>,
+        renderer: &mut EGRenderer<C, AntiAliasingEnabled, N>,
         style: DrawStyle<C>,
     ) -> RenderResult;
 }

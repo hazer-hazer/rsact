@@ -12,11 +12,12 @@ use crate::{
 use embedded_graphics::{pixelcolor::PixelColor, primitives::StyledDrawable};
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Circle {
-    fn draw(
+    fn draw<const N: usize>(
         &self,
         renderer: &mut crate::prelude::EGRenderer<
             C,
             crate::renderer::AntiAliasingDisabled,
+            N,
         >,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
@@ -27,11 +28,12 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Circle {
         .draw_styled(&style.into_primitive_style(), renderer)
     }
 
-    fn draw_aa(
+    fn draw_aa<const N: usize>(
         &self,
         renderer: &mut crate::prelude::EGRenderer<
             C,
             crate::renderer::AntiAliasingEnabled,
+            N,
         >,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
