@@ -2,10 +2,11 @@ use crate::{
     color::Color,
     geometry::{Point, Rect, Size},
     output::{MapColor, RenderTarget, pixel::Pixel},
+    renderer::region_units,
 };
 use alloc::boxed::Box;
 use embedded_graphics::{
-    geometry::OriginDimensions,
+    geometry::Dimensions,
     pixelcolor::{
         BinaryColor, Rgb555, Rgb565, Rgb666, Rgb888,
         raw::{RawData, RawU1},
@@ -397,14 +398,29 @@ pub trait Framebuf<C: Color + PackedColor> {
     }
 }
 
+/// A packed pixel buffer that addresses an arbitrary rect of the screen.
+///
+/// **WS6.4d: the rect is not fixed.** `viewport` is the region this buffer
+/// currently stands for, in *absolute* screen coordinates, and its width is the
+/// stride — so one allocation of `N` storage units serves any region needing at
+/// most `N` (see [`Self::retarget`]). A full-frame buffer is the degenerate
+/// case: origin zero, size the screen, retargeted never.
+///
+/// Absolute coordinates throughout is what makes this cheap: [`Framebuf::
+/// flat_index`] resolves a point against `viewport`, so every write, read, fill
+/// and flush follows the origin without a single caller translating by hand.
 pub struct PackedFramebuf<C: Color + PackedColor> {
-    size: Size,
+    viewport: Rect,
     pixels: Box<[C::Storage]>,
 }
 
-impl<C: Color + PackedColor> OriginDimensions for PackedFramebuf<C> {
-    fn size(&self) -> embedded_graphics::prelude::Size {
-        self.size.into()
+// `Dimensions`, not `OriginDimensions`: embedded-graphics' `clipped`/`cropped`
+// intersect against this box, and rsact hands them ABSOLUTE rects. Reporting
+// origin-zero was correct only while the buffer always was the whole frame; a
+// tile at (0, 24) would have had its every write clipped away.
+impl<C: Color + PackedColor> Dimensions for PackedFramebuf<C> {
+    fn bounding_box(&self) -> embedded_graphics::primitives::Rectangle {
+        self.viewport.into()
     }
 }
 
@@ -499,7 +515,7 @@ impl<C: Color + PackedColor> Framebuf<C> for PackedFramebuf<C> {
     }
 
     fn viewport(&self) -> Rect {
-        Rect::new(Point::zero(), self.size)
+        self.viewport
     }
 }
 
@@ -516,7 +532,56 @@ impl<C: Color + PackedColor> PackedFramebuf<C> {
         let pixels =
             vec![initial_color.into_storage(); size.area() as usize / C::pps()]
                 .into_boxed_slice();
-        Self { size, pixels }
+        Self { viewport: Rect::new(Point::zero(), size), pixels }
+    }
+
+    /// WS6.4d: allocate `units` storage units with **no fixed shape**, for a
+    /// buffer that will be [`retarget`](Self::retarget)ed per region.
+    ///
+    /// This is the tiled constructor, and the acceptance target it exists for:
+    /// a 240×240 RGB565 frame is 57600 units (112.5 KiB), while a buffer able to
+    /// hold any region up to a 240×24 tile is 5760 (11.25 KiB).
+    ///
+    /// Starts aimed at nothing (a zero-sized viewport at the origin), because
+    /// there is no meaningful default region — `begin_region` supplies one.
+    pub fn with_capacity(units: usize, initial_color: C) -> Self {
+        Self {
+            viewport: Rect::zero(),
+            pixels: vec![initial_color.into_storage(); units]
+                .into_boxed_slice(),
+        }
+    }
+
+    /// Storage units this buffer can hold — its capacity, independent of shape.
+    pub fn capacity_units(&self) -> usize {
+        self.pixels.len()
+    }
+
+    /// Re-aim the buffer at `region` (absolute screen coordinates).
+    ///
+    /// The region's **own width becomes the stride**, so the sub-rect is
+    /// contiguous by construction and any shape fitting the capacity works. This
+    /// is what lets a frame policy be a byte budget rather than a rectangle.
+    ///
+    /// Contents are *not* cleared: a tile arrives holding whatever the last one
+    /// left in it, which is exactly why every region must paint its own
+    /// background before drawing (roadmap 6.4 constraint (b)).
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, if `region` needs more units than the buffer holds. The
+    /// planner guarantees it never does, and `UI::start_frame`'s const assert
+    /// guarantees the planner's own bound fits — this is the runtime backstop
+    /// for a renderer driven outside that path.
+    pub fn retarget(&mut self, region: Rect) {
+        debug_assert!(
+            region_units(region.size.width, region.size.height, C::PPS)
+                <= self.pixels.len(),
+            "[BUG] region {region:?} needs {} storage units, buffer holds {}",
+            region_units(region.size.width, region.size.height, C::PPS),
+            self.pixels.len(),
+        );
+        self.viewport = region;
     }
 }
 

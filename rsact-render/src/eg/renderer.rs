@@ -140,10 +140,39 @@ pub struct EGRenderer<C: Color + PackedColor, AA: AntiAliasing> {
 }
 
 impl<C: Color + PackedColor> EGRenderer<C, AntiAliasingDisabled> {
+    /// Full-frame: a surface the size of the whole display.
     pub fn new(viewport: Size) -> Self {
         Self {
             viewport_stack: vec![ViewportKind::root()],
             canvas: PackedFramebuf::new(viewport, C::default_background()),
+            main_viewport: viewport,
+            aa: PhantomData,
+        }
+    }
+
+    /// **WS6.4d: tiled.** A surface of `surface_units` storage units, driving a
+    /// `viewport`-sized display — i.e. a buffer far smaller than the frame,
+    /// re-aimed at each region by [`Renderer::begin_region`].
+    ///
+    /// This is the acceptance target made constructible: a 240×240 RGB565 frame
+    /// needs 57600 units (112.5 KiB), while
+    /// `tiled(Size::new_equal(240), region_units(240, 24, 1))` needs **5760**
+    /// (11.25 KiB) and paints the same frame.
+    ///
+    /// `main_viewport` stays the display's size because that is what rsact lays
+    /// out and culls against; only the *surface* shrinks. The two were already
+    /// independent fields, which is what makes this a constructor rather than a
+    /// redesign.
+    ///
+    /// Pair it with a frame policy whose largest region fits — `Tiles<240, 24>`
+    /// here — and `UI::start_frame` proves the fit at compile time.
+    pub fn tiled(viewport: Size, surface_units: usize) -> Self {
+        Self {
+            viewport_stack: vec![ViewportKind::root()],
+            canvas: PackedFramebuf::with_capacity(
+                surface_units,
+                C::default_background(),
+            ),
             main_viewport: viewport,
             aa: PhantomData,
         }
@@ -239,6 +268,43 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing> EGRenderer<C, AA> {
     }
 
     // Renderer common implementations
+    /// WS6.4d: aim the surface at `region` and pre-fill it.
+    ///
+    /// Two things happen, and the second is not optional. The buffer is
+    /// retargeted — `region`'s own width becomes the stride, so any region
+    /// fitting the capacity is addressable — and then it is **filled with the
+    /// background**, because a tile arrives holding whatever the previous region
+    /// left in it.
+    ///
+    /// That fill is what makes anti-aliasing correct rather than merely tidy
+    /// (roadmap 6.4 constraint (b)): `pixel_alpha` blends against the
+    /// *destination*, and on a full framebuffer the destination survives between
+    /// frames, which is how AA edges compose under damage-driven repaint. A tile
+    /// has no such history, so without this the first AA edge in each region
+    /// would blend against the previous region's pixels — a plausible image, not
+    /// an obvious failure.
+    ///
+    /// A full-frame surface skips both: it already covers the region, and
+    /// clearing it would erase the frame the damage-driven path relies on.
+    fn renderer_begin_region(&mut self, region: Rect) -> RenderResult {
+        let full_frame = crate::eg::framebuf::units_for::<C>(
+            self.main_viewport.width,
+            self.main_viewport.height,
+        );
+        if self.canvas.capacity_units() >= full_frame {
+            return Ok(());
+        }
+        self.canvas.retarget(region);
+        // Straight at the canvas, not through `Renderer::fill_solid`: the
+        // region clip is pushed by the caller *after* this returns, and the
+        // whole retargeted buffer is what needs priming.
+        DrawTarget::fill_solid(
+            &mut self.canvas,
+            &region.into(),
+            C::default_background(),
+        )
+    }
+
     fn renderer_output<TC>(&self, target: &mut impl RenderTarget<Color = TC>)
     where
         C: MapColor<TC>,
@@ -377,6 +443,10 @@ impl<C: Color + PackedColor + PixelColor> Renderer
 
     fn size(&self) -> Size {
         self.main_viewport
+    }
+
+    fn begin_region(&mut self, region: Rect) -> RenderResult {
+        self.renderer_begin_region(region)
     }
 
     fn push_clip(&mut self, area: Rect) {
@@ -538,6 +608,10 @@ impl<C: Color + PackedColor + PixelColor> Renderer
 
     fn size(&self) -> Size {
         self.main_viewport
+    }
+
+    fn begin_region(&mut self, region: Rect) -> RenderResult {
+        self.renderer_begin_region(region)
     }
 
     fn push_clip(&mut self, area: Rect) {
@@ -726,6 +800,156 @@ mod tests {
                 assert_eq!(f, s, "EGRenderer fill_solid != per-pixel fill");
             })
         });
+    }
+
+    /// **WS6.4d: the acceptance test for tiled rendering.** A surface a
+    /// fraction of the frame's size must produce the *same pixels* as a full
+    /// framebuffer.
+    ///
+    /// This is what 6.4 exists for, stated as an equality: 240×240 RGB565 is
+    /// 112.5 KiB and does not fit a Blue Pill, while a 240×24 tile is 11.25 KiB
+    /// and does. The whole design is only worth anything if the two agree
+    /// exactly, and "agree" has to mean pixels — WS6.4a's op-log invariance
+    /// checks that each region *issues* the right draw calls, which is a
+    /// different claim and cannot see an addressing mistake. Getting the origin
+    /// sign wrong, or the stride, produces a plausible image and an intact op
+    /// log.
+    ///
+    /// Both paths flush through `FinishRender` into the same kind of pixel map,
+    /// so what is compared is what would reach the panel.
+    #[test]
+    fn a_tiled_surface_paints_the_same_pixels_as_a_full_one() {
+        use crate::{
+            output::{FinishRender, RenderTarget, pixel::Pixel},
+            style::DrawStyle,
+        };
+        use alloc::vec;
+
+        const W: u32 = 64;
+        const H: u32 = 64;
+        let viewport = Size::new(W, H);
+
+        /// A full-frame pixel map, so the two paths are compared on what the
+        /// display would actually receive.
+        struct Map {
+            px: alloc::vec::Vec<Option<Rgb888>>,
+        }
+        impl RenderTarget for Map {
+            type Color = Rgb888;
+            fn draw(
+                &mut self,
+                pixels: impl Iterator<Item = Pixel<Self::Color>>,
+            ) {
+                for Pixel(p, c) in pixels {
+                    if p.x >= 0
+                        && p.y >= 0
+                        && (p.x as u32) < W
+                        && (p.y as u32) < H
+                    {
+                        self.px[p.y as usize * W as usize + p.x as usize] =
+                            Some(c);
+                    }
+                }
+            }
+        }
+        let blank = || Map { px: vec![None; (W * H) as usize] };
+
+        // Content chosen to cross region boundaries and to exercise both write
+        // paths: `fill_solid`'s whole-word runs and the per-pixel fan-out.
+        fn content<R: Renderer<Color = Rgb888>>(r: &mut R) {
+            Renderer::fill_solid(
+                r,
+                Rect::new(Point::new(6, 10), Size::new(50, 30)),
+                Rgb888::new(200, 30, 30),
+            )
+            .unwrap();
+            Renderer::rect(
+                r,
+                Rect::new(Point::new(2, 2), Size::new(60, 60)),
+                &DrawStyle::default()
+                    .stroke(Rgb888::new(20, 220, 40))
+                    .stroke_width(2),
+            )
+            .unwrap();
+            Renderer::line(
+                r,
+                Point::new(0, 0),
+                Point::new(63, 63),
+                &DrawStyle::default()
+                    .stroke(Rgb888::new(10, 40, 250))
+                    .stroke_width(1),
+            )
+            .unwrap();
+            for i in 0..40i32 {
+                Renderer::pixel(
+                    r,
+                    Point::new(i, 63 - i),
+                    Rgb888::new(250, 250, 10),
+                )
+                .unwrap();
+            }
+        }
+
+        // Reference: one full-size surface, one pass, one flush.
+        let mut full =
+            EGRenderer::<Rgb888, AntiAliasingDisabled>::new(viewport);
+        content(&mut full);
+        let mut full_map = blank();
+        full.finish_frame(&mut full_map);
+
+        // Tiled: a 64x8 surface — 512 units against the frame's 4096, an eighth
+        // — repainted and flushed region by region.
+        let tile_units = crate::eg::framebuf::units_for::<Rgb888>(W, 8);
+        let mut tiled = EGRenderer::<Rgb888, AntiAliasingDisabled>::tiled(
+            viewport, tile_units,
+        );
+        assert!(
+            tile_units * 8 == (W * H) as usize,
+            "the point of the test is that the surface is a FRACTION of the frame"
+        );
+
+        let mut tiled_map = blank();
+        for band in 0..8 {
+            let region = Rect::new(Point::new(0, band * 8), Size::new(W, 8));
+            tiled.begin_region(region).unwrap();
+            tiled.push_clip(region);
+            content(&mut tiled);
+            tiled.pop_clip();
+            tiled.end_region().unwrap();
+            tiled.finish_frame_regions(&mut tiled_map, &[region]);
+        }
+
+        // Not vacuous: both paths must have painted a substantial frame. An
+        // all-`None` comparison passes trivially, and this test's whole value
+        // is that it would catch an addressing bug — which is also the kind of
+        // bug that could leave a map empty.
+        let painted = |m: &Map| m.px.iter().filter(|p| p.is_some()).count();
+        assert!(
+            painted(&full_map) > (W * H) as usize / 3,
+            "the reference frame painted only {} of {} pixels",
+            painted(&full_map),
+            W * H
+        );
+        assert_eq!(
+            painted(&full_map),
+            painted(&tiled_map),
+            "the two paths painted different numbers of pixels"
+        );
+
+        let mismatches: alloc::vec::Vec<usize> = (0..(W * H) as usize)
+            .filter(|&i| full_map.px[i] != tiled_map.px[i])
+            .collect();
+        assert!(
+            mismatches.is_empty(),
+            "{} of {} pixels differ between a full framebuffer and a tiled \
+             one; first at ({}, {}): full {:?} vs tiled {:?}",
+            mismatches.len(),
+            W * H,
+            mismatches[0] % W as usize,
+            mismatches[0] / W as usize,
+            full_map.px[mismatches[0]],
+            tiled_map.px[mismatches[0]],
+        );
     }
 
     /// WS6.4.0(ii-4): `NullRenderer` must be a no-op renderer for the
