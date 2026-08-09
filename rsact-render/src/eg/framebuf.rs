@@ -175,10 +175,16 @@ impl PackedColor for BinaryColor {
 /// // 1-bpp: each row rounds up to a whole byte — 122px -> 16 bytes.
 /// assert_eq!(units_for::<BinaryColor>(122, 24), 384);
 /// ```
+///
+/// The arithmetic itself lives in [`region_units`] — this is the colour-typed
+/// wrapper. Deliberately a delegation and not a copy: the same formula is what
+/// `UI::start_frame`'s capacity proof runs against
+/// [`Renderer::SURFACE_PIXELS_PER_UNIT`], and two spellings of it could drift
+/// into a check that passes while the buffer is too small.
+///
+/// [`Renderer::SURFACE_PIXELS_PER_UNIT`]: crate::renderer::Renderer::SURFACE_PIXELS_PER_UNIT
 pub const fn units_for<C: PackedColor>(w: u32, h: u32) -> usize {
-    // `div_ceil` written out: keeps this a plain const fn on stable.
-    let row_units = ((w as usize) + C::PPS - 1) / C::PPS;
-    row_units * (h as usize)
+    crate::renderer::region_units(w, h, C::PPS)
 }
 
 /// A caller-owned buffer able to hold `UNITS` storage units of colour `C`.

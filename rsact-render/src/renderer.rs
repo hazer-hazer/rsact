@@ -11,6 +11,34 @@ use core::marker::PhantomData;
 
 pub type RenderResult = Result<(), ()>;
 
+/// Storage units a `w × h` region needs on a surface packing
+/// `pixels_per_unit` pixels per unit — **rows padded**, never area.
+///
+/// The one place this arithmetic is written. [`Renderer::SURFACE_UNITS`] is
+/// compared against it for WS6.4.0(iii)'s compile-time proof, and
+/// [`units_for`](crate::eg::framebuf::units_for) is the colour-typed wrapper
+/// the embedded-graphics backend uses — they must not be allowed to drift,
+/// because a capacity check that disagrees with the buffer's real layout is
+/// worse than no check at all.
+///
+/// Padding per row is what makes sub-byte packing correct: a 122-pixel 1-bpp
+/// row occupies 16 bytes, not 15.25. Area-based arithmetic gets this wrong, and
+/// is exactly the bug roadmap 6.5 has to undo in `PackedFramebuf::new`.
+///
+/// ```
+/// # use rsact_render::renderer::region_units;
+/// assert_eq!(region_units(240, 24, 1), 5760); // RGB565: one unit per pixel
+/// assert_eq!(region_units(122, 24, 8), 384);  // 1-bpp: 16 bytes per row
+/// ```
+pub const fn region_units(w: u32, h: u32, pixels_per_unit: usize) -> usize {
+    // A renderer that reports zero would divide by zero; treat it as unpacked,
+    // which over-estimates the requirement and so fails safe.
+    let pps = if pixels_per_unit == 0 { 1 } else { pixels_per_unit };
+    // `div_ceil` written out: keeps this a plain const fn on stable.
+    let row_units = ((w as usize) + pps - 1) / pps;
+    row_units * (h as usize)
+}
+
 // #[derive(PartialEq, Clone)]
 // pub enum AntiAliasing {
 //     Disabled,
@@ -126,6 +154,24 @@ pub trait Renderer {
     /// The default sits at the permissive end on purpose: a renderer that has
     /// not opted into tiling is one that never needed the check.
     const SURFACE_UNITS: usize = usize::MAX;
+
+    /// How many pixels this renderer's surface packs into one storage unit —
+    /// the other half of the capacity arithmetic.
+    ///
+    /// `1` (the default) is "one unit per pixel", which is right for every
+    /// 8-bit-or-wider colour and for any renderer that does not pack at all. A
+    /// 1-bpp mono framebuffer sets `8`, and the row padding this implies is the
+    /// reason capacity is not simply `w * h`: a 122-pixel mono row occupies 16
+    /// bytes, not 15.25 (see [`region_units`]).
+    ///
+    /// This exists so [`UI::start_frame`]'s compile-time capacity proof can be
+    /// written **without** a `PackedColor` bound — that trait belongs to the
+    /// embedded-graphics backend, and neither rsact-ui nor a GPU renderer should
+    /// have to name it to be checked. A backend built on `PackedColor` forwards
+    /// `C::PPS` here and the two agree by construction.
+    ///
+    /// [`UI::start_frame`]: https://docs.rs/rsact-ui
+    const SURFACE_PIXELS_PER_UNIT: usize = 1;
 
     // NOTE (WS6.4.0(ii-2)): `type Options` + `fn set_options` lived here and
     // were removed as dead — all seven implementors were `type Options = ()`

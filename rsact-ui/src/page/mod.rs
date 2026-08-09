@@ -587,6 +587,18 @@ impl<W: WidgetCtx> Page<W> {
         self.damage.borrow().clone()
     }
 
+    /// This frame's damage rects, borrowed rather than cloned — what
+    /// [`UI::start_frame`] plans from.
+    ///
+    /// The clone in [`Self::damage_snapshot`] is fine for a test harness and
+    /// wrong for the render loop: it is an allocation on every frame, in the one
+    /// path WS6.4/WS18 want allocation-free once warmed up.
+    ///
+    /// [`UI::start_frame`]: crate::ui::UI::start_frame
+    pub(crate) fn with_damage<R>(&self, f: impl FnOnce(&[Rect]) -> R) -> R {
+        f(&self.damage.borrow())
+    }
+
     pub fn take_draw_calls(&mut self) -> usize {
         core::mem::replace(&mut self.render_calls, 0)
     }

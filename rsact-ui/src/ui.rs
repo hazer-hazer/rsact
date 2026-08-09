@@ -16,6 +16,98 @@ use rsact_reactive::prelude::*;
 use rsact_reactive::scope::new_scope;
 use tinyvec::TinyVec;
 
+/// WS6.4d: one tiled frame in progress — a cursor over the regions to paint.
+///
+/// Obtained from [`UI::start_frame`], which is where the frame is planned and
+/// where the docs for the whole design live. Holding one borrows the `UI`
+/// mutably for the frame's duration, which is the point: it makes mutating the
+/// tree between two regions of the same frame a compile error rather than a
+/// documented contract.
+///
+/// Regions are handed out in the display's own scan order. Dropping the handle
+/// early is allowed and safe — the regions not yet handed out are **deferred**
+/// into the next frame rather than dropped, so an abandoned frame costs latency
+/// and never leaves a stale rectangle on the screen.
+pub struct Frame<'a, W: WidgetCtx, P: FramePolicy> {
+    ui: &'a mut UI<W, WithPages>,
+    cursor: usize,
+    policy: PhantomData<P>,
+}
+
+impl<W: WidgetCtx, P: FramePolicy> Frame<'_, W, P> {
+    /// The next region to paint, or `None` when the frame is done.
+    ///
+    /// A `&mut self` cursor rather than an `Iterator`: an iterator would borrow
+    /// the frame for the whole loop, and [`Self::render`] needs `&mut self`
+    /// inside it.
+    pub fn next_region(&mut self) -> Option<Rect> {
+        let region = self.ui.frame_regions.get(self.cursor).copied();
+        if region.is_some() {
+            self.cursor += 1;
+        }
+        region
+    }
+
+    /// How many regions this frame was planned into. Constant for the frame.
+    pub fn regions(&self) -> usize {
+        self.ui.frame_regions.len()
+    }
+
+    /// Paint `region`.
+    ///
+    /// Untracked and probe-free: **everything intersecting `region` repaints**,
+    /// changed or not, because the surface arrives holding whatever the last
+    /// region left in it. That is the tile contract, and it is why region shape
+    /// (rather than region count) is what the planner optimises.
+    pub fn render(&mut self, region: Rect) -> RenderResult {
+        let (page, renderer) = self.ui.current_page_and_renderer();
+        page.paint_region(renderer, region)
+    }
+
+    /// The renderer, for the backend's own inherent API between regions —
+    /// attaching and detaching tile buffers, submitting a GPU pass.
+    ///
+    /// rsact never sees a surface (roadmap 6.4.0, "surface ownership"), so this
+    /// is the seam where the caller's buffers meet their renderer.
+    pub fn renderer(&mut self) -> &mut W::Renderer {
+        &mut self.ui.renderer
+    }
+
+    /// Flush `region` to `target` — the convenience path for backends that hand
+    /// rsact a `DrawTarget` (the simulator, the host tests, any generic
+    /// embedded-graphics driver) rather than owning their transport.
+    ///
+    /// A real tile pipeline does not call this: it takes the buffer through
+    /// [`Self::renderer`] and ships it itself, which is what keeps the IO — and
+    /// every `.await` — on the caller's side.
+    pub fn flush<T: RenderTarget>(&mut self, target: &mut T, region: Rect)
+    where
+        W::Renderer: FinishRender<T::Color>,
+    {
+        self.ui.renderer.finish_frame_regions(target, &[region]);
+    }
+}
+
+impl<W: WidgetCtx, P: FramePolicy> Drop for Frame<'_, W, P> {
+    fn drop(&mut self) {
+        let cursor = self.cursor;
+        let planned = &self.ui.frame_regions;
+        if cursor < planned.len() {
+            // Not a warning: deferring is the designed outcome, not an error
+            // (roadmap 6.7 — "defer + union-coalesce, never abort"). A page
+            // change or an early `break` lands here legitimately.
+            log::debug!(
+                "frame dropped with {} of {} region(s) unpainted; deferring \
+                 them to the next frame",
+                planned.len() - cursor,
+                planned.len()
+            );
+            let unpainted = planned[cursor..].to_vec();
+            self.ui.deferred_regions.extend(unpainted);
+        }
+    }
+}
+
 pub struct UiOptions {
     auto_focus: bool,
     // TODO: Event interpretation logic settings
@@ -94,6 +186,22 @@ pub struct UI<W: WidgetCtx, P: HasPages> {
     /// tests to save one refcount — the renderer needs `&mut`, which forces the
     /// borrow; fonts are read-only after build, which does not.
     fonts: Rc<FontCtx>,
+    /// WS6.4d: this frame's plan — the regions [`Frame`] hands out.
+    ///
+    /// A `UI` field rather than a `Frame` one so the allocation survives across
+    /// frames: after the first few frames it never grows again, which is the
+    /// no-per-frame-allocation property `rsact_render::region` was shaped for.
+    frame_regions: Vec<Rect>,
+    /// WS6.4d: damage a previous frame planned but never painted.
+    ///
+    /// Dropping a [`Frame`] before its regions run out defers them here instead
+    /// of losing them — an unpainted region is a stale rectangle on the display,
+    /// and nothing would damage it again until whatever is underneath happens to
+    /// change. This is 6.7's frame-coherence rule ("defer + union-coalesce,
+    /// never abort") at its smallest useful size: the deferred set is folded
+    /// into the next frame's damage and re-planned, so it merges rather than
+    /// accumulates and cannot grow without bound.
+    deferred_regions: Vec<Rect>,
 }
 
 impl<R, I, S, E> UI<Wtf<R, I, S, E>, NoPages>
@@ -129,6 +237,8 @@ where
             options: Default::default(),
             has_pages: PhantomData,
             fonts,
+            frame_regions: Vec::new(),
+            deferred_regions: Vec::new(),
         }
     }
 
@@ -185,6 +295,8 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
             options: self.options,
             has_pages: PhantomData,
             fonts: self.fonts,
+            frame_regions: self.frame_regions,
+            deferred_regions: self.deferred_regions,
         };
 
         // Go to page if it is the first one
@@ -311,6 +423,88 @@ impl<W: WidgetCtx> UI<W, WithPages> {
     {
         let (page, renderer) = self.current_page_and_renderer();
         page.render(renderer, target)
+    }
+
+    /// WS6.4d: begin a **tiled frame** — plan it once, then paint and ship one
+    /// region at a time.
+    ///
+    /// ```text
+    /// let mut frame = ui.start_frame::<Tiles<240, 24>>();
+    /// while let Some(region) = frame.next_region() {
+    ///     frame.render(region)?;          // paint into the renderer's surface
+    ///     let tile = frame.renderer().detach();
+    ///     spi.write(tile).await;          // the IO is yours, always
+    /// }
+    /// ```
+    ///
+    /// Three properties this shape buys, and each is a constraint rather than a
+    /// convenience:
+    ///
+    /// - **The IO is the caller's.** Nothing here awaits, blocks or owns a
+    ///   transport; the loop above is the app's and every `.await` in it belongs
+    ///   to the app. That is what lets one synchronous core serve blocking SPI,
+    ///   polled DMA, Embassy and an RTIC ISR alike (roadmap 6.7).
+    /// - **`tick()` mid-frame is a compile error.** The returned handle borrows
+    ///   `&mut self` for the whole frame, so nothing can mutate the tree between
+    ///   two regions of the same frame — where "region 3 paints a widget region
+    ///   1 painted differently" is a tear no test would reliably catch.
+    /// - **A surface too small for the policy does not compile.** The `const`
+    ///   block below is WS6.4.0(iii)'s capacity proof: the policy's largest
+    ///   region, converted to storage units by the renderer's own packing, must
+    ///   fit [`Renderer::SURFACE_UNITS`]. Violating it is a
+    ///   post-monomorphization error naming the concrete renderer and policy.
+    ///
+    /// The frame is **planned here, once**: one probe-gated [`Page::collect`]
+    /// walk decides what changed, and the damage it records (plus anything a
+    /// previous frame deferred) is planned into regions. Painting is then
+    /// untracked and geometry-selected, so no probe can go clean halfway through
+    /// a frame and leave the rest of the screen unpainted — the conflict that
+    /// made tiling and probe-gated damage look mutually exclusive before WS6.4c
+    /// separated "what changed" from "what does it look like there".
+    ///
+    /// [`Page::collect`]: crate::page::Page::collect
+    /// [`Renderer::SURFACE_UNITS`]: rsact_render::renderer::Renderer::SURFACE_UNITS
+    pub fn start_frame<P: FramePolicy>(&mut self) -> Frame<'_, W, P> {
+        // WS6.4.0(iii). An inline `const` block, so this is evaluated at
+        // monomorphization and the error names the instantiation:
+        // `UI::<Wtf<EgTileRenderer<Rgb565, [u16; 5760]>, …>>::start_frame::<Tiles<240, 25>>`.
+        const {
+            assert_policy_fits::<P>(
+                <W::Renderer as Renderer>::SURFACE_UNITS,
+                <W::Renderer as Renderer>::SURFACE_PIXELS_PER_UNIT,
+            )
+        }
+
+        let viewport = Rect::new(Point::zero(), self.viewport);
+
+        // Plan the frame: one tracked, probe-gated walk that paints nothing.
+        let (page, renderer) = self.current_page_and_renderer();
+        page.collect(renderer);
+
+        // Fold this frame's damage into whatever a previous frame deferred, and
+        // plan the union. `active_page` and `deferred_regions` are disjoint
+        // fields, which is what lets both be borrowed here.
+        let deferred = &mut self.deferred_regions;
+        if let Some(page) = self.active_page.as_ref() {
+            page.with_damage(|rects| deferred.extend_from_slice(rects));
+        }
+
+        // `take` rather than a fresh `Vec`: the plan buffer is reused frame to
+        // frame, and `plan_regions_into` clears it.
+        let mut planned = core::mem::take(&mut self.frame_regions);
+        plan_regions_into(
+            &self.deferred_regions,
+            viewport,
+            &P::limits(
+                self.viewport,
+                <W::Renderer as Renderer>::SURFACE_PIXELS_PER_UNIT,
+            ),
+            &mut planned,
+        );
+        self.frame_regions = planned;
+        self.deferred_regions.clear();
+
+        Frame { ui: self, cursor: 0, policy: PhantomData }
     }
 
     /// Poll the current page's render gate **without** flushing to a display —
@@ -647,6 +841,180 @@ mod tests {
                 vec![full],
                 "a page change must flush the whole viewport, or the previous \
                  page shows through wherever the new one paints nothing"
+            );
+        });
+    }
+
+    /// WS6.4d: the tiled frame driver must reconstruct the frame the
+    /// full-framebuffer path would have painted.
+    ///
+    /// This is the *end-to-end* version of what WS6.4a's harness checks on
+    /// synthetic schedules: it goes through the real public entry point
+    /// ([`UI::start_frame`] → `next_region` → `render`), on a real `UI` with a
+    /// real page, and the schedule is the planner's own — not one the test
+    /// invented. `tile_invariance` is the assertion: every op a region is
+    /// obliged to draw appears in that region's log, and no region draws
+    /// geometry the full frame never produced.
+    #[test]
+    fn a_tiled_frame_reconstructs_the_full_frame() {
+        use rsact_render::{
+            record::RecordingRenderer,
+            region::Tiles,
+            renderer::NullColor,
+            schedule::{ScheduleLog, TilePass, tile_invariance},
+        };
+
+        with_new_runtime(|_| {
+            let viewport = Size::new_equal(64);
+            type RecWtf =
+                crate::el::ctx::Wtf<RecordingRenderer<NullColor>, u8, (), ()>;
+
+            let renderer = RecordingRenderer::<NullColor>::new(viewport);
+            let recorder = renderer.clone();
+            let mut ui: UI<RecWtf, _> =
+                UI::new((), renderer).with_page(0u8, || {
+                    Flex::col(vec![
+                        Label::new("alpha".inert()).into_el(),
+                        Checkbox::new(true).into_el(),
+                        Label::new("omega".inert()).into_el(),
+                    ])
+                    .fill()
+                    .gap(4u32)
+                    .into_el()
+                });
+
+            // Settle: the first frames are full invalidates while reactive
+            // state stabilises (same warm-up the WS6.9 goldens use).
+            for _ in 0..6 {
+                ui.use_renderer(|_| {});
+            }
+
+            // The reference: one forced full-viewport frame.
+            recorder.clear();
+            ui.current_page().force_redraw();
+            ui.use_renderer(|_| {});
+            let full = recorder.ops();
+            assert!(!full.is_empty(), "the reference frame drew nothing");
+
+            // The same frame, tiled. 64x16 is four bands on this viewport, so
+            // the plan is the degenerate strip case — which is exactly the one
+            // where every widget is cut by some boundary.
+            ui.current_page().force_redraw();
+            let mut passes = Vec::new();
+            {
+                let mut frame = ui.start_frame::<Tiles<64, 16>>();
+                assert!(
+                    frame.regions() > 1,
+                    "a forced full redraw on a 64x64 viewport must plan more \
+                     than one 64x16 region, got {}",
+                    frame.regions()
+                );
+                while let Some(region) = frame.next_region() {
+                    recorder.clear();
+                    frame.render(region).expect("paint_region failed");
+                    passes.push(TilePass { tile: region, ops: recorder.ops() });
+                }
+            }
+
+            let violations = tile_invariance(&ScheduleLog { full, passes });
+            assert!(
+                violations.is_empty(),
+                "{} violation(s), first: {}",
+                violations.len(),
+                violations[0]
+            );
+        });
+    }
+
+    /// WS6.4d: dropping a frame with regions left must **defer** them, not lose
+    /// them.
+    ///
+    /// An unpainted region is a stale rectangle on the display, and nothing
+    /// would damage it again until whatever is underneath happens to change —
+    /// so it would sit there, wrong, indefinitely. The next frame must therefore
+    /// re-plan it even though nothing in the tree changed in between (roadmap
+    /// 6.7: "defer + union-coalesce, never abort").
+    #[test]
+    fn an_abandoned_frame_defers_its_regions() {
+        use rsact_render::{
+            record::RecordingRenderer, region::Tiles, renderer::NullColor,
+        };
+
+        with_new_runtime(|_| {
+            let viewport = Size::new_equal(64);
+            type RecWtf =
+                crate::el::ctx::Wtf<RecordingRenderer<NullColor>, u8, (), ()>;
+
+            let mut ui: UI<RecWtf, _> =
+                UI::new((), RecordingRenderer::<NullColor>::new(viewport))
+                    .with_page(0u8, || Label::new("abandon".inert()).into_el());
+
+            for _ in 0..6 {
+                ui.use_renderer(|_| {});
+            }
+
+            ui.current_page().force_redraw();
+            let planned = {
+                let mut frame = ui.start_frame::<Tiles<64, 16>>();
+                let planned = frame.regions();
+                assert!(planned >= 2, "need a multi-region frame to abandon");
+                let first = frame.next_region().unwrap();
+                frame.render(first).expect("paint_region failed");
+                planned
+                // dropped here with `planned - 1` regions unpainted
+            };
+
+            // Nothing changed in between, so anything this frame plans came
+            // from the deferral.
+            let frame = ui.start_frame::<Tiles<64, 16>>();
+            assert_eq!(
+                frame.regions(),
+                planned - 1,
+                "the abandoned regions were lost — the screen would keep \
+                 showing whatever was there"
+            );
+        });
+    }
+
+    /// The other half of that contract: a frame with nothing to do plans
+    /// nothing, so the driver's loop body never runs and no region is
+    /// transferred.
+    ///
+    /// Worth pinning separately because it is what makes the deferral test
+    /// above meaningful — if a settled page planned regions anyway, that test
+    /// would pass for the wrong reason.
+    #[test]
+    fn a_settled_page_plans_no_regions() {
+        use rsact_render::{
+            record::RecordingRenderer, region::Tiles, renderer::NullColor,
+        };
+
+        with_new_runtime(|_| {
+            let viewport = Size::new_equal(64);
+            type RecWtf =
+                crate::el::ctx::Wtf<RecordingRenderer<NullColor>, u8, (), ()>;
+
+            let mut ui: UI<RecWtf, _> =
+                UI::new((), RecordingRenderer::<NullColor>::new(viewport))
+                    .with_page(0u8, || Label::new("settled".inert()).into_el());
+
+            for _ in 0..6 {
+                ui.use_renderer(|_| {});
+            }
+            // Drain any frame the warm-up left planned.
+            while ui.start_frame::<Tiles<64, 16>>().regions() > 0 {
+                let mut frame = ui.start_frame::<Tiles<64, 16>>();
+                while let Some(region) = frame.next_region() {
+                    frame.render(region).expect("paint_region failed");
+                }
+            }
+
+            let frame = ui.start_frame::<Tiles<64, 16>>();
+            assert_eq!(
+                frame.regions(),
+                0,
+                "an idle frame planned regions; every one of them is a wasted \
+                 tree walk and a wasted transfer"
             );
         });
     }
