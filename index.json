@@ -251,6 +251,12 @@
     "branch": "ws6.4c-collect-paint",
     "subject": "Merge pull request #38 from hazer-hazer/ws6.4c-modes"
   },
+  "cf71c26bd0fc06294c91e77a6e9eb62dcd3c6c4a": {
+    "date": 1786309370,
+    "parent": "",
+    "branch": "ws6.4d-tile-renderer",
+    "subject": "WS6.4d(8): one seam, not two — RenderTarget dies, tiny-skia borrows its Pixmap"
+  },
   "d20fe00c604538991c5365ca131220e705e1b72a": {
     "date": 1785868657,
     "parent": "",
