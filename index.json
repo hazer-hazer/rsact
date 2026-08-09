@@ -167,6 +167,12 @@
     "branch": "master",
     "subject": "Merge pull request #40 from hazer-hazer/ws6.4c-prune"
   },
+  "9848c073e44e1ed75d036b1a0be6519795f383c3": {
+    "date": 1786266431,
+    "parent": "",
+    "branch": "ws6.4d-tile-renderer",
+    "subject": "WS6.4d(6): the tile-backed surface — same pixels, an eighth the RAM"
+  },
   "9d0c3bc1a2be83d08d5fab193786b0ce9c5fa328": {
     "date": 1786211001,
     "parent": "",
