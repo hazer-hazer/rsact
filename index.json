@@ -17,6 +17,12 @@
     "branch": "ws6.4d-tiled-output",
     "subject": "WS6.4d(1): remove max_regions — a proven pessimisation, kept for a bad reason"
   },
+  "08bf78ff8d051033187d398b6d94489799c745e7": {
+    "date": 1786307133,
+    "parent": "",
+    "branch": "ws6.4d-tile-renderer",
+    "subject": "WS6.4d(7): the primitives stop naming storage they never touch"
+  },
   "0b2e5f576e38fcb036674d9c72307c38f1d0fb41": {
     "date": 1786183197,
     "parent": "",
