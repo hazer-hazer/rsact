@@ -1,0 +1,451 @@
+{
+  "git_rev": "a2cef850d14f94b8aa36ba9b148ca7e531c7cbc0",
+  "git_dirty": false,
+  "recorded_at": 1786301416,
+  "host": "x86_64-linux",
+  "scenarios": [
+    {
+      "name": "reactive_only_16",
+      "counts": {
+        "stored": 0,
+        "signals": 16,
+        "effects": 0,
+        "memos": 0,
+        "computed": 0,
+        "observers": 17,
+        "subscribers": 32,
+        "subscribers_bindings": 32,
+        "sources": 17,
+        "sources_bindings": 32,
+        "total": 33,
+        "values_capacity": 63,
+        "values_vacant": 30
+      },
+      "heap_live_bytes": 8416,
+      "heap_peak_bytes": 8416,
+      "build_allocs": 47,
+      "build_bytes": 8416,
+      "idle_frame_allocs": 0,
+      "change_frame_allocs": 1,
+      "layout": null
+    },
+    {
+      "name": "ui_labels_5",
+      "counts": {
+        "stored": 0,
+        "signals": 8,
+        "effects": 5,
+        "memos": 5,
+        "computed": 0,
+        "observers": 7,
+        "subscribers": 17,
+        "subscribers_bindings": 26,
+        "sources": 16,
+        "sources_bindings": 26,
+        "total": 25,
+        "values_capacity": 31,
+        "values_vacant": 6
+      },
+      "heap_live_bytes": 10095,
+      "heap_peak_bytes": 10095,
+      "build_allocs": 107,
+      "build_bytes": 11263,
+      "idle_frame_allocs": 0,
+      "change_frame_allocs": 8,
+      "layout": null
+    },
+    {
+      "name": "ui_labels_10",
+      "counts": {
+        "stored": 0,
+        "signals": 13,
+        "effects": 10,
+        "memos": 10,
+        "computed": 0,
+        "observers": 12,
+        "subscribers": 32,
+        "subscribers_bindings": 51,
+        "sources": 31,
+        "sources_bindings": 51,
+        "total": 45,
+        "values_capacity": 63,
+        "values_vacant": 18
+      },
+      "heap_live_bytes": 18254,
+      "heap_peak_bytes": 18254,
+      "build_allocs": 175,
+      "build_bytes": 20762,
+      "idle_frame_allocs": 0,
+      "change_frame_allocs": 11,
+      "layout": null
+    },
+    {
+      "name": "ui_buttons_5",
+      "counts": {
+        "stored": 0,
+        "signals": 8,
+        "effects": 5,
+        "memos": 5,
+        "computed": 0,
+        "observers": 2,
+        "subscribers": 10,
+        "subscribers_bindings": 10,
+        "sources": 10,
+        "sources_bindings": 10,
+        "total": 20,
+        "values_capacity": 31,
+        "values_vacant": 11
+      },
+      "heap_live_bytes": 11566,
+      "heap_peak_bytes": 11994,
+      "build_allocs": 125,
+      "build_bytes": 15262,
+      "idle_frame_allocs": null,
+      "change_frame_allocs": null,
+      "layout": null
+    },
+    {
+      "name": "ui_buttons_10",
+      "counts": {
+        "stored": 0,
+        "signals": 13,
+        "effects": 10,
+        "memos": 10,
+        "computed": 0,
+        "observers": 2,
+        "subscribers": 20,
+        "subscribers_bindings": 20,
+        "sources": 20,
+        "sources_bindings": 20,
+        "total": 35,
+        "values_capacity": 63,
+        "values_vacant": 28
+      },
+      "heap_live_bytes": 21708,
+      "heap_peak_bytes": 22528,
+      "build_allocs": 208,
+      "build_bytes": 28856,
+      "idle_frame_allocs": null,
+      "change_frame_allocs": null,
+      "layout": null
+    },
+    {
+      "name": "ui_nested_flex_5",
+      "counts": {
+        "stored": 0,
+        "signals": 8,
+        "effects": 5,
+        "memos": 5,
+        "computed": 0,
+        "observers": 7,
+        "subscribers": 17,
+        "subscribers_bindings": 26,
+        "sources": 16,
+        "sources_bindings": 26,
+        "total": 25,
+        "values_capacity": 31,
+        "values_vacant": 6
+      },
+      "heap_live_bytes": 12686,
+      "heap_peak_bytes": 12686,
+      "build_allocs": 155,
+      "build_bytes": 16082,
+      "idle_frame_allocs": 0,
+      "change_frame_allocs": 38,
+      "layout": null
+    },
+    {
+      "name": "ui_nested_flex_10",
+      "counts": {
+        "stored": 0,
+        "signals": 13,
+        "effects": 10,
+        "memos": 10,
+        "computed": 0,
+        "observers": 12,
+        "subscribers": 32,
+        "subscribers_bindings": 51,
+        "sources": 31,
+        "sources_bindings": 51,
+        "total": 45,
+        "values_capacity": 63,
+        "values_vacant": 18
+      },
+      "heap_live_bytes": 23564,
+      "heap_peak_bytes": 23564,
+      "build_allocs": 268,
+      "build_bytes": 30496,
+      "idle_frame_allocs": 0,
+      "change_frame_allocs": 71,
+      "layout": null
+    }
+  ],
+  "section_sizes": [],
+  "bench_medians": [
+    {
+      "id": "build_and_layout_full",
+      "median_ns": 25339.22784571256,
+      "ci_half_ns": 103.83143682065202
+    },
+    {
+      "id": "dynamic_dependency_switch",
+      "median_ns": 189.0010153850942,
+      "ci_half_ns": 0.31793030023240476
+    },
+    {
+      "id": "dynamic_vanishing_dependency",
+      "median_ns": 196.24964686771665,
+      "ci_half_ns": 5.36866722849031
+    },
+    {
+      "id": "graph_effect_rerun_1_signal",
+      "median_ns": 168.82673671783027,
+      "ci_half_ns": 1.0862625664515235
+    },
+    {
+      "id": "graph_effect_rerun_n_subscribers/1",
+      "median_ns": 154.4783298235649,
+      "ci_half_ns": 0.5801667996048252
+    },
+    {
+      "id": "graph_effect_rerun_n_subscribers/10",
+      "median_ns": 887.1665936890872,
+      "ci_half_ns": 2.7805620097554424
+    },
+    {
+      "id": "graph_effect_rerun_n_subscribers/100",
+      "median_ns": 10616.36155803484,
+      "ci_half_ns": 42.1985956155786
+    },
+    {
+      "id": "graph_effect_rerun_n_subscribers/1000",
+      "median_ns": 274206.37537313433,
+      "ci_half_ns": 1325.762334162515
+    },
+    {
+      "id": "graph_memo_chain_depth/1",
+      "median_ns": 271.0762533877502,
+      "ci_half_ns": 0.709714957054814
+    },
+    {
+      "id": "graph_memo_chain_depth/16",
+      "median_ns": 1753.913666987488,
+      "ci_half_ns": 4.591249197946695
+    },
+    {
+      "id": "graph_memo_chain_depth/4",
+      "median_ns": 574.6644426317652,
+      "ci_half_ns": 1.347644023562566
+    },
+    {
+      "id": "graph_memo_chain_depth/8",
+      "median_ns": 964.90925730655,
+      "ci_half_ns": 2.7315475248990992
+    },
+    {
+      "id": "graph_memo_diamond",
+      "median_ns": 360.67299979208167,
+      "ci_half_ns": 0.8774422020563577
+    },
+    {
+      "id": "graph_memo_fan_in/1",
+      "median_ns": 158.0250165415264,
+      "ci_half_ns": 1.9113980415243645
+    },
+    {
+      "id": "graph_memo_fan_in/10",
+      "median_ns": 540.3239994623978,
+      "ci_half_ns": 2.9923637007517527
+    },
+    {
+      "id": "graph_memo_fan_in/100",
+      "median_ns": 10987.125333677774,
+      "ci_half_ns": 33.941430580672204
+    },
+    {
+      "id": "graph_memo_fan_out/1",
+      "median_ns": 151.2619469094525,
+      "ci_half_ns": 0.41981830566260214
+    },
+    {
+      "id": "graph_memo_fan_out/10",
+      "median_ns": 976.8263060303128,
+      "ci_half_ns": 1.5982202361757913
+    },
+    {
+      "id": "graph_memo_fan_out/100",
+      "median_ns": 11763.558166451334,
+      "ci_half_ns": 38.796656976745
+    },
+    {
+      "id": "layout_leaf_change",
+      "median_ns": 10029.996312475403,
+      "ci_half_ns": 34.665853994490135
+    },
+    {
+      "id": "layout_only",
+      "median_ns": 10906.350558237778,
+      "ci_half_ns": 30.177915241736628
+    },
+    {
+      "id": "lifecycle_create_effect",
+      "median_ns": 402.6478414243277,
+      "ci_half_ns": 3.6814989348811764
+    },
+    {
+      "id": "lifecycle_create_memo",
+      "median_ns": 91.62820002695663,
+      "ci_half_ns": 0.5637212701362273
+    },
+    {
+      "id": "lifecycle_create_signal",
+      "median_ns": 36.961739517071415,
+      "ci_half_ns": 0.17202888963739227
+    },
+    {
+      "id": "lifecycle_create_trigger",
+      "median_ns": 38.52928070597226,
+      "ci_half_ns": 0.20321869588395458
+    },
+    {
+      "id": "lifecycle_dispose_effect_with_subscription",
+      "median_ns": 90.4625,
+      "ci_half_ns": 0.21358765683599046
+    },
+    {
+      "id": "lifecycle_dispose_scope_n_signals/10",
+      "median_ns": 377.8374017957351,
+      "ci_half_ns": 0.7265056478766212
+    },
+    {
+      "id": "lifecycle_dispose_scope_n_signals/100",
+      "median_ns": 3347.9282473472376,
+      "ci_half_ns": 6.563269366473378
+    },
+    {
+      "id": "lifecycle_dispose_scope_n_signals/1000",
+      "median_ns": 32934.26215277778,
+      "ci_half_ns": 47.61787280701901
+    },
+    {
+      "id": "primitives/memo_read_cached",
+      "median_ns": 19.358643997054976,
+      "ci_half_ns": 0.059600504053076264
+    },
+    {
+      "id": "primitives/memo_recompute_on_change",
+      "median_ns": 155.1680503477583,
+      "ci_half_ns": 0.21737637302042856
+    },
+    {
+      "id": "primitives/signal_get_cloned_wide",
+      "median_ns": 20.736034281658533,
+      "ci_half_ns": 0.03833489590432393
+    },
+    {
+      "id": "primitives/signal_read_get",
+      "median_ns": 19.538671859072203,
+      "ci_half_ns": 0.030985473386854423
+    },
+    {
+      "id": "primitives/signal_read_untracked",
+      "median_ns": 11.222637849250956,
+      "ci_half_ns": 0.022726656839093806
+    },
+    {
+      "id": "primitives/signal_set_if_changed_noop_1_effect",
+      "median_ns": 16.628213747779924,
+      "ci_half_ns": 0.07120507102799145
+    },
+    {
+      "id": "primitives/signal_set_if_changed_real_1_effect",
+      "median_ns": 173.67803120543044,
+      "ci_half_ns": 1.7388280636808418
+    },
+    {
+      "id": "primitives/signal_with_field",
+      "median_ns": 19.029724498644445,
+      "ci_half_ns": 0.07374389651802105
+    },
+    {
+      "id": "primitives/signal_write_noop_equal_1_effect",
+      "median_ns": 158.16270411785587,
+      "ci_half_ns": 0.4086622694012192
+    },
+    {
+      "id": "primitives/signal_write_notify_no_subs",
+      "median_ns": 33.4433352191239,
+      "ci_half_ns": 0.06780041295091266
+    },
+    {
+      "id": "primitives/signal_write_untracked",
+      "median_ns": 9.823645455988569,
+      "ci_half_ns": 0.025186809433391133
+    },
+    {
+      "id": "primitives/trigger_notify_no_subs",
+      "median_ns": 17.79869911992117,
+      "ci_half_ns": 0.06546589921686419
+    },
+    {
+      "id": "primitives/untrack_read",
+      "median_ns": 27.565759091762143,
+      "ci_half_ns": 0.036655221407977834
+    },
+    {
+      "id": "scheduling_batch_n_writes/10",
+      "median_ns": 560.6022849957061,
+      "ci_half_ns": 3.2554862900257717
+    },
+    {
+      "id": "scheduling_batch_n_writes/100",
+      "median_ns": 4341.941176937109,
+      "ci_half_ns": 5.677392565401533
+    },
+    {
+      "id": "scheduling_batch_n_writes/1000",
+      "median_ns": 42173.753897228635,
+      "ci_half_ns": 59.50604952527647
+    },
+    {
+      "id": "scheduling_unbatched_n_writes/10",
+      "median_ns": 1576.3222205101113,
+      "ci_half_ns": 5.988876353790602
+    },
+    {
+      "id": "scheduling_unbatched_n_writes/100",
+      "median_ns": 15689.301374269004,
+      "ci_half_ns": 59.77883223684148
+    },
+    {
+      "id": "ui_observe_noop_frame",
+      "median_ns": 13.386223420185685,
+      "ci_half_ns": 0.01849926699672011
+    },
+    {
+      "id": "ui_observe_redraw_1_of_n/16",
+      "median_ns": 840.3545244947854,
+      "ci_half_ns": 19.048594771675198
+    },
+    {
+      "id": "ui_observe_redraw_1_of_n/4",
+      "median_ns": 311.20666781722514,
+      "ci_half_ns": 0.7664386657164073
+    },
+    {
+      "id": "ui_observe_redraw_1_of_n/64",
+      "median_ns": 5354.271778959811,
+      "ci_half_ns": 37.10261524822681
+    },
+    {
+      "id": "ui_reactive_on_write_upgrade",
+      "median_ns": 294.0582055314888,
+      "ci_half_ns": 16.43418655501614
+    },
+    {
+      "id": "ui_struct_with_field_reactive",
+      "median_ns": 160.14063457534417,
+      "ci_half_ns": 2.036543289101587
+    }
+  ]
+}

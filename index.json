@@ -203,6 +203,12 @@
     "branch": "issue-4-style-traits",
     "subject": "Roadmap: ISSUE-4 — style-property traits + a `Style` associated type"
   },
+  "a2cef850d14f94b8aa36ba9b148ca7e531c7cbc0": {
+    "date": 1786301169,
+    "parent": "",
+    "branch": "ws6.4d-tile-renderer",
+    "subject": "WS6.4d(6): rsact borrows a renderer, never owns one"
+  },
   "b201ff3c175ac903994ab4ae3cba3660656e5e06": {
     "date": 1785963304,
     "parent": "",
