@@ -41,6 +41,12 @@
     "branch": "issue2-label-layout",
     "subject": "Document the maintainer's five in-code TODOs in the plan, and remove them"
   },
+  "19e74d1f0a5e9e879eb74886749f459fec43e471": {
+    "date": 1786314393,
+    "parent": "",
+    "branch": "ws6.4d-tile-renderer",
+    "subject": "WS6.4e: unbind the framebuffer from embedded-graphics — roadmap item + 08-10 status"
+  },
   "1ebd896708f3446b30ec46207fd087b063cf192d": {
     "date": 1786117642,
     "parent": "",
