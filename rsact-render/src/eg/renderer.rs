@@ -1,7 +1,9 @@
 use crate::{
     color::{Color, RgbColor},
     eg::{
-        framebuf::{Framebuf as _, PackedColor, PackedFramebuf},
+        framebuf::{
+            Framebuf as _, PackedColor, PackedFramebuf, PixelBuf, Surface,
+        },
         primitives::EgPrimitive,
     },
     geometry::*,
@@ -132,96 +134,117 @@ impl<C: Color + PixelColor> DrawStyle<C> {
 /// and anti-aliasing. Layer compositing was removed (see [`crate::surface`]).
 // TODO: Use the common [`crate::surface::Canvas`] surface + viewport helper
 // instead of holding `canvas` + `viewport_stack` inline here.
-/// `SURFACE_UNITS` is the surface's capacity **at the type level**, which is
-/// what lets [`Renderer::SURFACE_UNITS`] report it and `UI::start_frame` prove a
-/// frame policy fits at compile time. `usize::MAX` — the default, and what
-/// [`Self::new`] leaves it at — means "my surface always covers the frame",
-/// which is exactly true of a full framebuffer.
-pub struct EGRenderer<
-    C: Color + PackedColor,
-    AA: AntiAliasing,
-    const SURFACE_UNITS: usize = { usize::MAX },
-> {
+/// `B` is the **user's** surface. The renderer borrows it: it never allocates
+/// one, and [`detach`](Self::detach) hands it back. That is what makes the
+/// framebuffer the application's property while keeping `W::Renderer` free of a
+/// lifetime parameter — `WidgetCtx: 'static` (`el/ctx.rs:5`) rules out a
+/// `&'a mut [T]` field, so the loan is expressed by moving the buffer in and
+/// out. On embedded that is exactly the shape a `StaticCell` tile pool wants:
+/// `&'static mut Tile` values passed through channels.
+///
+/// `B` also carries the capacity ([`PixelBuf::UNITS`]), which is what
+/// [`Renderer::SURFACE_UNITS`] reports and what `UI::start_frame` proves a frame
+/// policy against at compile time.
+pub struct EGRenderer<C: Color + PackedColor, AA: AntiAliasing, B: Surface<C>> {
     viewport_stack: Vec<ViewportKind>,
-    canvas: PackedFramebuf<C>,
+    /// `None` between a `detach` and the next `attach` — the window in which
+    /// the owner holds their buffer (shipping a tile over SPI, say).
+    canvas: Option<PackedFramebuf<C, B>>,
     main_viewport: Size,
     aa: PhantomData<AA>,
 }
 
-impl<C: Color + PackedColor> EGRenderer<C, AntiAliasingDisabled> {
-    /// Full-frame: a surface the size of the whole display.
-    pub fn new(viewport: Size) -> Self {
+impl<C: Color + PackedColor, B: Surface<C>>
+    EGRenderer<C, AntiAliasingDisabled, B>
+{
+    /// Full-frame: `buffer` covers the whole display.
+    ///
+    /// The buffer is the caller's — a `Box<[u16]>` on a host, a `[u16; N]` in
+    /// flash-and-RAM on a device. Nothing here allocates.
+    pub fn new(viewport: Size, buffer: B) -> Self {
         Self {
             viewport_stack: vec![ViewportKind::root()],
-            canvas: PackedFramebuf::new(viewport, C::default_background()),
+            canvas: Some(PackedFramebuf::new(viewport, buffer)),
             main_viewport: viewport,
             aa: PhantomData,
         }
     }
-}
 
-impl<C: Color + PackedColor, const SURFACE_UNITS: usize>
-    EGRenderer<C, AntiAliasingDisabled, SURFACE_UNITS>
-{
-    /// **WS6.4d: tiled.** A surface of `SURFACE_UNITS` storage units, driving a
-    /// `viewport`-sized display — i.e. a buffer far smaller than the frame,
+    /// **WS6.4d: tiled.** `buffer` is *smaller* than the display, and is
     /// re-aimed at each region by [`Renderer::begin_region`].
     ///
-    /// This is the acceptance target made constructible: a 240×240 RGB565 frame
-    /// needs 57600 units (112.5 KiB), while
-    /// `EGRenderer::<Rgb565, _, 5760>::tiled(Size::new_equal(240))` needs
-    /// **5760** (11.25 KiB) and paints the same frame.
+    /// The acceptance target, constructible: a 240×240 RGB565 frame needs 57600
+    /// storage units (112.5 KiB), while `[u16; 5760]` is 11.25 KiB and paints
+    /// the same frame. `main_viewport` stays the display's size — that is what
+    /// rsact lays out and culls against; only the surface shrinks.
     ///
-    /// The capacity is a **const parameter**, not an argument, so it reaches
-    /// [`Renderer::SURFACE_UNITS`] and a policy too large for the buffer fails
-    /// to compile rather than tripping a `debug_assert` mid-frame.
-    ///
-    /// `main_viewport` stays the display's size because that is what rsact lays
-    /// out and culls against; only the *surface* shrinks. The two were already
-    /// independent fields, which is what makes this a constructor rather than a
-    /// redesign.
-    ///
-    /// Pair it with a frame policy whose largest region fits — `Tiles<240, 24>`
-    /// here — and `UI::start_frame` proves the fit at compile time.
-    pub fn tiled(viewport: Size) -> Self {
-        // A tiled renderer that kept the default capacity would report
-        // `usize::MAX` from `Renderer::SURFACE_UNITS`, i.e. claim it covers the
-        // frame — and the compile-time proof would wave through any policy.
-        // Catch that here rather than at the `vec![_; usize::MAX]` below.
-        const {
-            assert!(
-                SURFACE_UNITS != usize::MAX,
-                "EGRenderer::tiled needs an explicit surface capacity: write \
-                 EGRenderer::<C, _, 5760>::tiled(..), or use EGRenderer::new \
-                 for a full-frame surface"
-            )
-        }
+    /// Starts aimed at nothing; the first `begin_region` supplies a region.
+    /// Pair it with a policy whose largest region fits — `Tiles<240, 24>` here
+    /// — and `UI::start_frame` proves the fit at compile time from
+    /// `B`'s own capacity.
+    pub fn tiled(viewport: Size, buffer: B) -> Self {
         Self {
             viewport_stack: vec![ViewportKind::root()],
-            canvas: PackedFramebuf::with_capacity(
-                SURFACE_UNITS,
-                C::default_background(),
-            ),
+            canvas: Some(PackedFramebuf::tile(buffer)),
             main_viewport: viewport,
             aa: PhantomData,
         }
     }
 }
 
-impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing, const N: usize>
-    EGRenderer<C, AA, N>
+impl<C: Color + PackedColor, AA: AntiAliasing, B: Surface<C>>
+    EGRenderer<C, AA, B>
+{
+    /// Lend the renderer a surface, returning whatever it held.
+    ///
+    /// The other half of the ping-pong an embedded app wants: hand in the free
+    /// tile, take back the painted one, ship it while the next is painted.
+    pub fn attach(&mut self, buffer: B) -> Option<B> {
+        let previous = self.canvas.take().map(PackedFramebuf::into_buffer);
+        self.canvas = Some(PackedFramebuf::tile(buffer));
+        previous
+    }
+
+    /// Take the surface back. Drawing while detached is a logged no-op, never a
+    /// panic (WS1.8: the UI degrades rather than aborting the device).
+    pub fn detach(&mut self) -> Option<B> {
+        self.canvas.take().map(PackedFramebuf::into_buffer)
+    }
+
+    pub fn is_attached(&self) -> bool {
+        self.canvas.is_some()
+    }
+}
+
+impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing, B: Surface<C>>
+    EGRenderer<C, AA, B>
 {
     fn current_viewport(&self) -> ViewportKind {
         self.viewport_stack.last().copied().unwrap()
     }
 
-    fn current_canvas(&mut self) -> &mut PackedFramebuf<C> {
-        &mut self.canvas
+    /// The lent surface, or `None` while its owner holds it.
+    ///
+    /// Every drawing path goes through this and degrades to a logged no-op when
+    /// detached (WS1.8: the UI logs and continues; a panic in a render loop that
+    /// runs every frame is not recoverable). Detached drawing is a *scheduling*
+    /// mistake — painting between `detach` and `attach` — not a broken frame,
+    /// and the next attached frame repaints anyway.
+    fn current_canvas(&mut self) -> Option<&mut PackedFramebuf<C, B>> {
+        if self.canvas.is_none() {
+            log::warn!(
+                "drawing with no surface attached — the frame is discarded. \
+                 Attach a buffer before painting, or paint before detaching."
+            );
+        }
+        self.canvas.as_mut()
     }
 
-    /// Obtain the raw framebuffer data for hardware output.
+    /// Obtain the raw framebuffer data for hardware output. No-op if detached.
     pub fn draw_buffer(&self, f: impl FnOnce(&[<C as PackedColor>::Storage])) {
-        self.canvas.draw_buffer(f);
+        if let Some(canvas) = self.canvas.as_ref() {
+            canvas.draw_buffer(f);
+        }
     }
 
     /// Map a point from the active viewport's coordinate space into the layer
@@ -269,6 +292,7 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing, const N: usize>
         // pixel, not a failure. Preserved as-is (a behaviour change is out of
         // scope here); it is why 6.4a's tile-invariance op-log check is the real
         // defence for this area.
+        let Some(canvas) = canvas else { return Ok(()) };
         let color = canvas
             .pixel(read_at)
             .map(|current| current.mix(blend, pixel.1))
@@ -281,7 +305,7 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing, const N: usize>
         pixels: impl IntoIterator<Item = Pixel<C>>,
     ) -> Result<(), ()> {
         let viewport = self.current_viewport();
-        let canvas = &mut self.canvas;
+        let Some(canvas) = self.current_canvas() else { return Ok(()) };
         let eg_pixels = pixels
             .into_iter()
             .map(|p| embedded_graphics::prelude::Pixel(p.0.into(), p.1));
@@ -322,25 +346,24 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing, const N: usize>
             self.main_viewport.width,
             self.main_viewport.height,
         );
-        if self.canvas.capacity_units() >= full_frame {
+        let Some(canvas) = self.current_canvas() else { return Ok(()) };
+        if canvas.capacity_units() >= full_frame {
             return Ok(());
         }
-        self.canvas.retarget(region);
+        canvas.retarget(region);
         // Straight at the canvas, not through `Renderer::fill_solid`: the
         // region clip is pushed by the caller *after* this returns, and the
         // whole retargeted buffer is what needs priming.
-        DrawTarget::fill_solid(
-            &mut self.canvas,
-            &region.into(),
-            C::default_background(),
-        )
+        DrawTarget::fill_solid(canvas, &region.into(), C::default_background())
     }
 
     fn renderer_output<TC>(&self, target: &mut impl RenderTarget<Color = TC>)
     where
         C: MapColor<TC>,
     {
-        self.canvas.output(target)
+        if let Some(canvas) = self.canvas.as_ref() {
+            canvas.output(target)
+        }
     }
 
     /// WS6.3: flush only `regions` (each clamped to the viewport) to `target`.
@@ -351,8 +374,9 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing, const N: usize>
     ) where
         C: MapColor<TC>,
     {
+        let Some(canvas) = self.canvas.as_ref() else { return };
         for &region in regions {
-            self.canvas.output_region(target, region);
+            canvas.output_region(target, region);
         }
     }
 
@@ -398,8 +422,8 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing, const N: usize>
     }
 }
 
-impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing, const N: usize>
-    DrawTarget for EGRenderer<C, AA, N>
+impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing, B: Surface<C>>
+    DrawTarget for EGRenderer<C, AA, B>
 {
     type Color = C;
     type Error = ();
@@ -424,7 +448,7 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing, const N: usize>
         color: Self::Color,
     ) -> Result<(), Self::Error> {
         let viewport = self.current_viewport();
-        let canvas = &mut self.canvas;
+        let Some(canvas) = self.current_canvas() else { return Ok(()) };
         match viewport {
             ViewportKind::Fullscreen => canvas.fill_solid(area, color),
             ViewportKind::Clipped(clip) => {
@@ -437,8 +461,8 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing, const N: usize>
     }
 }
 
-impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing, const N: usize>
-    Dimensions for EGRenderer<C, AA, N>
+impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing, B: Surface<C>>
+    Dimensions for EGRenderer<C, AA, B>
 {
     fn bounding_box(&self) -> embedded_graphics::primitives::Rectangle {
         embedded_graphics::primitives::Rectangle::new(
@@ -449,8 +473,8 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing, const N: usize>
 }
 
 // TODO: Other colors mapping
-impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing, const N: usize>
-    FinishRender<C> for EGRenderer<C, AA, N>
+impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing, B: Surface<C>>
+    FinishRender<C> for EGRenderer<C, AA, B>
 {
     fn finish_frame(&mut self, target: &mut impl RenderTarget<Color = C>) {
         self.renderer_output(target);
@@ -467,15 +491,15 @@ impl<C: Color + PackedColor + PixelColor, AA: AntiAliasing, const N: usize>
 
 // TODO: Generalize AA and non-AA Renderer implementations
 
-impl<C: Color + PackedColor + PixelColor, const N: usize> Renderer
-    for EGRenderer<C, AntiAliasingDisabled, N>
+impl<C: Color + PackedColor + PixelColor, B: Surface<C>> Renderer
+    for EGRenderer<C, AntiAliasingDisabled, B>
 {
     type Color = C;
 
     /// The surface's capacity, from the type — WS6.4.0(iii)'s compile-time
     /// proof reads this. `usize::MAX` (a full-frame surface) accepts any policy,
     /// which is correct rather than merely permissive.
-    const SURFACE_UNITS: usize = N;
+    const SURFACE_UNITS: usize = <B as PixelBuf<C>>::UNITS;
 
     /// How this surface packs pixels, straight from the colour. Leaving the
     /// default of 1 would over-state a 1-bpp surface's capacity eightfold.
@@ -641,15 +665,15 @@ impl<C: Color + PackedColor + PixelColor, const N: usize> Renderer
     }
 }
 
-impl<C: Color + PackedColor + PixelColor, const N: usize> Renderer
-    for EGRenderer<C, AntiAliasingEnabled, N>
+impl<C: Color + PackedColor + PixelColor, B: Surface<C>> Renderer
+    for EGRenderer<C, AntiAliasingEnabled, B>
 {
     type Color = C;
 
     /// The surface's capacity, from the type — WS6.4.0(iii)'s compile-time
     /// proof reads this. `usize::MAX` (a full-frame surface) accepts any policy,
     /// which is correct rather than merely permissive.
-    const SURFACE_UNITS: usize = N;
+    const SURFACE_UNITS: usize = <B as PixelBuf<C>>::UNITS;
 
     /// How this surface packs pixels, straight from the colour. Leaving the
     /// default of 1 would over-state a 1-bpp surface's capacity eightfold.
@@ -819,6 +843,7 @@ impl<C: Color + PackedColor + PixelColor, const N: usize> Renderer
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::eg::framebuf::{heap_surface, heap_surface_units};
     use crate::{
         geometry::{Point, Rect, Size},
         renderer::{NullColor, NullRenderer, Renderer},
@@ -835,11 +860,17 @@ mod tests {
         let rect = Rect::new(Point::new(3, 2), Size::new(9, 7));
         let color = Rgb888::new(10, 200, 30);
 
-        let mut fast = EGRenderer::<Rgb888, AntiAliasingDisabled>::new(size);
+        let mut fast = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
+            size,
+            heap_surface::<Rgb888>(size),
+        );
         Renderer::fill_solid(&mut fast, rect, color).unwrap();
 
         // Reference: fill the same rect one pixel at a time (the draw_iter path).
-        let mut slow = EGRenderer::<Rgb888, AntiAliasingDisabled>::new(size);
+        let mut slow = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
+            size,
+            heap_surface::<Rgb888>(size),
+        );
         for p in rect.points() {
             Renderer::pixel(&mut slow, p, color).unwrap();
         }
@@ -940,8 +971,10 @@ mod tests {
         }
 
         // Reference: one full-size surface, one pass, one flush.
-        let mut full =
-            EGRenderer::<Rgb888, AntiAliasingDisabled>::new(viewport);
+        let mut full = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
+            viewport,
+            heap_surface::<Rgb888>(viewport),
+        );
         content(&mut full);
         let mut full_map = blank();
         full.finish_frame(&mut full_map);
@@ -950,10 +983,10 @@ mod tests {
         // — repainted and flushed region by region.
         const TILE_UNITS: usize = (W * 8) as usize; // Rgb888: one unit per pixel
         let tile_units = TILE_UNITS;
-        let mut tiled =
-            EGRenderer::<Rgb888, AntiAliasingDisabled, TILE_UNITS>::tiled(
-                viewport,
-            );
+        let mut tiled = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::tiled(
+            viewport,
+            heap_surface_units::<Rgb888>(TILE_UNITS),
+        );
         assert!(
             tile_units * 8 == (W * H) as usize,
             "the point of the test is that the surface is a FRACTION of the frame"
@@ -1003,6 +1036,58 @@ mod tests {
         );
     }
 
+    /// WS6.4d: the renderer **borrows** its surface — it never allocates one and
+    /// always gives it back.
+    ///
+    /// This is the ownership rule stated as a test. On a device the buffer lives
+    /// in the application's `StaticCell` pool and moves through channels; rsact
+    /// holds it only for as long as it is painting. `WidgetCtx: 'static`
+    /// (`el/ctx.rs:5`) rules out expressing that as a `&'a mut [T]` field, so
+    /// the loan is a move in and a move out — which is also exactly the shape
+    /// DMA wants, since a borrow the core could still write through is UB
+    /// (roadmap 6.7).
+    #[test]
+    fn the_renderer_gives_the_surface_back() {
+        let viewport = Size::new(16, 16);
+        let mut r = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
+            viewport,
+            heap_surface::<Rgb888>(viewport),
+        );
+        assert!(r.is_attached());
+
+        // Paint something, then take the buffer back and inspect it — the owner
+        // can read what was painted, which is what "ship this tile" means.
+        let ink = Rgb888::new(9, 9, 9);
+        Renderer::fill_solid(&mut r, Rect::new(Point::zero(), viewport), ink)
+            .unwrap();
+        let buffer = r.detach().expect("the surface was attached");
+        assert_eq!(buffer.len(), (16 * 16) as usize);
+        assert!(
+            buffer.iter().all(|u| *u == ink.into_storage()),
+            "the owner got back a buffer that does not hold what was painted"
+        );
+        assert!(!r.is_attached());
+
+        // Painting while detached degrades: no panic, and nothing is lost that
+        // the next attached frame will not repaint.
+        Renderer::fill_solid(
+            &mut r,
+            Rect::new(Point::zero(), viewport),
+            Rgb888::new(1, 2, 3),
+        )
+        .expect("drawing detached must not be an error");
+
+        // Hand a different buffer in; the renderer takes it and reports the old
+        // one (here: none, since we detached).
+        assert!(r.attach(heap_surface::<Rgb888>(viewport)).is_none());
+        assert!(r.is_attached());
+        // ...and now a swap returns the buffer that was in place.
+        let swapped = r
+            .attach(heap_surface::<Rgb888>(viewport))
+            .expect("attach over an attached surface returns the old one");
+        assert_eq!(swapped.len(), (16 * 16) as usize);
+    }
+
     /// WS6.4d: a tiled renderer must **declare** its capacity, so the
     /// compile-time frame-policy proof can see it.
     ///
@@ -1021,12 +1106,16 @@ mod tests {
     fn a_tiled_renderer_declares_its_capacity() {
         // Full-frame: unbounded, which is honest — it does cover the frame.
         assert_eq!(
-            <EGRenderer<Rgb888, AntiAliasingDisabled> as Renderer>::SURFACE_UNITS,
+            <EGRenderer<
+                Rgb888,
+                AntiAliasingDisabled,
+                alloc::boxed::Box<[<Rgb888 as PackedColor>::Storage]>,
+            > as Renderer>::SURFACE_UNITS,
             usize::MAX
         );
         // Tiled: exactly what was allocated.
         assert_eq!(
-            <EGRenderer<Rgb888, AntiAliasingDisabled, 5760> as Renderer>::SURFACE_UNITS,
+            <EGRenderer<Rgb888, AntiAliasingDisabled, [u32; 5760]> as Renderer>::SURFACE_UNITS,
             5760
         );
 
@@ -1034,11 +1123,19 @@ mod tests {
         // the default of 1 would over-state a 1-bpp surface eightfold — a
         // policy needing 384 bytes would "fit" a 48-byte buffer.
         assert_eq!(
-            <EGRenderer<Rgb888, AntiAliasingDisabled> as Renderer>::SURFACE_PIXELS_PER_UNIT,
+            <EGRenderer<
+                Rgb888,
+                AntiAliasingDisabled,
+                alloc::boxed::Box<[<Rgb888 as PackedColor>::Storage]>,
+            > as Renderer>::SURFACE_PIXELS_PER_UNIT,
             1
         );
         assert_eq!(
-            <EGRenderer<BinaryColor, AntiAliasingDisabled> as Renderer>::SURFACE_PIXELS_PER_UNIT,
+            <EGRenderer<
+                BinaryColor,
+                AntiAliasingDisabled,
+                alloc::boxed::Box<[<BinaryColor as PackedColor>::Storage]>,
+            > as Renderer>::SURFACE_PIXELS_PER_UNIT,
             8
         );
     }
@@ -1083,8 +1180,10 @@ mod tests {
     /// degrades, it does not abort).
     #[test]
     fn clip_stack_balances_and_never_pops_the_root() {
-        let mut r =
-            EGRenderer::<Rgb888, AntiAliasingDisabled>::new(Size::new(20, 16));
+        let mut r = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
+            Size::new(20, 16),
+            heap_surface::<Rgb888>(Size::new(20, 16)),
+        );
         let root = r.viewport_stack.len();
         assert_eq!(root, 1, "a fresh renderer holds exactly the root viewport");
 
@@ -1159,8 +1258,10 @@ mod tests {
     /// rect rather than a guess.
     #[test]
     fn a_nested_clip_narrows_and_never_widens() {
-        let mut r =
-            EGRenderer::<Rgb888, AntiAliasingDisabled>::new(Size::new(40, 40));
+        let mut r = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
+            Size::new(40, 40),
+            heap_surface::<Rgb888>(Size::new(40, 40)),
+        );
 
         r.push_clip(Rect::new(Point::new(0, 0), Size::new(20, 20)));
         // Overlaps the parent over (10,10)..(20,20) and reaches BEYOND it.
@@ -1186,11 +1287,14 @@ mod tests {
         Renderer::pixel(&mut r, Point::new(15, 15), ink).unwrap();
 
         assert_eq!(
-            r.canvas.pixel(Point::new(25, 15)),
+            r.canvas.as_ref().unwrap().pixel(Point::new(25, 15)),
             Some(bg),
             "a write outside the PARENT clip escaped the nested clip"
         );
-        assert_eq!(r.canvas.pixel(Point::new(15, 15)), Some(ink));
+        assert_eq!(
+            r.canvas.as_ref().unwrap().pixel(Point::new(15, 15)),
+            Some(ink)
+        );
 
         // Popping restores the parent, not the raw inner rect.
         r.pop_clip();
@@ -1230,7 +1334,10 @@ mod tests {
 
         // Cropped: seed the backdrop at the ABSOLUTE pixel, blend at the LOCAL
         // point. Pre-fix, the read landed on `local` (still background).
-        let mut cropped = EGRenderer::<Rgb888, AntiAliasingDisabled>::new(size);
+        let mut cropped = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
+            size,
+            heap_surface::<Rgb888>(size),
+        );
         Renderer::pixel(&mut cropped, abs, backdrop).unwrap();
         // PR #31 collapsed `Viewport { layer, kind }` to a bare `ViewportKind`
         // when the layer dimension was deleted.
@@ -1239,8 +1346,10 @@ mod tests {
         cropped.viewport_stack.pop();
 
         // Reference: the same blend written in absolute coordinates.
-        let mut absolute =
-            EGRenderer::<Rgb888, AntiAliasingDisabled>::new(size);
+        let mut absolute = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
+            size,
+            heap_surface::<Rgb888>(size),
+        );
         Renderer::pixel(&mut absolute, abs, backdrop).unwrap();
         absolute.pixel_alpha(Pixel(abs, ink), 0.5).unwrap();
 

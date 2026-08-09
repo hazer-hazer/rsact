@@ -76,10 +76,14 @@ pub mod tiny_skia;
 pub mod prelude {
     #[cfg(feature = "embedded-graphics")]
     pub use crate::eg::{
-        framebuf::{Framebuf, PackedColor, PackedFramebuf},
+        framebuf::{Framebuf, PackedColor, PackedFramebuf, Surface},
         primitives::*,
         renderer::EGRenderer,
     };
+    // The host-side surface allocator: a convenience for simulators and tests,
+    // deliberately a free function so the allocation stays at the call site.
+    #[cfg(all(feature = "embedded-graphics", feature = "std"))]
+    pub use crate::eg::framebuf::{heap_surface, heap_surface_units};
     #[cfg(feature = "tiny-skia")]
     pub use crate::tiny_skia::TinySkiaRenderer;
     pub use crate::{

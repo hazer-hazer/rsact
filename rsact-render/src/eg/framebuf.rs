@@ -199,12 +199,75 @@ pub trait PixelBuf<C: PackedColor> {
     const UNITS: usize;
 }
 
+/// Allocate a heap surface large enough for a `size` frame.
+///
+/// A convenience for hosts, simulators and tests — **and deliberately a free
+/// function, not a renderer constructor.** The renderer borrows a surface and
+/// never allocates one; making the allocation happen at the call site is what
+/// keeps that visible. An embedded target calls nothing here: it hands in a
+/// `[u16; N]` from a `StaticCell`.
+#[cfg(feature = "std")]
+pub fn heap_surface<C: Color + PackedColor>(
+    size: Size,
+) -> Box<[<C as PackedColor>::Storage]> {
+    heap_surface_units::<C>(size.area() as usize / C::pps())
+}
+
+/// [`heap_surface`] by unit count — the tiled case, where the surface has a
+/// budget rather than a shape.
+#[cfg(feature = "std")]
+pub fn heap_surface_units<C: Color + PackedColor>(
+    units: usize,
+) -> Box<[<C as PackedColor>::Storage]> {
+    alloc::vec![C::default_background().into_storage(); units]
+        .into_boxed_slice()
+}
+
+/// A [`PixelBuf`] rsact can actually **draw into** — capacity plus access.
+///
+/// Split from `PixelBuf` because the two answer different questions and not
+/// every buffer answers both: [`AsBytes`] states a capacity for the
+/// compile-time check but is a *wire-format* view, and handing out
+/// `&mut [u16]` over a `[u8; N]` would need an alignment guarantee it does not
+/// carry. Capacity is checkable for both; drawing is not.
+///
+/// **The renderer never implements this and never allocates one.** A surface is
+/// the user's, lent to the renderer for as long as they choose and taken back
+/// with `detach` — which is what keeps `W::Renderer` free of a lifetime
+/// parameter (`WidgetCtx: 'static`, `el/ctx.rs:5`) while still making the
+/// framebuffer the application's property.
+pub trait Surface<C: PackedColor>: PixelBuf<C> {
+    fn units(&self) -> &[C::Storage];
+    fn units_mut(&mut self) -> &mut [C::Storage];
+}
+
 macro_rules! native_pixel_buf {
     ($($storage:ty),* $(,)?) => {$(
         impl<C: PackedColor<Storage = $storage>, const N: usize> PixelBuf<C>
             for [$storage; N]
         {
             const UNITS: usize = N;
+        }
+
+        impl<C: PackedColor<Storage = $storage>, const N: usize> Surface<C>
+            for [$storage; N]
+        {
+            fn units(&self) -> &[$storage] { self }
+            fn units_mut(&mut self) -> &mut [$storage] { self }
+        }
+
+        // The heap case — a host, a simulator, a desktop target. Capacity is
+        // `usize::MAX` because a boxed slice is sized when the USER builds it
+        // and carries no compile-time extent: it is the "my surface covers the
+        // frame" end of `Renderer::SURFACE_UNITS`, which is what a full
+        // framebuffer legitimately is.
+        impl<C: PackedColor<Storage = $storage>> PixelBuf<C> for Box<[$storage]> {
+            const UNITS: usize = usize::MAX;
+        }
+
+        impl<C: PackedColor<Storage = $storage>> Surface<C> for Box<[$storage]> {
+            fn units(&self) -> &[$storage] { self }
+            fn units_mut(&mut self) -> &mut [$storage] { self }
         }
     )*};
 }
@@ -409,23 +472,28 @@ pub trait Framebuf<C: Color + PackedColor> {
 /// Absolute coordinates throughout is what makes this cheap: [`Framebuf::
 /// flat_index`] resolves a point against `viewport`, so every write, read, fill
 /// and flush follows the origin without a single caller translating by hand.
-pub struct PackedFramebuf<C: Color + PackedColor> {
+pub struct PackedFramebuf<C: Color + PackedColor, B: Surface<C>> {
     viewport: Rect,
-    pixels: Box<[C::Storage]>,
+    pixels: B,
+    color: core::marker::PhantomData<C>,
 }
 
 // `Dimensions`, not `OriginDimensions`: embedded-graphics' `clipped`/`cropped`
 // intersect against this box, and rsact hands them ABSOLUTE rects. Reporting
 // origin-zero was correct only while the buffer always was the whole frame; a
 // tile at (0, 24) would have had its every write clipped away.
-impl<C: Color + PackedColor> Dimensions for PackedFramebuf<C> {
+impl<C: Color + PackedColor, B: Surface<C>> Dimensions
+    for PackedFramebuf<C, B>
+{
     fn bounding_box(&self) -> embedded_graphics::primitives::Rectangle {
         self.viewport.into()
     }
 }
 
-impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor> DrawTarget
-    for PackedFramebuf<C>
+impl<
+    C: Color + PackedColor + embedded_graphics::prelude::PixelColor,
+    B: Surface<C>,
+> DrawTarget for PackedFramebuf<C, B>
 {
     type Color = C;
     type Error = ();
@@ -485,16 +553,28 @@ impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor> DrawTarget
             if head_end >= tail_start {
                 // The row spans fewer than one whole word — all per-pixel.
                 for i in start..end {
-                    C::set_color(&mut self.pixels[i / pps], i % pps, color);
+                    C::set_color(
+                        &mut self.pixels.units_mut()[i / pps],
+                        i % pps,
+                        color,
+                    );
                 }
             } else {
                 for i in start..head_end {
-                    C::set_color(&mut self.pixels[i / pps], i % pps, color);
+                    C::set_color(
+                        &mut self.pixels.units_mut()[i / pps],
+                        i % pps,
+                        color,
+                    );
                 }
-                self.pixels[head_end / pps..tail_start / pps]
+                self.pixels.units_mut()[head_end / pps..tail_start / pps]
                     .fill(solid.clone());
                 for i in tail_start..end {
-                    C::set_color(&mut self.pixels[i / pps], i % pps, color);
+                    C::set_color(
+                        &mut self.pixels.units_mut()[i / pps],
+                        i % pps,
+                        color,
+                    );
                 }
             }
 
@@ -505,13 +585,15 @@ impl<C: Color + PackedColor + embedded_graphics::prelude::PixelColor> DrawTarget
     }
 }
 
-impl<C: Color + PackedColor> Framebuf<C> for PackedFramebuf<C> {
+impl<C: Color + PackedColor, B: Surface<C>> Framebuf<C>
+    for PackedFramebuf<C, B>
+{
     fn data(&self) -> &[C::Storage] {
-        self.pixels.as_ref()
+        self.pixels.units()
     }
 
     fn data_mut(&mut self) -> &mut [C::Storage] {
-        self.pixels.as_mut()
+        self.pixels.units_mut()
     }
 
     fn viewport(&self) -> Rect {
@@ -519,8 +601,14 @@ impl<C: Color + PackedColor> Framebuf<C> for PackedFramebuf<C> {
     }
 }
 
-impl<C: Color + PackedColor> PackedFramebuf<C> {
-    pub fn new(size: Size, initial_color: C) -> Self {
+impl<C: Color + PackedColor, B: Surface<C>> PackedFramebuf<C, B> {
+    /// Wrap the caller's `buffer`, aimed at `size` from the origin.
+    ///
+    /// **The buffer is the caller's.** This does not allocate and does not keep
+    /// it — [`into_buffer`](Self::into_buffer) hands it back. rsact is the
+    /// borrower here, which is what lets an embedded app keep its tiles in a
+    /// `StaticCell` pool and pass `&'static mut` slices through channels.
+    pub fn new(size: Size, buffer: B) -> Self {
         // TODO: Not really, unused space is possible, just choose least
         // sufficient framebuf size
         assert!(
@@ -528,11 +616,11 @@ impl<C: Color + PackedColor> PackedFramebuf<C> {
             "PackedFramebuf area must be divisible by {} to store pixels packed",
             C::pps()
         );
-
-        let pixels =
-            vec![initial_color.into_storage(); size.area() as usize / C::pps()]
-                .into_boxed_slice();
-        Self { viewport: Rect::new(Point::zero(), size), pixels }
+        Self {
+            viewport: Rect::new(Point::zero(), size),
+            pixels: buffer,
+            color: core::marker::PhantomData,
+        }
     }
 
     /// WS6.4d: allocate `units` storage units with **no fixed shape**, for a
@@ -544,17 +632,22 @@ impl<C: Color + PackedColor> PackedFramebuf<C> {
     ///
     /// Starts aimed at nothing (a zero-sized viewport at the origin), because
     /// there is no meaningful default region — `begin_region` supplies one.
-    pub fn with_capacity(units: usize, initial_color: C) -> Self {
+    pub fn tile(buffer: B) -> Self {
         Self {
             viewport: Rect::zero(),
-            pixels: vec![initial_color.into_storage(); units]
-                .into_boxed_slice(),
+            pixels: buffer,
+            color: core::marker::PhantomData,
         }
+    }
+
+    /// Give the buffer back to its owner.
+    pub fn into_buffer(self) -> B {
+        self.pixels
     }
 
     /// Storage units this buffer can hold — its capacity, independent of shape.
     pub fn capacity_units(&self) -> usize {
-        self.pixels.len()
+        self.pixels.units().len()
     }
 
     /// Re-aim the buffer at `region` (absolute screen coordinates).
@@ -576,10 +669,10 @@ impl<C: Color + PackedColor> PackedFramebuf<C> {
     pub fn retarget(&mut self, region: Rect) {
         debug_assert!(
             region_units(region.size.width, region.size.height, C::PPS)
-                <= self.pixels.len(),
+                <= self.capacity_units(),
             "[BUG] region {region:?} needs {} storage units, buffer holds {}",
             region_units(region.size.width, region.size.height, C::PPS),
-            self.pixels.len(),
+            self.capacity_units(),
         );
         self.viewport = region;
     }
@@ -655,7 +748,7 @@ impl<C: Color + PackedColor> PackedFramebuf<C> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Framebuf, PackedFramebuf};
+    use super::{Framebuf, PackedFramebuf, heap_surface};
     use crate::{
         geometry::{Point, Rect, Size},
         output::{RenderTarget, pixel::Pixel},
@@ -668,6 +761,7 @@ mod tests {
 
     /// A [`RenderTarget`] that records the points it was asked to draw — lets a
     /// test assert *which* pixels a flush streamed (WS6.3 region flush).
+
     struct RecordTarget {
         points: Vec<Point>,
     }
@@ -687,8 +781,10 @@ mod tests {
         const WIDTH: u32 = 120;
         const HEIGHT: u32 = 180;
 
-        let mut framebuf =
-            PackedFramebuf::new(Size::new(WIDTH, HEIGHT), Rgb888::BLACK);
+        let mut framebuf = PackedFramebuf::new(
+            Size::new(WIDTH, HEIGHT),
+            heap_surface::<Rgb888>(Size::new(WIDTH, HEIGHT)),
+        );
 
         for x in 0..WIDTH as i32 {
             for y in 0..HEIGHT as i32 {
@@ -711,8 +807,10 @@ mod tests {
         const WIDTH: u32 = 120;
         const HEIGHT: u32 = 180;
 
-        let mut framebuf =
-            PackedFramebuf::new(Size::new(WIDTH, HEIGHT), BinaryColor::Off);
+        let mut framebuf = PackedFramebuf::new(
+            Size::new(WIDTH, HEIGHT),
+            heap_surface::<BinaryColor>(Size::new(WIDTH, HEIGHT)),
+        );
 
         for x in 0..WIDTH as i32 {
             for y in 0..HEIGHT as i32 {
@@ -737,7 +835,10 @@ mod tests {
     fn output_region_streams_only_the_region() {
         const W: u32 = 20;
         const H: u32 = 16;
-        let framebuf = PackedFramebuf::new(Size::new(W, H), Rgb888::BLACK);
+        let framebuf = PackedFramebuf::<Rgb888, _>::new(
+            Size::new(W, H),
+            heap_surface::<Rgb888>(Size::new(W, H)),
+        );
 
         let region = Rect::new(Point::new(5, 4), Size::new(6, 3));
         let mut target = RecordTarget { points: Vec::new() };
@@ -758,7 +859,10 @@ mod tests {
     fn output_region_clamps_to_viewport() {
         const W: u32 = 10;
         const H: u32 = 10;
-        let framebuf = PackedFramebuf::new(Size::new(W, H), Rgb888::BLACK);
+        let framebuf = PackedFramebuf::<Rgb888, _>::new(
+            Size::new(W, H),
+            heap_surface::<Rgb888>(Size::new(W, H)),
+        );
 
         // Overlaps the bottom-right corner and extends beyond → clamps to the
         // 2x2 square at (8,8).
@@ -779,7 +883,10 @@ mod tests {
     fn output_covers_the_whole_framebuffer() {
         const W: u32 = 8;
         const H: u32 = 6;
-        let framebuf = PackedFramebuf::new(Size::new(W, H), Rgb888::BLACK);
+        let framebuf = PackedFramebuf::<Rgb888, _>::new(
+            Size::new(W, H),
+            heap_surface::<Rgb888>(Size::new(W, H)),
+        );
 
         let mut target = RecordTarget { points: Vec::new() };
         framebuf.output(&mut target);
@@ -833,8 +940,14 @@ mod tests {
                 rng.next() as u8,
             );
 
-            let mut fast = PackedFramebuf::new(size, Rgb888::BLACK);
-            let mut slow = PackedFramebuf::new(size, Rgb888::BLACK);
+            let mut fast = PackedFramebuf::<Rgb888, _>::new(
+                size,
+                heap_surface::<Rgb888>(size),
+            );
+            let mut slow = PackedFramebuf::<Rgb888, _>::new(
+                size,
+                heap_surface::<Rgb888>(size),
+            );
             fast.fill_solid(&area, color).unwrap();
             slow.draw_iter(area.points().map(|p| EgPixel(p, color)))
                 .unwrap();
@@ -864,8 +977,14 @@ mod tests {
                 BinaryColor::Off
             };
 
-            let mut fast = PackedFramebuf::new(size, BinaryColor::Off);
-            let mut slow = PackedFramebuf::new(size, BinaryColor::Off);
+            let mut fast = PackedFramebuf::<BinaryColor, _>::new(
+                size,
+                heap_surface::<BinaryColor>(size),
+            );
+            let mut slow = PackedFramebuf::<BinaryColor, _>::new(
+                size,
+                heap_surface::<BinaryColor>(size),
+            );
             fast.fill_solid(&area, color).unwrap();
             slow.draw_iter(area.points().map(|p| EgPixel(p, color)))
                 .unwrap();

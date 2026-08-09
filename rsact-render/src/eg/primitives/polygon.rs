@@ -1,5 +1,6 @@
 use crate::{
     color::Color,
+    eg::framebuf::Surface,
     eg::{framebuf::PackedColor, primitives::EgPrimitive},
     geometry::{Point, PointExt as _},
     output::pixel::Pixel,
@@ -58,9 +59,9 @@ impl Polygon {
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Polygon {
     // TODO: Review this implementation
-    fn draw<const N: usize>(
+    fn draw<B: Surface<C>>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingDisabled, N>,
+        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingDisabled, B>,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         if let Some(fill_color) = style.fill {
@@ -88,9 +89,9 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Polygon {
         Ok(())
     }
 
-    fn draw_aa<const N: usize>(
+    fn draw_aa<B: Surface<C>>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingEnabled, N>,
+        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingEnabled, B>,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         if let Some(fill_color) = style.fill {

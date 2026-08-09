@@ -1,6 +1,9 @@
 use crate::{
     color::Color,
-    eg::{framebuf::PackedColor, renderer::EGRenderer},
+    eg::{
+        framebuf::{PackedColor, Surface},
+        renderer::EGRenderer,
+    },
     renderer::{AntiAliasingDisabled, AntiAliasingEnabled, RenderResult},
     style::DrawStyle,
 };
@@ -15,17 +18,17 @@ pub mod rounded_rect;
 pub mod sector;
 
 pub trait EgPrimitive<C: Color + PackedColor + PixelColor> {
-    /// `N` is the renderer's surface capacity (WS6.4d) — generic here because a
+    /// `B` is the renderer's surface (WS6.4d) — generic here because a
     /// primitive draws the same way into a full framebuffer and into a tile.
-    fn draw<const N: usize>(
+    fn draw<B: Surface<C>>(
         &self,
-        renderer: &mut EGRenderer<C, AntiAliasingDisabled, N>,
+        renderer: &mut EGRenderer<C, AntiAliasingDisabled, B>,
         style: DrawStyle<C>,
     ) -> RenderResult;
 
-    fn draw_aa<const N: usize>(
+    fn draw_aa<B: Surface<C>>(
         &self,
-        renderer: &mut EGRenderer<C, AntiAliasingEnabled, N>,
+        renderer: &mut EGRenderer<C, AntiAliasingEnabled, B>,
         style: DrawStyle<C>,
     ) -> RenderResult;
 }

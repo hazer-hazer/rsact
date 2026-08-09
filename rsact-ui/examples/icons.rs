@@ -5,7 +5,7 @@ use embedded_graphics::{
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
-use rsact_render::eg::renderer::EGRenderer;
+use rsact_render::eg::{framebuf::heap_surface, renderer::EGRenderer};
 use rsact_tiny_icons::{IconSet, common::CommonIcon, system::SystemIcon};
 use rsact_ui::{
     page::id::SinglePage,
@@ -44,7 +44,12 @@ fn main() {
 
     let mut ui = UI::new(
         Theme::default(),
-        EGRenderer::new(display.bounding_box().size.into())
+        EGRenderer::new(
+            display.bounding_box().size.into(),
+            // The framebuffer is the APPLICATION's — rsact borrows it and gives
+            // it back. On a device this would be a `StaticCell` array instead.
+            heap_surface::<Rgb888>(display.bounding_box().size.into()),
+        )
     ).no_events().with_page(SinglePage,
         Flex::col([
             Label::new("System icons").el(),

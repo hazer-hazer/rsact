@@ -36,7 +36,12 @@ fn main() {
 
     let mut ui = UI::new(
         Theme::default(),
-        EGRenderer::new(display.bounding_box().size.into()),
+        EGRenderer::new(
+            display.bounding_box().size.into(),
+            // The framebuffer is the APPLICATION's — rsact borrows it and gives
+            // it back. On a device this would be a `StaticCell` array instead.
+            heap_surface::<Rgb888>(display.bounding_box().size.into()),
+        ),
     )
     .with_page(SinglePage, page.el())
     .on_exit(|| std::process::exit(0));

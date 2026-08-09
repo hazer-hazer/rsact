@@ -2,6 +2,7 @@
 use crate::FloatExt as _;
 use crate::{
     color::Color,
+    eg::framebuf::Surface,
     eg::{framebuf::PackedColor, primitives::EgPrimitive},
     geometry::*,
     output::pixel::Pixel,
@@ -21,9 +22,9 @@ fn min_max_range_incl<T: Ord + Copy>(
 }
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for RoundedRect {
-    fn draw<const N: usize>(
+    fn draw<B: Surface<C>>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingDisabled, N>,
+        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingDisabled, B>,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         embedded_graphics::primitives::RoundedRectangle::new(
@@ -33,9 +34,9 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for RoundedRect {
         .draw_styled(&style.into_primitive_style(), renderer)
     }
 
-    fn draw_aa<const N: usize>(
+    fn draw_aa<B: Surface<C>>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingEnabled, N>,
+        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingEnabled, B>,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         let corner_radii = self.corners;

@@ -2,6 +2,7 @@
 use crate::FloatExt as _;
 use crate::{
     color::Color,
+    eg::framebuf::Surface,
     eg::{framebuf::PackedColor, primitives::EgPrimitive},
     geometry::{Axial as _, Point},
     output::pixel::Pixel,
@@ -12,12 +13,12 @@ use crate::{
 use embedded_graphics::{pixelcolor::PixelColor, primitives::StyledDrawable};
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Circle {
-    fn draw<const N: usize>(
+    fn draw<B: Surface<C>>(
         &self,
         renderer: &mut crate::prelude::EGRenderer<
             C,
             crate::renderer::AntiAliasingDisabled,
-            N,
+            B,
         >,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
@@ -28,12 +29,12 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Circle {
         .draw_styled(&style.into_primitive_style(), renderer)
     }
 
-    fn draw_aa<const N: usize>(
+    fn draw_aa<B: Surface<C>>(
         &self,
         renderer: &mut crate::prelude::EGRenderer<
             C,
             crate::renderer::AntiAliasingEnabled,
-            N,
+            B,
         >,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
