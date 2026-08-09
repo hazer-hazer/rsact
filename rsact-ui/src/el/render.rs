@@ -4,13 +4,12 @@ use crate::{
         arena::{ArenaEls, ElArena},
         ctx::{PageState, WidgetCtx},
     },
-    font::{Font, FontCtx, FontProps, ResolvedFontProps},
+    env::{LayoutEnv, VisualEnv},
+    font::{Font, FontCtx, ResolvedFontProps},
     layout::model::LayoutModelNode,
     page::PageStyle,
     render::prelude::*,
-    style::{
-        Style, StylePseudoClass, StyleSelector, TreeStyle, stylist::Stylist,
-    },
+    style::{Style, StylePseudoClass, StyleSelector, stylist::Stylist},
 };
 use alloc::vec::Vec;
 use core::{
@@ -187,17 +186,30 @@ impl<'a, W: WidgetCtx> Clone for RenderShared<'a, W> {
 }
 impl<'a, W: WidgetCtx> Copy for RenderShared<'a, W> {}
 
-pub struct RenderVisual<W: WidgetCtx> {
-    pub tree_style: TreeStyle<W::Color>,
-    pub font_props: FontProps,
+/// WS21: the cascading environment as the render walk carries it — the one
+/// place both groups meet.
+///
+/// The two halves arrive by different routes, and that asymmetry is the box/
+/// pixel rule made concrete: [`layout`] was cascaded by the *layout* pass and is
+/// merely **replayed** here (read off the `LayoutModel`, never recomputed),
+/// while [`visual`] is cascaded by *this* walk. A property in the wrong half
+/// either fails to reach measurement or relayouts the page for a colour change.
+///
+/// [`layout`]: RenderEnv::layout
+/// [`visual`]: RenderEnv::visual
+pub struct RenderEnv<W: WidgetCtx> {
+    /// The box group, already resolved by the layout pass.
+    pub layout: LayoutEnv,
+    /// The pixel group, cascaded by the render walk.
+    pub visual: VisualEnv<W::Color>,
 }
 
-impl<W: WidgetCtx> Clone for RenderVisual<W> {
+impl<W: WidgetCtx> Clone for RenderEnv<W> {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl<W: WidgetCtx> Copy for RenderVisual<W> {}
+impl<W: WidgetCtx> Copy for RenderEnv<W> {}
 
 #[derive(Clone, Copy)]
 pub struct RenderFrame {
@@ -238,8 +250,11 @@ pub struct RenderCtx<'a, W: WidgetCtx, S = CtxUnready> {
     /// mode is advisory rather than enforced. Only this module touches it.
     renderer: &'a mut W::Renderer,
     pub layout: &'a LayoutModelNode<'a>,
-    /// Inheritable visual properties (tree_style, font_props).
-    pub visual: RenderVisual<W>,
+    /// WS21: the cascading environment for this node — both groups. The render
+    /// pass is the only place they meet: the layout group arrives already
+    /// resolved (replayed from the `LayoutModel`), the env group is cascaded
+    /// by this walk. See [`crate::env`].
+    pub env: RenderEnv<W>,
     /// Per-element rendering state (dirty flags, nesting, call counter).
     frame: RenderFrame,
     /// Shared page-level context (signals, page state, stylist).
@@ -294,11 +309,11 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
         }
     }
 
-    /// Create a sub-context with a modified `tree_style`.
+    /// Create a sub-context with a modified visual (pixel-group) environment.
     #[must_use]
-    pub fn with_tree_style<R>(
+    pub fn with_visual_env<R>(
         &mut self,
-        tree_style: impl FnOnce(TreeStyle<W::Color>) -> TreeStyle<W::Color>,
+        visual: impl FnOnce(VisualEnv<W::Color>) -> VisualEnv<W::Color>,
         f: impl FnOnce(RenderCtx<'_, W, CtxReady>) -> R,
     ) -> R {
         f(RenderCtx {
@@ -313,9 +328,9 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
             part_probes: self.part_probes,
             renderer: self.renderer,
             layout: self.layout,
-            visual: RenderVisual {
-                tree_style: tree_style(self.visual.tree_style),
-                font_props: self.visual.font_props,
+            env: RenderEnv {
+                layout: self.env.layout,
+                visual: visual(self.env.visual),
             },
             frame: self.frame,
             shared: self.shared,
@@ -778,7 +793,7 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
             part_probes: self.part_probes,
             renderer: self.renderer,
             layout: self.layout,
-            visual: self.visual,
+            env: self.env,
             shared: self.shared,
             // Children inside this closure see parent_dirty=true because we
             // just cleared/drew into this element's area above.
@@ -875,7 +890,7 @@ impl<'a, W: WidgetCtx> RenderPass<'a, W> {
     pub fn render(
         &mut self,
         layout: &LayoutModelNode<'_>,
-        visual: RenderVisual<W>,
+        env: RenderEnv<W>,
         frame: RenderFrame,
     ) -> RenderResult {
         render_subtree(
@@ -883,7 +898,7 @@ impl<'a, W: WidgetCtx> RenderPass<'a, W> {
             self.renderer,
             self.shared,
             layout,
-            visual,
+            env,
             frame,
         )
     }
@@ -894,7 +909,7 @@ fn render_subtree<W: WidgetCtx>(
     renderer: &mut W::Renderer,
     shared: RenderShared<'_, W>,
     layout: &LayoutModelNode<'_>,
-    visual: RenderVisual<W>,
+    env: RenderEnv<W>,
     frame: RenderFrame,
 ) -> RenderResult {
     debug!("{:indent$}->", "", indent = frame.nesting_level);
@@ -961,7 +976,7 @@ fn render_subtree<W: WidgetCtx>(
 
     // WS6.4c(F): the clip is applied inside `render_subtree_body`, around the
     // CHILDREN loop only — see the note there for why it cannot wrap the body.
-    render_subtree_body(els, renderer, shared, layout, visual, child_frame, ext)
+    render_subtree_body(els, renderer, shared, layout, env, child_frame, ext)
 }
 
 fn render_subtree_body<W: WidgetCtx>(
@@ -969,7 +984,7 @@ fn render_subtree_body<W: WidgetCtx>(
     renderer: &mut W::Renderer,
     shared: RenderShared<'_, W>,
     layout: &LayoutModelNode<'_>,
-    visual: RenderVisual<W>,
+    env: RenderEnv<W>,
     frame: RenderFrame,
     ext: Padding,
 ) -> RenderResult {
@@ -1017,7 +1032,7 @@ fn render_subtree_body<W: WidgetCtx>(
         part_probes: &mut part_probes,
         renderer,
         layout,
-        visual,
+        env,
         frame,
         shared,
         _marker: PhantomData::<CtxUnready>,
@@ -1114,19 +1129,22 @@ fn render_subtree_body<W: WidgetCtx>(
                 layout.outer,
             );
 
-            let child_font_props =
-                child_layout.font_props().unwrap_or(visual.font_props);
-            let child_visual = RenderVisual {
-                font_props: child_font_props,
-                tree_style: visual.tree_style,
-            };
+            // WS21: the layout group is *replayed*, not merged — `None` on the
+            // child means "no override here, keep the parent's", so the cascade
+            // the layout pass already resolved is reproduced by a plain
+            // `unwrap_or` rather than the field-wise merge it looks like it
+            // should be. The visual group is passed through unchanged (it has no
+            // producer yet; see `env::VisualEnv`).
+            let child_layout_env = child_layout.env().unwrap_or(env.layout);
+            let child_env =
+                RenderEnv { layout: child_layout_env, visual: env.visual };
 
             render_subtree(
                 els,
                 renderer,
                 shared,
                 &child_layout,
-                child_visual,
+                child_env,
                 children_frame,
             )?;
         }

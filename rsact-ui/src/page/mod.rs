@@ -1,16 +1,16 @@
 use crate::{
     el::{arena::ElArena, build::BuildCtx, *},
+    env::{LayoutEnv, VisualEnv},
     event::{
         Capture, Event, EventResponse, MouseButton, MouseEvent, PressEvent,
         UnhandledEvent,
     },
-    font::{Font, FontCtx, FontProps},
+    font::{Font, FontCtx},
     layout::{
         LayoutCtx, Limits,
         model::{LayoutModel, PPLayoutModel, model_layout},
     },
     render::prelude::*,
-    style::TreeStyle,
 };
 use alloc::{rc::Rc, vec::Vec};
 use core::cell::{Cell, RefCell};
@@ -239,7 +239,7 @@ fn compute_layout<W: WidgetCtx>(
             let ctx = LayoutCtx {
                 fonts,
                 viewport,
-                font_props: FontProps {
+                env: LayoutEnv {
                     font: Some(Font::Auto),
                     font_size: None,
                     font_style: None,
@@ -1102,13 +1102,13 @@ impl<W: WidgetCtx> Page<W> {
                 )
                 .render(
                     &layout.tree_root(),
-                    RenderVisual {
-                        tree_style: TreeStyle::base(),
-                        font_props: FontProps {
+                    RenderEnv {
+                        layout: LayoutEnv {
                             font: Some(Font::Auto),
                             font_size: None,
                             font_style: None,
                         },
+                        visual: VisualEnv::base(),
                     },
                     RenderFrame::root(self.render_calls),
                 )
@@ -4211,7 +4211,7 @@ mod tests {
     }
 
     // Same guarantee for `FontSettingWidget::font_size` on a `Label` (whose
-    // Text layout owns `FontProps`): the binding writes the arena-owned
+    // Text layout owns `LayoutEnv`): the binding writes the arena-owned
     // `LayoutData`'s font props and fires the page relayout trigger.
     #[test]
     fn reactive_font_size_setter_persists_and_reacts() {
@@ -4228,8 +4228,8 @@ mod tests {
                 arena.with_untracked(|a| a
                     .layout(root_id)
                     .unwrap()
-                    .font_props()
-                    .map(|fp| fp.font_size)),
+                    .env()
+                    .map(|env| env.font_size)),
                 Some(Some(FontSize::Fixed(10))),
             );
 
@@ -4251,8 +4251,8 @@ mod tests {
                 arena.with_untracked(|a| a
                     .layout(root_id)
                     .unwrap()
-                    .font_props()
-                    .map(|fp| fp.font_size)),
+                    .env()
+                    .map(|env| env.font_size)),
                 Some(Some(FontSize::Fixed(20))),
             );
             assert!(

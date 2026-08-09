@@ -59,56 +59,10 @@ pub enum TextVerticalAlign {
     Bottom,
 }
 
-// TODO: Get rid of FontProps in every widget, Remove FontSettingWidget, create
-// TextStyle widget that sets font properties and styles in the tree to be
-// applied to all children. Not any node must contain FontProps, only TextStyle
-// and Content will, TextStyle will propagate FontProps down the tree in layout
-// modeling pass.
-/// Tree-targeting font properties stored inside layouts with contents and
-/// passed on mount to widgets.
-#[derive(Clone, Copy, Default, Debug, PartialEq)]
-pub struct FontProps {
-    pub font: Option<Font>,
-    pub font_size: Option<FontSize>,
-    pub font_style: Option<FontStyle>,
-}
-
-impl FontProps {
-    pub fn has_any(&self) -> bool {
-        self.font.is_some()
-            || self.font_size.is_some()
-            || self.font_style.is_some()
-    }
-
-    pub fn inherited(&self, parent: &FontProps) -> Self {
-        Self {
-            font: self.font.or(parent.font),
-            font_size: self.font_size.or(parent.font_size),
-            font_style: self.font_style.or(parent.font_style),
-        }
-    }
-
-    pub fn resolve(&self, viewport: Size) -> ResolvedFontProps {
-        let font_size = self.font_size.unwrap_or_default().resolve(viewport);
-
-        let font_style = self.font_style.unwrap_or_default();
-
-        ResolvedFontProps { size: font_size, style: font_style }
-    }
-
-    pub fn font(&self) -> Font {
-        // TODO: Is font required to be set at least by global default or we
-        // should fallback here?
-        self.font.unwrap()
-    }
-}
-
-impl Display for FontProps {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        // TODO
-        write!(f, "")
-    }
-}
+// WS21.1: the cascading font properties that used to live here are
+// `env::LayoutEnv` — the box group of the environment. They moved because they
+// are one instance of a general mechanism (see `crate::env`), not a font-module
+// concern; what stays here is the font *machinery* they resolve against.
 
 /// User-specified font size
 #[derive(Clone, Copy, Debug, PartialEq, IntoMaybeReactive)]
@@ -537,37 +491,5 @@ impl FontCtx {
                 .draw::<R>(content, props, bounds, color, renderer)
                 .expect("[BUG] Fallback font must be defined")
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{FontProps, FontSize, FontStyle};
-
-    // b.3: `has_any` must mean "any field is set", not "all fields are set".
-    // The layout model stores resolved text props for draw only when
-    // `has_any()` is true (`layout/model.rs`), while measurement always merges
-    // (`layout/mod.rs`). With the old has-ALL semantics a font-size-only
-    // override (`label.font_size(20)`) was *measured* at 20 but *drawn* at the
-    // inherited size, because `has_any()` returned false and the resolved props
-    // were dropped from the model.
-    #[test]
-    fn has_any_reports_any_set_field_not_all() {
-        assert!(!FontProps::default().has_any(), "nothing set => no override");
-
-        let size_only = FontProps {
-            font_size: Some(FontSize::Fixed(20)),
-            ..Default::default()
-        };
-        assert!(
-            size_only.has_any(),
-            "font_size(20) alone must count as an override"
-        );
-
-        let style_only = FontProps {
-            font_style: Some(FontStyle::Bold),
-            ..Default::default()
-        };
-        assert!(style_only.has_any(), "font_style alone must count");
     }
 }
