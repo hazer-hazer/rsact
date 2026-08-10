@@ -185,6 +185,12 @@
     "branch": "ws6.4c-clip-events",
     "subject": "WS5.5: border moves to style; the widget's layout copy is deleted"
   },
+  "757a35033f3b8c441731bf55c26579a49ff15374": {
+    "date": 1786380069,
+    "parent": "",
+    "branch": "ws6.4d-tile-renderer",
+    "subject": "WS6.4d(10): Frame is the only render path; a Pixmap is reshaped, not shape-bound"
+  },
   "928cc223de79fa88ca848ef6c90878697f0b9c98": {
     "date": 1785969528,
     "parent": "",
