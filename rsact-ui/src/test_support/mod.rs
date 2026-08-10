@@ -164,14 +164,20 @@ impl<W: WidgetCtx> TestUi<W> {
         Self { ui, renderer }
     }
 
-    /// One whole-frame render pass, lending the owned renderer.
+    /// Drive one complete frame — every planned region — and report whether
+    /// anything was painted.
+    ///
+    /// The real path, not a shortcut around it: [`Frame`] is the only render API
+    /// (WS6.4d), so a test that wants "one frame" runs its loop to completion.
+    /// A test needing per-region control uses [`Self::frame`] instead.
     pub fn render(&mut self) -> bool {
-        self.ui.render(&mut self.renderer)
-    }
-
-    /// Poll the render gate, lending the owned renderer.
-    pub fn use_renderer(&mut self, f: impl FnOnce(&mut W::Renderer)) -> bool {
-        self.ui.use_renderer(&mut self.renderer, f)
+        let Self { ui, renderer } = self;
+        let mut frame = ui.start_frame(renderer);
+        let mut painted = false;
+        while frame.render(renderer).is_some() {
+            painted = true;
+        }
+        painted
     }
 
     /// Begin a tiled frame, returning it **with** the renderer to paint into.

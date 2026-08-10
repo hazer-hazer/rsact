@@ -63,15 +63,17 @@ fn main() {
         .fill()
         .el(),);
 
-    if ui.render(&mut renderer) {
-        // Take the buffer back, ship what changed, hand it in again.
-        let (parked, buf, covers) = renderer.detach();
-        ui.with_damage(|rects| {
-            for r in rects {
-                flush_rect(&mut display, &buf, covers, *r);
-            }
-        });
-        renderer = parked.attach(buf);
+    // The one render path: plan the frame, then paint and ship one region
+    // at a time. `region` is exactly what changed; `covers` is what the
+    // buffer holds — for a full-frame surface those differ (the buffer is
+    // the frame, the dirty part is the region), for a tile they are equal.
+    {
+        let mut frame = ui.start_frame(&mut renderer);
+        while let Some(region) = frame.render(&mut renderer) {
+            let (parked, buf, covers) = renderer.detach();
+            flush_rect(&mut display, &buf, covers, region);
+            renderer = parked.attach(buf);
+        }
     }
 
     unsafe { env::set_var("EG_SIMULATOR_DUMP", "assets/icons.png") };

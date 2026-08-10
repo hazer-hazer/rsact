@@ -8,7 +8,8 @@ use crate::{
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 use tiny_skia::{
-    Mask, Paint, PathBuilder, Pixmap, PixmapPaint, PixmapRef, Transform,
+    IntSize, Mask, Paint, PathBuilder, Pixmap, PixmapMut, PixmapPaint,
+    PixmapRef, Transform,
 };
 
 pub mod color;
@@ -25,46 +26,50 @@ pub mod path;
 /// step (a `PixmapExt::map_to_framebuffer` over [`MapColor`]), not something
 /// this type should do on the way out.
 ///
-/// # A pixmap is bounded by SHAPE, not capacity
+/// # The bound is a CAPACITY, exactly as for the framebuffer backend
 ///
-/// This is where the mirror stops being exact, and it matters.
-/// `PackedFramebuf::retarget` re-strides at each region's own width, so one
-/// buffer serves a 240×24 region and a 16×38 one alike — which is what makes a
-/// *capacity* bound sound for [`EGRenderer`]. A `Pixmap` has a fixed `width()`
-/// and indexes `y * width + x`; it cannot be re-strided. So a 240×24 pixmap
-/// cannot hold a 16×38 region at all, even though both fit the same 5760-unit
-/// budget, and the planner is entitled to emit exactly that under
-/// `Tiles<240, 24>`.
+/// A `Pixmap` has a fixed `width()` and indexes `y * width + x`, so it looks at
+/// first like it must be bounded by *shape* — a 240×24 pixmap could not hold a
+/// 16×38 region, even though both fit the same byte budget and the planner is
+/// entitled to emit either under `Tiles<240, 24>`.
 ///
-/// Hence the honest usage today is **one pixmap per region**, sized from
-/// [`Frame::peek_region`] before the region is painted:
+/// It is not, because a pixmap **can** be re-strided: `Pixmap::take()` yields
+/// its `Vec<u8>` and `Pixmap::from_vec` rebuilds one at any size the vector's
+/// length matches. So [`begin_region`] reshapes the storage to the region —
+/// `take` · `resize` · `from_vec` — and since a shrink keeps the vector's
+/// capacity and a regrow stays inside it, **no reallocation happens** as long as
+/// the attached pixmap was big enough for the policy in the first place, which is
+/// precisely what [`attach`](TinySkiaRenderer::attach) checks.
 ///
-/// ```ignore
-/// while let Some(region) = frame.peek_region() {
-///     renderer.attach(Pixmap::new(region.size.width, region.size.height).unwrap());
-///     frame.render(&mut renderer);
-///     let (pixmap, at) = renderer.detach().unwrap();
-///     pixmap.save_png(format!("region-{}-{}.png", at.top_left.x, at.top_left.y))?;
-/// }
-/// ```
-///
-/// A fixed pixmap pool would need a policy that bounds region *shape* rather
-/// than region *area* — `RegionLimits` carries no such field yet. Until it
-/// does, a larger-than-needed pixmap also works: [`begin_region`] only requires
-/// the pixmap to be at least as wide and as tall as the region.
+/// The consequence is that this backend takes a fixed pixmap pool under a
+/// `Tiles<W, H>` policy on the same terms as [`EGRenderer`], and the two
+/// backends differ only in what the storage *is*.
 ///
 /// [`EGRenderer`]: crate::eg::renderer::EGRenderer
-/// [`Frame::peek_region`]: https://docs.rs/rsact-ui
 /// [`begin_region`]: Renderer::begin_region
 pub struct TinySkiaRenderer<
     C,
     P = crate::region::Unbounded,
-    A: Attachment<Pixmap> = Attached,
+    A: Attachment<Vec<u8>> = Attached,
 > {
-    /// The lent pixmap — and only in the [`Attached`] state, where its type is
-    /// `Pixmap`. In [`Detached`] it is `()`: no field, nothing to unwrap, and
-    /// no "drawing with nothing attached" case for any method to handle.
-    pixmap: A::Slot,
+    /// The lent pixmap's **bytes** — and only in the [`Attached`] state, where
+    /// the type is `Vec<u8>`. In [`Detached`] it is `()`: no field, nothing to
+    /// unwrap, and no "drawing with nothing attached" case to handle.
+    ///
+    /// Bytes rather than a `Pixmap` because a `Pixmap` cannot be re-strided in
+    /// place — reshaping it to each region means owning the vector. The caller
+    /// still hands in and gets back a real `Pixmap`; this is the form it is held
+    /// in while lent. `capacity` is what bounds reshaping, and is checked once,
+    /// at `attach`.
+    pixels: A::Slot,
+    /// Bytes the attached vector was allocated with — the reshaping ceiling.
+    ///
+    /// `Vec::capacity` is not a contract (it may exceed what was asked for), so
+    /// the figure the policy was checked against is remembered explicitly rather
+    /// than re-read from the vector.
+    capacity: usize,
+    /// The region the storage is currently shaped for.
+    region: Size,
     /// Where the attached pixmap's `(0, 0)` sits in absolute frame coordinates.
     ///
     /// rsact paints in absolute coordinates (WS6.4.0(ii-3)); rebasing them into
@@ -107,9 +112,9 @@ impl TinySkiaRenderer<tiny_skia::Color, crate::region::Unbounded> {
 }
 
 impl<P: crate::region::FramePolicy> TinySkiaRenderer<tiny_skia::Color, P> {
-    /// A pixmap reused across regions, bounded by policy `P` — checked as a
-    /// **shape** at [`attach`](TinySkiaRenderer::attach), for the reason in the
-    /// type docs.
+    /// A pixmap reused across regions, bounded by policy `P` — a **capacity**
+    /// check at [`attach`](TinySkiaRenderer::attach), since the storage is
+    /// reshaped per region (see the type docs).
     pub fn tiled(size: Size, pixmap: Pixmap) -> Self {
         TinySkiaRenderer::<tiny_skia::Color, P, Detached>::parked(size)
             .attach(pixmap)
@@ -126,12 +131,11 @@ impl<P: crate::region::FramePolicy> TinySkiaRenderer<tiny_skia::Color, P> {
     pub fn detach(
         self,
     ) -> (TinySkiaRenderer<tiny_skia::Color, P, Detached>, Pixmap, Rect) {
-        let at = Rect::new(
-            self.origin,
-            Size::new(self.pixmap.width(), self.pixmap.height()),
-        );
+        let at = Rect::new(self.origin, self.region);
         let parked = TinySkiaRenderer {
-            pixmap: (),
+            pixels: (),
+            capacity: self.capacity,
+            region: self.region,
             origin: self.origin,
             size: self.size,
             viewport_stack: self.viewport_stack,
@@ -139,7 +143,18 @@ impl<P: crate::region::FramePolicy> TinySkiaRenderer<tiny_skia::Color, P> {
             _color: PhantomData,
             _policy: PhantomData,
         };
-        (parked, self.pixmap, at)
+        // Sized to the region actually painted, so what the caller receives is
+        // exactly the tile — `encode_png`-able as-is. The vector's *capacity*
+        // survives the truncation, which is what makes reattaching it free.
+        let mut pixels = self.pixels;
+        pixels.truncate(Self::bytes_for(self.region));
+        let pixmap = Pixmap::from_vec(
+            pixels,
+            IntSize::from_wh(self.region.width, self.region.height)
+                .expect("a painted region is never zero-sized"),
+        )
+        .expect("length was just set to match the region");
+        (parked, pixmap, at)
     }
 
     /// Exchange pixmaps in place, returning the painted one and its rect.
@@ -149,35 +164,83 @@ impl<P: crate::region::FramePolicy> TinySkiaRenderer<tiny_skia::Color, P> {
     /// primitive: see `EGRenderer::detach` for why a single-buffer pool
     /// deadlocks under swap-only.
     pub fn swap(&mut self, next: Pixmap) -> (Pixmap, Rect) {
-        Self::check_shape(&next);
-        let at = Rect::new(
-            self.origin,
-            Size::new(self.pixmap.width(), self.pixmap.height()),
-        );
-        (core::mem::replace(&mut self.pixmap, next), at)
+        let capacity = Self::check_capacity(&next);
+        let at = Rect::new(self.origin, self.region);
+        let region = self.region;
+
+        let mut taken = core::mem::replace(&mut self.pixels, next.take());
+        self.capacity = capacity;
+        self.region = Size::new(0, 0);
+        taken.truncate(Self::bytes_for(region));
+        let pixmap = Pixmap::from_vec(
+            taken,
+            IntSize::from_wh(region.width, region.height)
+                .expect("a painted region is never zero-sized"),
+        )
+        .expect("length was just set to match the region");
+        (pixmap, at)
     }
 
+    /// Bytes a `size` region of premultiplied RGBA occupies.
+    fn bytes_for(size: Size) -> usize {
+        size.width as usize * size.height as usize * 4
+    }
+
+    /// The attached pixmap must hold policy `P`'s largest region — a **byte
+    /// budget**, because the storage is reshaped per region rather than used at
+    /// a fixed stride. Returns the capacity to remember.
+    ///
     /// # Panics
     ///
-    /// If `pixmap` is smaller than policy `P`'s largest region in either
-    /// dimension. A **shape** check, not a capacity one — see the type docs.
-    fn check_shape(pixmap: &Pixmap) {
+    /// If it does not. Same reasoning as `EGRenderer`: a static property of the
+    /// application's memory plan, discovered at the hand-off, with no degraded
+    /// mode worth having.
+    fn check_capacity(pixmap: &Pixmap) -> usize {
+        let have = Self::bytes_for(Size::new(pixmap.width(), pixmap.height()));
         if let Some(max) = <P as crate::region::FramePolicy>::MAX_REGION {
+            let needed = Self::bytes_for(max);
             assert!(
-                pixmap.width() >= max.width && pixmap.height() >= max.height,
-                "[rsact] pixmap {}x{} is too small for this renderer's frame \
-                 policy, whose largest region is {}x{}. A pixmap cannot be \
-                 re-strided, so its bound is a shape, not a byte budget.",
+                have >= needed,
+                "[rsact] pixmap {}x{} holds {have} bytes; this renderer's \
+                 frame policy needs {needed} for its largest region ({}x{})",
                 pixmap.width(),
                 pixmap.height(),
                 max.width,
                 max.height,
             );
         }
+        have
     }
 
     fn painted_size(&self) -> Size {
-        Size::new(self.pixmap.width(), self.pixmap.height())
+        self.region
+    }
+
+    /// The attached storage as a drawable pixmap over the current region.
+    ///
+    /// A `PixmapMut` view rather than an owned `Pixmap`, which is what lets one
+    /// allocation serve every region shape: the view's stride is the region's
+    /// own width, so nothing is re-addressed by hand.
+    fn canvas(&mut self) -> PixmapMut<'_> {
+        let (w, h) = (self.region.width, self.region.height);
+        let bytes = Self::bytes_for(self.region);
+        PixmapMut::from_bytes(&mut self.pixels[..bytes], w, h)
+            .expect("the region was validated when it was set")
+    }
+
+    /// The canvas **and** the active clip, which every draw call needs together.
+    ///
+    /// They are one accessor because `PixmapMut` borrows `self.pixels` mutably
+    /// while the `Mask` lives in another field: taking them separately is a
+    /// borrow conflict, and taking the mask *out* and putting it back (the
+    /// obvious workaround) is both noisy and easy to forget half of.
+    fn canvas_and_clip(&mut self) -> (PixmapMut<'_>, Option<&Mask>) {
+        let (w, h) = (self.region.width, self.region.height);
+        let bytes = Self::bytes_for(self.region);
+        let Self { pixels, clip_mask, .. } = self;
+        let canvas = PixmapMut::from_bytes(&mut pixels[..bytes], w, h)
+            .expect("the region was validated when it was set");
+        (canvas, clip_mask.as_ref())
     }
 }
 
@@ -191,7 +254,9 @@ impl<P: crate::region::FramePolicy>
     /// shape could express only as "constructed but secretly broken".
     pub fn parked(size: Size) -> Self {
         Self {
-            pixmap: (),
+            pixels: (),
+            capacity: 0,
+            region: Size::new(0, 0),
             origin: Point::zero(),
             size,
             viewport_stack: vec![ViewportKind::root()],
@@ -212,9 +277,13 @@ impl<P: crate::region::FramePolicy>
         self,
         pixmap: Pixmap,
     ) -> TinySkiaRenderer<tiny_skia::Color, P, Attached> {
-        TinySkiaRenderer::<tiny_skia::Color, P, Attached>::check_shape(&pixmap);
+        type Attach<P> = TinySkiaRenderer<tiny_skia::Color, P, Attached>;
+        let capacity = Attach::<P>::check_capacity(&pixmap);
+        let region = Size::new(pixmap.width(), pixmap.height());
         TinySkiaRenderer {
-            pixmap,
+            pixels: pixmap.take(),
+            capacity,
+            region,
             origin: self.origin,
             size: self.size,
             viewport_stack: self.viewport_stack,
@@ -305,13 +374,13 @@ impl<P: crate::region::FramePolicy> TinySkiaRenderer<tiny_skia::Color, P> {
             let mut paint = self.base_paint();
             paint.set_color(fill);
 
-            let Self { pixmap, clip_mask, .. } = self;
-            pixmap.fill_path(
+            let (mut canvas, clip) = self.canvas_and_clip();
+            canvas.fill_path(
                 path,
                 &paint,
                 tiny_skia::FillRule::default(),
                 transform,
-                clip_mask.as_ref(),
+                clip,
             );
         }
 
@@ -326,14 +395,8 @@ impl<P: crate::region::FramePolicy> TinySkiaRenderer<tiny_skia::Color, P> {
             stroke.width = style.stroke_width as f32;
             stroke.line_cap = tiny_skia::LineCap::Round;
 
-            let Self { pixmap, clip_mask, .. } = self;
-            pixmap.stroke_path(
-                path,
-                &paint,
-                &stroke,
-                transform,
-                clip_mask.as_ref(),
-            );
+            let (mut canvas, clip) = self.canvas_and_clip();
+            canvas.stroke_path(path, &paint, &stroke, transform, clip);
         }
     }
 }
@@ -372,26 +435,37 @@ impl<P: crate::region::FramePolicy> Renderer
     /// A pixmap already covering the frame skips both: it needs no rebase, and
     /// clearing it would erase the frame a damage-driven repaint relies on.
     fn begin_region(&mut self, region: Rect) -> RenderResult {
-        let size = self.painted_size();
-        if size.width >= self.size.width && size.height >= self.size.height {
-            return Ok(());
-        }
-        if size.width < region.size.width || size.height < region.size.height {
-            // A pixmap cannot be re-strided, so this is unrecoverable for THIS
-            // region — but not for the frame. Log and skip (WS1.8); the region
-            // is re-planned next frame, and the caller can size the next pixmap
-            // from `Frame::peek_region`.
+        let want = Self::bytes_for(region.size);
+        if want > self.capacity {
+            // The policy check at `attach` guarantees the planner never asks for
+            // this, so it is a renderer driven outside that path. Log and skip
+            // (WS1.8) rather than reallocating behind the caller's back — the
+            // whole contract is that the storage is theirs and fixed.
             log::error!(
-                "pixmap {}x{} cannot hold region {region:?}; skipping it. A \
-                 pixmap's bound is a shape, not a byte budget — size it from \
-                 `Frame::peek_region`, or attach a larger one.",
-                size.width,
-                size.height,
+                "region {region:?} needs {want} bytes, the attached pixmap \
+                 holds {}; skipping it",
+                self.capacity,
             );
             return Err(());
         }
+
+        // Re-stride the storage to this region. A shrink keeps the vector's
+        // capacity and a regrow stays inside it, so no reallocation happens —
+        // which is what makes a byte budget the right bound for a pixmap even
+        // though a pixmap has a fixed width.
+        self.pixels.resize(want, 0);
+        self.region = region.size;
         self.origin = region.top_left;
-        self.pixmap.fill(tiny_skia::Color::WHITE);
+
+        // A region arrives holding whatever the previous one left in it, and
+        // tiny-skia composites `SourceOver` against the destination — so
+        // without this the first blended edge would mix with an unrelated pixel
+        // (roadmap 6.4 constraint (b)). A pixmap already covering the frame is
+        // exempt: clearing it would erase what a damage-driven repaint relies
+        // on.
+        if region.size != self.size {
+            self.canvas().fill(tiny_skia::Color::WHITE);
+        }
         self.rebuild_clip_mask();
         Ok(())
     }
@@ -425,8 +499,8 @@ impl<P: crate::region::FramePolicy> Renderer
         paint.set_color(color);
 
         let transform = self.base_transform();
-        let Self { pixmap, clip_mask, .. } = self;
-        pixmap.fill_rect(rect.into(), &paint, transform, clip_mask.as_ref());
+        let (mut canvas, clip) = self.canvas_and_clip();
+        canvas.fill_rect(rect.into(), &paint, transform, clip);
 
         Ok(())
     }
@@ -441,7 +515,7 @@ impl<P: crate::region::FramePolicy> Renderer
         // Indexes the pixmap directly, so it must apply the origin rebase by
         // hand — the `Transform` the draw calls get does not reach here.
         let local = point - self.origin;
-        let pixmap = &mut self.pixmap;
+        let mut pixmap = self.canvas();
         let (w, h) = (pixmap.width(), pixmap.height());
         if local.x < 0
             || local.y < 0
@@ -637,16 +711,16 @@ impl<P: crate::region::FramePolicy> Renderer
         .ok_or(())?;
         let paint = PixmapPaint::default();
         let origin = self.origin;
-        let Self { pixmap, clip_mask, .. } = self;
+        let (mut canvas, clip) = self.canvas_and_clip();
         // `draw_pixmap` takes integer coordinates rather than a transform for
         // placement, so the rebase is a subtraction here too.
-        pixmap.draw_pixmap(
+        canvas.draw_pixmap(
             draw_box.top_left.x - origin.x,
             draw_box.top_left.y - origin.y,
             image_pixmap,
             &paint,
             Transform::identity(),
-            clip_mask.as_ref(),
+            clip,
         );
 
         Ok(())
@@ -710,11 +784,10 @@ mod tests {
     /// project — the first was a golden test drawing `WHITE` on a `WHITE`
     /// background.) So: paint BLACK, and look for pixels that are not white.
     fn row_has_ink(r: &TinySkiaRenderer<tiny_skia::Color>, y: u32) -> bool {
-        let w = r.pixmap.width();
-        let px = r.pixmap.pixels();
+        let w = r.region.width;
         (0..w).any(|x| {
-            let p = px[(y * w + x) as usize];
-            (p.red(), p.green(), p.blue()) != (255, 255, 255)
+            let i = ((y * w + x) * 4) as usize;
+            (r.pixels[i], r.pixels[i + 1], r.pixels[i + 2]) != (255, 255, 255)
         })
     }
 
@@ -900,19 +973,70 @@ mod tests {
         );
     }
 
-    /// A pixmap is bounded by SHAPE: a region taller than it cannot be painted,
-    /// and saying so beats corrupting the frame silently.
+    /// WS6.4d: a pixmap's bound is a **byte budget**, not a shape — the storage
+    /// is re-strided per region, so any region fitting the bytes is painted.
+    ///
+    /// This is what makes the tiny-skia backend take a fixed pool on the same
+    /// terms as the framebuffer one. It replaces a test asserting the opposite:
+    /// a 64×8 pixmap used to *refuse* a 32×16 region, on the grounds that a
+    /// pixmap has a fixed `width()`. It does — but `take`/`from_vec` let the
+    /// same allocation be re-shaped, and both regions are 512 pixels.
     #[test]
-    fn a_region_too_tall_for_the_pixmap_is_refused() {
+    fn a_pixmap_is_reshaped_per_region_not_bound_to_its_shape() {
+        let viewport = Size::new(64, 64);
+        // 64x8 = 512 px = 2048 bytes.
+        let mut r = TinySkiaRenderer::new(viewport, pixmap(Size::new(64, 8)));
+        let budget = r.capacity;
+
+        // Same byte count, different shape — accepted, and the view really is
+        // 32 wide (a stale stride would report 64 and address the wrong rows).
+        let square = Rect::new(Point::new(8, 16), Size::new(32, 16));
+        assert!(r.begin_region(square).is_ok());
+        assert_eq!(r.region, Size::new(32, 16));
+        assert_eq!(r.canvas().width(), 32);
+
+        // Paint at the region's far corner and read it back through the view,
+        // which only lands correctly if the stride followed the reshape.
+        r.pixel(Point::new(39, 31), tiny_skia::Color::BLACK)
+            .unwrap();
+        let i = ((15 * 32 + 31) * 4) as usize;
+        assert_ne!(
+            (r.pixels[i], r.pixels[i + 1], r.pixels[i + 2]),
+            (255, 255, 255),
+            "the bottom-right pixel of a reshaped region did not land"
+        );
+
+        // A narrow tall region — the case a fixed-width pixmap could never hold.
+        assert!(
+            r.begin_region(Rect::new(Point::zero(), Size::new(4, 128)))
+                .is_ok()
+        );
+        assert_eq!(r.canvas().width(), 4);
+
+        // And none of it reallocated: every reshape stayed inside the vector the
+        // caller lent, which is the whole reason a byte budget is the right bound.
+        assert_eq!(
+            r.capacity, budget,
+            "the reshaping ceiling moved — the caller's allocation was replaced"
+        );
+        assert!(
+            r.pixels.capacity() >= budget,
+            "reshaping shrank the allocation, so regrowing it will reallocate"
+        );
+    }
+
+    /// The bound still bites: a region needing more bytes than were lent is
+    /// refused rather than silently reallocating behind the caller.
+    #[test]
+    fn a_region_over_the_byte_budget_is_refused() {
         let viewport = Size::new(64, 64);
         let mut r = TinySkiaRenderer::new(viewport, pixmap(Size::new(64, 8)));
-        // Same pixel count as 64x8, but 16 rows deep — a packed framebuffer
-        // would re-stride and take it; a pixmap cannot.
-        let tall = Rect::new(Point::zero(), Size::new(32, 16));
+        // 2052 bytes wanted against 2048 lent — one pixel too many.
+        let over = Rect::new(Point::zero(), Size::new(513, 1));
         assert!(
-            r.begin_region(tall).is_err(),
-            "a 64x8 pixmap must refuse a 32x16 region rather than paint \
-             outside itself"
+            r.begin_region(over).is_err(),
+            "a region over the lent byte budget must be refused; reallocating \
+             would quietly take ownership of storage that is not ours"
         );
     }
 }

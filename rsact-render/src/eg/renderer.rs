@@ -266,7 +266,13 @@ impl<
     /// renderer = parked.attach(free.receive().await); // …then acquire
     /// ```
     pub fn swap(&mut self, next: B) -> (B, Rect) {
-        Self::check_capacity(&next);
+        // Runtime check only. The `const` half depends purely on `B`, `C` and
+        // `P` — none of which change here, so it already fired for this
+        // instantiation when the renderer was built. What can differ per call is
+        // a runtime-length buffer's actual length: two `Box<[u32]>` values, or
+        // two `&'static mut [u16]`s from different pools, are the same type with
+        // different extents.
+        Self::check_runtime_capacity(&next);
         let at = self.canvas.viewport();
         let fresh = Self::wrap(self.main_viewport, next);
         let prev = core::mem::replace(&mut self.canvas, fresh);
@@ -296,27 +302,17 @@ impl<
         }
     }
 
-    /// `buffer` must hold policy `P`'s largest region.
+    /// The half of the capacity contract that depends only on types, asserted
+    /// at monomorphization.
     ///
-    /// When `B` is a fixed-size array this is proved in a `const` block — a
+    /// Fires **once per instantiation, at compile time**, so it belongs on the
+    /// path every construction goes through (`attach`) and nowhere else. A
     /// violation is a compile error naming the colour, the buffer and the
-    /// policy. When `B` is a runtime-length slice (`&'static mut [u16]` from a
-    /// `StaticCell`, a boxed slice on a host) the type carries no extent, so the
-    /// same requirement is asserted at the hand-off instead: once, before
-    /// anything paints.
-    ///
-    /// # Panics
-    ///
-    /// If `buffer` is too small for `P`. Deliberately not a logged degradation:
-    /// the condition is a static property of the application's memory plan, it
-    /// is discovered at the first hand-off rather than in a frame, and the only
-    /// available fallback — never render again — is a silent brick rather than
-    /// a degraded picture.
-    fn check_capacity(buffer: &B) {
-        // Post-monomorphization: fires for the array case, where the extent is
-        // in the type. `UNITS == None` (a slice) falls through to the runtime
-        // check below rather than being assumed to fit — the distinction the
-        // old `usize::MAX` sentinel erased.
+    /// policy.
+    fn assert_static_capacity() {
+        // `UNITS == None` (a runtime-length slice) falls through to the runtime
+        // check rather than being assumed to fit — the distinction the old
+        // `usize::MAX` sentinel erased.
         const {
             // A bounded policy's unit budget is only meaningful if its packing
             // matches the colour actually being stored: a 1-bpp colour under a
@@ -341,6 +337,23 @@ impl<
                 );
             }
         }
+    }
+
+    /// The half that depends on the buffer's *value*.
+    ///
+    /// Only meaningful for a `B` whose extent is a runtime fact — a boxed slice,
+    /// a `&'static mut [u16]` from a `StaticCell` pool. For a fixed-size array
+    /// this is a redundant repeat of a compile-time proof, and costs one integer
+    /// compare per hand-off.
+    ///
+    /// # Panics
+    ///
+    /// If `buffer` is too small for `P`. Deliberately not a logged degradation:
+    /// the condition is a static property of the application's memory plan, it
+    /// is discovered at the hand-off rather than mid-paint, and the only
+    /// available fallback — never render again — is a silent brick rather than a
+    /// degraded picture.
+    fn check_runtime_capacity(buffer: &B) {
         if let Some(needed) = policy_units::<P>() {
             let have = buffer.unit_count();
             assert!(
@@ -386,7 +399,8 @@ impl<
     ///
     /// If `buffer` is too small for policy `P` — see `check_capacity`.
     pub fn attach(self, buffer: B) -> EGRenderer<C, AA, B, P, Attached> {
-        EGRenderer::<C, AA, B, P, Attached>::check_capacity(&buffer);
+        EGRenderer::<C, AA, B, P, Attached>::assert_static_capacity();
+        EGRenderer::<C, AA, B, P, Attached>::check_runtime_capacity(&buffer);
         let canvas = EGRenderer::<C, AA, B, P, Attached>::wrap(
             self.main_viewport,
             buffer,

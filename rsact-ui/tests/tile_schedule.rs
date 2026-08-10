@@ -864,9 +864,11 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
         let mut ui: UI<FullWtf, _> =
             UI::new(Theme::default(), viewport).with_page((), page);
         let mut panel = blank();
-        // The first frame is a full invalidate; the rest settle reactive state.
+        // Eight frames through the one render path. The first is a full
+        // invalidate; the rest settle reactive state.
         for _ in 0..8 {
-            ui.render(&mut renderer);
+            let mut frame = ui.start_frame(&mut renderer);
+            while frame.render(&mut renderer).is_some() {}
         }
         let (_, units, at) = renderer.detach();
         blit(&mut panel, &units, at);

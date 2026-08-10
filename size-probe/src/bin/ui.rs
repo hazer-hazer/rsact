@@ -35,7 +35,11 @@ fn main() -> ! {
             .into_el()
         });
     let _ = ui.current_page();
-    ui.use_renderer(&mut renderer, |_| {});
+    // The one render path (WS6.4d): a frame is `start_frame` plus its region
+    // loop. The size probe measures what the real path monomorphizes to.
+    let mut frame = ui.start_frame(&mut renderer);
+    while frame.render(&mut renderer).is_some() {}
+    drop(frame);
 
     black_box(&ui);
     loop {}

@@ -159,7 +159,7 @@ fn ui_scenario(
         // panic for some widgets, so guard it and degrade to "not measured"
         // rather than aborting the whole probe.
         let painted = guarded_frame(&mut ui, |ui| {
-            ui.use_renderer(|_| {});
+            ui.render();
         })
         .is_some();
 
@@ -174,7 +174,7 @@ fn ui_scenario(
         let idle = painted
             .then(|| {
                 guarded_frame(&mut ui, |ui| {
-                    ui.use_renderer(|_| {});
+                    ui.render();
                 })
             })
             .flatten();
@@ -188,7 +188,7 @@ fn ui_scenario(
         let change = painted
             .then(|| {
                 guarded_frame(&mut ui, |ui| {
-                    ui.use_renderer(|_| {});
+                    ui.render();
                 })
             })
             .flatten();

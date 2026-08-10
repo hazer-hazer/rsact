@@ -426,7 +426,17 @@ pub fn render_once<W: WidgetCtx>(
     // Everything `build` and the first render create lands in this scope.
     let scope = new_scope();
     let mut ui = build();
-    let drew = ui.render(renderer);
+    // The one render path, driven to completion. A caller who needs to flush
+    // each region (an e-paper window, a tile over SPI) writes this loop itself
+    // and does its IO inside it — that is the whole point of `Frame`.
+    let drew = {
+        let mut frame = ui.start_frame(renderer);
+        let mut painted = false;
+        while frame.render(renderer).is_some() {
+            painted = true;
+        }
+        painted
+    };
     // Drop the UI first (its page's Drop disposes the arena + probes), then the
     // scope (disposes the UI's own signals and any page build-time nodes) —
     // leaving the runtime as it was before the call.
@@ -436,46 +446,34 @@ pub fn render_once<W: WidgetCtx>(
 }
 
 impl<W: WidgetCtx> UI<W, WithPages> {
-    /// Run one whole-frame render pass into `renderer`, returning whether
-    /// anything was repainted.
-    ///
-    /// The probe-gated path: only the parts whose content actually changed are
-    /// repainted. What it repainted is [`Self::with_damage`], and streaming that
-    /// to a display is the caller's — this never touches a transport.
-    ///
-    /// ```ignore
-    /// if ui.render(&mut renderer) {
-    ///     ui.with_damage(|d| renderer.output_regions(&mut display, d));
-    /// }
-    /// ```
-    ///
-    /// For a surface smaller than the frame, see [`Self::start_frame`].
-    pub fn render(&mut self, renderer: &mut W::Renderer) -> bool {
-        self.take_pending_clear(renderer);
-        self.current_page().use_renderer(renderer, |_| {})
-    }
+    // NOTE (WS6.4d): `UI::render(&mut renderer) -> bool` and
+    // `UI::with_damage(|&[Rect]|)` lived here, and they were a SECOND render
+    // path: one whole-frame probe-gated pass plus a damage list the caller
+    // flushed afterwards. [`Frame`] is the only render API now.
+    //
+    // Two reasons, and the first is a correctness one. `UI::render` never calls
+    // `Renderer::begin_region`, so a **tile-backed renderer was never aimed**:
+    // pointing one at it returned `drew = true` with a surface still covering
+    // `0x0`, and every flush sent nothing at all — verified, not theorised. The
+    // damage list made that worse by inviting a loop over rects against a single
+    // buffer, which is only meaningful when that buffer covers the frame.
+    //
+    // Second, it was redundant. Under `Unbounded` — which is what a full-frame
+    // surface declares — `start_frame` plans the same damage into regions and
+    // hands them out one at a time, each already paired with the rect to flush.
+    // The whole-frame path is not a different mode; it is this one with a
+    // surface big enough that no chunking happens.
 
     /// Repaint the background over the whole viewport if a page change asked
     /// for it, and forget the request.
     ///
     /// The framebuffer outlives every page, so a new page inherits whatever the
     /// old one left wherever its own widgets do not paint — and a `Flex` root
-    /// paints nothing at all.
+    /// paints nothing at all. Deferred to here because navigation happens in
+    /// `tick`/`goto`, which hold no renderer (see [`Self::on_page_change`]).
     fn take_pending_clear(&mut self, renderer: &mut W::Renderer) {
         if core::mem::take(&mut self.pending_clear) {
             self.current_page().clear(renderer);
-        }
-    }
-
-    /// The rects the last [`render`](Self::render) repainted — what a caller
-    /// with a `RenderTarget` should stream out (WS6.2's damage-driven flush).
-    ///
-    /// Borrowed rather than cloned: this runs once per frame on a device.
-    /// Empty before the first render, or with no page loaded.
-    pub fn with_damage<R>(&self, f: impl FnOnce(&[Rect]) -> R) -> R {
-        match self.active_page.as_ref() {
-            Some(page) => page.with_damage(f),
-            None => f(&[]),
         }
     }
 
@@ -553,21 +551,11 @@ impl<W: WidgetCtx> UI<W, WithPages> {
         Frame { ui: self, cursor: 0 }
     }
 
-    /// Poll the current page's render gate **without** flushing to a display —
-    /// the headless equivalent of [`Self::render`], used by the benches, the
-    /// metrics probe and the size probe to drive a frame.
-    ///
-    /// WS5.0b: every one of those callers previously wrote
-    /// `ui.current_page().use_renderer(…)`; with the renderer owned by `UI`
-    /// they would each have to split the page/renderer borrow by hand, so the
-    /// split lives here once instead.
-    pub fn use_renderer(
-        &mut self,
-        renderer: &mut W::Renderer,
-        f: impl FnOnce(&mut W::Renderer),
-    ) -> bool {
-        self.current_page().use_renderer(renderer, f)
-    }
+    // NOTE (WS6.4d): `UI::use_renderer` lived here — the headless one-pass
+    // driver the benches, the metrics probe and the size probe used. It went
+    // with `UI::render` for the same reason: it is a render path that skips
+    // regions. Those callers drive a `Frame` to completion instead, which is
+    // both the real path and a better thing to measure.
 
     /// The id of the page on top of the navigation history.
     fn current_page_id(&self) -> W::PageId {
@@ -830,8 +818,24 @@ impl<W: WidgetCtx> UI<W, WithPages> {
 
 #[cfg(test)]
 mod tests {
-    use super::{UI, render_once};
-    use crate::prelude::*;
+    use super::{UI, WithPages, render_once};
+    use crate::{el::ctx::WidgetCtx, prelude::*};
+
+    /// Drive one complete frame through the only render path there is.
+    ///
+    /// `UI::render` is gone (WS6.4d) — a whole frame is `start_frame` plus its
+    /// region loop run to the end, which for a full-frame surface is one region.
+    fn frame<W: WidgetCtx>(
+        ui: &mut UI<W, WithPages>,
+        renderer: &mut W::Renderer,
+    ) -> usize {
+        let mut frame = ui.start_frame(renderer);
+        let mut painted = 0;
+        while frame.render(renderer).is_some() {
+            painted += 1;
+        }
+        painted
+    }
     use rsact_reactive::{
         leak::{leak_report, leak_snapshot},
         runtime::with_new_runtime,
@@ -869,7 +873,7 @@ mod tests {
             // Settle page 0: the first frame is a full invalidate, so render
             // until the damage set stops covering everything.
             for _ in 0..6 {
-                ui.render(&mut r);
+                frame(&mut ui, &mut r);
             }
             assert!(
                 ui.current_page().damage_snapshot() != vec![full],
@@ -877,7 +881,7 @@ mod tests {
             );
 
             ui.goto(1u8);
-            ui.render(&mut r);
+            frame(&mut ui, &mut r);
 
             let d = ui.current_page().damage_snapshot();
             assert_eq!(
@@ -903,24 +907,18 @@ mod tests {
     fn a_tiled_frame_reconstructs_the_full_frame() {
         use rsact_render::{
             record::RecordingRenderer,
-            region::Tiles,
+            region::{Tiles, Unbounded},
             renderer::NullColor,
             schedule::{ScheduleLog, TilePass, tile_invariance},
         };
 
-        with_new_runtime(|_| {
-            let viewport = Size::new_equal(64);
-            // 64x16 is four bands on this viewport, so the plan is the
-            // degenerate strip case — exactly the one where every widget is cut
-            // by some boundary. The policy rides on the RENDERER type now, so a
-            // harness declares it the same way a device would.
-            type Rec = RecordingRenderer<NullColor, Tiles<64, 16>>;
-            type RecWtf = crate::el::ctx::Wtf<Rec, u8, (), ()>;
+        let viewport = Size::new_equal(64);
 
-            let mut renderer = Rec::new(viewport);
-            let recorder = renderer.clone();
-            let mut ui: UI<RecWtf, _> =
-                UI::new((), viewport).with_page(0u8, || {
+        // The page, built twice — once under each renderer's context. `View` is
+        // generic over `W`, so this is the same tree seen through two policies.
+        macro_rules! page {
+            () => {
+                || {
                     Flex::col(vec![
                         Label::new("alpha".inert()).into_el(),
                         Checkbox::new(true).into_el(),
@@ -929,51 +927,81 @@ mod tests {
                     .fill()
                     .gap(4u32)
                     .into_el()
-                });
+                }
+            };
+        }
+
+        // The policy rides on the RENDERER type, so the reference and the tiled
+        // replay are two renderers — which is also the honest way to state what
+        // is being compared. `Unbounded` plans a forced full redraw as ONE
+        // region covering the viewport; `Tiles<64, 16>` plans four bands on the
+        // same damage, the degenerate strip case where every widget is cut by
+        // some boundary.
+        type Whole = RecordingRenderer<NullColor, Unbounded>;
+        type Banded = RecordingRenderer<NullColor, Tiles<64, 16>>;
+
+        let full = with_new_runtime(|_| {
+            let mut renderer = Whole::new(viewport);
+            let recorder = renderer.clone();
+            let mut ui: UI<crate::el::ctx::Wtf<Whole, u8, (), ()>, _> =
+                UI::new((), viewport).with_page(0u8, page!());
 
             // Settle: the first frames are full invalidates while reactive
             // state stabilises (same warm-up the WS6.9 goldens use).
             for _ in 0..6 {
-                ui.render(&mut renderer);
+                frame(&mut ui, &mut renderer);
             }
-
-            // The reference: one forced full-viewport frame.
             recorder.clear();
             ui.current_page().force_redraw();
-            ui.render(&mut renderer);
-            let full = recorder.ops();
-            assert!(!full.is_empty(), "the reference frame drew nothing");
+            let regions = frame(&mut ui, &mut renderer);
+            assert_eq!(
+                regions, 1,
+                "an unbounded policy must plan a forced full redraw as ONE \
+                 region, or this is not a full-frame reference"
+            );
+            recorder.ops()
+        });
+        assert!(!full.is_empty(), "the reference frame drew nothing");
 
-            // The same frame, tiled.
-            ui.current_page().force_redraw();
-            let mut passes = Vec::new();
-            {
-                let mut frame = ui.start_frame(&mut renderer);
-                assert!(
-                    frame.regions() > 1,
-                    "a forced full redraw on a 64x64 viewport must plan more \
-                     than one 64x16 region, got {}",
-                    frame.regions()
-                );
-                // `render` clears the recorder itself would be wrong — the
-                // clear has to happen between regions, so it is the caller's.
-                loop {
-                    recorder.clear();
-                    let Some(region) = frame.render(&mut renderer) else {
-                        break;
-                    };
-                    passes.push(TilePass { tile: region, ops: recorder.ops() });
-                }
+        let passes = with_new_runtime(|_| {
+            let mut renderer = Banded::new(viewport);
+            let recorder = renderer.clone();
+            let mut ui: UI<crate::el::ctx::Wtf<Banded, u8, (), ()>, _> =
+                UI::new((), viewport).with_page(0u8, page!());
+
+            for _ in 0..6 {
+                frame(&mut ui, &mut renderer);
             }
 
-            let violations = tile_invariance(&ScheduleLog { full, passes });
+            ui.current_page().force_redraw();
+            let mut passes = Vec::new();
+            let mut frame = ui.start_frame(&mut renderer);
             assert!(
-                violations.is_empty(),
-                "{} violation(s), first: {}",
-                violations.len(),
-                violations[0]
+                frame.regions() > 1,
+                "a forced full redraw on a 64x64 viewport must plan more than \
+                 one 64x16 region, got {}",
+                frame.regions()
             );
+            // The clear has to happen BETWEEN regions, so it is the caller's —
+            // `render` doing it would make the log of the last region the log
+            // of the frame.
+            loop {
+                recorder.clear();
+                let Some(region) = frame.render(&mut renderer) else {
+                    break;
+                };
+                passes.push(TilePass { tile: region, ops: recorder.ops() });
+            }
+            passes
         });
+
+        let violations = tile_invariance(&ScheduleLog { full, passes });
+        assert!(
+            violations.is_empty(),
+            "{} violation(s), first: {}",
+            violations.len(),
+            violations[0]
+        );
     }
 
     /// WS6.4d: dropping a frame with regions left must **defer** them, not lose
@@ -1000,7 +1028,7 @@ mod tests {
                 .with_page(0u8, || Label::new("abandon".inert()).into_el());
 
             for _ in 0..6 {
-                ui.render(&mut renderer);
+                frame(&mut ui, &mut renderer);
             }
 
             ui.current_page().force_redraw();
@@ -1048,7 +1076,7 @@ mod tests {
                 .with_page(0u8, || Label::new("settled".inert()).into_el());
 
             for _ in 0..6 {
-                ui.render(&mut renderer);
+                frame(&mut ui, &mut renderer);
             }
             // Drain any frame the warm-up left planned.
             while ui.start_frame(&mut renderer).regions() > 0 {

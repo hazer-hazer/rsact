@@ -191,14 +191,13 @@ fn main() {
                 .inspect(|e| println!("Event: {e:?}")),
         );
 
-        if ui.render(&mut renderer) {
-            let (parked, pixmap, covers) = renderer.detach();
-            ui.with_damage(|rects| {
-                for r in rects {
-                    flush_rect(&mut display, &pixmap, covers, *r);
-                }
-            });
-            renderer = parked.attach(pixmap);
+        {
+            let mut frame = ui.start_frame(&mut renderer);
+            while let Some(region) = frame.render(&mut renderer) {
+                let (parked, pixmap, covers) = renderer.detach();
+                flush_rect(&mut display, &pixmap, covers, region);
+                renderer = parked.attach(pixmap);
+            }
         }
         window.update(&display);
     }
