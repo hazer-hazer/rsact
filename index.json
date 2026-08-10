@@ -5,6 +5,12 @@
     "branch": "ws6.4d-tiled-output",
     "subject": "WS6.4d(1): remove full_frame_percent — the same unpriced heuristic, again"
   },
+  "05a9ee7976120afb87d76e10dbfa6e885e5eae23": {
+    "date": 1786393478,
+    "parent": "",
+    "branch": "ws6.4d-tile-renderer",
+    "subject": "WS6.4d(11): the surface is borrowed, never owned — two Framebuffer impls, not three"
+  },
   "06c4d1352854eff4ae50f12512abd6e1b8ad17cf": {
     "date": 1786134480,
     "parent": "",
