@@ -206,7 +206,7 @@ pub struct RegionLimits {
 
     /// How the surface packs pixels into storage units, carried here so the
     /// planner can convert a candidate region into units without knowing
-    /// anything about colour — or about surfaces, which rsact-ui never sees.
+    /// anything about color — or about surfaces, which rsact-ui never sees.
     pub pixels_per_unit: usize,
 
     /// Merge two regions when `union.area * 100 <= threshold * (a.area +
@@ -299,7 +299,7 @@ pub trait FramePolicy {
     /// How many pixels the surface this policy describes packs into one storage
     /// unit.
     ///
-    /// `1` — the default, and right for every 8-bit-or-wider colour and for any
+    /// `1` — the default, and right for every 8-bit-or-wider color and for any
     /// surface that does not pack at all. It lives on the *policy* rather than
     /// on [`Renderer`] because it is only ever consulted alongside
     /// [`MAX_REGION`](Self::MAX_REGION): it is what turns a declared `W × H`
@@ -313,7 +313,7 @@ pub trait FramePolicy {
     /// today: 1-bpp is the SSD1306/SH1106 case, whose entire framebuffer is
     /// 1 KiB, and e-paper's byte-aligned columns are roadmap 6.5's
     /// `RegionPolicy`. When one arrives it is a five-line ZST setting this to
-    /// `8`; the backend asserts it against the colour's own packing, so the two
+    /// `8`; the backend asserts it against the color's own packing, so the two
     /// cannot drift.
     ///
     /// [`Renderer`]: crate::renderer::Renderer

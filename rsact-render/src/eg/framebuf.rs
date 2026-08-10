@@ -3,7 +3,6 @@ use crate::{
     geometry::{Point, Rect, Size},
     renderer::region_units,
 };
-use alloc::boxed::Box;
 use embedded_graphics::{
     geometry::Dimensions,
     pixelcolor::{
@@ -39,7 +38,7 @@ pub trait PackedColor {
     fn set_color(packed: &mut Self::Storage, offset: usize, color: Self);
 
     /// WS6.3b: the storage word holding `pps` copies of `color` — a whole word
-    /// entirely of that colour. Used by the fast `fill_solid` to `slice::fill`
+    /// entirely of that color. Used by the fast `fill_solid` to `slice::fill`
     /// the run of storage words fully inside a rect (mono: `0x00`/`0xFF`; RGB
     /// where `pps == 1`: just the pixel word). Partial edge words still go
     /// through `set_color`, so this need only cover full words.
@@ -177,13 +176,13 @@ impl PackedColor for BinaryColor {
 /// ```
 /// # use rsact_render::eg::framebuf::units_for;
 /// # use embedded_graphics::pixelcolor::{BinaryColor, Rgb565};
-/// // 16-bit colour: one storage unit per pixel, nothing to pad.
+/// // 16-bit color: one storage unit per pixel, nothing to pad.
 /// assert_eq!(units_for::<Rgb565>(240, 24), 5760);
 /// // 1-bpp: each row rounds up to a whole byte — 122px -> 16 bytes.
 /// assert_eq!(units_for::<BinaryColor>(122, 24), 384);
 /// ```
 ///
-/// The arithmetic itself lives in [`region_units`] — this is the colour-typed
+/// The arithmetic itself lives in [`region_units`] — this is the color-typed
 /// wrapper. Deliberately a delegation and not a copy: the same formula is what
 /// [`policy_units`] runs a policy through, and two spellings of it could drift
 /// into a check that passes while the buffer is too small.
@@ -244,24 +243,31 @@ pub trait Framebuffer<C: PackedColor> {
 
 macro_rules! native_framebuffer {
     ($($storage:ty),* $(,)?) => {$(
-        // The embedded case: extent is in the type, so the check is a `const`.
+        // ── Statically-sized, and BORROWED ────────────────────────────────
+        //
+        // `&mut [T; N]` rather than `[T; N]`: the extent is still in the type,
+        // so a policy violation is still a compile error, but the loan is a
+        // pointer. An owned array was an anti-pattern hiding in plain sight —
+        // `attach` and `detach` move `B` by value, so `[u16; 5760]` memcpy'd
+        // 11.25 KiB **on every hand-off**, i.e. twice per region on the exact
+        // path that exists to avoid copying a framebuffer.
+        //
+        // On a device this is what a `StaticCell`/`ConstStaticCell` yields, which
+        // is where the buffer wants to live anyway.
         impl<C: PackedColor<Storage = $storage>, const N: usize> Framebuffer<C>
-            for [$storage; N]
+            for &mut [$storage; N]
         {
             const UNITS: Option<usize> = Some(N);
 
-            fn units(&self) -> &[$storage] { self }
-            fn units_mut(&mut self) -> &mut [$storage] { self }
+            fn units(&self) -> &[$storage] { &self[..] }
+            fn units_mut(&mut self) -> &mut [$storage] { &mut self[..] }
         }
 
-        // A borrowed slice — how an app places a buffer in a *particular* memory
-        // region (SDRAM, DTCM, a `#[link_section]` pool, a `StaticCell`) and
-        // lends it out. `'static` in practice, because `WidgetCtx: 'static`
-        // rules out a renderer with a lifetime parameter; nothing here demands
-        // it, so a shorter borrow works wherever the renderer is local.
+        // ── Runtime-sized ─────────────────────────────────────────────────
         //
-        // Extent is a runtime fact, so `UNITS` is `None` and the capacity check
-        // happens at `attach`.
+        // The same loan without a compile-time extent, for a buffer whose size
+        // is decided at run time: a `Vec`/`Box` on a host, a runtime-carved
+        // region of SDRAM on a device. Checked at `attach` instead.
         impl<C: PackedColor<Storage = $storage>> Framebuffer<C>
             for &mut [$storage]
         {
@@ -271,18 +277,14 @@ macro_rules! native_framebuffer {
             fn units_mut(&mut self) -> &mut [$storage] { self }
         }
 
-        // The heap case — a host, a simulator, a desktop target, or any
-        // embedded target with a global allocator. Same runtime extent, same
-        // `None`. Not `std`-gated: `Box` is `alloc`, which this crate always
-        // has.
-        impl<C: PackedColor<Storage = $storage>> Framebuffer<C>
-            for Box<[$storage]>
-        {
-            const UNITS: Option<usize> = None;
-
-            fn units(&self) -> &[$storage] { self }
-            fn units_mut(&mut self) -> &mut [$storage] { self }
-        }
+        // NOTE (WS6.4d): there was a third impl, for `Box<[T]>`, and it earned
+        // its removal twice. It is redundant — a boxed slice reaches the second
+        // impl through `&mut boxed[..]`, so nothing needs a `Box`-shaped
+        // implementation — and before that it was the vehicle for the
+        // `UNITS = usize::MAX` bypass, since a heap buffer has no compile-time
+        // extent to state. Owned storage of any kind is the wrong shape here:
+        // the renderer BORROWS a surface, and a trait implemented for owned
+        // buffers invites moving one per hand-off.
     )*};
 }
 
@@ -291,7 +293,7 @@ macro_rules! native_framebuffer {
 native_framebuffer!(u8, u16, u32);
 
 // NOTE (WS6.4d): `pub struct AsBytes<B>(pub B)` lived here — a raw byte buffer
-// viewed as storage for a wider colour, i.e. an RGB565 tile handed to SPI as
+// viewed as storage for a wider color, i.e. an RGB565 tile handed to SPI as
 // bytes. It was removed as **unused and unusable**, but the idea is real and
 // this records what reviving it takes.
 //
@@ -307,7 +309,7 @@ native_framebuffer!(u8, u16, u32);
 // `impl<C: PackedColor<Storage = u8>> Framebuffer<C> for [u8; N]` and
 // `impl<C: PackedColor<Storage = u16>> Framebuffer<C> for [u8; N]` are `E0119`
 // conflicting impls, because Rust does no negative reasoning over associated
-// types and cannot see that a colour's `Storage` is only ever one of them.
+// types and cannot see that a color's `Storage` is only ever one of them.
 //
 // To bring it back, the wrapper has to make alignment true rather than assumed —
 // `#[repr(align(4))]` on the newtype, or a constructor that fails on a
@@ -315,52 +317,13 @@ native_framebuffer!(u8, u16, u32);
 // with the transport work (roadmap 6.7), where an actual caller would exist to
 // state what alignment its DMA engine needs.
 
-/// Compile-time proof that a `w × h` region fits in buffer `B`.
-///
-/// Call it from a `const` block; a violation is a post-monomorphization error
-/// whose instantiation names the concrete colour, buffer and dimensions. 6.4d
-/// calls this from `UI::start_frame` with the frame policy's largest region, so
-/// a `Frame` whose regions could overflow the surface cannot be obtained.
-///
-/// ```
-/// # use rsact_render::eg::framebuf::assert_region_fits;
-/// # use embedded_graphics::pixelcolor::Rgb565;
-/// // 240x24 RGB565 needs 5760 u16 — exactly what this buffer holds.
-/// const _: () = assert_region_fits::<Rgb565, [u16; 5760]>(240, 24);
-/// ```
-///
-/// One row too tall does not compile:
-///
-/// ```compile_fail
-/// # use rsact_render::eg::framebuf::assert_region_fits;
-/// # use embedded_graphics::pixelcolor::Rgb565;
-/// // 240x25 needs 6000 units; the buffer holds 5760.
-/// const _: () = assert_region_fits::<Rgb565, [u16; 5760]>(240, 25);
-/// ```
-///
-/// Nor does a 1-bpp buffer sized by area instead of by padded rows:
-///
-/// ```compile_fail
-/// # use rsact_render::eg::framebuf::assert_region_fits;
-/// # use embedded_graphics::pixelcolor::BinaryColor;
-/// // 122x24 needs ceil(122/8)*24 = 384 bytes, not 122*24/8 = 366.
-/// const _: () = assert_region_fits::<BinaryColor, [u8; 366]>(122, 24);
-/// ```
-pub const fn assert_region_fits<C: PackedColor, B: Framebuffer<C>>(
-    w: u32,
-    h: u32,
-) {
-    // A buffer whose extent is only a runtime fact cannot be proved here — and
-    // must not be silently *assumed* to fit, which is what the old `usize::MAX`
-    // sentinel did. It is checked against the same requirement at `attach`.
-    if let Some(units) = B::UNITS {
-        assert!(
-            units_for::<C>(w, h) <= units,
-            "region does not fit the pixel buffer — see the instantiation in \
-             this error for the colour, buffer type and region size"
-        );
-    }
-}
+// NOTE (WS6.4d): `assert_region_fits<C, B>(w, h)` lived here — a `const fn`
+// asserting a `w × h` region fits buffer `B`. Removed as **dead**: its only
+// callers were its own doctests. The check it performed is now
+// `EGRenderer::assert_static_capacity`, which runs the same comparison against
+// the renderer's declared `FramePolicy` rather than against a rectangle a caller
+// passes by hand — one fewer way to state the same requirement, and the one
+// that cannot disagree with what the planner will actually emit.
 
 // NOTE (WS6.4d): `pub trait Framebuf<C>` lived here — `data`/`data_mut`/
 // `viewport` as required methods, with `pixel`, `set_pixel`, `flat_index`,
@@ -428,7 +391,7 @@ impl<
         Ok(())
     }
 
-    /// WS6.3b: fill a rectangle with a single colour without the per-pixel
+    /// WS6.3b: fill a rectangle with a single color without the per-pixel
     /// bit-twiddling `draw_iter` fans out to (the default `fill_solid` bounces
     /// through `fill_contiguous` → `draw_iter`). Every row's pixel range is split
     /// into a partial head word, a run of WHOLE storage words, and a partial tail
@@ -761,14 +724,21 @@ mod tests {
     /// Host-side test surfaces. Local to the tests on purpose — see the note in
     /// `eg/renderer.rs`'s test module: the library exports no allocating helper
     /// because it must not choose where a framebuffer lives.
+    /// A `&'static mut` loan, which is what both `Framebuffer` impls are for.
+    ///
+    /// `Vec::leak` rather than a local `&mut buf[..]`: a leak is honest here and
+    /// a borrow is not, because `WidgetCtx: 'static` means any renderer reachable
+    /// through the UI must hold a `'static` loan anyway — a test that borrowed a
+    /// local would be exercising a shape production cannot use. On a device this
+    /// is a `StaticCell`, which is the same `'static` loan without the leak.
     fn heap_surface<C: crate::color::Color + PackedColor>(
         size: Size,
-    ) -> alloc::boxed::Box<[<C as PackedColor>::Storage]> {
+    ) -> &'static mut [<C as PackedColor>::Storage] {
         alloc::vec![
             C::default_background().into_storage();
             size.area() as usize / C::pps()
         ]
-        .into_boxed_slice()
+        .leak()
     }
     use crate::geometry::{Point, Rect, Size};
     use alloc::vec::Vec;
@@ -904,9 +874,8 @@ mod tests {
         let origin = Point::new(40, 100);
         let size = Size::new(16, 8);
         // 16x8 mono = 128 px = 16 bytes.
-        let mut buf = PackedFramebuf::<BinaryColor, _>::tile(
-            alloc::vec![0u8; 16].into_boxed_slice(),
-        );
+        let mut buf =
+            PackedFramebuf::<BinaryColor, _>::tile(alloc::vec![0u8; 16].leak());
         buf.retarget(Rect::new(origin, size));
 
         // The origin itself is local (0, 0).

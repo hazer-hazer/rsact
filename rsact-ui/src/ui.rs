@@ -82,14 +82,13 @@ impl<W: WidgetCtx> Frame<'_, W> {
         self.ui.frame_regions.len()
     }
 
-    /// The region [`render`](Self::render) will paint next, without painting it.
-    ///
-    /// Informational — for logging, metrics, or deciding how big a buffer to
-    /// attach. It cannot desynchronise the cursor because nothing consumes it:
-    /// `render` takes no region.
-    pub fn peek_region(&self) -> Option<Rect> {
-        self.ui.frame_regions.get(self.cursor).copied()
-    }
+    // NOTE (WS6.4d): `peek_region()` lived here — the next region without
+    // painting it. It was added so a caller could size a surface to the region
+    // before attaching it, which the tiny-skia backend needed while a `Pixmap`
+    // was thought to be shape-bound. Reshaping made that unnecessary and the
+    // method never acquired a caller, so it is gone rather than left as an
+    // attractive nuisance: peeking is only ever useful for pre-sizing, and
+    // pre-sizing is what a `FramePolicy` is for.
 }
 
 impl<W: WidgetCtx> Drop for Frame<'_, W> {
@@ -1103,7 +1102,7 @@ mod tests {
         with_new_runtime(|_| {
             let snap = leak_snapshot();
 
-            // Explicit colour: `NullRenderer` is generic since WS6.4.0(ii-4),
+            // Explicit color: `NullRenderer` is generic since WS6.4.0(ii-4),
             // and a bare `default()` in a `&mut _` argument position has nothing
             // to infer `C` from.
             let mut renderer = NullRenderer::<NullColor>::default();

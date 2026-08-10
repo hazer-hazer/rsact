@@ -16,7 +16,7 @@ pub type RenderResult = Result<(), ()>;
 /// The one place this arithmetic is written.
 /// [`assert_policy_fits`](crate::region::assert_policy_fits) compares a
 /// surface against it for WS6.4.0(iii)'s capacity proof, and
-/// [`units_for`](crate::eg::framebuf::units_for) is the colour-typed wrapper
+/// [`units_for`](crate::eg::framebuf::units_for) is the color-typed wrapper
 /// the embedded-graphics backend uses — they must not be allowed to drift,
 /// because a capacity check that disagrees with the buffer's real layout is
 /// worse than no check at all.
@@ -91,7 +91,7 @@ pub trait Attachment<S> {
 /// # use rsact_render::{eg::renderer::EGRenderer, geometry::Size,
 /// #                    renderer::{AntiAliasingDisabled, Renderer}};
 /// # use embedded_graphics::pixelcolor::Rgb888;
-/// let buf: Box<[u32]> = vec![0; 16 * 16].into_boxed_slice();
+/// let buf: &'static mut [u32] = vec![0; 16 * 16].leak();
 /// let r = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
 ///     Size::new_equal(16), buf,
 /// );
@@ -105,7 +105,7 @@ pub trait Attachment<S> {
 /// # use rsact_render::{eg::renderer::EGRenderer, geometry::Size,
 /// #                    renderer::{AntiAliasingDisabled, Renderer}};
 /// # use embedded_graphics::pixelcolor::Rgb888;
-/// let buf: Box<[u32]> = vec![0; 16 * 16].into_boxed_slice();
+/// let buf: &'static mut [u32] = vec![0; 16 * 16].leak();
 /// let r = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
 ///     Size::new_equal(16), buf,
 /// );
@@ -450,7 +450,7 @@ impl Color for NullColor {
     }
 }
 
-/// A renderer that draws nothing, generic over the colour it accepts.
+/// A renderer that draws nothing, generic over the color it accepts.
 ///
 /// Two jobs. It is the stub every headless test and size/metrics probe builds a
 /// `Wtf` around — hence `C = NullColor` by default, so `Wtf<NullRenderer, ..>`
@@ -458,7 +458,7 @@ impl Color for NullColor {
 /// what 6.4c's **collect pass** runs widget bodies against: that pass must
 /// genuinely execute each body so reactive dependencies re-track and damage
 /// rects are pushed, but must not rasterise, and it has to satisfy
-/// `Renderer<Color = W::Color>` for the *application's* colour — which the
+/// `Renderer<Color = W::Color>` for the *application's* color — which the
 /// previous `type Color = NullColor` hard-wiring could not express.
 ///
 /// It carries no state, so `NullRenderer::<C>::default()` is free.
@@ -467,7 +467,7 @@ pub struct NullRenderer<C = NullColor> {
 }
 
 // Hand-written rather than derived: `#[derive(Default)]` would demand
-// `C: Default`, which no colour needs to satisfy for an empty struct.
+// `C: Default`, which no color needs to satisfy for an empty struct.
 impl<C> Default for NullRenderer<C> {
     fn default() -> Self {
         Self { _color: PhantomData }

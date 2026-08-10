@@ -23,12 +23,12 @@ pub mod pixel;
 //     real trait rather than a copy of it;
 //   - a GPU renderer produces commands and never has pixels at all.
 //
-// `MapColor` survives because it is not part of that seam: it is a plain colour
+// `MapColor` survives because it is not part of that seam: it is a plain color
 // conversion, and it is what a future `PixmapExt::map_to_framebuffer` would use
 // to bring tiny-skia's `PremultipliedColorU8` down to an embedded-friendly
-// colour.
+// color.
 
-/// Convert one colour representation into another.
+/// Convert one color representation into another.
 ///
 /// Not an output abstraction — just a conversion, which is why it outlived the
 /// `RenderTarget`/`ColorMapper` pair it used to serve.

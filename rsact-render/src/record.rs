@@ -8,10 +8,10 @@
 //! about the draw log, not about the final image (the image is identical whether
 //! you repaint one rect or the whole screen).
 //!
-//! The log is **geometry-focused and colour-agnostic** on purpose: it records
+//! The log is **geometry-focused and color-agnostic** on purpose: it records
 //! positions, sizes, primitive kinds and clip regions — the WS6 damage signal —
-//! not exact colours, so it stays deterministic and generic over any [`Color`].
-//! Visual (colour / anti-aliasing) correctness is the tiny-skia PNG snapshot's
+//! not exact colors, so it stays deterministic and generic over any [`Color`].
+//! Visual (color / anti-aliasing) correctness is the tiny-skia PNG snapshot's
 //! job, not this one's.
 
 use crate::{
@@ -96,7 +96,7 @@ impl DrawOp {
     ///   makes the invariance check slightly weaker (it can miss a genuinely lost
     ///   op in a boundary sliver) but never wrong in the other direction. Fixing
     ///   it would mean recording style, which is exactly what keeps this log
-    ///   deterministic and colour-agnostic.
+    ///   deterministic and color-agnostic.
     ///
     /// [`tile_invariance`]: crate::schedule::tile_invariance
     /// [`Path::bounds`]: crate::path::Path::bounds
@@ -223,7 +223,7 @@ impl fmt::Display for DrawOp {
 /// Serialise a draw-op log to the stable, newline-terminated, one-op-per-line
 /// text used as the golden content (see [`DrawOp`]'s `Display`). This is the
 /// draw-call side of the WS6.9 harness: the exact primitives + positions a
-/// render pass emitted, comparable across runs and colour-agnostic.
+/// render pass emitted, comparable across runs and color-agnostic.
 pub fn format_ops(ops: &[DrawOp]) -> String {
     use fmt::Write as _;
     let mut out = String::new();

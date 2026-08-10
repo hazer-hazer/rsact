@@ -36,7 +36,7 @@ use rsact_ui::{
     widget::knob::Knob,
 };
 
-/// G3's colour reference target: 240x240 RGB565 ST7789, the display whose 112.5
+/// G3's color reference target: 240x240 RGB565 ST7789, the display whose 112.5
 /// KiB framebuffer does not fit the Black Pill's 96 K RAM — i.e. the exact case
 /// WS6.4 exists for.
 fn viewport() -> Size {
@@ -828,9 +828,13 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
         }
     }
 
-    type Full = EGRenderer<Rgb888, AntiAliasingDisabled, Box<[u32]>>;
-    type Tiled =
-        EGRenderer<Rgb888, AntiAliasingDisabled, Box<[u32]>, Tiles<W, TILE_H>>;
+    type Full = EGRenderer<Rgb888, AntiAliasingDisabled, &'static mut [u32]>;
+    type Tiled = EGRenderer<
+        Rgb888,
+        AntiAliasingDisabled,
+        &'static mut [u32],
+        Tiles<W, TILE_H>,
+    >;
     type FullWtf = Wtf<Full, (), Theme<Rgb888>, ()>;
     type TiledWtf = Wtf<Tiled, (), Theme<Rgb888>, ()>;
 
@@ -857,10 +861,8 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
 
     // ---- reference: one full-size surface, the whole-frame path ------------
     let reference = with_new_runtime(|_| {
-        let mut renderer = Full::new(
-            viewport,
-            vec![0u32; (W * H) as usize].into_boxed_slice(),
-        );
+        let mut renderer =
+            Full::new(viewport, vec![0u32; (W * H) as usize].leak());
         let mut ui: UI<FullWtf, _> =
             UI::new(Theme::default(), viewport).with_page((), page);
         let mut panel = blank();
@@ -880,9 +882,11 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
         // Three tiles in a pool, so the loop really does rotate buffers rather
         // than reuse one — the case a single-buffer test would not exercise.
         const TILE_UNITS: usize = (W * TILE_H) as usize;
-        let mut free: Vec<Box<[u32]>> = (0..3)
-            .map(|_| vec![0u32; TILE_UNITS].into_boxed_slice())
-            .collect();
+        // Three loans in a pool, so the loop really does rotate buffers rather
+        // than reuse one. `leak` in a test is a `StaticCell` on a device — both
+        // give the `'static` loan `WidgetCtx` requires.
+        let mut free: Vec<&'static mut [u32]> =
+            (0..3).map(|_| vec![0u32; TILE_UNITS].leak()).collect();
 
         let mut renderer = Tiled::tiled(viewport, free.pop().unwrap());
         let mut ui: UI<TiledWtf, _> =

@@ -19,10 +19,10 @@ pub mod path;
 /// A renderer that draws into a [`Pixmap`] the **caller** owns.
 ///
 /// The mirror of [`EGRenderer`]'s design, with one deliberate difference: the
-/// surface is a `tiny_skia::Pixmap`, not an embedded-friendly colour buffer, and
+/// surface is a `tiny_skia::Pixmap`, not an embedded-friendly color buffer, and
 /// that is the point rather than an oversight. A detached pixmap is
 /// `encode_png`-able, which makes this the renderer for showcase renders and
-/// golden images. Bringing it down to an embedded colour is a separate future
+/// golden images. Bringing it down to an embedded color is a separate future
 /// step (a `PixmapExt::map_to_framebuffer` over [`MapColor`]), not something
 /// this type should do on the way out.
 ///
@@ -97,11 +97,10 @@ impl TinySkiaRenderer<tiny_skia::Color, crate::region::Unbounded> {
     /// `size` is the display's; `pixmap` is the caller's surface.
     ///
     /// **Nothing here allocates.** A pixmap covering the whole frame gives the
-    /// classic full-framebuffer behaviour; a smaller one is painted a region at
-    /// a time, with the caller sizing it from `Frame::peek_region`. Either way
-    /// the policy is [`Unbounded`](crate::region::Unbounded), which is what lets
-    /// this constructor need no annotation — and is honest, since a pixmap the
-    /// caller sizes per region has no *fixed* bound to declare.
+    /// classic full-framebuffer behaviour; a smaller one is reshaped per region
+    /// (see the type docs). Either way the policy is
+    /// [`Unbounded`](crate::region::Unbounded), which is what lets this
+    /// constructor need no annotation.
     ///
     /// [`tiled`](TinySkiaRenderer::tiled) is the constructor for a pixmap
     /// reused across regions under a declared policy.
@@ -917,7 +916,7 @@ mod tests {
         let (_, reference, _) = full.detach();
 
         // Tiled: a W x BAND pixmap — a quarter of the frame — reattached per
-        // region, exactly as a caller sizing from `Frame::peek_region` would.
+        // region, reattached per region as a pool would.
         let mut composed = pixmap(viewport);
         let band = Size::new(W, BAND);
         let mut tiled = TinySkiaRenderer::new(viewport, pixmap(band));

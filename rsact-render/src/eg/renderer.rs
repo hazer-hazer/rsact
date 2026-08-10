@@ -65,7 +65,7 @@ impl<'a, C: Color, R: Renderer<Color = C>> DrawTarget
         // glyphs and hand them here one pixel at a time — and it is where the
         // per-pixel cost that survives WS6.4b's part-level cull lives: a label
         // straddling a region boundary is not culled in either region, so every
-        // glyph pixel is offered twice and each one pays a colour conversion plus
+        // glyph pixel is offered twice and each one pays a color conversion plus
         // a viewport dispatch into the framebuffer to be discarded.
         //
         // It is a cheaper *write filter*, not the loop bound (ii) ultimately
@@ -230,11 +230,28 @@ impl<
     /// a runtime `Option` plus a logged no-op, which meant a scheduling mistake
     /// silently ate a frame, once per frame, forever.
     ///
-    /// The dirty rect comes from the renderer rather than the caller's own
-    /// bookkeeping because the renderer is the authority: `begin_region` told it
-    /// where it was painting, and re-pairing a buffer with a rect by hand is the
-    /// kind of mistake that produces a *plausible* frame — the right tile
-    /// blitted to the wrong place — instead of an obvious one.
+    /// # The returned rect is what the buffer COVERS, not what changed
+    ///
+    /// It is the buffer's own extent — its origin and, since a row is strided at
+    /// its width, its stride. That is what a caller needs to *index* it. What to
+    /// *send* is the region [`Frame::render`] returned, and the invariant between
+    /// them is `region ⊆ covers`.
+    ///
+    /// **They are equal for a tile and differ only for a full-frame surface**, and
+    /// that asymmetry is deliberate rather than residual: `begin_region` does not
+    /// re-aim a buffer that already spans the frame, because re-striding it to the
+    /// region would reinterpret every byte outside that region — and a full
+    /// framebuffer's whole value is that the pixels it is *not* repainting stay
+    /// correct. So a tile answers one rect and a framebuffer answers two, because
+    /// a framebuffer genuinely holds more than it just painted.
+    ///
+    /// Both rects come from the renderer rather than the caller's own bookkeeping,
+    /// because the renderer is the authority on each: `begin_region` told it where
+    /// it was painting and `attach` told it what it holds. Re-deriving either by
+    /// hand is the kind of mistake that produces a *plausible* frame — the right
+    /// tile blitted to the wrong place — instead of an obvious one.
+    ///
+    /// [`Frame::render`]: https://docs.rs/rsact-ui
     pub fn detach(self) -> (EGRenderer<C, AA, B, P, Detached>, B, Rect) {
         let Self { viewport_stack, canvas, main_viewport, .. } = self;
         let at = canvas.viewport();
@@ -307,7 +324,7 @@ impl<
     ///
     /// Fires **once per instantiation, at compile time**, so it belongs on the
     /// path every construction goes through (`attach`) and nowhere else. A
-    /// violation is a compile error naming the colour, the buffer and the
+    /// violation is a compile error naming the color, the buffer and the
     /// policy.
     fn assert_static_capacity() {
         // `UNITS == None` (a runtime-length slice) falls through to the runtime
@@ -315,7 +332,7 @@ impl<
         // `usize::MAX` sentinel erased.
         const {
             // A bounded policy's unit budget is only meaningful if its packing
-            // matches the colour actually being stored: a 1-bpp colour under a
+            // matches the color actually being stored: a 1-bpp color under a
             // `PIXELS_PER_UNIT = 1` policy would demand eight times the storage
             // it needs, and the reverse would silently under-demand. Unbounded
             // policies do no capacity arithmetic, so their packing is moot.
@@ -323,7 +340,7 @@ impl<
                 assert!(
                     P::PIXELS_PER_UNIT == C::PPS,
                     "this frame policy's pixel packing disagrees with the \
-                     renderer's colour — see the instantiation in this error"
+                     renderer's color — see the instantiation in this error"
                 );
             }
             if let (Some(units), Some(needed)) =
@@ -333,7 +350,7 @@ impl<
                     needed <= units,
                     "this surface is too small for the renderer's frame \
                      policy — see the instantiation in this error for the \
-                     colour, buffer type and policy"
+                     color, buffer type and policy"
                 );
             }
         }
@@ -457,7 +474,7 @@ impl<
         }
     }
 
-    /// Blend `pixel`'s colour into whatever the canvas already holds there.
+    /// Blend `pixel`'s color into whatever the canvas already holds there.
     ///
     /// WS6.4.0(i-1): the read goes through [`viewport_to_canvas`] so it lands on
     /// the pixel `draw_pixels` will write. It previously read `pixel.0` raw,
@@ -478,7 +495,7 @@ impl<
     pub fn pixel_alpha(&mut self, pixel: Pixel<C>, blend: f32) -> RenderResult {
         let read_at = self.viewport_to_canvas(pixel.0);
         let canvas = &self.canvas;
-        // NOTE: an out-of-bounds read still degrades to the unblended colour
+        // NOTE: an out-of-bounds read still degrades to the unblended color
         // rather than an error, so a mis-addressed read yields a *plausible*
         // pixel, not a failure. Preserved as-is (a behaviour change is out of
         // scope here); it is why 6.4a's tile-invariance op-log check is the real
@@ -1013,16 +1030,18 @@ mod tests {
     /// a framebuffer lives — an embedded app puts it in SDRAM, DTCM or a
     /// `#[link_section]` pool, and a blessed `heap_surface()` would both presume
     /// a global allocator and make the wrong thing the obvious one.
+    /// A `&'static mut` loan — the shape both `Framebuffer` impls describe, and
+    /// the only one a renderer reachable through `WidgetCtx` (`: 'static`) can
+    /// hold. `Vec::leak` in a test is a `StaticCell` on a device.
     fn surface_units<C: Color + PackedColor>(
         units: usize,
-    ) -> alloc::boxed::Box<[<C as PackedColor>::Storage]> {
-        alloc::vec![C::default_background().into_storage(); units]
-            .into_boxed_slice()
+    ) -> &'static mut [<C as PackedColor>::Storage] {
+        alloc::vec![C::default_background().into_storage(); units].leak()
     }
 
     fn surface<C: Color + PackedColor>(
         size: Size,
-    ) -> alloc::boxed::Box<[<C as PackedColor>::Storage]> {
+    ) -> &'static mut [<C as PackedColor>::Storage] {
         surface_units::<C>(size.area() as usize / C::pps())
     }
 
@@ -1328,19 +1347,19 @@ mod tests {
             <<EGRenderer<
                 Rgb888,
                 AntiAliasingDisabled,
-                alloc::boxed::Box<[<Rgb888 as PackedColor>::Storage]>,
+                &'static mut [<Rgb888 as PackedColor>::Storage],
             > as Renderer>::Policy as FramePolicy>::MAX_REGION,
             None
         );
 
         // A tiled one reports its policy's region, and the planner converts
-        // that to a unit budget with the colour's own packing. Leaving the
+        // that to a unit budget with the color's own packing. Leaving the
         // packing at 1 would over-state a 1-bpp surface eightfold — a policy
         // needing 384 bytes would "fit" a 48-byte buffer.
         type Tiled<C> = EGRenderer<
             C,
             AntiAliasingDisabled,
-            alloc::boxed::Box<[<C as PackedColor>::Storage]>,
+            &'static mut [<C as PackedColor>::Storage],
             Tiles<240, 24>,
         >;
         assert_eq!(
@@ -1354,11 +1373,14 @@ mod tests {
         // The hole, closed: a heap surface no longer claims infinite capacity,
         // so it cannot silently satisfy a policy it does not fit.
         assert_eq!(
-            <alloc::boxed::Box<[u32]> as Framebuffer<Rgb888>>::UNITS,
+            <&mut [u32] as Framebuffer<Rgb888>>::UNITS,
             None,
             "a runtime-sized surface must not state a compile-time capacity"
         );
-        assert_eq!(<[u32; 5760] as Framebuffer<Rgb888>>::UNITS, Some(5760));
+        assert_eq!(
+            <&mut [u32; 5760] as Framebuffer<Rgb888>>::UNITS,
+            Some(5760)
+        );
     }
 
     /// The other half of that: a surface too small for the policy is refused at
@@ -1375,14 +1397,14 @@ mod tests {
     }
 
     /// WS6.4.0(ii-4): `NullRenderer` must be a no-op renderer for the
-    /// *application's* colour, not only for `NullColor`.
+    /// *application's* color, not only for `NullColor`.
     ///
     /// This is what 6.4c's collect pass runs widget bodies against: it has to
     /// satisfy `Renderer<Color = W::Color>` while rasterising nothing, which the
     /// old `type Color = NullColor` hard-wiring could not express. Lives in this
     /// module because a second real `Color` impl (`Rgb888`) is in scope here.
     #[test]
-    fn null_renderer_is_generic_over_colour() {
+    fn null_renderer_is_generic_over_color() {
         fn accepts_renderer_for<C: Color, R: Renderer<Color = C>>(
             r: &mut R,
             c: C,
@@ -1507,13 +1529,13 @@ mod tests {
             "the effective clip is the intersection, not the inner rect"
         );
 
-        // The probe colour must DIFFER from the untouched framebuffer, or the
+        // The probe color must DIFFER from the untouched framebuffer, or the
         // assertions below hold whatever the clip does: `default_background()`
         // for RGB is WHITE, so a white probe pixel proves nothing (this test was
         // written that way first and passed its "rejected" case vacuously).
         let bg = <Rgb888 as Color>::default_background();
         let ink = <Rgb888 as Color>::default_foreground();
-        assert_ne!(ink, bg, "the probe colour must be visible");
+        assert_ne!(ink, bg, "the probe color must be visible");
 
         // Inside the inner rect but outside the parent: must be rejected.
         Renderer::pixel(&mut r, Point::new(25, 15), ink).unwrap();
@@ -1558,7 +1580,7 @@ mod tests {
         let abs = local + crop.top_left;
 
         // The backdrop must differ from the cleared background, or reading the
-        // wrong pixel would coincidentally produce the right colour.
+        // wrong pixel would coincidentally produce the right color.
         let backdrop = Rgb888::new(200, 0, 0);
         let ink = Rgb888::new(0, 0, 200);
         assert_ne!(backdrop, <Rgb888 as Color>::default_background());

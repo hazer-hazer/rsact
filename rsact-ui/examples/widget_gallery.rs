@@ -209,7 +209,7 @@ fn main() {
 /// and the rect it covers, and what happens next is the application's. Here it
 /// goes to a simulator window; it could equally be `pixmap.encode_png(..)`,
 /// which is the point of this backend keeping a real `Pixmap` rather than
-/// lowering to an embedded colour on the way out.
+/// lowering to an embedded color on the way out.
 fn flush_rect<D: DrawTarget<Color = Rgb888>>(
     display: &mut D,
     pixmap: &tiny_skia::Pixmap,

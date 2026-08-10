@@ -62,7 +62,7 @@ pub trait EgPrimitiveRenderer<
     AA: AntiAliasing,
 >: Renderer<Color = C> + DrawTarget<Color = C, Error = ()>
 {
-    /// Blend `pixel`'s colour into whatever the destination already holds.
+    /// Blend `pixel`'s color into whatever the destination already holds.
     fn pixel_alpha(&mut self, pixel: Pixel<C>, blend: f32) -> RenderResult;
 
     /// Write a run of already-positioned pixels.

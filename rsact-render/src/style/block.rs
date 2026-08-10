@@ -138,7 +138,7 @@ pub struct BorderStyle<C: Color> {
     /// The rule this follows: *does it change the box, or only the pixels
     /// inside it?* A border is drawn with [`StrokeAlignment::Inside`], so it
     /// paints over the padding ring and changes no geometry — same side of the
-    /// rule as its colour and radius, and the same side [`OutlineStyle::width`]
+    /// rule as its color and radius, and the same side [`OutlineStyle::width`]
     /// was already on. The user-side remedy for a border that overlaps content
     /// is one line of padding.
     ///

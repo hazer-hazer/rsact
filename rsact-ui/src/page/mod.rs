@@ -654,7 +654,7 @@ impl<W: WidgetCtx> Page<W> {
                 // clears the damage list at frame start, so a rect pushed before
                 // the frame would be silently dropped.
                 //
-                // Inside the `if let` on purpose — with no background colour
+                // Inside the `if let` on purpose — with no background color
                 // nothing was painted, so nothing needs flushing.
                 self.full_flush = true;
             }
@@ -2457,8 +2457,8 @@ mod tests {
     // subset of this full-frame log.
     //
     // Deterministic by construction: fixed 64x64 viewport, the geometry-only
-    // (colour-agnostic) op log, and a `Checkbox` (which resolves to the null
-    // theme's *default* colours — a bare `Container` would hit the
+    // (color-agnostic) op log, and a `Checkbox` (which resolves to the null
+    // theme's *default* colors — a bare `Container` would hit the
     // `ColorStyle::expect` panic). Bless/update with `UPDATE_GOLDENS=1`.
     mod render_goldens {
         use super::*;
