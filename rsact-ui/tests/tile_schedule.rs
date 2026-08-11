@@ -946,3 +946,214 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
         tiled.px[mismatches[0]],
     );
 }
+
+/// WS6.4d: **the loop the examples show, run and asserted against an absolute
+/// reference.**
+///
+/// The examples cannot be compile-checked — every one has been broken since
+/// before this workstream for unrelated reasons (ISSUE-5: no CI job builds them)
+/// — so a defect in the pattern they demonstrate is invisible. One already
+/// shipped that way: a loop flushing a damage *list* against a single buffer,
+/// which worked only because that buffer happened to span the frame.
+///
+/// So the pattern lives here too, verbatim, and is checked against a frame read
+/// **without** it. The first version of this test compared a whole-surface run
+/// to a tiled one through the same `flush`, which proved nothing: replacing the
+/// region stride with the frame width — the exact mistake at issue — left both
+/// runs equally wrong and the test green. The reference therefore reads the
+/// framebuffer directly, on the one region where stride cannot be ambiguous
+/// (the whole viewport, where region width *is* frame width).
+///
+/// # What this catches, and what it cannot
+///
+/// Mutation-tested rather than assumed. A wrong **origin** — blitting every
+/// region at `(0, 0)` — fails it at 3632 of 4096 pixels. A wrong **stride** —
+/// using the frame width instead of the region's — does **not**, and cannot:
+/// chunking is width-preserving, so a full-frame damage becomes full-width
+/// bands where the two spellings are the same number, and any narrower region
+/// comes from damage that is identical under both policies, so a shared helper
+/// is wrong identically on both sides and the difference cancels.
+///
+/// That is a limit of differential testing here, not an oversight. The stride is
+/// pinned where it is a contract rather than a convention:
+/// `a_narrow_region_is_laid_out_at_its_own_width` in `eg::renderer`.
+#[test]
+fn the_loop_the_examples_show_paints_the_frame_the_framebuffer_holds() {
+    use embedded_graphics::{
+        draw_target::DrawTarget, pixelcolor::Rgb888, prelude::OriginDimensions,
+    };
+    use rsact_render::{
+        eg::{framebuf::PackedColor, renderer::EGRenderer},
+        region::Tiles,
+        renderer::AntiAliasingDisabled,
+    };
+
+    const W: u32 = 64;
+    const H: u32 = 64;
+    const TILE_H: u32 = 8;
+    let viewport = Size::new(W, H);
+
+    /// Stands in for the simulator's `SimulatorDisplay` — a real
+    /// `embedded-graphics` target, so `fill_contiguous`'s row-major contract is
+    /// the genuine one rather than a mock of it.
+    struct Panel {
+        px: Vec<Option<Rgb888>>,
+    }
+    impl OriginDimensions for Panel {
+        fn size(&self) -> embedded_graphics::geometry::Size {
+            embedded_graphics::geometry::Size::new(W, H)
+        }
+    }
+    impl DrawTarget for Panel {
+        type Color = Rgb888;
+        type Error = core::convert::Infallible;
+        fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
+        where
+            I: IntoIterator<Item = embedded_graphics::Pixel<Self::Color>>,
+        {
+            for embedded_graphics::Pixel(p, c) in pixels {
+                if p.x >= 0 && p.y >= 0 && (p.x as u32) < W && (p.y as u32) < H
+                {
+                    self.px[p.y as usize * W as usize + p.x as usize] = Some(c);
+                }
+            }
+            Ok(())
+        }
+    }
+
+    // ── verbatim from the examples ──────────────────────────────────────────
+    fn flush<D: DrawTarget<Color = Rgb888>>(
+        display: &mut D,
+        units: &[u32],
+        at: Rect,
+    ) {
+        let stride = at.size.width as usize;
+        let _ = display.fill_contiguous(
+            &embedded_graphics::primitives::Rectangle::new(
+                at.top_left.into(),
+                at.size.into(),
+            ),
+            (0..at.size.height as usize).flat_map(|row| {
+                (0..stride).map(move |col| {
+                    <Rgb888 as PackedColor>::as_color(
+                        &units[row * stride + col],
+                        0,
+                    )
+                })
+            }),
+        );
+    }
+
+    type Whole = EGRenderer<Rgb888, AntiAliasingDisabled, &'static mut [u32]>;
+    type Tiled = EGRenderer<
+        Rgb888,
+        AntiAliasingDisabled,
+        &'static mut [u32],
+        Tiles<W, TILE_H>,
+    >;
+
+    macro_rules! page {
+        () => {
+            || {
+                Flex::col(vec![
+                    Label::new("alpha".inert()).into_el(),
+                    Checkbox::new(true).into_el(),
+                    Label::new("omega".inert()).into_el(),
+                ])
+                .fill()
+                .gap(4u32)
+                .into_el()
+            }
+        };
+    }
+
+    // ── the reference: one full-viewport region, read from the buffer ───────
+    //
+    // A page's first frame is a full invalidate, so an unbounded policy plans it
+    // as exactly one region covering the viewport — asserted below, because the
+    // whole point is that this region's width IS the frame width and therefore
+    // no stride convention can be got wrong here.
+    let reference: Vec<Option<Rgb888>> = with_new_runtime(|_| {
+        let mut renderer =
+            Whole::new(viewport, vec![0u32; (W * H) as usize].leak());
+        let mut ui: UI<Wtf<Whole, (), Theme<Rgb888>, ()>, _> =
+            UI::new(Theme::default(), viewport).with_page((), page!());
+
+        let mut frame = ui.start_frame(&mut renderer);
+        let at = frame.render(&mut renderer).expect("a first-frame region");
+        assert_eq!(
+            at,
+            Rect::new(Point::zero(), viewport),
+            "a page's first frame must plan as the whole viewport under an \
+             unbounded policy, or this reference is not stride-unambiguous"
+        );
+        assert!(
+            frame.render(&mut renderer).is_none(),
+            "…and as exactly ONE region"
+        );
+        drop(frame);
+
+        let (_, buf, _) = renderer.detach();
+        buf.iter()
+            .map(|u| Some(<Rgb888 as PackedColor>::as_color(u, 0)))
+            .collect()
+    });
+
+    // ── under test: the example loop, tiled, many regions ──────────────────
+    let tiled = with_new_runtime(|_| {
+        let mut panel = Panel { px: vec![None; (W * H) as usize] };
+        let mut renderer =
+            Tiled::tiled(viewport, vec![0u32; (W * TILE_H) as usize].leak());
+        let mut ui: UI<Wtf<Tiled, (), Theme<Rgb888>, ()>, _> =
+            UI::new(Theme::default(), viewport).with_page((), page!());
+
+        let mut regions = 0;
+        {
+            let mut frame = ui.start_frame(&mut renderer);
+            while frame.render(&mut renderer).is_some() {
+                regions += 1;
+                let (parked, buf, at) = renderer.detach();
+                flush(&mut panel, &buf, at);
+                renderer = parked.attach(buf);
+            }
+        }
+        assert!(
+            regions > 1,
+            "the tiled run took {regions} region(s); with a {W}x{TILE_H} \
+             budget a full first frame must take several, or the loop is not \
+             being exercised"
+        );
+        panel
+    });
+
+    // Not vacuous: the reference must hold a real picture. An all-background
+    // comparison would pass while proving nothing.
+    let ink = reference
+        .iter()
+        .filter(|c| {
+            **c != Some(
+                <Rgb888 as rsact_render::color::Color>::default_background(),
+            )
+        })
+        .count();
+    assert!(
+        ink > 64,
+        "the reference frame has only {ink} non-background pixels"
+    );
+
+    let mismatches: Vec<usize> = (0..(W * H) as usize)
+        .filter(|&i| reference[i] != tiled.px[i])
+        .collect();
+    assert!(
+        mismatches.is_empty(),
+        "{} of {} pixels differ between the framebuffer and what the example \
+         loop put on the display; first at ({}, {}): framebuffer {:?} vs \
+         display {:?}",
+        mismatches.len(),
+        W * H,
+        mismatches[0] % W as usize,
+        mismatches[0] / W as usize,
+        reference[mismatches[0]],
+        tiled.px[mismatches[0]],
+    );
+}

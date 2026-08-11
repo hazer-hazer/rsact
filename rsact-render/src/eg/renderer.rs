@@ -1342,6 +1342,76 @@ mod tests {
         assert_eq!(covers, region);
     }
 
+    /// WS6.4d: a region's units are laid out at **its own width**, so a region
+    /// narrower than the frame is contiguous rows of `region.width`.
+    ///
+    /// This is the contract every caller's blit depends on, and it is asserted
+    /// here because a differential test cannot reach it: chunking preserves
+    /// width, so tiling a full frame yields full-width bands where "region
+    /// width" and "frame width" are the same number, and a narrower region comes
+    /// from damage that is identical whatever the policy — so a caller's helper
+    /// using the wrong one is wrong the same way on both sides of any
+    /// whole-versus-tiled comparison and the difference cancels.
+    ///
+    /// Verified by mutation, both ways: pinning `row_stride` to the frame width
+    /// leaves the `rsact-ui` harness green and fails this — as an out-of-bounds
+    /// write while painting, which is why the region is deliberately narrow AND
+    /// tall. A stride error that stayed in bounds would be caught by the
+    /// per-unit assertion below instead.
+    #[test]
+    fn a_narrow_region_is_laid_out_at_its_own_width() {
+        use crate::region::Tiles;
+
+        let viewport = Size::new(64, 64);
+        // Deliberately narrow AND tall, so a frame-width stride would run off
+        // the end of the region's data instead of merely landing askew.
+        let region = Rect::new(Point::new(40, 8), Size::new(5, 9));
+
+        let mut r =
+            EGRenderer::<Rgb888, AntiAliasingDisabled, _, Tiles<8, 16>>::tiled(
+                viewport,
+                surface_units::<Rgb888>(8 * 16),
+            );
+        r.begin_region(region).unwrap();
+
+        // One distinguishable color per pixel of the region, in absolute
+        // coordinates — `pixel` is the path that resolves them against the
+        // buffer's origin.
+        let color_at = |x: i32, y: i32| {
+            Rgb888::new(
+                (x as u8).wrapping_mul(7),
+                (y as u8).wrapping_mul(11),
+                3,
+            )
+        };
+        for p in region.points() {
+            Renderer::pixel(&mut r, p, color_at(p.x, p.y)).unwrap();
+        }
+
+        let (_, units, at) = r.detach();
+        assert_eq!(at, region);
+
+        let stride = region.size.width as usize;
+        for row in 0..region.size.height as usize {
+            for col in 0..stride {
+                let want = color_at(
+                    region.top_left.x + col as i32,
+                    region.top_left.y + row as i32,
+                );
+                let got = <Rgb888 as PackedColor>::as_color(
+                    &units[row * stride + col],
+                    0,
+                );
+                assert_eq!(
+                    got, want,
+                    "unit at row {row}, col {col} of a {}x{} region — rows must \
+                     be strided at the REGION's width, not the frame's",
+                    region.size.width, region.size.height,
+                );
+            }
+        }
+    }
+
     /// WS6.4d bug fix: a full-frame renderer that detaches and reattaches must
     /// come back aimed at the **whole frame**, not at nothing.
     ///
