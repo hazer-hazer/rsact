@@ -119,6 +119,12 @@
     "branch": "ws6.4c-clip-events",
     "subject": "WS6.11: tiny-skia clipping is no longer a no-op"
   },
+  "46e41221fd6edd0763cb2f3774ab5eca2c85a055": {
+    "date": 1786447303,
+    "parent": "",
+    "branch": "ws6.4d-tile-renderer",
+    "subject": "WS6.4d(13): prove the example loop instead of asserting it"
+  },
   "4c21f5eb2fda190ae9cec733d3e003bba472faef": {
     "date": 1786137297,
     "parent": "",
