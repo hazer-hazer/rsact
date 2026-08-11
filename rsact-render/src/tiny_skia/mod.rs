@@ -459,12 +459,11 @@ impl<P: crate::region::FramePolicy> Renderer
         // A region arrives holding whatever the previous one left in it, and
         // tiny-skia composites `SourceOver` against the destination — so
         // without this the first blended edge would mix with an unrelated pixel
-        // (roadmap 6.4 constraint (b)). A pixmap already covering the frame is
-        // exempt: clearing it would erase what a damage-driven repaint relies
-        // on.
-        if region.size != self.size {
-            self.canvas().fill(tiny_skia::Color::WHITE);
-        }
+        // (roadmap 6.4 constraint (b)). Unconditional, including for a pixmap
+        // that spans the frame: see `EGRenderer::begin_region` for why retention
+        // is a cost saving rather than a correctness requirement, and what
+        // giving it up buys.
+        self.canvas().fill(tiny_skia::Color::WHITE);
         self.rebuild_clip_mask();
         Ok(())
     }

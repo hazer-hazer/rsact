@@ -193,9 +193,9 @@ fn main() {
 
         {
             let mut frame = ui.start_frame(&mut renderer);
-            while let Some(region) = frame.render(&mut renderer) {
-                let (parked, pixmap, covers) = renderer.detach();
-                flush_rect(&mut display, &pixmap, covers, region);
+            while frame.render(&mut renderer).is_some() {
+                let (parked, pixmap, at) = renderer.detach();
+                flush(&mut display, &pixmap, at);
                 renderer = parked.attach(pixmap);
             }
         }
@@ -203,31 +203,23 @@ fn main() {
     }
 }
 
-/// Flush a detached pixmap's damaged rects to the display.
+/// Flush a detached pixmap to the display.
 ///
-/// The tiny-skia mirror of the framebuffer flush: rsact hands back a `Pixmap`
-/// and the rect it covers, and what happens next is the application's. Here it
-/// goes to a simulator window; it could equally be `pixmap.encode_png(..)`,
-/// which is the point of this backend keeping a real `Pixmap` rather than
-/// lowering to an embedded color on the way out.
-fn flush_rect<D: DrawTarget<Color = Rgb888>>(
+/// The tiny-skia mirror: rsact hands back a `Pixmap` sized to the region and the
+/// rect it belongs at, and what happens next is the application's. Here a
+/// simulator window; it could equally be `pixmap.encode_png(..)`, which is why
+/// this backend keeps a real `Pixmap` rather than lowering to an embedded color
+/// on the way out.
+fn flush<D: DrawTarget<Color = Rgb888>>(
     display: &mut D,
     pixmap: &tiny_skia::Pixmap,
-    covers: Rect,
-    dirty: Rect,
+    at: Rect,
 ) {
-    let dirty = dirty.intersection(&covers);
-    let stride = covers.size.width as usize;
-    let px = pixmap.pixels();
     let _ = display.fill_contiguous(
         &embedded_graphics::primitives::Rectangle::new(
-            dirty.top_left.into(),
-            dirty.size.into(),
+            at.top_left.into(),
+            at.size.into(),
         ),
-        dirty.points().map(|p| {
-            let col = (p.x - covers.top_left.x) as usize;
-            let row = (p.y - covers.top_left.y) as usize;
-            px[row * stride + col].map_color()
-        }),
+        pixmap.pixels().iter().map(|p| p.map_color()),
     );
 }

@@ -64,14 +64,14 @@ fn main() {
         .el(),);
 
     // The one render path: plan the frame, then paint and ship one region
-    // at a time. `region` is exactly what changed; `covers` is what the
-    // buffer holds — for a full-frame surface those differ (the buffer is
-    // the frame, the dirty part is the region), for a tile they are equal.
+    // at a time. `at` is both what the buffer holds and where it goes —
+    // `begin_region` retargets every surface, so a whole framebuffer and a
+    // tile are the same shape here.
     {
         let mut frame = ui.start_frame(&mut renderer);
-        while let Some(region) = frame.render(&mut renderer) {
-            let (parked, buf, covers) = renderer.detach();
-            flush_rect(&mut display, &buf, covers, region);
+        while frame.render(&mut renderer).is_some() {
+            let (parked, buf, at) = renderer.detach();
+            flush(&mut display, &buf, at);
             renderer = parked.attach(buf);
         }
     }
@@ -80,33 +80,31 @@ fn main() {
     window.show_static(&display);
 }
 
-/// Flush the damaged rects of a detached framebuffer to the display.
+/// Flush a detached buffer to the display.
 ///
-/// **This is the application's job, not rsact's** (WS6.4d). rsact renders into
-/// a buffer the app lends it and says what changed; where those pixels go, and
-/// how, is the app's decision — here an `embedded-graphics` `DrawTarget`, on a
-/// device a `CASET`/`RASET` window plus a DMA burst.
+/// **This is the application's job, not rsact's** (WS6.4d). rsact renders into a
+/// buffer the app lends it and hands it back with the rect it holds; where those
+/// pixels go, and how, is the app's decision — here an `embedded-graphics`
+/// `DrawTarget`, on a device a `CASET`/`RASET` window plus a DMA burst.
 ///
-/// `covers` is the rect the buffer holds (from `detach`), so rows are strided at
-/// `covers.size.width`: for a full-frame surface that is the frame width, for a
-/// tile it is the tile's own. `dirty` is the sub-rect worth sending.
-fn flush_rect<D: DrawTarget<Color = Rgb888>>(
+/// One rect, because `begin_region` retargets every surface: `at` is both what
+/// the buffer contains and where it goes, so rows are strided at `at`'s width
+/// whether this is a tile or a whole framebuffer.
+fn flush<D: DrawTarget<Color = Rgb888>>(
     display: &mut D,
     units: &[u32],
-    covers: Rect,
-    dirty: Rect,
+    at: Rect,
 ) {
-    let dirty = dirty.intersection(&covers);
-    let stride = covers.size.width as usize;
+    let stride = at.size.width as usize;
     let _ = display.fill_contiguous(
         &embedded_graphics::primitives::Rectangle::new(
-            dirty.top_left.into(),
-            dirty.size.into(),
+            at.top_left.into(),
+            at.size.into(),
         ),
-        dirty.points().map(|p| {
-            let col = (p.x - covers.top_left.x) as usize;
-            let row = (p.y - covers.top_left.y) as usize;
-            <Rgb888 as PackedColor>::as_color(&units[row * stride + col], 0)
+        (0..at.size.height as usize).flat_map(|row| {
+            (0..stride).map(move |col| {
+                <Rgb888 as PackedColor>::as_color(&units[row * stride + col], 0)
+            })
         }),
     );
 }

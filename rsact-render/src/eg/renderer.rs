@@ -230,28 +230,22 @@ impl<
     /// a runtime `Option` plus a logged no-op, which meant a scheduling mistake
     /// silently ate a frame, once per frame, forever.
     ///
-    /// # The returned rect is what the buffer COVERS, not what changed
+    /// # The returned rect is the region that was painted
     ///
-    /// It is the buffer's own extent — its origin and, since a row is strided at
-    /// its width, its stride. That is what a caller needs to *index* it. What to
-    /// *send* is the region [`Frame::render`] returned, and the invariant between
-    /// them is `region ⊆ covers`.
+    /// And it is the *only* rect a caller needs: `begin_region` retargets
+    /// unconditionally (see it for why), so the buffer's extent and the painted
+    /// region are the same rectangle for every surface — a tile and a
+    /// full-frame framebuffer alike. It is both what to index the buffer at
+    /// (rows are strided at its width) and what to send.
     ///
-    /// **They are equal for a tile and differ only for a full-frame surface**, and
-    /// that asymmetry is deliberate rather than residual: `begin_region` does not
-    /// re-aim a buffer that already spans the frame, because re-striding it to the
-    /// region would reinterpret every byte outside that region — and a full
-    /// framebuffer's whole value is that the pixels it is *not* repainting stay
-    /// correct. So a tile answers one rect and a framebuffer answers two, because
-    /// a framebuffer genuinely holds more than it just painted.
+    /// This used to be two rects. A full-frame surface was not retargeted, so
+    /// its extent stayed the whole frame while the region was a sub-rect, and
+    /// every caller had to carry both and intersect them. That asymmetry saved
+    /// one background fill per region and cost an API; the trade is described on
+    /// `begin_region`.
     ///
-    /// Both rects come from the renderer rather than the caller's own bookkeeping,
-    /// because the renderer is the authority on each: `begin_region` told it where
-    /// it was painting and `attach` told it what it holds. Re-deriving either by
-    /// hand is the kind of mistake that produces a *plausible* frame — the right
-    /// tile blitted to the wrong place — instead of an obvious one.
-    ///
-    /// [`Frame::render`]: https://docs.rs/rsact-ui
+    /// Before anything is painted the rect is whatever `attach` aimed at: the
+    /// whole frame for a frame-sized buffer, empty for a tile.
     pub fn detach(self) -> (EGRenderer<C, AA, B, P, Detached>, B, Rect) {
         let Self { viewport_stack, canvas, main_viewport, .. } = self;
         let at = canvas.viewport();
@@ -532,31 +526,51 @@ impl<
     // Renderer common implementations
     /// WS6.4d: aim the surface at `region` and pre-fill it.
     ///
-    /// Two things happen, and the second is not optional. The buffer is
-    /// retargeted — `region`'s own width becomes the stride, so any region
-    /// fitting the capacity is addressable — and then it is **filled with the
-    /// background**, because a tile arrives holding whatever the previous region
-    /// left in it.
+    /// Two things happen, and neither is conditional. The buffer is retargeted
+    /// — `region`'s own width becomes the stride, so any region fitting the
+    /// capacity is addressable — and then it is **filled with the background**.
     ///
-    /// That fill is what makes anti-aliasing correct rather than merely tidy
+    /// # Why this is unconditional, when it used to skip full-frame surfaces
+    ///
+    /// Re-striding is harmless in itself: after `retarget`, the buffer is a
+    /// valid region-shaped surface and the units past `w · h` are simply
+    /// unused. Nothing reads them, because the contract is that each region is
+    /// flushed when it is painted.
+    ///
+    /// What a full-frame surface used to buy by *not* retargeting was not
+    /// safety, it was the **fill**. A region is a merged damage rect, so it
+    /// contains dead space no widget paints — the gap between two merged rects,
+    /// container padding, the area under a transparent `Flex`. On a retained
+    /// framebuffer those pixels were already correct from the previous frame, so
+    /// nothing had to be written. Retarget and they alias unrelated parts of the
+    /// buffer, so they must be cleared.
+    ///
+    /// That is a cost question, not a correctness one, and the cost is one
+    /// background fill per region — which the planner's merge test **already
+    /// prices**: it charges merging for repainting the dead space. Retention
+    /// made that charge an over-estimate. So paying it makes the model exact and
+    /// buys a uniform contract: `covers == region` for every surface, one rect
+    /// instead of two, and no full-frame special case in `attach` — which is
+    /// where the "flushed nothing from frame two onward" bug lived.
+    ///
+    /// The fill is also what makes anti-aliasing correct rather than merely tidy
     /// (roadmap 6.4 constraint (b)): `pixel_alpha` blends against the
-    /// *destination*, and on a full framebuffer the destination survives between
-    /// frames, which is how AA edges compose under damage-driven repaint. A tile
-    /// has no such history, so without this the first AA edge in each region
-    /// would blend against the previous region's pixels — a plausible image, not
-    /// an obvious failure.
+    /// *destination*, so without it the first AA edge in a region would blend
+    /// against whatever the previous region left there.
     ///
-    /// A full-frame surface skips both: it already covers the region, and
-    /// clearing it would erase the frame the damage-driven path relies on.
+    /// # One dependency, recorded because it is currently unreachable
+    ///
+    /// The fill uses [`Color::default_background`], not the **page's**
+    /// background — and `Page::clear` uses `PageStyle::background_color`. Those
+    /// agree today only because `PageStyle`'s setter is commented out
+    /// (`page/mod.rs`), so every page's background *is* `default_background`.
+    /// Uncomment it and a themed page's gaps paint white on every path. The fix
+    /// belongs with that setter: the background to prime a region with is the
+    /// page's, so it has to reach the renderer.
+    ///
+    /// [`Color::default_background`]: crate::color::Color::default_background
     fn renderer_begin_region(&mut self, region: Rect) -> RenderResult {
-        let full_frame = crate::eg::framebuf::units_for::<C>(
-            self.main_viewport.width,
-            self.main_viewport.height,
-        );
         let canvas = &mut self.canvas;
-        if canvas.capacity_units() >= full_frame {
-            return Ok(());
-        }
         canvas.retarget(region);
         // Straight at the canvas, not through `Renderer::fill_solid`: the
         // region clip is pushed by the caller *after* this returns, and the
@@ -1289,6 +1303,43 @@ mod tests {
         let (swapped, at) = r.swap(surface::<Rgb888>(viewport));
         assert_eq!(swapped.len(), (16 * 16) as usize);
         assert_eq!(at, Rect::new(Point::zero(), viewport));
+    }
+
+    /// WS6.4d: after `begin_region`, the rect a buffer covers **is** the region
+    /// it was asked to paint — for every surface, not only for tiles.
+    ///
+    /// This is what lets a caller carry one rectangle instead of two. It held
+    /// only for tiles until `begin_region` stopped exempting full-frame
+    /// surfaces from retargeting, and the asymmetry was invisible in every test
+    /// because each used one surface kind at a time.
+    #[test]
+    fn what_a_buffer_covers_is_the_region_it_painted() {
+        use crate::region::Tiles;
+
+        let viewport = Size::new(64, 64);
+        let region = Rect::new(Point::new(8, 24), Size::new(16, 8));
+
+        // A surface spanning the whole frame — the case that used to differ.
+        let mut full = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
+            viewport,
+            surface::<Rgb888>(viewport),
+        );
+        full.begin_region(region).unwrap();
+        let (_, _, covers) = full.detach();
+        assert_eq!(
+            covers, region,
+            "a frame-sized buffer must report the region, not the frame"
+        );
+
+        // And a tile, where it always held.
+        let mut tile =
+            EGRenderer::<Rgb888, AntiAliasingDisabled, _, Tiles<16, 8>>::tiled(
+                viewport,
+                surface_units::<Rgb888>(16 * 8),
+            );
+        tile.begin_region(region).unwrap();
+        let (_, _, covers) = tile.detach();
+        assert_eq!(covers, region);
     }
 
     /// WS6.4d bug fix: a full-frame renderer that detaches and reattaches must
