@@ -35,6 +35,11 @@ impl FloatExt for f32 {}
 #[cfg(all(feature = "std", not(feature = "libm"), not(feature = "micromath")))]
 impl FloatExt for f64 {}
 
+// The render layer split's L3: `Blitter` (spans -> pixels), `Span`, and the
+// addressing helpers. Unconditional — an L3 blitter must be definable without
+// embedded-graphics, which is what makes a direct-to-panel or DMA2D blitter
+// expressible; only the pixmap blitter is gated.
+pub mod blitter;
 pub mod color;
 // WS6.4e: packed pixel storage — `Framebuf`, `FramebufStorage`, `PackedColor`.
 // Unconditional, and that is the point of the item: nothing in it is specific
@@ -52,6 +57,10 @@ pub mod image;
 pub mod output;
 pub mod path;
 pub mod primitives;
+// The render layer split's L2: `Rasterizer` (geometry -> spans), `RasterCtx`
+// (the clip gate) and `raster::scan`, the shared scan conversion every default
+// delegates to. Unconditional; the two backend adapters under it are gated.
+pub mod raster;
 pub mod record;
 // WS6.4d(1): damage rects -> the regions a frame is painted in. Pure geometry,
 // no renderer and no steady-state allocation, so it belongs beside the geometry

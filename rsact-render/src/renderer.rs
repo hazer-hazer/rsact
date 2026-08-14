@@ -587,3 +587,705 @@ impl<C: Color> Renderer for NullRenderer<C> {
         Ok(())
     }
 }
+
+// ===========================================================================
+// The layered renderer — L1 over a `Rasterizer` and a `Blitter`
+// ===========================================================================
+
+/// The [`Renderer`] built around a [`Rasterizer`], with the [`Blitter`] as the
+/// interchangeable sink.
+///
+/// This is what `EGRenderer` and `TinySkiaRenderer` both become. L1's whole job
+/// is here and it is small: hold the clip stack, reset it per region, cull, and
+/// forward to L2 with a [`RasterCtx`] built from the current clip.
+///
+/// **No `where` clause on the struct.** With the bounds here, the detached type
+/// `RasterRenderer<R, FramebufBlitter<C, B, Detached>, P>` is ill-formed
+/// (`E0277`, since a detached blitter is not a `Blitter`), and adding the bound
+/// to fix it would restore exactly the drawing-while-detached case the
+/// type-state exists to delete. The bounds live on the impls that draw.
+///
+/// [`Rasterizer`]: crate::raster::Rasterizer
+/// [`Blitter`]: crate::blitter::Blitter
+/// [`RasterCtx`]: crate::raster::RasterCtx
+pub struct RasterRenderer<R, T, P = crate::region::Unbounded> {
+    rasterizer: R,
+    blitter: T,
+    /// The clip stack. A plain `Vec<Rect>`, seeded with the surface rect.
+    ///
+    /// Three properties, and each is load-bearing rather than tidy:
+    ///
+    /// - **push stores `area ∩ top`**, so the top IS the effective clip — which
+    ///   is what makes reading it for culling exact rather than approximate, and
+    ///   what stops a widget clip inside a region clip letting drawing escape
+    ///   its tile;
+    /// - **pop never pops the root**, so an unbalanced pop degrades rather than
+    ///   leaving the renderer with no clip at all (WS1.8: the UI logs and
+    ///   degrades, it does not abort);
+    /// - **a region is the root**, so no clip can escape it.
+    clips: alloc::vec::Vec<Rect>,
+    /// The display's size — what rsact lays out and culls against, unchanged by
+    /// how small the blitter's storage is.
+    viewport: Size,
+    /// Marker only: `fn() -> P` rather than `P` so the policy contributes no
+    /// dropck obligation and no auto-trait leakage.
+    policy: PhantomData<fn() -> P>,
+}
+
+impl<R, T, P> RasterRenderer<R, T, P>
+where
+    R: crate::raster::Rasterizer<T>,
+    T: crate::blitter::Blitter,
+    P: crate::region::FramePolicy,
+{
+    /// The **runtime** half of the capacity proof, and it is genuinely generic:
+    /// `policy_units::<P>()` needs only `P`, because `PIXELS_PER_UNIT` lives on
+    /// the policy. A blitter with no storage bound reports `None` and there is
+    /// nothing to check.
+    ///
+    /// # Panics
+    ///
+    /// If the blitter cannot hold policy `P`'s largest region.
+    pub fn new(rasterizer: R, blitter: T, viewport: Size) -> Self {
+        if let Some(units) = blitter.capacity() {
+            crate::region::assert_policy_fits::<P>(units);
+        }
+        Self {
+            rasterizer,
+            blitter,
+            clips: alloc::vec![Rect::new(Point::zero(), viewport)],
+            viewport,
+            policy: PhantomData,
+        }
+    }
+
+    /// The effective clip — the top of the stack, which `push_clip` keeps
+    /// intersected with its parent.
+    fn clip(&self) -> Rect {
+        // The root is never popped, so the stack is never empty; `unwrap_or`
+        // rather than `expect` because a panic on the render path is exactly
+        // what WS1.8 forbids, and a zero rect degrades to drawing nothing.
+        self.clips.last().copied().unwrap_or(Rect::zero())
+    }
+
+    /// Split into the rasterizer and a clip-gated view of the blitter.
+    ///
+    /// `&mut self.rasterizer` and `&mut self.blitter` are disjoint fields, so
+    /// one `&mut self` yields both; elision gives both borrows the same lifetime
+    /// and the tuple return is accepted.
+    ///
+    /// **Hot path.** `Renderer::pixel` comes through here once *per glyph pixel*
+    /// — `DrawTargetProxy::draw_iter` is the only route text takes, and a
+    /// text-heavy frame is O(10⁴) calls. Against the pre-split renderer that
+    /// adds one `Rect::intersection`, inside `RasterCtx::new`. If it ever shows
+    /// up in a profile, note that the intersection is *provably redundant here*:
+    /// `begin_region` seeds the stack with the region and `push_clip`
+    /// intersects, so `clip ⊆ bounds()` already holds for this renderer. It
+    /// could become a `debug_assert!` plus a plain assignment — but only behind
+    /// a second constructor, because the intersection is what makes the
+    /// guarantee structural for any *other* L1 that builds a `RasterCtx`.
+    fn split(&mut self) -> (&mut R, crate::raster::RasterCtx<'_, T>) {
+        let clip = self.clip();
+        (
+            &mut self.rasterizer,
+            crate::raster::RasterCtx::new(&mut self.blitter, clip),
+        )
+    }
+
+    /// Whether a primitive bounded by `bounds` can be skipped entirely.
+    ///
+    /// `bounds` is grown by the stroke width first, because
+    /// [`StrokeAlignment::Outside`](crate::style::StrokeAlignment::Outside)
+    /// paints *outside* the geometry — culling on the bare rect would clip a
+    /// border away at a tile edge. Over-approximating costs redundant paint;
+    /// under-approximating drops it, so this only ever errs outward.
+    fn culled<C: Color>(&self, bounds: Rect, style: &DrawStyle<C>) -> bool {
+        let grow = style.stroke_width as i32;
+        let bounds = Rect::new(
+            Point::new(
+                bounds.top_left.x.saturating_sub(grow),
+                bounds.top_left.y.saturating_sub(grow),
+            ),
+            Size::new(
+                bounds.size.width.saturating_add(style.stroke_width * 2),
+                bounds.size.height.saturating_add(style.stroke_width * 2),
+            ),
+        );
+        !bounds.intersects(&self.clip())
+    }
+
+    /// The rasterizer, for a caller that needs to configure it.
+    pub fn rasterizer(&mut self) -> &mut R {
+        &mut self.rasterizer
+    }
+}
+
+/// Every geometry method is the same three lines — cull, split, forward — and a
+/// macro is where that belongs: one private expansion inside this crate, over
+/// mechanically identical bodies. Unlike a macro over the *trait* definition it
+/// hides nothing from a reader of the public API, which is the distinction that
+/// makes it acceptable here and not there.
+macro_rules! forward_to_rasterizer {
+    (
+        $( fn $name:ident ( $( $arg:ident : $ty:ty ),* $(,)? )
+             $( bounded by $bounds:expr )? ; )*
+    ) => {
+        $(
+            fn $name(
+                &mut self,
+                $( $arg : $ty, )*
+                style: &DrawStyle<Self::Color>,
+            ) -> RenderResult {
+                $( if self.culled($bounds, style) { return Ok(()) } )?
+                let (rasterizer, mut cx) = self.split();
+                rasterizer.$name(&mut cx, $( $arg, )* style);
+                Ok(())
+            }
+        )*
+    };
+}
+
+impl<R, T, P> Renderer for RasterRenderer<R, T, P>
+where
+    R: crate::raster::Rasterizer<T>,
+    T: crate::blitter::Blitter,
+    P: crate::region::FramePolicy,
+{
+    type Color = T::Color;
+    type Policy = P;
+
+    fn size(&self) -> Size {
+        self.viewport
+    }
+
+    /// Aim the blitter, then make the region the **root** of the clip stack.
+    ///
+    /// The order matters and is the reason `begin_region` is a blitter method
+    /// too: the blitter retargets *and primes* atomically, and the priming fill
+    /// must not go through the clipped path — the region clip does not exist
+    /// until the line after.
+    fn begin_region(&mut self, region: Rect) -> RenderResult {
+        self.blitter.begin_region(region)?;
+        self.clips.clear();
+        self.clips.push(region);
+        Ok(())
+    }
+
+    /// Kept, unlike on `Blitter`: this is where a batching rasterizer would
+    /// flush and where a GPU would end its pass. Nothing does either yet.
+    fn end_region(&mut self) -> RenderResult {
+        Ok(())
+    }
+
+    fn push_clip(&mut self, area: Rect) {
+        let nested = area.intersection(&self.clip());
+        self.clips.push(nested);
+    }
+
+    fn pop_clip(&mut self) {
+        if self.clips.len() > 1 {
+            self.clips.pop();
+        }
+    }
+
+    /// `Option`, not `Rect`, and it is always `Some` here.
+    ///
+    /// There is no expressible "unbounded": `Rect::intersection` uses
+    /// non-saturating `+` and `u32::MAX as i32 == -1`, so a `Rect::MAX` sentinel
+    /// intersects to `Rect::zero()` — "unbounded" would read as "clips
+    /// everything".
+    fn clip_bounds(&self) -> Option<Rect> {
+        Some(self.clip())
+    }
+
+    fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult {
+        if !rect.intersects(&self.clip()) {
+            return Ok(());
+        }
+        let (rasterizer, mut cx) = self.split();
+        rasterizer.fill(&mut cx, rect, color);
+        Ok(())
+    }
+
+    fn pixel(&mut self, point: Point, color: Self::Color) -> RenderResult {
+        let (rasterizer, mut cx) = self.split();
+        rasterizer.pixel(&mut cx, point, color);
+        Ok(())
+    }
+
+    forward_to_rasterizer! {
+        // Culled where the bound is exact and cheap. `line`, `polygon` and
+        // `path` are not: computing their bound costs about what testing it
+        // saves, and `RasterCtx` clips them anyway — `scan::polygon` even bounds
+        // its scan by the clip.
+        fn line(from: Point, to: Point);
+        fn rect(rect: Rect) bounded by rect;
+        fn rounded_rect(rect: Rect, corners: CornerRadii) bounded by rect;
+        fn circle(top_left: Point, diameter: u32)
+            bounded by Rect::new(top_left, Size::new_equal(diameter));
+        fn arc(top_left: Point, diameter: u32, start: Angle, sweep: Angle)
+            bounded by Rect::new(top_left, Size::new_equal(diameter));
+        fn sector(top_left: Point, diameter: u32, start: Angle, sweep: Angle)
+            bounded by Rect::new(top_left, Size::new_equal(diameter));
+        fn ellipse(bounding_box: Rect) bounded by bounding_box;
+        fn polygon(points: &[Point]);
+        fn path(path: &Path);
+    }
+
+    fn image<'a>(&mut self, image: DrawImage<'a, Self::Color>) -> RenderResult {
+        if !image.bounding_box().intersects(&self.clip()) {
+            return Ok(());
+        }
+        let (rasterizer, mut cx) = self.split();
+        rasterizer.image(&mut cx, image);
+        Ok(())
+    }
+}
+
+/// **The compile-time half of the capacity proof lives on the framebuf path
+/// only** — the one place a *static* capacity exists.
+///
+/// A blitter with no framebuffer (a direct-to-panel one, a GPU attachment) has
+/// neither a `B::UNITS` nor a `C: PackedColor`, which is why this cannot sit on
+/// the generic [`RasterRenderer::new`]. The runtime half does, and does run
+/// there.
+impl<R, C, B, P>
+    RasterRenderer<
+        R,
+        crate::blitter::framebuf::FramebufBlitter<C, B, Attached>,
+        P,
+    >
+where
+    C: Color + crate::framebuf::PackedColor,
+    B: crate::framebuf::FramebufStorage<C>,
+    P: crate::region::FramePolicy,
+{
+    /// Two assertions, both unchanged in substance from the pre-split
+    /// `EGRenderer::assert_static_capacity`, and fired once per instantiation at
+    /// monomorphization:
+    ///
+    /// 1. `assert_policy_fits::<P>(units)` when `B::UNITS` is `Some` — skipped
+    ///    when `None`, which means "ask the value" and is the runtime half's job.
+    /// 2. `P::PIXELS_PER_UNIT == C::PPS`. The two are separate values today and
+    ///    must be kept in step: a 1-bpp color under a `PIXELS_PER_UNIT = 1`
+    ///    policy would demand eight times the storage it needs, and the reverse
+    ///    would silently under-demand. The deferred byte/packing rework is what
+    ///    eventually deletes this one, by making them one value.
+    ///
+    /// A `const` block is invisible to `cargo check` and rust-analyzer — only
+    /// codegen evaluates it — so `region.rs`'s eager `const _: () = …` doctests
+    /// remain the only check-time-visible form. That is unchanged behaviour.
+    fn assert_static_capacity() {
+        const {
+            if P::MAX_REGION.is_some() {
+                assert!(
+                    P::PIXELS_PER_UNIT == C::PPS,
+                    "this frame policy's pixel packing disagrees with the \
+                     renderer's color — see the instantiation in this error"
+                );
+            }
+            if let (Some(units), Some(needed)) = (
+                <B as crate::framebuf::FramebufStorage<C>>::UNITS,
+                crate::region::policy_units::<P>(),
+            ) {
+                assert!(
+                    needed <= units,
+                    "this surface is too small for the renderer's frame \
+                     policy — see the instantiation in this error for the \
+                     color, buffer type and policy"
+                );
+            }
+        }
+    }
+
+    /// Build a renderer over a framebuffer the caller owns.
+    ///
+    /// **Nothing here allocates**, and nothing here chooses *where* the memory
+    /// lives; that is the application's decision and not one rsact can make
+    /// well. A buffer covering the whole frame gives classic full-framebuffer
+    /// behaviour; a smaller one is retargeted per region.
+    pub fn with_framebuf(rasterizer: R, viewport: Size, storage: B) -> Self {
+        use crate::blitter::Blitter as _;
+        Self::assert_static_capacity();
+        let blitter = crate::blitter::framebuf::FramebufBlitter::<C, B, Detached>::parked(
+            viewport,
+        )
+        .attach(storage);
+        // **Both halves, and this line is not redundant.** The static half above
+        // is skipped entirely when `B::UNITS` is `None` — i.e. for every
+        // runtime-length buffer, which is every `&'static mut [T]` from a
+        // `StaticCell` pool and every heap surface. Without this, a 240-unit
+        // slice satisfied `Tiles<240, 24>` silently. That is the same shape of
+        // hole as the `UNITS = usize::MAX` sentinel WS6.4d removed, and it was
+        // reintroduced here for one commit until a test caught it.
+        if let Some(units) = blitter.capacity() {
+            crate::region::assert_policy_fits::<P>(units);
+        }
+        Self::from_parts(rasterizer, blitter, viewport)
+    }
+
+    /// Take the surface back, with the region that was painted into it.
+    ///
+    /// Consumes the renderer and returns it holding a [`Detached`] blitter — a
+    /// state with no surface *field*, so nothing can paint into a buffer the
+    /// caller is holding. The returned rect is both what to index the buffer at
+    /// (rows are strided at its width) and what to send.
+    pub fn detach(
+        self,
+    ) -> (
+        RasterRenderer<
+            R,
+            crate::blitter::framebuf::FramebufBlitter<C, B, Detached>,
+            P,
+        >,
+        B,
+        Rect,
+    ) {
+        let (parked, buffer, at) = self.blitter.detach();
+        (
+            RasterRenderer {
+                rasterizer: self.rasterizer,
+                blitter: parked,
+                clips: self.clips,
+                viewport: self.viewport,
+                policy: PhantomData,
+            },
+            buffer,
+            at,
+        )
+    }
+
+    /// The bounds-free half of construction, shared by `with_framebuf` and
+    /// `attach` — both of which have already run the capacity proof, and neither
+    /// of which can call [`RasterRenderer::new`] without also naming
+    /// `R: Rasterizer<..>`, a bound a *constructor* has no reason to demand.
+    fn from_parts(
+        rasterizer: R,
+        blitter: crate::blitter::framebuf::FramebufBlitter<C, B, Attached>,
+        viewport: Size,
+    ) -> Self {
+        Self {
+            rasterizer,
+            blitter,
+            clips: alloc::vec![Rect::new(Point::zero(), viewport)],
+            viewport,
+            policy: PhantomData,
+        }
+    }
+}
+
+impl<R, C, B, P>
+    RasterRenderer<
+        R,
+        crate::blitter::framebuf::FramebufBlitter<C, B, Detached>,
+        P,
+    >
+where
+    C: Color + crate::framebuf::PackedColor,
+    B: crate::framebuf::FramebufStorage<C>,
+    P: crate::region::FramePolicy,
+{
+    /// Lend the renderer a surface. The one place `P` and a live buffer's
+    /// capacity are both in scope, so it is where the runtime half of the proof
+    /// runs — again, because a re-lent runtime-length buffer has a new extent.
+    ///
+    /// # Panics
+    ///
+    /// If the loan is smaller than `P` requires.
+    pub fn attach(
+        self,
+        storage: B,
+    ) -> RasterRenderer<
+        R,
+        crate::blitter::framebuf::FramebufBlitter<C, B, Attached>,
+        P,
+    > {
+        use crate::blitter::Blitter as _;
+        RasterRenderer::<
+            R,
+            crate::blitter::framebuf::FramebufBlitter<C, B, Attached>,
+            P,
+        >::assert_static_capacity();
+        let blitter = self.blitter.attach(storage);
+        if let Some(units) = blitter.capacity() {
+            crate::region::assert_policy_fits::<P>(units);
+        }
+        RasterRenderer {
+            rasterizer: self.rasterizer,
+            blitter,
+            clips: self.clips,
+            viewport: self.viewport,
+            policy: PhantomData,
+        }
+    }
+}
+
+#[cfg(all(test, feature = "embedded-graphics"))]
+mod raster_renderer_tests {
+    use super::*;
+    use crate::{
+        blitter::framebuf::FramebufBlitter, eg::renderer::EGRenderer,
+        framebuf::PackedColor, raster::eg::EgRasterizer, region::Tiles,
+        style::DrawStyle,
+    };
+    use embedded_graphics::pixelcolor::Rgb888;
+
+    /// A `&'static mut` loan, which is the shape both `FramebufStorage` impls
+    /// describe and the only one a renderer reachable through `WidgetCtx`
+    /// (`: 'static`) can hold. `Vec::leak` in a test is a `StaticCell` on a
+    /// device.
+    fn surface_units<C: Color + PackedColor>(
+        units: usize,
+    ) -> &'static mut [<C as PackedColor>::Storage] {
+        alloc::vec![C::default_background().into_storage(); units].leak()
+    }
+
+    fn surface<C: Color + PackedColor>(
+        size: Size,
+    ) -> &'static mut [<C as PackedColor>::Storage] {
+        surface_units::<C>(crate::framebuf::units_for::<C>(
+            size.width,
+            size.height,
+        ))
+    }
+
+    /// Content chosen to reach every path that differs between the two
+    /// renderers: `fill_solid` (the whole-word framebuffer fill), a stroked
+    /// `rect` (embedded-graphics' `draw_styled` through a different receiver), a
+    /// diagonal `line`, and bare `pixel` writes (the text path).
+    fn content<R: Renderer<Color = Rgb888>>(r: &mut R) {
+        Renderer::fill_solid(
+            r,
+            Rect::new(Point::new(6, 10), Size::new(50, 30)),
+            Rgb888::new(200, 30, 30),
+        )
+        .unwrap();
+        Renderer::rect(
+            r,
+            Rect::new(Point::new(2, 2), Size::new(60, 60)),
+            &DrawStyle::default()
+                .stroke(Rgb888::new(20, 220, 40))
+                .stroke_width(2),
+        )
+        .unwrap();
+        Renderer::line(
+            r,
+            Point::new(0, 0),
+            Point::new(63, 63),
+            &DrawStyle::default()
+                .stroke(Rgb888::new(10, 40, 250))
+                .stroke_width(1),
+        )
+        .unwrap();
+        for i in 0..40i32 {
+            Renderer::pixel(
+                r,
+                Point::new(i, 63 - i),
+                Rgb888::new(250, 250, 10),
+            )
+            .unwrap();
+        }
+    }
+
+    /// **The acceptance test for the whole refactor**, proved one PR before the
+    /// substitution it licenses.
+    ///
+    /// `RasterRenderer<EgRasterizer, FramebufBlitter<..>>` must paint what
+    /// `EGRenderer` paints — the same pixels, not merely the same draw calls.
+    /// The op-log goldens cannot see this: they sit above L1 and record what the
+    /// widget layer *asked* for, so an addressing or clipping mistake below them
+    /// leaves them intact and produces a plausible image.
+    #[test]
+    fn the_layered_renderer_paints_what_eg_renderer_paints() {
+        let viewport = Size::new(64, 64);
+
+        let mut old =
+            EGRenderer::<Rgb888, _>::new(viewport, surface::<Rgb888>(viewport));
+        content(&mut old);
+
+        let mut new =
+            RasterRenderer::<_, _, crate::region::Unbounded>::with_framebuf(
+                EgRasterizer,
+                viewport,
+                surface::<Rgb888>(viewport),
+            );
+        content(&mut new);
+
+        let (_, old_units, old_at) = old.detach();
+        let (_, new_units, new_at) = new.detach();
+        assert_eq!(old_at, new_at, "the two renderers cover different rects");
+
+        // Not vacuous: a substantial part of the frame must have been painted,
+        // or two identically-blank buffers would pass.
+        let bg = <Rgb888 as Color>::default_background().into_storage();
+        let painted = old_units.iter().filter(|u| **u != bg).count();
+        assert!(
+            painted > (64 * 64) / 4,
+            "the reference frame painted only {painted} of 4096 pixels"
+        );
+
+        let mismatches: alloc::vec::Vec<usize> = (0..old_units.len())
+            .filter(|&i| old_units[i] != new_units[i])
+            .collect();
+        assert!(
+            mismatches.is_empty(),
+            "{} of {} pixels differ between EGRenderer and \
+             RasterRenderer<EgRasterizer, FramebufBlitter>; first at ({}, {})",
+            mismatches.len(),
+            old_units.len(),
+            mismatches[0] % 64,
+            mismatches[0] / 64,
+        );
+    }
+
+    /// The tiling equality, on the layered renderer: a surface a fraction of the
+    /// frame's size paints the same pixels as a full one.
+    ///
+    /// Same claim as the pre-split `EGRenderer` test, and it has to be re-proved
+    /// here because the retarget-and-prime that makes it true moved — it is now
+    /// `Blitter::begin_region`, one layer down, with L1 resetting its clip stack
+    /// around it.
+    #[test]
+    fn a_tiled_layered_renderer_paints_what_a_full_one_does() {
+        const W: u32 = 64;
+        const H: u32 = 64;
+        const BAND: u32 = 8;
+        let viewport = Size::new(W, H);
+
+        struct Map {
+            px: alloc::vec::Vec<Option<Rgb888>>,
+        }
+        fn blit(map: &mut Map, units: &[u32], region: Rect) {
+            let w = region.size.width as usize;
+            for row in 0..region.size.height as usize {
+                for col in 0..w {
+                    let x = region.top_left.x + col as i32;
+                    let y = region.top_left.y + row as i32;
+                    if x < 0 || y < 0 || x as u32 >= W || y as u32 >= H {
+                        continue;
+                    }
+                    map.px[y as usize * W as usize + x as usize] =
+                        Some(<Rgb888 as PackedColor>::as_color(
+                            &units[row * w + col],
+                            0,
+                        ));
+                }
+            }
+        }
+        let blank = || Map { px: alloc::vec![None; (W * H) as usize] };
+
+        let mut full =
+            RasterRenderer::<_, _, crate::region::Unbounded>::with_framebuf(
+                EgRasterizer,
+                viewport,
+                surface::<Rgb888>(viewport),
+            );
+        content(&mut full);
+        let mut full_map = blank();
+        let (_, full_units, full_at) = full.detach();
+        blit(&mut full_map, &full_units, full_at);
+
+        const TILE_UNITS: usize = (W * BAND) as usize;
+        let mut tiled = RasterRenderer::<_, _, Tiles<W, BAND>>::with_framebuf(
+            EgRasterizer,
+            viewport,
+            surface_units::<Rgb888>(TILE_UNITS),
+        );
+        let mut tiled_map = blank();
+        let mut spare = surface_units::<Rgb888>(TILE_UNITS);
+
+        for band in 0..(H / BAND) as i32 {
+            let region = Rect::new(
+                Point::new(0, band * BAND as i32),
+                Size::new(W, BAND),
+            );
+            tiled.begin_region(region).unwrap();
+            tiled.push_clip(region);
+            content(&mut tiled);
+            tiled.pop_clip();
+            tiled.end_region().unwrap();
+            // Publish, then acquire — the ordering the loan API exists for.
+            let (parked, units, at) = tiled.detach();
+            blit(&mut tiled_map, &units, at);
+            tiled = parked.attach(spare);
+            spare = units;
+        }
+
+        let painted = |m: &Map| m.px.iter().filter(|p| p.is_some()).count();
+        assert!(
+            painted(&full_map) > (W * H) as usize / 3,
+            "the reference frame painted only {} pixels",
+            painted(&full_map)
+        );
+        let mismatches: alloc::vec::Vec<usize> = (0..(W * H) as usize)
+            .filter(|&i| full_map.px[i] != tiled_map.px[i])
+            .collect();
+        assert!(
+            mismatches.is_empty(),
+            "{} of {} pixels differ between a full surface and a tiled one; \
+             first at ({}, {})",
+            mismatches.len(),
+            W * H,
+            mismatches[0] % W as usize,
+            mismatches[0] / W as usize,
+        );
+    }
+
+    /// A region is the **root** of the clip stack, so nothing can escape it —
+    /// including an unbalanced `pop_clip`, which must degrade rather than empty
+    /// the stack.
+    #[test]
+    fn a_region_is_the_root_of_the_clip_stack() {
+        let viewport = Size::new(64, 64);
+        let mut r = RasterRenderer::<_, _, Tiles<64, 8>>::with_framebuf(
+            EgRasterizer,
+            viewport,
+            surface_units::<Rgb888>(64 * 8),
+        );
+        let region = Rect::new(Point::new(0, 16), Size::new(64, 8));
+        r.begin_region(region).unwrap();
+        assert_eq!(r.clip_bounds(), Some(region));
+
+        // A nested clip narrows and never widens.
+        r.push_clip(Rect::new(Point::new(0, 0), Size::new(64, 64)));
+        assert_eq!(
+            r.clip_bounds(),
+            Some(region),
+            "a clip wider than the region widened the effective clip"
+        );
+        r.push_clip(Rect::new(Point::new(8, 16), Size::new(16, 4)));
+        assert_eq!(
+            r.clip_bounds(),
+            Some(Rect::new(Point::new(8, 16), Size::new(16, 4)))
+        );
+
+        // Unbalanced pops degrade to the region, never below it.
+        r.pop_clip();
+        r.pop_clip();
+        r.pop_clip();
+        r.pop_clip();
+        assert_eq!(
+            r.clip_bounds(),
+            Some(region),
+            "the region must survive an unbalanced pop — it is the root"
+        );
+        Renderer::pixel(&mut r, Point::new(1, 17), Rgb888::WHITE).unwrap();
+    }
+
+    /// A surface too small for the declared policy is refused at construction,
+    /// before anything paints into it — the runtime half of the capacity proof,
+    /// which the layered renderer runs generically rather than per backend.
+    #[test]
+    #[should_panic(expected = "too small for this frame policy")]
+    fn a_surface_too_small_for_the_policy_is_refused() {
+        let _ = RasterRenderer::<
+            EgRasterizer,
+            FramebufBlitter<Rgb888, _>,
+            Tiles<240, 24>,
+        >::with_framebuf(
+            EgRasterizer,
+            Size::new_equal(240),
+            surface_units::<Rgb888>(240),
+        );
+    }
+}

@@ -547,12 +547,6 @@ impl<C: Color + PackedColor, B: FramebufStorage<C>> Framebuf<C, B> {
     /// planner guarantees it never does, and the capacity check at `attach`
     /// guarantees the planner's own bound fits — this is the backstop for a
     /// renderer driven outside that path.
-    // WS6.4e: this module is unconditional but its only caller today is the
-    // embedded-graphics backend, so a no-eg build reports it dead. Scoped
-    // rather than a bare `allow`, so genuine deadness is still reported on the
-    // configuration that has a caller — and both go away with the layer split's
-    // `FramebufBlitter::begin_region`, which is unconditional and calls this.
-    #[cfg_attr(not(feature = "embedded-graphics"), allow(dead_code))]
     pub(crate) fn retarget(&mut self, region: Rect) {
         debug_assert!(
             region_units(region.size.width, region.size.height, C::PPS)
