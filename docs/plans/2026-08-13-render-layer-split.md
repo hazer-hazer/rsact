@@ -1,0 +1,1001 @@
+# Render layer split — architecture plan
+
+**Status: design, ready to implement after WS6.4e. No code written.**
+
+`EGRenderer` fuses three jobs — coordinating clips and regions, running
+rasterization algorithms, and owning pixel storage. This splits them:
+
+```
+Widget ──▶ Renderer ─────────▶ Rasterizer ──────────▶ Blitter
+           (L1, trait)         (L2, geometry→spans)   (L3, spans→pixels)
+
+           clip stack          clip = span bound      owns storage + region
+           region cursor       AA coverage            fill_span / blend_span
+           culling             glyph loop (WS15)      addressing, rotation
+           absolute coords ───────────────────────▶   rebases via bounds()
+```
+
+| | region | clip | the loan |
+|---|---|---|---|
+| L1 `Renderer` | resets stack, forwards | **stack + composition** | maps `detach`/`attach` |
+| L2 `Rasterizer` | never learns it exists | span bound (via `RasterCtx`) | — |
+| L3 `Blitter` | **windowing** | (`RasterCtx` guarantees it) | **holds it** |
+
+Neither clip nor region crosses all three layers. That is what makes a **GPU**
+expressible as L1 alone: it fuses rasterizer and blitter *in hardware*, and so
+fuses clip and region back into scissor-on-an-attachment — precisely the pair
+this stack splits. It is the only such case. `RecordingRenderer` and
+`NullRenderer` are L1 for a different reason: a recorder logs *primitives*, which
+do not exist below L1.
+
+**L2/L3 is a crate-internal seam.** `RasterCtx::new` is `pub(crate)`, so a
+downstream crate can write a `Blitter` but cannot drive a `Rasterizer`. `Renderer`
+is the published backend seam, so the extension promise binds once, at L1.
+
+Three concrete renderers after the split:
+
+```rust
+RasterRenderer<EgRasterizer,       FramebufBlitter<Rgb565, &'static mut [u16]>, Tiles<240, 24>>
+RasterRenderer<TinySkiaRasterizer, PixmapBlitter,                              Unbounded>
+RasterRenderer<RsactRasterizer,    …>   // planned
+```
+
+`EGRenderer` and `TinySkiaRenderer` cease to exist.
+
+---
+
+## Planned, not built
+
+Each must be *expressible* without rebuilding the architecture. For each: what
+reserves it, and the constraint its implementation must respect — the constraints
+are the part worth keeping, because they are what stops the feature being
+designed twice.
+
+| Item | Reserved by | Constraint |
+|---|---|---|
+| **`RsactRasterizer`** (rsact's own, AA + blending) | the `Rasterizer` trait; `RasterCtx::blend`; rasterizer *receives* the blitter (an AA-into-scratch path needs two blitters live in one call) | On a non-blending target, thresholding coverage at 128 leaves a **gapped** hairline — both pixels of each 45° step fall below it. Aliasing is an algorithm choice, so the rasterizer must be able to ask whether blending is real. The query is deliberately not designed yet; `blend_span`'s degrading default is not a substitute for it |
+| **`DirectBlitter`** (straight to panel, no storage) | `Blitter`'s vocabulary contains no storage — `bounds()`, `fill_span()`, `begin_region()` (the address window); `capacity()` returns `Option` so "no bound" is expressible | **(a)** A paged mono panel cannot be driven this way: one SSD1306 GDDRAM byte is 8 vertically stacked pixels, a span is one row tall, and 4-wire SPI is write-only — so page-packed targets need a `Framebuf`. **(b)** The dominant cost is per-span window setup (`CASET`/`RASET`/`RAMWR`, measured F ≈ 10–30 µs), not overdraw, so it wants scanline-ordered emission or a 1-row tile. **(c)** Priming makes the overdraw floor ≥2× region area. Supersedes `output/mod.rs:20-22`, which records a direct renderer taking a `DrawTarget` as its own L1 parameter — write the supersession into that note |
+| **DMA2D / hardware fill** | `fill_rect` is a `Blitter` method; a blitter can wrap another | Not a decorator over `T: Blitter` — a register fill needs `OMAR`/`OOR`/`OPFCCR` and the trait exposes no base pointer. It wraps the **concrete** `FramebufBlitter`. Second: DMA2D is asynchronous behind the D-cache on F7/H7, so a hardware `fill_rect` followed by a CPU `blend_span` on an overlapping span races — the fence cannot wait for `detach` |
+| **GPU backend** | `Renderer` stays a trait | — |
+| **Display rotation** (WS6.8) | addressing lives *inside* the blitter; `local`/`pixel_index`/`span_range` are shared **helpers**, not trait methods | `bounds()` stays in unrotated absolute space, so L1's clips and L2's spans never learn about rotation. A provided trait method would hard-code `y * width + x` and foreclose both rotation and page packing |
+| **Packed policies / e-paper** (WS6.5) | Appendix A + `align_region` | 12-bpp RGB444 (2 px per 3 bytes) and multi-plane e-paper (two independent 1-bpp RAM planes) are **out of scope** — state it, or `Packing` is reopened by the next panel |
+| **Offscreen layers** | a blitter with its own `bounds()` | This, not a clip variant, is where coordinate rebasing returns |
+
+---
+
+## The sketch
+
+Bodies are omitted only where they would be rasterization algorithms or storage
+arithmetic.
+
+```rust
+//! Three-layer render split. NOT COMPILED — a design sketch.
+//!
+//! Existing types assumed: `Color`, `Point`, `Size`, `Rect`, `Angle`, `Path`,
+//! `CornerRadii`, `DrawStyle<C>` (`fill`, `stroke`, `stroke_width`,
+//! `stroke_alignment`), `DrawImage<'_, C>`, `RenderResult`, `PackedColor`,
+//! `Framebuf<C, B>` / `FramebufStorage<C>` (WS6.4e's renames), `FramePolicy`,
+//! `Unbounded`, `Tiles<W, H>`, `Attachment<S>` / `Attached` / `Detached`.
+//!
+//! Spellings that differ from the obvious guess: `Angle::FULL_CIRCLE` (not
+//! `Angle::full()`), `Size::area()` (there is no `Rect::area()`), and `Vec` —
+//! neither `tinyvec` nor `heapless` is a dependency.
+
+use core::ops::Range;
+
+// ===========================================================================
+// Shared vocabulary
+// ===========================================================================
+
+/// One horizontal run of pixels. **Absolute** coordinates.
+///
+/// `{y, x, w}` rather than `{y, x: Range}` because `Range` is not `Copy` and
+/// every defaulted method reads the span twice.
+///
+/// **Spans never wrap a row.** The one case where wrapping would win — a rect
+/// spanning the blitter's full width — is `fill_rect`, which the blitter
+/// coalesces using its own stride. A wrapping span would be the rasterizer
+/// asserting it knows that stride, which is L3's private fact and wrong the
+/// moment a region is retargeted.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Span {
+    pub y: i32,
+    pub x: i32,
+    pub w: u32,
+}
+
+impl Span {
+    pub const fn new(y: i32, x: i32, w: u32) -> Self;
+    pub const fn x_range(&self) -> Range<i32>;
+    pub const fn len(&self) -> usize;
+    pub const fn is_empty(&self) -> bool;
+
+    /// Clip to `rect`, returning the surviving span **and the offset into any
+    /// per-pixel data indexed from the original start**.
+    ///
+    /// That offset is why this is a method rather than three inline copies:
+    /// forgetting it shifts a coverage array by a few pixels, which yields a
+    /// plausible image rather than a failure.
+    pub fn clip_to(&self, rect: &Rect) -> Option<(Span, usize)>;
+}
+
+/// Absolute → blitter-local addressing. **Helpers, not a contract**: a plain
+/// row-major framebuf uses them, a rotating or page-packed blitter maps its own
+/// way. Free functions rather than provided trait methods, so that overriding
+/// is not a special case.
+pub const fn local(bounds: &Rect, p: Point) -> Point;
+pub const fn pixel_index(bounds: &Rect, p: Point) -> usize;
+pub const fn span_range(bounds: &Rect, span: Span) -> Range<usize>;
+
+// ===========================================================================
+// Layer 3 — Blitter: where pixels physically land
+// ===========================================================================
+
+/// Accepts already-clipped, already-rasterized pixel work. Named in the
+/// Skia/AGG sense. It is **not** the buffer itself — that is a
+/// `FramebufStorage`, which a `FramebufBlitter` borrows.
+///
+/// The single required *drawing* method is a **row run**, because that is what
+/// a packed framebuffer does best (`slice::fill` inside one row) and what a
+/// display window does best (one SPI burst). This inverts today's
+/// `draw_iter`-required arrangement, which forces every fill algorithm to
+/// destructure output it already had in span form. WS6.3b is the precedent: it
+/// already overrides `fill_solid` at framebuf and renderer level for exactly
+/// this reason.
+///
+/// **No associated consts.** They make a trait dyn-incompatible (E0038), which
+/// would permanently foreclose `dyn Blitter<Color = C>` — the one lever that
+/// would collapse the rasterizer × blitter monomorphization cross-product.
+/// Nothing takes that lever today; the design must not remove it.
+pub trait Blitter {
+    type Color: Color;
+
+    /// The absolute rect it currently accepts writes for.
+    /// After `begin_region(r)`, this is `r`.
+    fn bounds(&self) -> Rect;
+
+    /// Units it can hold, or `None` for no storage bound at all
+    /// (`DirectBlitter`, a GPU attachment). Two states, because at the *value*
+    /// level "the type cannot say" does not arise — that case belongs to the
+    /// compile-time proof, which reads the storage type directly.
+    ///
+    /// **A unit is one `C::Storage` element** — the same vocabulary
+    /// `FramebufStorage::unit_count` and `region_units` already use, so the
+    /// value drops straight into `assert_policy_fits`. For a colour that does
+    /// not pack, one unit is one pixel, so `PixmapBlitter` reports
+    /// `width * height`.
+    fn capacity(&self) -> Option<usize>;
+
+    // ── required ───────────────────────────────────────────────────────────
+
+    /// `span` is guaranteed inside `bounds()` by the caller (`RasterCtx`).
+    fn fill_span(&mut self, span: Span, color: Self::Color);
+
+    /// Aim at `region`: retarget the framebuf, open the panel's address window,
+    /// bind an attachment — **and prime it**. Unconditional, including for a
+    /// blitter already spanning the frame, so `bounds() == region` always and a
+    /// caller carries one rect.
+    ///
+    /// **Required, not defaulted**: a no-op default would not retarget, and
+    /// every addressing helper assumes it did.
+    ///
+    /// **Priming belongs here, atomically with the retarget.** A region is
+    /// scratch with no history (WS6.4c(1)), so it must start at the true
+    /// background or a tile flushes with holes; the region clip is pushed by L1
+    /// *after* this returns, so the fill cannot go through the clipped path. The
+    /// background is a colour-level fact (`C::default_background()`), which is
+    /// why L3 can supply it without a theme.
+    ///
+    /// There is no `end_region`. Every implementation of it in the current
+    /// codebase is a no-op, and the one real job it could have — a completion
+    /// barrier for asynchronous writes — belongs where the loan goes back.
+    fn begin_region(&mut self, region: Rect) -> RenderResult;
+
+    // ── defaulted; override where the layout or hardware helps ─────────────
+
+    /// Also the vertical-run case (`width == 1`): borders, separators,
+    /// scrollbar tracks.
+    ///
+    /// **A vertically packed framebuf must override this.** The row default is
+    /// correct there but ~8× pessimal: on page-packed storage a 1×8 run is one
+    /// byte, and the default turns a 64 px separator into 64 read-modify-writes
+    /// of the same 8 bytes.
+    fn fill_rect(&mut self, rect: Rect, color: Self::Color) { /* rows */ }
+
+    /// Distinct colours — images, gradients. `colors.len() == span.len()`,
+    /// debug-asserted.
+    fn fill_run(&mut self, span: Span, colors: &[Self::Color]) { /* per px */ }
+
+    /// Anti-aliased run. `coverage.len() == span.len()`; 0 = untouched.
+    ///
+    /// Exercised from day one: `TinySkiaRasterizer` emits coverage from a
+    /// `Mask`. The default thresholds at 128, which is a **last resort** and
+    /// not a story for 1-bpp — see the `RsactRasterizer` row above.
+    ///
+    /// Deliberately no `read_pixel`: blending is the only reason to read, so
+    /// the capability and its use stay in one method instead of two that can
+    /// disagree.
+    fn blend_span(&mut self, span: Span, color: Self::Color, coverage: &[u8]) {
+        /* threshold at 128 */
+    }
+
+    /// Worth overriding: thin-stroke algorithms (Bresenham, Wu, circle outline)
+    /// emit nothing but these, and a framebuffer's pixel write skips the range
+    /// setup a length-1 span pays for.
+    fn pixel(&mut self, p: Point, color: Self::Color) {
+        self.fill_span(Span::new(p.y, p.x, 1), color)
+    }
+}
+
+/// A blitter over a `Framebuf` the caller owns. `A` is the attachment
+/// type-state: a parked blitter has no framebuf *field*, so there is nothing to
+/// unwrap and no "drawing while detached" branch anywhere.
+///
+/// **No `P` parameter**: a policy is the application's declaration about
+/// frames, not a property of a thing that merely has a size.
+///
+/// Attach/detach are **inherent methods**, as they are today on both concrete
+/// renderers. No trait pair until something is generic over them — and `detach`
+/// returning an **owned** `B` is what satisfies WS6.7's DMA-soundness
+/// requirement (a borrow the core can still write through is UB, which is why
+/// `embedded-dma`'s `ReadBuffer` is `unsafe`).
+pub struct FramebufBlitter<C, B, A = Attached>
+where
+    C: Color + PackedColor,
+    B: FramebufStorage<C>,
+    A: Attachment<Framebuf<C, B>>,
+{
+    framebuf: A::Slot,
+    viewport: Size, // the display's, not the region's
+}
+
+impl<C, B> FramebufBlitter<C, B, Detached> /* + the struct's bounds */ {
+    pub fn parked(viewport: Size) -> Self;
+    pub fn attach(self, storage: B) -> FramebufBlitter<C, B, Attached>;
+}
+
+impl<C, B> FramebufBlitter<C, B, Attached> /* + the struct's bounds */ {
+    pub fn new(viewport: Size, storage: B) -> Self;
+    pub fn detach(self) -> (FramebufBlitter<C, B, Detached>, B, Rect);
+}
+
+impl<C, B> Blitter for FramebufBlitter<C, B, Attached> {
+    type Color = C;
+    fn bounds(&self) -> Rect;
+    fn capacity(&self) -> Option<usize> { Some(self.framebuf.capacity_units()) }
+    fn fill_span(&mut self, span: Span, color: C);            // span_range + packing
+    fn fill_rect(&mut self, rect: Rect, color: C);            // whole-word runs;
+                                                              // coalesces all rows
+                                                              // when full width
+    fn blend_span(&mut self, span: Span, color: C, cov: &[u8]); // real RMW
+    fn begin_region(&mut self, region: Rect) -> RenderResult;    // retarget + prime
+}
+
+/// A blitter over a tiny-skia `Pixmap` — the desktop/simulator sink.
+///
+/// `Pixmap::take` + `from_vec` re-stride the storage, which is how
+/// `begin_region` reshapes it per region (the trick WS6.4d already uses), so
+/// its bound is a byte budget exactly as for a framebuffer. The loan is the
+/// pixels, which the simulator takes back from `detach` and displays.
+pub struct PixmapBlitter<A = Attached> { /* pixmap: A::Slot, viewport: Size */ }
+
+impl Blitter for PixmapBlitter<Attached> {
+    type Color = tiny_skia::Color;
+    fn bounds(&self) -> Rect;
+    fn capacity(&self) -> Option<usize>;   // width * height — one unit per pixel
+    fn fill_span(&mut self, span: Span, color: Self::Color);
+    fn blend_span(&mut self, span: Span, color: Self::Color, cov: &[u8]); // real RMW
+    fn begin_region(&mut self, region: Rect) -> RenderResult;  // re-stride + prime
+}
+
+// ===========================================================================
+// The clip gate
+// ===========================================================================
+
+/// The **only** way a rasterizer touches a blitter.
+///
+/// Both fields private and the constructor `pub(crate)`, so a `Rasterizer` impl
+/// has no path to `T`, and `clip ⊆ blitter.bounds()` holds by construction.
+///
+/// | | enforced? |
+/// |---|---|
+/// | writing outside the blitter | **impossible** — private field |
+/// | writing outside the clip | **impossible** — every method intersects |
+/// | retargeting mid-primitive | **impossible** — `begin_region` is not here |
+/// | *bounding your loops* by the clip | advisory — spray-and-clip is correct, slow |
+///
+/// The last row cannot be closed by types but can be measured: count
+/// fully-clipped-away spans and surface it in debug.
+pub struct RasterCtx<'a, T: Blitter + ?Sized> {
+    blitter: &'a mut T,
+    clip: Rect,
+}
+
+impl<'a, T: Blitter + ?Sized> RasterCtx<'a, T> {
+    /// Only the renderer builds one — this is where `clip ⊆ bounds` is made true.
+    pub(crate) fn new(blitter: &'a mut T, clip: Rect) -> Self {
+        let clip = clip.intersection(&blitter.bounds());
+        Self { blitter, clip }
+    }
+
+    /// Advisory: bound your loops with this and nothing is thrown away.
+    pub fn clip(&self) -> Rect { self.clip }
+
+    /// For delegating to another primitive — every default body needs it.
+    pub fn reborrow(&mut self) -> RasterCtx<'_, T>;
+
+    pub fn span(&mut self, span: Span, color: T::Color);
+    pub fn pixel(&mut self, p: Point, color: T::Color);
+    pub fn rect(&mut self, rect: Rect, color: T::Color);
+
+    /// Clipping slices per-pixel data in step — `Span::clip_to` returns the
+    /// offset so that arithmetic exists once.
+    pub fn run(&mut self, span: Span, colors: &[T::Color]);
+    pub fn blend(&mut self, span: Span, color: T::Color, coverage: &[u8]);
+}
+
+// ===========================================================================
+// Layer 2 — Rasterizer: geometry → spans
+// ===========================================================================
+
+/// Shared scan conversion. Every `Rasterizer` default body is a one-line
+/// delegation here, so a default is real drawing code rather than a stub, and
+/// it is shared rather than monomorphized per rasterizer.
+///
+/// It is also the home for primitives embedded-graphics does not have.
+/// `raster::polygon` is **not new code**: `eg/primitives/polygon.rs` already has
+/// `bounds()`, `lines()` (the stroke) and `contains()` (winding number), plus a
+/// fill that scans the bounding box testing `contains` per pixel — and it is
+/// **unreachable today**, because `Renderer::polygon` logs and skips instead of
+/// calling it. Moving it here supplies the default and fixes the no-op at once.
+/// Its two `TODO`s travel with it; they are not done.
+///
+/// The fill stays `O(w·h·edges)` on the move. A scanline fill emitting spans is
+/// the natural rewrite under this protocol, but mixing an algorithm change into
+/// a mechanical PR is how a refactor stops being reviewable — and the relocated
+/// version already draws where today's draws nothing.
+pub mod raster {
+    pub fn fill<T: Blitter + ?Sized>(cx: &mut RasterCtx<'_, T>, r: Rect, c: T::Color);
+    pub fn line<T: Blitter + ?Sized>(cx: &mut RasterCtx<'_, T>, from: Point, to: Point,
+        style: &DrawStyle<T::Color>);
+    pub fn arc<T: Blitter + ?Sized>(/* … */);
+    pub fn ellipse<T: Blitter + ?Sized>(/* … */);
+    pub fn polygon<T: Blitter + ?Sized>(/* … */);
+    pub fn path<T: Blitter + ?Sized>(/* … */);   // flatten → polygon
+    /* rect, rounded_rect, circle, sector, image — each exactly decomposed */
+}
+
+/// Stateless about *where* it draws — the blitter arrives per call.
+///
+/// That is required, not symmetry: a blitter that cannot read its own pixels
+/// needs AA composited into a one-scanline scratch and *then* emitted, so two
+/// blitters are live inside one primitive call. It also lets caches — a
+/// coverage line, a `Mask`, a glyph atlas — survive a blitter swap.
+///
+/// **One method per primitive, never a `PrimitiveKind` match.** A new variant
+/// breaks every downstream `match` on a version bump, and the `_ =>` wildcard
+/// that silences it turns every future primitive into a permanent silent no-op.
+/// This repo demonstrates the visible alternative: `polygon` is a logged no-op
+/// in both eg impls precisely because it is a named method. The `cx` repetition
+/// is the price; it is load-bearing (it is *why* the clip cannot be escaped) and
+/// confined to the trait definition.
+///
+/// **No primitive is ever unsupported.** Every method has a default that
+/// *draws*. Consequences:
+///
+/// - A new rasterizer is `impl Rasterizer for X {}` plus the overrides it has
+///   better algorithms for.
+/// - A **new primitive** must arrive with an exact decomposition onto the
+///   existing set — and `path` makes that always possible, since every 2D shape
+///   is a path. A primitive that cannot be expressed as one is a new
+///   *capability*, not new geometry, and does not go on this trait.
+/// - A default must never be a **lookalike** (a squircle drawn as a rounded
+///   rect): that renders a plausible wrong image, the worst failure mode in
+///   this design. Exact-or-via-`path`, never approximate.
+///
+/// **"Exact" means geometry, not pixels.** A default calls back through `self`,
+/// so it inherits *that rasterizer's* quality automatically — `circle` drawn via
+/// `self.arc` is anti-aliased exactly when the rasterizer is. What must agree
+/// between rasterizers is therefore only **parameter semantics**: which
+/// direction `sweep` runs and where angle zero sits, whether
+/// `StrokeAlignment::Inside` is inside the *path*, what a corner radius
+/// measures. Document those here as they are settled. Rasterizer *parity* is
+/// explicitly not a goal — differing output is the reason there is more than
+/// one.
+///
+/// The trait therefore requires **nothing**. `fill` and `pixel` are listed
+/// first because every override chain bottoms out in them, and `fill` is
+/// style-free because clears, backgrounds and region priming must not pay for
+/// style resolution.
+pub trait Rasterizer<T: Blitter + ?Sized> {
+    fn fill(&mut self, cx: &mut RasterCtx<'_, T>, rect: Rect, color: T::Color) {
+        raster::fill(cx, rect, color)
+    }
+    fn pixel(&mut self, cx: &mut RasterCtx<'_, T>, p: Point, color: T::Color) {
+        cx.pixel(p, color)
+    }
+    fn line(&mut self, cx: &mut RasterCtx<'_, T>, from: Point, to: Point,
+        style: &DrawStyle<T::Color>) { raster::line(cx, from, to, style) }
+    fn rect(&mut self, cx: &mut RasterCtx<'_, T>, rect: Rect,
+        style: &DrawStyle<T::Color>) { raster::rect(cx, rect, style) }
+    fn rounded_rect(&mut self, cx: &mut RasterCtx<'_, T>, rect: Rect,
+        corners: CornerRadii, style: &DrawStyle<T::Color>) { /* raster:: */ }
+    fn arc(&mut self, cx: &mut RasterCtx<'_, T>, top_left: Point, diameter: u32,
+        start: Angle, sweep: Angle, style: &DrawStyle<T::Color>) { /* raster:: */ }
+    fn sector(&mut self, cx: &mut RasterCtx<'_, T>, top_left: Point, diameter: u32,
+        start: Angle, sweep: Angle, style: &DrawStyle<T::Color>) { /* raster:: */ }
+    fn ellipse(&mut self, cx: &mut RasterCtx<'_, T>, bounding_box: Rect,
+        style: &DrawStyle<T::Color>) { /* raster:: */ }
+    fn polygon(&mut self, cx: &mut RasterCtx<'_, T>, points: &[Point],
+        style: &DrawStyle<T::Color>) { /* raster:: */ }
+    fn path(&mut self, cx: &mut RasterCtx<'_, T>, path: &Path,
+        style: &DrawStyle<T::Color>) { /* raster:: */ }
+    fn image(&mut self, cx: &mut RasterCtx<'_, T>, image: DrawImage<'_, T::Color>)
+        { /* per-row cx.run */ }
+
+    /// Exact: a full sweep. `EgRasterizer` **overrides** it —
+    /// `eg/primitives/circle.rs` has its own algorithm and taking the default
+    /// would silently discard it.
+    fn circle(&mut self, cx: &mut RasterCtx<'_, T>, top_left: Point,
+        diameter: u32, style: &DrawStyle<T::Color>)
+    {
+        self.arc(cx, top_left, diameter, Angle::zero(), Angle::FULL_CIRCLE, style)
+    }
+
+    // `glyphs` arrives with WS15. Its default is not geometry: the font layer
+    // supplies a coverage bitmap, so the default blits it row by row through
+    // `cx.blend`. Until then text keeps its per-pixel path through the existing
+    // `DrawTargetProxy` and the layering is clean everywhere else.
+}
+
+/// embedded-graphics algorithms, **as-is, no anti-aliasing**.
+///
+/// **Overrides** `line`, `rect`, `rounded_rect`, `circle`, `arc`, `sector`,
+/// `ellipse` — the seven eg has primitives for — each body being the delegation
+/// PR A leaves behind, with the receiver changed to `BlitTarget(cx)`.
+/// **Inherits** `raster::` for `polygon` and `path`, which eg does not have.
+/// `image` may go either way; today's `renderer_image` is the eg version.
+///
+/// **Do not override `fill`.** The default reaches `cx.rect` →
+/// `Blitter::fill_rect` → `Framebuf::fill_solid`, which is WS6.3b's whole-word
+/// path. Routing it through eg's `Rectangle` adds a hop for nothing.
+///
+/// No `C` parameter — the colour comes from `T::Color`, and a `PhantomData<C>`
+/// would add a monomorphization axis with no code difference.
+pub struct EgRasterizer;
+
+/// tiny-skia's rasterizer as an L2 citizen. Holds one reusable coverage `Mask`,
+/// refilled per primitive.
+///
+/// **The mask is keyed on `cx.clip()`, not on the region** — L2 never learns a
+/// region exists, and the clip is the largest rect it may write anyway.
+/// Reallocate only when the clip grows past `mask_for`.
+///
+/// **Generic over the blitter with no colour pinned**, which is the point: a
+/// `Mask` is colourless, so this fills coverage and hands it to
+/// `cx.blend(span, style_color, &coverage_row)` — making tiny-skia's
+/// anti-aliasing available over an Rgb565 framebuffer, not only over a `Pixmap`.
+///
+/// It never touches `PixmapMut`, `fill_path` or `stroke_path` — those are
+/// tiny-skia's *fused* API, and fusing is what this design undoes.
+/// `Mask::fill_path(&path, rule, anti_alias, transform)` is the primitive
+/// underneath them, and this repo already calls it (`tiny_skia/mod.rs:333`).
+pub struct TinySkiaRasterizer { mask: Option<Mask>, mask_for: Rect }
+
+/// Planned: rsact's own embedded-optimized rasterizer with blending and AA.
+/// Starts as `impl Rasterizer for RsactRasterizer {}` and grows override by
+/// override. Will hold one scanline of coverage, bounded by the clip width.
+pub struct RsactRasterizer { /* coverage: Vec<u8> */ }
+
+impl<T: Blitter + ?Sized> Rasterizer<T> for EgRasterizer { /* … */ }
+impl<T: Blitter + ?Sized> Rasterizer<T> for TinySkiaRasterizer { /* … */ }
+
+// ===========================================================================
+// Layer 1 — Renderer: what rsact-ui receives
+// ===========================================================================
+
+/// Unchanged by this plan: `size()` keeps its name, `clip_bounds` stays
+/// `Option<Rect>`, `type Policy` stays until Appendix A, and the geometry set
+/// is today's twelve methods.
+///
+/// `PrimitiveKind` survives as a **value** vocabulary — recording, replay,
+/// `Canvas`'s command list — never as this trait's dispatch. A new variant
+/// would be a breaking change for every third-party backend.
+pub trait Renderer { /* unchanged — see renderer.rs */ }
+
+// ── No `ClipStack` type ────────────────────────────────────────────────────
+//
+// Two things hold a clip stack after the split, and they are not
+// interchangeable:
+//
+//   1. `RasterRenderer` — the L1 renderer every rasterizer plugs into;
+//   2. `RecordingRenderer` — necessarily L1, because it logs *primitives* and
+//      `DrawOp::Clip`, none of which exist below L1, and it logs the
+//      **requested** rect while storing the **narrowed** one.
+//
+// (`NullRenderer` has none; a future `GpuRenderer` would have its own.)
+//
+// Extracting a shared type was considered and rejected: the invariant that
+// actually produced a bug — nested clips must compose, or a widget clip inside
+// a region clip lets drawing escape its tile — is already centralised in
+// `ViewportKind::nested_in`, and with `Cropped` deleted that composition IS
+// `Rect::intersection`. A shared type would wrap one line, and the two holders
+// do different things on mutation anyway.
+//
+// **`ViewportKind` is deleted with it.** `Cropped` has no live constructor and
+// no planned one; absolute positioning is a *bounds* extension
+// (`paint_bounds`/`ext_draw`, WS6.4c(G)), not a coordinate space, and offscreen
+// layers would rebase at L3 where `local()` already lives. That leaves
+// `Fullscreen` and `Clipped(Rect)`, and `Fullscreen` already behaves as
+// `Clipped(surface_rect)` everywhere — `renderer_clip_bounds` substitutes the
+// surface rect for it deliberately, because WS6.4b needed culling to pay on an
+// ordinary full-frame render and not only under tiles. So each stack becomes a
+// plain `Vec<Rect>` seeded with the surface rect.
+//
+// Two facts for the implementer: `DrawOp::Clip(Rect)` (`record.rs:33`) already
+// stores a plain rect, so the golden format is unaffected; and `record.rs:314`'s
+// `.unwrap_or_else(ViewportKind::root)` becomes `.unwrap_or(surface_rect)`.
+//
+// What must survive as documented, tested properties on each holder:
+//
+//   push  — stores `area ∩ top`, so the top IS the effective clip (this is what
+//           makes reading it for culling exact rather than approximate);
+//   pop   — never pops the root, so an unbalanced pop degrades rather than
+//           leaving the renderer with no clip;
+//   reset — a region is the ROOT of the stack, so no clip can escape it.
+
+/// The `Renderer` built around a `Rasterizer`, with the blitter as the
+/// interchangeable sink.
+///
+/// **No `where` clause on the struct.** Bounds live on the impls that draw —
+/// with them on the struct, the detached type `RasterRenderer<R, T::Parked, P>`
+/// is ill-formed (`E0277`), and adding the bound to fix it would restore the
+/// drawing-while-detached case the type-state exists to delete.
+pub struct RasterRenderer<R, T, P = Unbounded> {
+    rasterizer: R,
+    blitter: T,
+    clips: Vec<Rect>,
+    viewport: Size,
+    policy: PhantomData<fn() -> P>, // marker-only: no dropck, no auto-traits
+}
+
+impl<R, T, P> RasterRenderer<R, T, P>
+where R: Rasterizer<T>, T: Blitter, P: FramePolicy
+{
+    /// The **runtime** half of the capacity proof, and it genuinely works for
+    /// any blitter: `region::policy_units::<P>()` needs only `P`, because
+    /// `PIXELS_PER_UNIT` lives on the *policy* today. So:
+    ///
+    /// ```text
+    /// match blitter.capacity() {
+    ///     Some(units) => assert_policy_fits::<P>(units),
+    ///     None        => {}   // unbounded — nothing to check
+    /// }
+    /// ```
+    pub fn new(rasterizer: R, blitter: T, viewport: Size) -> Self;
+
+    fn clip(&self) -> Rect { *self.clips.last().expect("clip stack is never empty") }
+
+    /// `&mut self.rasterizer` and `&mut self.blitter` are disjoint fields, so
+    /// one `&mut self` yields both; elision gives both borrows the same
+    /// lifetime and the tuple return is accepted.
+    ///
+    /// **Hot path.** `Renderer::pixel` goes through here once *per glyph
+    /// pixel* — `DrawTargetProxy::draw_iter` is the only path text takes, and a
+    /// text-heavy frame is O(10⁴) calls. Against today that adds one
+    /// `Rect::intersection`, inside `RasterCtx::new`. If it shows up in a
+    /// profile, note that the intersection is *provably redundant here*:
+    /// `begin_region` seeds the stack with the region and `push_clip`
+    /// intersects, so `clip ⊆ bounds()` already holds for this renderer. It can
+    /// become a `debug_assert!` plus a plain assignment — but only behind a
+    /// second constructor, because the intersection is what makes the guarantee
+    /// structural for any *other* L1 that builds a `RasterCtx`.
+    fn split(&mut self) -> (&mut R, RasterCtx<'_, T>) {
+        let clip = self.clip();
+        (&mut self.rasterizer, RasterCtx::new(&mut self.blitter, clip))
+    }
+}
+
+/// **The compile-time half of the proof lives on the framebuf path only** — the
+/// one place a *static* capacity exists. It is two assertions, both unchanged in
+/// substance from `EGRenderer::assert_static_capacity` (`eg/renderer.rs:323`):
+///
+/// 1. `assert_policy_fits::<P>(units)` when `B::UNITS` is `Some(units)` — skip
+///    when `None`, which means "ask the value" and is `attach`'s job.
+/// 2. `P::PIXELS_PER_UNIT == C::PPS` — the two are separate values today and
+///    must be kept in step. Appendix A is what eventually deletes this one, by
+///    making them one value.
+///
+/// A `DirectBlitter` has neither a static capacity nor a `C: PackedColor`, which
+/// is why this cannot sit on generic `new`.
+///
+/// A `const` block is invisible to `cargo check` and rust-analyzer — only
+/// codegen evaluates it — so `region.rs`'s eager `const _: () = …` doctests
+/// remain the only check-time-visible form. That is today's behaviour.
+impl<R, C, B, P> RasterRenderer<R, FramebufBlitter<C, B, Attached>, P> {
+    pub fn with_framebuf(rasterizer: R, viewport: Size, storage: B) -> Self;
+    pub fn detach(self)
+        -> (RasterRenderer<R, FramebufBlitter<C, B, Detached>, P>, B, Rect);
+}
+
+impl<R, C, B, P: FramePolicy> RasterRenderer<R, FramebufBlitter<C, B, Detached>, P> {
+    /// Where the runtime half runs — the one place `P` and a live blitter's
+    /// capacity are both in scope.
+    ///
+    /// # Panics
+    /// If the loan is smaller than `P` requires (runtime-length buffers only).
+    pub fn attach(self, storage: B)
+        -> RasterRenderer<R, FramebufBlitter<C, B, Attached>, P>;
+}
+
+impl<R, T, P> Renderer for RasterRenderer<R, T, P>
+where R: Rasterizer<T>, T: Blitter, P: FramePolicy
+{
+    type Color = T::Color;
+    type Policy = P;
+
+    fn size(&self) -> Size { self.viewport }
+
+    fn begin_region(&mut self, region: Rect) -> RenderResult {
+        self.blitter.begin_region(region)?; // retargets AND primes
+        self.clips.clear();
+        self.clips.push(region); // the region is the ROOT — nothing escapes it
+        Ok(())
+    }
+
+    /// Kept, unlike on `Blitter`: this is where a batching rasterizer flushes
+    /// and where a GPU ends its pass.
+    fn end_region(&mut self) -> RenderResult { Ok(()) /* + rasterizer flush */ }
+
+    fn push_clip(&mut self, area: Rect) {
+        let nested = area.intersection(&self.clip());
+        self.clips.push(nested)
+    }
+    fn pop_clip(&mut self) { if self.clips.len() > 1 { self.clips.pop(); } }
+
+    /// `Option`, not `Rect`. There is no expressible "unbounded":
+    /// `Rect::intersection` uses non-saturating `+` and `u32::MAX as i32 == -1`,
+    /// so a `Rect::MAX` sentinel intersects to `Rect::zero()` — "unbounded"
+    /// would read as "clips everything".
+    fn clip_bounds(&self) -> Option<Rect> { Some(self.clip()) }
+
+    // Every geometry method is the same three lines — cull, split, forward:
+    fn rect(&mut self, rect: Rect, style: &DrawStyle<Self::Color>) -> RenderResult {
+        if !rect.intersects(&self.clip()) { return Ok(()) } // cull
+        let (r, mut cx) = self.split();
+        r.rect(&mut cx, rect, style);
+        Ok(())
+    }
+    // …and eleven more identical in shape.
+    //
+    // This is where a forwarding macro earns its place: one private impl inside
+    // this crate, mechanically identical bodies, and — unlike a macro over the
+    // *trait* definition — it hides nothing from a reader of the public API.
+    // `PrimitiveKind` cannot serve here either: building one to immediately
+    // destructure it would allocate for `polygon` and `path`.
+    //
+    // The same concession should cover in-crate *proxies*: `RenderCtx`
+    // (`rsact-ui/src/el/render.rs:392-597`) is 205 lines of twelve forwarders
+    // each carrying an identical `if muted { return Ok(()) }`.
+}
+
+// `UI`, `Frame`, the region planner and the loan loop are untouched:
+//
+//     let mut frame = ui.start_frame(&mut renderer);
+//     while frame.render(&mut renderer).is_some() {
+//         let (parked, buf, at) = renderer.detach();
+//         flush(&mut display, &buf, at);
+//         renderer = parked.attach(buf);
+//     }
+```
+
+---
+
+## Invariants
+
+Things an implementer must not break. Most are enforced by the shapes above;
+these are the ones worth checking against.
+
+1. **Absolute coordinates until inside the blitter.** The clip is absolute; a
+   second coordinate space would put every method on a seam. Matches shipping
+   behaviour — `flat_index` resolves absolute against the viewport.
+2. **Every position-dependent effect is a function of absolute coordinates** —
+   dithering, gradients, pattern fills. Tile-relative ones seam at every region
+   boundary. (WS6.4's standing invariant; unchanged.)
+3. **A region is the root of the clip stack**, and `push` intersects with its
+   parent. Both are what make `clip_bounds()` exact enough to cull on.
+4. **`begin_region` retargets and primes atomically**, before the region clip is
+   pushed.
+5. **Out-of-bounds writes are unrepresentable**, not checked — `RasterCtx`'s
+   private field and `pub(crate)` constructor are the mechanism, so nothing may
+   hand a rasterizer a `&mut T`.
+6. **No lookalike defaults.** Exact decomposition or `path`; a plausible wrong
+   image is the failure mode this design refuses.
+7. **`detach` returns an owned buffer** — WS6.7's DMA soundness depends on it.
+8. **Addressing stays overridable per blitter** (rotation, page packing), which
+   is why `local`/`pixel_index`/`span_range` are free functions.
+
+### Compile constraints found in review
+
+Each was verified against rustc; each is a place the obvious spelling fails.
+
+- **No `where` clause on `RasterRenderer`** — otherwise the detached type is
+  ill-formed (`E0277`).
+- **No associated consts on `Blitter`** — they make it dyn-incompatible (E0038).
+- **`Span` is `{y, x, w}`** — `Range` is not `Copy`, and defaults read the span
+  twice (`E0382`).
+- **The two halves of the capacity proof live in different places.** The
+  *runtime* half works generically — `policy_units::<P>()` needs only `P`,
+  because `PIXELS_PER_UNIT` is on the policy — so it runs in `new` and again in
+  `attach` (a re-lent runtime-length buffer has a new extent). The *static* half
+  needs `B::UNITS` and `C::PPS`, so it sits on the framebuf-specialized
+  constructor only.
+- **A colour-derived `PACKING` const would need `Color: PackedColor`**, which
+  `tiny_skia::Color` and `NullColor` fail — so packing may never be a bound on
+  `Blitter`. (Appendix A.)
+- **`clip_bounds` must stay `Option<Rect>`** — see the doc comment above.
+- **`PhantomData<fn() -> P>`**, not `PhantomData<P>` — no dropck, no
+  auto-traits.
+
+---
+
+## Declined
+
+Only the ones an implementer might otherwise re-decide.
+
+| Declined | Because |
+|---|---|
+| A `ClipStack` type | the invariant is already shared (`nested_in`); two holders, doing different things on mutation |
+| `PrimitiveKind` as trait dispatch (either layer) | a new variant breaks every downstream `match`; the `_ =>` wildcard makes future primitives permanent silent no-ops |
+| A geometry *specification* / rasterizer parity | differing output is the reason there is more than one rasterizer. Only parameter semantics are shared |
+| An error channel on L2/L3 | nothing to report once every primitive draws |
+| `read_pixel` on `Blitter` | blending is the only reason to read; one method keeps capability and use from disagreeing |
+| `end_region` on `Blitter` | every impl is a no-op; the async fence belongs where the loan goes back |
+| Per-axis region maxima | every real ceiling is a byte count or an alignment; a per-axis cap costs the shape-morphing win |
+| `Renderer::size()` → `viewport()` | cosmetic churn across live forwarders |
+| tiny-skia as an L1-only backend | `Mask` exposes the coverage its fused API is built on, so coverage is produced once and blended once — in our blitter. Pinning it to L1 would also lock its AA to a `Pixmap` |
+
+---
+
+## Where the code goes
+
+Proposed, and the implementer may move things — but decide it once, up front,
+rather than per type.
+
+```text
+rsact-render/src/
+  framebuf.rs            Framebuf · FramebufStorage · PackedColor   [WS6.4e puts these here]
+  renderer.rs            Renderer trait (unchanged) · NullRenderer · RasterRenderer
+  blitter/
+    mod.rs               Blitter · local · pixel_index · span_range
+    framebuf.rs          FramebufBlitter
+    pixmap.rs            PixmapBlitter                              [feature tiny-skia]
+  raster/
+    mod.rs               Span · RasterCtx · Rasterizer
+    scan.rs              the shared algorithms, re-exported so `raster::fill` resolves
+    eg.rs                EgRasterizer · BlitTarget                  [feature embedded-graphics]
+    tiny_skia.rs         TinySkiaRasterizer                         [feature tiny-skia]
+```
+
+**Feature gating.** `blitter/{mod,framebuf}.rs` and `raster/{mod,scan}.rs` are
+**unconditional** — they pull only `crate::{color, geometry, framebuf}`, which is
+the same reason WS6.4e makes `framebuf.rs` unconditional, and it is what lets a
+future backend use them without depending on embedded-graphics. Only the two
+backend adapters and `PixmapBlitter` are gated.
+
+**Two `DrawTarget` adapters coexist, and they are not the same thing.** Expect to
+be confused by this once:
+
+- `BlitTarget<'a, T>(RasterCtx<'a, T>)` — **new**, L2→L3, lets eg's
+  `StyledDrawable` algorithms emit into a blitter.
+- `DrawTargetProxy<'a, R: Renderer>` — **existing**, above L1, is how
+  `embedded-text`/u8g2 hand glyph pixels to a renderer. Unchanged by this plan;
+  text still arrives as `Renderer::pixel` until WS15.
+
+## Migration surface
+
+Everything that stops compiling, so it can be planned rather than discovered.
+
+| Site | What changes | PR |
+|---|---|---|
+| `rsact-ui/examples/{sandbox,scrollable}.rs` | name `AntiAliasingDisabled` explicitly — the witness is deleted | **A** |
+| `rsact-ui/examples/{icons,3d_printer,mem_usage_display_240_240}.rs` | `EGRenderer::new(…)` → `RasterRenderer::with_framebuf(EgRasterizer, …)` | **C** |
+| `rsact-render/src/lib.rs:80` | prelude re-exports `EGRenderer` | **C** |
+| `eg/renderer.rs`'s tests (`:1450`–`:1739`) | move with the code they cover; the `pixel_alpha` invariance test is deleted outright (its subject is gone) | **A**/**C** |
+| `rsact-ui/src/el/ctx.rs` — `Wtf<R, …>` | nothing structural: `W::Renderer` is still one type, now a longer one. Consider a type alias in the prelude so examples name it once | **C** |
+| `rsact-ui/src/ui.rs` `start_frame` | unchanged — `type Policy` stays until Appendix A | — |
+
+## Definition of done
+
+Per PR, so an implementer knows when to stop.
+
+- **A** — `cargo check` clean across the feature powerset; no occurrences of
+  `pixel_alpha`, `AntiAliasing`, `EgPrimitive` or `EgPrimitiveRenderer` remain;
+  every suite green; **no golden re-blessed** (nothing observes AA — if one
+  moves, that is a finding).
+- **B** — the new modules compile and are dead: nothing outside them references
+  `Blitter`, `Rasterizer` or `RasterRenderer`. Suites and goldens untouched by
+  construction.
+- **C** — `EGRenderer` and `ViewportKind` are gone; the examples run; **the
+  tile/schedule goldens are byte-identical**; the metrics and size probes are
+  within their existing gates.
+- **D** — `TinySkiaRenderer`, `clip_mask` and `rebuild_clip_mask` are gone; the
+  simulator renders; the tiny-skia suite is green minus WS6.11's five deleted
+  tests.
+
+## Sequencing
+
+**WS6.4e first** — it blocks everything here, and it is a pure move + rename
+reviewed as its own PR. One thing to get right in it: make WS6.3b's fast
+`fill_solid` an **inherent** `Framebuf` method with `DrawTarget::fill_solid`
+delegating, or `FramebufBlitter::fill_rect` inherits a framebuf without the
+8–32× win and re-forks the addressing.
+
+| PR | Content |
+|---|---|
+| **A — delete eg AA** | `eg/primitives/*`'s `draw_aa` halves, `EgPrimitive`, `EgPrimitiveRenderer`, `AntiAliasing{,Enabled,Disabled}`, `pixel_alpha` + its test, and the second (AA) `Renderer` impl. Also the two checkbox page goldens |
+| **B — the architecture, additive** | `Span`, `Blitter`, `FramebufBlitter`, `PixmapBlitter`, `RasterCtx`, `raster::*`, `Rasterizer`, `EgRasterizer`, `TinySkiaRasterizer`, `RasterRenderer`. Wired to nothing |
+| **C — integration, atomic** | `EGRenderer` replaced by `RasterRenderer<EgRasterizer, FramebufBlitter<…>>`; `ViewportKind` deleted; `Whole<W, H>` deleted |
+| **D — tiny-skia port** *(or fold into C)* | `TinySkiaRenderer` replaced by `RasterRenderer<TinySkiaRasterizer, PixmapBlitter>`; `clip_mask`/`rebuild_clip_mask` and WS6.11's five tests deleted — `RasterCtx` clips before any blitter sees a span, so a backend-side clip mask has nothing left to do; the simulator takes pixels from the blitter's loan |
+
+No half-refactored `EGRenderer` may exist in history, which is why C is one
+commit-range. D may be separate — an untouched second backend is not a
+half-refactored one.
+
+**PR A is smaller than it looks, and that is what keeps B honest.** Every non-AA
+`draw` in `eg/primitives/*` is a ~10-line delegation to embedded-graphics'
+`StyledDrawable` — `Arc::new(…).draw_styled(&style.into_primitive_style(),
+renderer)`, and the same shape for Circle, Line, RoundedRectangle, Ellipse,
+Sector. So of 1113 lines there, the AA halves plus both traits plus the witness
+are the bulk; ~60 lines of delegation survive, plus `polygon.rs`. Both traits can
+therefore die in PR A — they exist to hand primitives `pixel_alpha` (gone) and
+`draw_pixels`; pure delegation needs only a `DrawTarget`, and `EGRenderer`
+already is one. PR B's `EgRasterizer` is then those same bodies with the receiver
+changed to `BlitTarget(&mut RasterCtx)` — a substitution, not a rewrite.
+
+### Acceptance
+
+Architectural consistency and correctness, plus one falsifiable check: **no
+golden moves.**
+
+Every existing golden is an L1 draw-op log (`checkbox_checked_64.txt` is four
+primitive names and their rects) or a planner measurement
+(`tile_schedule_240.txt`, `tile_plan/shape/merge/damage`). None can observe
+anti-aliasing or spans — `pixel_alpha` is called *inside* `Renderer::circle`'s
+body, below the seam `RecordingRenderer` sits on, and the span protocol is below
+it too. They assert what the widget layer *asked* the renderer to draw, which is
+exactly what must not change.
+
+So the tile/schedule goldens must come out **byte-identical across every PR; a
+golden that moves is a finding, not a re-bless.** Precedent: PR #37 landed the
+`RenderCtx` seam "behaviour-neutral and proved so, every suite green with NOT ONE
+golden re-blessed."
+
+WS6.9's deferred **PNG** half becomes a post-refactor item — it is the only
+golden that can see AA or spans, and worth most once `RsactRasterizer` exists.
+
+---
+
+## Open
+
+1. **PR D separate, or folded into C?**
+2. **`EgRasterizer` is `draw_iter`-shaped internally.** The bridge is a ~40-line
+   `BlitTarget<'a, T>(RasterCtx<'a, T>)` implementing `DrawTarget` with
+   `draw_iter → cx.pixel`, `fill_solid → cx.rect`, `fill_contiguous → cx.run`,
+   which preserves the WS6.3b win. So the span win covers **fills; outlines and
+   strokes stay pixel-shaped**, because that is how embedded-graphics' own
+   algorithms are written. `RsactRasterizer` is where the stroke side becomes
+   span-shaped.
+3. **Monomorphization.** `T` reaches the widget tree through `WidgetCtx`, so the
+   tree instantiates per (rasterizer, blitter) pair. Two levers exist and neither
+   is taken: `dyn Blitter<Color = C>` stays possible and would collapse the
+   rasterizer half without touching a rasterizer body; deleting
+   `Renderer::Policy` (Appendix A) would remove the last associated type a
+   `dyn Renderer<Color = C>` must name — and *that* is what would shrink the
+   widget tree, which is the bigger prize.
+
+Related: **ISSUE-7** (`path`'s `ArcTo` uses `current_pos` instead of the
+segment's `center`, never advances the cursor, and ignores `Close`) is fixed
+inside `raster::path`. The WS6-wide review of this plan lives in the roadmap, not
+here.
+
+---
+
+## Stage 2 — region alignment (WS6.5)
+
+One real defect survives the split, fixable without any of Appendix A.
+
+The design pads rows for packed colour but never *aligns* the region origin.
+`BinaryColor` already has `PPS = 8`, so a mono tiled policy is writable today,
+passes the existing packing assert, and could receive a region starting at x = 3
+— whose leading byte straddles pixels 0–7 at flush, on hardware (SSD1306 over
+4-wire SPI, e-paper RAM) that cannot be read back to fix it. Latent, since no
+such policy ships.
+
+```rust
+/// Snap a region **outward** to one a `pps`-packed output can address.
+/// Idempotent, never shrinks; `pps == 1` is the identity.
+pub const fn align_region(region: Rect, pps: usize) -> Rect;
+```
+
+Three orderings must be specified with it, because each is a way to get it wrong:
+
+1. **Capacity is tested on the aligned rect** — the merge veto currently tests
+   the raw union (`region.rs:600`), and a union that fits can exceed capacity
+   once aligned.
+2. **Alignment may exceed the viewport.** On a 122-px-wide e-paper, damage at
+   x = 118..122 aligns out to 112..128. Legal in panel RAM (16 bytes = 128
+   addressable columns, the last 6 invisible), but it must be stated.
+3. **The chunker aligns steps as well as origins**, and is total because
+   `step ≥ cell`:
+
+   ```rust
+   let cell = /* 1 or pps, per axis */;
+   let step_x = round_down_to(fit_width, cell.width).max(cell.width);
+   let step_y = round_down_to(max_units / band_units(step_x), cell.height)
+                    .max(cell.height);
+   ```
+
+---
+
+## Appendix A — deferred byte/packing rework
+
+Deferred because nothing in tree consumes it, the drift it would fix is already
+guarded by a `const` assert (`eg/renderer.rs:335`), and `region.rs:312-317`
+scopes the first packed policy as "a five-line ZST setting `PIXELS_PER_UNIT` to
+8; the backend asserts it against the colour's own packing, so the two cannot
+drift". **Trigger: the first packed surface that needs tiling, or a colour whose
+storage ratio is not a whole number.**
+
+```rust
+pub enum Packing {                    // a report from the storage layer
+    BytesPerPixel(u32),               // Rgb565 = 2, a packed Rgb888 = 3
+    PixelsAlongX(u32),                // 1-bpp rows; e-paper's byte columns
+    PixelsAlongY(u32),                // SSD1306/SH1106 pages
+}
+pub enum Ceiling { Unbounded, Tile(Size) }   // what the app declares
+```
+
+- **Count bytes, not `C::Storage` elements.** `PPS: usize` can only say *pixels
+  per element*, never *elements per pixel*, so a 3-bytes-per-pixel colour in
+  `[u8]` is inexpressible; today's workaround is `Rgb888: Storage = u32`,
+  wasting 25%. Bytes *permit* the fix but do not perform it: expressing 3 needs
+  `Storage = u8` plus byte-indexed addressing.
+- **Padding and alignment are one fact.** A byte spanning several pixels cannot
+  be half-written — simultaneously why a 122-px 1-bpp row costs 16 bytes and why
+  the region must *start* on a byte boundary.
+- **The axis is what a scalar cannot carry.** `region_units` is
+  `ceil(w / pps) * h` (`renderer.rs:33`) — horizontal packing hard-coded. The
+  example that actually differs is **SH1106's 132 columns**: a 132×8 page-row is
+  132 bytes packed vertically, 136 under the current formula. (Whenever `8 | w`
+  and `8 | h` the two agree, so a 128-wide SSD1306 shows nothing.) The axis earns
+  its place through `align()`, not `bytes_of()`.
+- **Packing belongs to the storage layer**, not the policy and not `Blitter`: it
+  is the product of the colour and the layout, both storage facts. Two
+  constraints — a colour-derived default requires `Color: PackedColor`, which
+  `tiny_skia::Color` and `NullColor` fail; and if the axis stays *overridable*
+  the drift is merely relocated (a blitter with `Color = Rgb565` declaring
+  `PixelsAlongY(8)` computes 1/16 of the real bytes and compiles silently). So
+  derive the ratio and declare only the axis, or assert against
+  `size_of::<B::Storage>()`.
+- **`MAX_REGION: Option<Size>` was a rectangle nothing treated as one.** Every
+  consumer reduced it to units immediately, and a rect-shaped const read only as
+  a scalar already cost a bug — a legal 16×38 merge chunked at y = 24, slicing a
+  widget (`region.rs:106`). **This half is a pure deletion and could be taken
+  early, independently of everything else here.**
+- **Not a transfer denominator.** Storage and wire disagree on real parts
+  (`Rgb666` stores 4 B/px; ST7789 18-bit mode ships 3), and "bytes" is not
+  transport-ready without byte order — ST7789 wants RGB565 MSB-first, and a
+  `[u16]` framebuf flushed raw on a little-endian Cortex-M comes out swapped
+  (the crate carries unused `ByteOrder` markers at `color.rs:112`). That is
+  WS6.7's problem.
+- **No `Ceiling::Bytes` / `Budget<N>`.** Its justification was nRF52 SPIM
+  `MAXCNT` as a *region* ceiling, which is a misreading: `MAXCNT` bounds one
+  EasyDMA transaction, not one region, and every driver splits a `RAMWR` stream
+  across many transfers while holding CS. nRF52832's `TXD.MAXCNT` is 8 bits —
+  255 bytes, 127 RGB565 pixels — yet nRF52832 + ST7789 ships.
+- **Deleting `Renderer::Policy` and adding `fn limits(&self, viewport)`** is
+  correct once the ceiling needs the packing to become a number, and is a real
+  simplification then. **Not defaulted**: `renderer.rs:220` argues the absence of
+  a default is a feature, and `RenderCtx` — which exists only to forward — is the
+  live victim of a silent one.
