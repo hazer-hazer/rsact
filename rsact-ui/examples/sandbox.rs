@@ -38,7 +38,7 @@ fn main() {
     // The framebuffer is the APPLICATION's — rsact never allocates one
     // and never owns one. On a device this would be a `StaticCell` array
     // placed wherever that board wants it (SDRAM, DTCM, a DMA pool).
-    let mut renderer = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
+    let mut renderer = EGRenderer::<Rgb888, _>::new(
         viewport,
         vec![0u32; viewport.area() as usize].into_boxed_slice(),
     );

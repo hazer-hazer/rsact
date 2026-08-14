@@ -152,10 +152,6 @@ name = "flex"
 required-features = ["std", "simulator", "embedded-graphics"]
 
 [[example]]
-name = "primitives_aa"
-required-features = ["std", "simulator", "embedded-graphics"]
-
-[[example]]
 name = "3d_printer"
 required-features = ["std", "simulator", "embedded-graphics", "tiny-icons", "icons-all-sizes"]
 

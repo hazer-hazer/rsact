@@ -785,7 +785,6 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
     use embedded_graphics::pixelcolor::Rgb888;
     use rsact_render::{
         eg::renderer::EGRenderer, framebuf::PackedColor, region::Tiles,
-        renderer::AntiAliasingDisabled,
     };
 
     const W: u32 = 64;
@@ -827,13 +826,8 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
         }
     }
 
-    type Full = EGRenderer<Rgb888, AntiAliasingDisabled, &'static mut [u32]>;
-    type Tiled = EGRenderer<
-        Rgb888,
-        AntiAliasingDisabled,
-        &'static mut [u32],
-        Tiles<W, TILE_H>,
-    >;
+    type Full = EGRenderer<Rgb888, &'static mut [u32]>;
+    type Tiled = EGRenderer<Rgb888, &'static mut [u32], Tiles<W, TILE_H>>;
     type FullWtf = Wtf<Full, (), Theme<Rgb888>, ()>;
     type TiledWtf = Wtf<Tiled, (), Theme<Rgb888>, ()>;
 
@@ -983,7 +977,6 @@ fn the_loop_the_examples_show_paints_the_frame_the_framebuffer_holds() {
     };
     use rsact_render::{
         eg::renderer::EGRenderer, framebuf::PackedColor, region::Tiles,
-        renderer::AntiAliasingDisabled,
     };
 
     const W: u32 = 64;
@@ -1042,13 +1035,8 @@ fn the_loop_the_examples_show_paints_the_frame_the_framebuffer_holds() {
         );
     }
 
-    type Whole = EGRenderer<Rgb888, AntiAliasingDisabled, &'static mut [u32]>;
-    type Tiled = EGRenderer<
-        Rgb888,
-        AntiAliasingDisabled,
-        &'static mut [u32],
-        Tiles<W, TILE_H>,
-    >;
+    type Whole = EGRenderer<Rgb888, &'static mut [u32]>;
+    type Tiled = EGRenderer<Rgb888, &'static mut [u32], Tiles<W, TILE_H>>;
 
     macro_rules! page {
         () => {

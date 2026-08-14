@@ -84,17 +84,15 @@ pub trait Attachment<S> {
 
 /// The renderer is holding a surface and can draw.
 ///
-/// Every drawing impl — [`Renderer`], `DrawTarget`, `EgPrimitiveRenderer` — is
-/// written for this state and no other, so the guarantee is structural:
+/// Every drawing impl — [`Renderer`], `DrawTarget` — is written for this state
+/// and no other, so the guarantee is structural:
 ///
 /// ```
 /// # use rsact_render::{eg::renderer::EGRenderer, geometry::Size,
-/// #                    renderer::{AntiAliasingDisabled, Renderer}};
+/// #                    renderer::Renderer};
 /// # use embedded_graphics::pixelcolor::Rgb888;
 /// let buf: &'static mut [u32] = vec![0; 16 * 16].leak();
-/// let r = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
-///     Size::new_equal(16), buf,
-/// );
+/// let r = EGRenderer::<Rgb888, _>::new(Size::new_equal(16), buf);
 /// // Attached: drawing is available.
 /// let _ = r.size();
 /// ```
@@ -103,12 +101,10 @@ pub trait Attachment<S> {
 ///
 /// ```compile_fail
 /// # use rsact_render::{eg::renderer::EGRenderer, geometry::Size,
-/// #                    renderer::{AntiAliasingDisabled, Renderer}};
+/// #                    renderer::Renderer};
 /// # use embedded_graphics::pixelcolor::Rgb888;
 /// let buf: &'static mut [u32] = vec![0; 16 * 16].leak();
-/// let r = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
-///     Size::new_equal(16), buf,
-/// );
+/// let r = EGRenderer::<Rgb888, _>::new(Size::new_equal(16), buf);
 /// let (parked, _buf, _at) = r.detach();
 /// // The application is holding the buffer — there is nothing to draw into.
 /// let _ = parked.size();
@@ -129,13 +125,20 @@ impl<S> Attachment<S> for Detached {
     type Slot = ();
 }
 
-pub trait AntiAliasing {}
-
-pub struct AntiAliasingEnabled;
-impl AntiAliasing for AntiAliasingEnabled {}
-
-pub struct AntiAliasingDisabled;
-impl AntiAliasing for AntiAliasingDisabled {}
+// NOTE (layer split, PR A): `trait AntiAliasing` with the `AntiAliasingEnabled`
+// / `AntiAliasingDisabled` witnesses lived here. It was a **type-level** switch:
+// `EGRenderer<C, AA, ..>` had two `Renderer` impls, and the witness is what kept
+// their call graphs from resolving into each other (`Renderer::line` and the
+// primitives' mutual `draw_aa` calls both dispatch on it).
+//
+// Both impls and every `draw_aa` are deleted with it — maintainer decision D1:
+// `EgRasterizer` is embedded-graphics **as-is**, and anti-aliasing belongs to
+// rsact's own `RsactRasterizer`, which will produce coverage and spans instead
+// of blending `f32` per pixel through the renderer.
+//
+// The *runtime* option this shadowed is a different question and still open —
+// see the commented-out `RendererOptions` block at the top of this file. That
+// sketch mentions an `AntiAliasing` enum; it means a value, not this type.
 
 #[derive(Clone, Copy, Debug)]
 pub enum ViewportKind {

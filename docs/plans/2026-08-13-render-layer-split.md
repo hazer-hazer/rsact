@@ -1,6 +1,7 @@
 # Render layer split — architecture plan
 
-**Status: design, ready to implement after WS6.4e. No code written.**
+**Status: in progress on `ws6.4e-framebuf-unbind`.**
+WS6.4e ✓ · PR A ✓ · PR B — · PR C — · PR D —
 
 `EGRenderer` fuses three jobs — coordinating clips and regions, running
 rasterization algorithms, and owning pixel storage. This splits them:
@@ -796,9 +797,24 @@ be confused by this once:
 
 Everything that stops compiling, so it can be planned rather than discovered.
 
+**The examples were already broken before any of this** — all ten of them, and
+since at least 2026-07-13, which `docs/plans/2026-07-13-ws13.4-notes.md` records
+as a census ("0 OK / 10 BROKEN, pre-existing"). The causes are unrelated API
+drift: no `col!`/`row!` macros, `widget::ctx` private, `UI::new_eg` gone, `.el()`
+gone, `Theme::with_accent` gone, `u8g2-fonts` not a dependency, `draw_styled`
+gone from the primitives. No CI job builds them, which is why.
+
+**Maintainer decision: touch only what the refactor breaks.** The rows below are
+mechanical fixes to lines the split invalidates, nothing more; repairing the rest
+is its own workstream. The acceptance criterion is therefore not "the examples
+run" but **no NEW example breakage, diffed against master** — capture
+`cargo check -p rsact-ui --examples --features "std,simulator,embedded-graphics,tiny-icons,icons-all-sizes,tiny-skia"`
+on master first and compare error sets.
+
 | Site | What changes | PR |
 |---|---|---|
 | `rsact-ui/examples/{sandbox,scrollable}.rs` | name `AntiAliasingDisabled` explicitly — the witness is deleted | **A** |
+| `rsact-ui/examples/primitives_aa.rs` | **deleted**, with its `[[example]]` entry — its entire subject is what PR A removes | **A** |
 | `rsact-ui/examples/{icons,3d_printer,mem_usage_display_240_240}.rs` | `EGRenderer::new(…)` → `RasterRenderer::with_framebuf(EgRasterizer, …)` | **C** |
 | `rsact-render/src/lib.rs:80` | prelude re-exports `EGRenderer` | **C** |
 | `eg/renderer.rs`'s tests (`:1450`–`:1739`) | move with the code they cover; the `pixel_alpha` invariance test is deleted outright (its subject is gone) | **A**/**C** |
@@ -816,12 +832,16 @@ Per PR, so an implementer knows when to stop.
 - **B** — the new modules compile and are dead: nothing outside them references
   `Blitter`, `Rasterizer` or `RasterRenderer`. Suites and goldens untouched by
   construction.
-- **C** — `EGRenderer` and `ViewportKind` are gone; the examples run; **the
-  tile/schedule goldens are byte-identical**; the metrics and size probes are
-  within their existing gates.
+- **C** — `EGRenderer` and `ViewportKind` are gone; **the tile/schedule goldens
+  are byte-identical**; the metrics and size probes are within their existing
+  gates; no new example breakage (see Migration surface — they do not run today
+  and repairing them is not this refactor's job).
 - **D** — `TinySkiaRenderer`, `clip_mask` and `rebuild_clip_mask` are gone; the
-  simulator renders; the tiny-skia suite is green minus WS6.11's five deleted
-  tests.
+  tiny-skia suite is green minus WS6.11's five deleted tests.
+
+Every PR also: `cargo fmt`, the three feature powersets, the thumbv7m floor
+build, and **no new warning** in `rsact-render` or `rsact-ui` (diff against
+master rather than eyeballing — the crates carry pre-existing ones).
 
 ## Sequencing
 
@@ -839,8 +859,19 @@ delegating, or `FramebufBlitter::fill_rect` inherits a framebuf without the
 | **D — tiny-skia port** *(or fold into C)* | `TinySkiaRenderer` replaced by `RasterRenderer<TinySkiaRasterizer, PixmapBlitter>`; `clip_mask`/`rebuild_clip_mask` and WS6.11's five tests deleted — `RasterCtx` clips before any blitter sees a span, so a backend-side clip mask has nothing left to do; the simulator takes pixels from the blitter's loan |
 
 No half-refactored `EGRenderer` may exist in history, which is why C is one
-commit-range. D may be separate — an untouched second backend is not a
-half-refactored one.
+commit-range. **D is separate** (maintainer decision) — an untouched second
+backend is not a half-refactored one, and keeping `TinySkiaRenderer` whole across
+C leaves its suite as a live control group.
+
+**WS6.4e landed first, as its own commit.** Beyond the move it did three things
+the rest of this depends on: WS6.3b's fast solid fill became an *inherent*
+`Framebuf` method (`DrawTarget::fill_solid` delegates), `Framebuf::new`'s
+`area % pps == 0` assert became a real capacity check against `units_for`
+(roadmap 6.5(i)), and the module's tests now use a local 1-bpp color with no
+embedded-graphics anywhere, which asserts the unbinding rather than describing
+it. One hazard it creates, worth knowing before touching eg call sites:
+`canvas.fill_solid(&eg_rect, c)` now resolves to the **inherent** method, so the
+`DrawTarget` one must be named explicitly.
 
 **PR A is smaller than it looks, and that is what keeps B honest.** Every non-AA
 `draw` in `eg/primitives/*` is a ~10-line delegation to embedded-graphics'
@@ -878,15 +909,14 @@ golden that can see AA or spans, and worth most once `RsactRasterizer` exists.
 
 ## Open
 
-1. **PR D separate, or folded into C?**
-2. **`EgRasterizer` is `draw_iter`-shaped internally.** The bridge is a ~40-line
+1. **`EgRasterizer` is `draw_iter`-shaped internally.** The bridge is a ~40-line
    `BlitTarget<'a, T>(RasterCtx<'a, T>)` implementing `DrawTarget` with
    `draw_iter → cx.pixel`, `fill_solid → cx.rect`, `fill_contiguous → cx.run`,
    which preserves the WS6.3b win. So the span win covers **fills; outlines and
    strokes stay pixel-shaped**, because that is how embedded-graphics' own
    algorithms are written. `RsactRasterizer` is where the stroke side becomes
    span-shaped.
-3. **Monomorphization.** `T` reaches the widget tree through `WidgetCtx`, so the
+2. **Monomorphization.** `T` reaches the widget tree through `WidgetCtx`, so the
    tree instantiates per (rasterizer, blitter) pair. Two levers exist and neither
    is taken: `dyn Blitter<Color = C>` stays possible and would collapse the
    rasterizer half without touching a rasterizer body; deleting

@@ -1,6 +1,6 @@
 use crate::{
     color::{Color, RgbColor},
-    eg::primitives::EgPrimitive,
+    eg::primitives,
     framebuf::{Framebuf, FramebufStorage, PackedColor},
     geometry::*,
     image::DrawImage,
@@ -12,8 +12,7 @@ use crate::{
     },
     region::{FramePolicy, Unbounded, policy_units},
     renderer::{
-        AntiAliasing, AntiAliasingDisabled, AntiAliasingEnabled, Attached,
-        Attachment, Detached, RenderResult, Renderer, ViewportKind,
+        Attached, Attachment, Detached, RenderResult, Renderer, ViewportKind,
     },
     style::{DrawStyle, StrokeAlignment},
 };
@@ -151,7 +150,6 @@ impl<C: Color + PixelColor> DrawStyle<C> {
 /// ([`FramebufStorage::UNITS`] is `Some`), at the hand-off for a runtime-length slice.
 pub struct EGRenderer<
     C: Color + PackedColor,
-    AA: AntiAliasing,
     B: FramebufStorage<C>,
     P: FramePolicy = Unbounded,
     A: Attachment<Framebuf<C, B>> = Attached,
@@ -164,12 +162,11 @@ pub struct EGRenderer<
     /// [`Attachment`].
     canvas: A::Slot,
     main_viewport: Size,
-    aa: PhantomData<AA>,
     policy: PhantomData<P>,
 }
 
-impl<C: Color + PackedColor, AA: AntiAliasing, B: FramebufStorage<C>>
-    EGRenderer<C, AA, B, Unbounded>
+impl<C: Color + PackedColor, B: FramebufStorage<C>>
+    EGRenderer<C, B, Unbounded>
 {
     /// Full-frame: `buffer` covers the whole display, so no region can ever be
     /// too large and the planner never chunks.
@@ -183,17 +180,12 @@ impl<C: Color + PackedColor, AA: AntiAliasing, B: FramebufStorage<C>>
     /// policy annotation. For a surface smaller than the frame, see
     /// [`tiled`](EGRenderer::tiled).
     pub fn new(viewport: Size, buffer: B) -> Self {
-        EGRenderer::<C, AA, B, Unbounded, Detached>::parked(viewport)
-            .attach(buffer)
+        EGRenderer::<C, B, Unbounded, Detached>::parked(viewport).attach(buffer)
     }
 }
 
-impl<
-    C: Color + PackedColor,
-    AA: AntiAliasing,
-    B: FramebufStorage<C>,
-    P: FramePolicy,
-> EGRenderer<C, AA, B, P>
+impl<C: Color + PackedColor, B: FramebufStorage<C>, P: FramePolicy>
+    EGRenderer<C, B, P>
 {
     /// **WS6.4d: tiled.** `buffer` is *smaller* than the display, and is
     /// re-aimed at each region by [`Renderer::begin_region`].
@@ -212,12 +204,12 @@ impl<
     /// writes it:
     ///
     /// ```ignore
-    /// type Screen = EGRenderer<Rgb565, AntiAliasingDisabled,
-    ///                          &'static mut [u16], Tiles<240, 24>>;
+    /// type Screen =
+    ///     EGRenderer<Rgb565, &'static mut [u16], Tiles<240, 24>>;
     /// let renderer = Screen::tiled(Size::new_equal(240), tile);
     /// ```
     pub fn tiled(viewport: Size, buffer: B) -> Self {
-        EGRenderer::<C, AA, B, P, Detached>::parked(viewport).attach(buffer)
+        EGRenderer::<C, B, P, Detached>::parked(viewport).attach(buffer)
     }
 
     /// Take the surface back, with the region that was painted into it.
@@ -244,14 +236,13 @@ impl<
     ///
     /// Before anything is painted the rect is whatever `attach` aimed at: the
     /// whole frame for a frame-sized buffer, empty for a tile.
-    pub fn detach(self) -> (EGRenderer<C, AA, B, P, Detached>, B, Rect) {
+    pub fn detach(self) -> (EGRenderer<C, B, P, Detached>, B, Rect) {
         let Self { viewport_stack, canvas, main_viewport, .. } = self;
         let at = canvas.viewport();
         let parked = EGRenderer {
             viewport_stack,
             canvas: (),
             main_viewport,
-            aa: PhantomData,
             policy: PhantomData,
         };
         (parked, canvas.into_buffer(), at)
@@ -373,12 +364,8 @@ impl<
     }
 }
 
-impl<
-    C: Color + PackedColor,
-    AA: AntiAliasing,
-    B: FramebufStorage<C>,
-    P: FramePolicy,
-> EGRenderer<C, AA, B, P, Detached>
+impl<C: Color + PackedColor, B: FramebufStorage<C>, P: FramePolicy>
+    EGRenderer<C, B, P, Detached>
 {
     /// A renderer with no surface yet — the state a buffer is attached *to*.
     ///
@@ -391,7 +378,6 @@ impl<
             viewport_stack: vec![ViewportKind::root()],
             canvas: (),
             main_viewport: viewport,
-            aa: PhantomData,
             policy: PhantomData,
         }
     }
@@ -405,29 +391,22 @@ impl<
     /// # Panics
     ///
     /// If `buffer` is too small for policy `P` — see `check_capacity`.
-    pub fn attach(self, buffer: B) -> EGRenderer<C, AA, B, P, Attached> {
-        EGRenderer::<C, AA, B, P, Attached>::assert_static_capacity();
-        EGRenderer::<C, AA, B, P, Attached>::check_runtime_capacity(&buffer);
-        let canvas = EGRenderer::<C, AA, B, P, Attached>::wrap(
-            self.main_viewport,
-            buffer,
-        );
+    pub fn attach(self, buffer: B) -> EGRenderer<C, B, P, Attached> {
+        EGRenderer::<C, B, P, Attached>::assert_static_capacity();
+        EGRenderer::<C, B, P, Attached>::check_runtime_capacity(&buffer);
+        let canvas =
+            EGRenderer::<C, B, P, Attached>::wrap(self.main_viewport, buffer);
         EGRenderer {
             viewport_stack: self.viewport_stack,
             canvas,
             main_viewport: self.main_viewport,
-            aa: PhantomData,
             policy: PhantomData,
         }
     }
 }
 
-impl<
-    C: Color + PackedColor + PixelColor,
-    AA: AntiAliasing,
-    B: FramebufStorage<C>,
-    P: FramePolicy,
-> EGRenderer<C, AA, B, P>
+impl<C: Color + PackedColor + PixelColor, B: FramebufStorage<C>, P: FramePolicy>
+    EGRenderer<C, B, P>
 {
     fn current_viewport(&self) -> ViewportKind {
         self.viewport_stack.last().copied().unwrap()
@@ -445,57 +424,33 @@ impl<
         self.canvas.draw_buffer(f);
     }
 
-    /// Map a point from the active viewport's coordinate space into the layer
-    /// canvas's own space — the transform the *write* paths ([`draw_pixels`],
-    /// `fill_solid`) get for free by dispatching through embedded-graphics'
-    /// `DrawTargetExt`. Any path that touches the canvas **directly** must apply
-    /// it by hand or it addresses a different pixel than the matching write.
-    ///
-    /// [`ViewportKind::Fullscreen`] is the identity, and [`ViewportKind::Clipped`]
-    /// is too — eg's `clipped` only *filters* pixels outside the area and never
-    /// rebases the origin. [`ViewportKind::Cropped`] does rebase (eg's `cropped`
-    /// puts the origin at `area.top_left`).
-    ///
-    /// [`draw_pixels`]: Self::draw_pixels
-    fn viewport_to_canvas(&self, point: Point) -> Point {
-        match self.current_viewport() {
-            ViewportKind::Fullscreen | ViewportKind::Clipped(_) => point,
-            ViewportKind::Cropped(area) => point + area.top_left,
-        }
-    }
-
-    /// Blend `pixel`'s color into whatever the canvas already holds there.
-    ///
-    /// WS6.4.0(i-1): the read goes through [`viewport_to_canvas`] so it lands on
-    /// the pixel `draw_pixels` will write. It previously read `pixel.0` raw,
-    /// which is only correct while the viewport is `Fullscreen`/`Clipped` — under
-    /// `Cropped` the write is rebased and the read was not, so the blend mixed
-    /// against an unrelated pixel. Latent today (nothing constructs a `Cropped`
-    /// viewport since PR #31 deleted the only, commented-out, producer), but painting
-    /// into a tile *is* a rebased coordinate space, so 6.4d would have activated
-    /// it. Note this is a read-modify-write per pixel: it defeats
-    /// write-combining, and it is why a tile buffer must be pre-filled with the
-    /// true background before painting (roadmap 6.4 constraint (b)).
-    ///
-    /// [`viewport_to_canvas`]: Self::viewport_to_canvas
-    // Note: Real alpha channel is not supported. Alpha is currently just a
-    // blend parameter applied while drawing onto the (opaque) framebuffer — it
-    // affects blending against existing pixels, not surface transparency.
-    // TODO: Real alpha-channel
-    pub fn pixel_alpha(&mut self, pixel: Pixel<C>, blend: f32) -> RenderResult {
-        let read_at = self.viewport_to_canvas(pixel.0);
-        let canvas = &self.canvas;
-        // NOTE: an out-of-bounds read still degrades to the unblended color
-        // rather than an error, so a mis-addressed read yields a *plausible*
-        // pixel, not a failure. Preserved as-is (a behaviour change is out of
-        // scope here); it is why 6.4a's tile-invariance op-log check is the real
-        // defence for this area.
-        let color = canvas
-            .pixel(read_at)
-            .map(|current| current.mix(blend, pixel.1))
-            .unwrap_or(pixel.1);
-        self.draw_pixels(core::iter::once(Pixel(pixel.0, color)))
-    }
+    // NOTE (layer split, PR A): `pixel_alpha` and its helper
+    // `viewport_to_canvas` lived here. `pixel_alpha` read the destination pixel,
+    // `mix`ed the incoming color into it by an `f32` coverage, and wrote the
+    // result — the whole of anti-aliasing on this backend, one pixel at a time.
+    // Deleted with the AA primitives it served (D1).
+    //
+    // Two facts it encoded are NOT lost, because both outlive it:
+    //
+    //   - Blending is a **read-modify-write per pixel**. It defeats
+    //     write-combining, and it is why a region must be primed with the true
+    //     background before painting (roadmap 6.4 constraint (b)) — otherwise the
+    //     first AA edge in a region blends against whatever the last one left.
+    //     `begin_region` still primes, and still for that reason.
+    //   - Any path touching the canvas **directly** must apply the viewport
+    //     transform by hand; the write paths get it free from `DrawTargetExt`.
+    //     `viewport_to_canvas` was that transform, and WS6.4.0(i-1) fixed a real
+    //     bug where the read skipped it under `Cropped` and so blended against
+    //     an unrelated pixel. The hazard survives the deletion: `Cropped` is
+    //     itself deleted in PR C, and until then `renderer_begin_region` is the
+    //     one direct-canvas path — it primes the WHOLE retargeted buffer, so it
+    //     is transform-independent by construction.
+    //
+    // In the split, blending is `Blitter::blend_span`: coverage arrives as a
+    // `&[u8]` run rather than an `f32` per pixel, and the read-modify-write is
+    // the blitter's private business. The `TODO: Real alpha-channel` this
+    // carried belongs there too — it was never about anti-aliasing, but about
+    // surface transparency, which is an offscreen-layer question.
 
     pub fn draw_pixels(
         &mut self,
@@ -621,12 +576,8 @@ impl<
     }
 }
 
-impl<
-    C: Color + PackedColor + PixelColor,
-    AA: AntiAliasing,
-    B: FramebufStorage<C>,
-    P: FramePolicy,
-> DrawTarget for EGRenderer<C, AA, B, P>
+impl<C: Color + PackedColor + PixelColor, B: FramebufStorage<C>, P: FramePolicy>
+    DrawTarget for EGRenderer<C, B, P>
 {
     type Color = C;
     type Error = ();
@@ -671,12 +622,8 @@ impl<
     }
 }
 
-impl<
-    C: Color + PackedColor + PixelColor,
-    AA: AntiAliasing,
-    B: FramebufStorage<C>,
-    P: FramePolicy,
-> Dimensions for EGRenderer<C, AA, B, P>
+impl<C: Color + PackedColor + PixelColor, B: FramebufStorage<C>, P: FramePolicy>
+    Dimensions for EGRenderer<C, B, P>
 {
     fn bounding_box(&self) -> embedded_graphics::primitives::Rectangle {
         embedded_graphics::primitives::Rectangle::new(
@@ -693,10 +640,8 @@ impl<
 // list — the pre-tiling flow, not this one. The loop is one region at a time,
 // and each iteration's buffer goes out on the caller's own transport.
 
-// TODO: Generalize AA and non-AA Renderer implementations
-
 impl<C: Color + PackedColor + PixelColor, B: FramebufStorage<C>, P: FramePolicy>
-    Renderer for EGRenderer<C, AntiAliasingDisabled, B, P>
+    Renderer for EGRenderer<C, B, P>
 {
     type Color = C;
 
@@ -748,7 +693,7 @@ impl<C: Color + PackedColor + PixelColor, B: FramebufStorage<C>, P: FramePolicy>
         to: Point,
         style: &DrawStyle<C>,
     ) -> RenderResult {
-        Line::new(from, to).draw(self, *style)
+        primitives::line::draw(self, &Line::new(from, to), style)
     }
 
     fn rect(
@@ -770,7 +715,11 @@ impl<C: Color + PackedColor + PixelColor, B: FramebufStorage<C>, P: FramePolicy>
         corners: CornerRadii,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        RoundedRect::new(rect, corners).draw(self, *style)
+        primitives::rounded_rect::draw(
+            self,
+            &RoundedRect::new(rect, corners),
+            style,
+        )
     }
 
     fn circle(
@@ -779,7 +728,7 @@ impl<C: Color + PackedColor + PixelColor, B: FramebufStorage<C>, P: FramePolicy>
         diameter: u32,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        Circle::new(top_left, diameter).draw(self, *style)
+        primitives::circle::draw(self, &Circle::new(top_left, diameter), style)
     }
 
     fn arc(
@@ -790,7 +739,11 @@ impl<C: Color + PackedColor + PixelColor, B: FramebufStorage<C>, P: FramePolicy>
         sweep: Angle,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        Arc::new(top_left, diameter, start, sweep).draw(self, *style)
+        primitives::arc::draw(
+            self,
+            &Arc::new(top_left, diameter, start, sweep),
+            style,
+        )
     }
 
     fn ellipse(
@@ -798,8 +751,11 @@ impl<C: Color + PackedColor + PixelColor, B: FramebufStorage<C>, P: FramePolicy>
         bounding_box: Rect,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        Ellipse::new(bounding_box.top_left, bounding_box.size)
-            .draw(self, *style)
+        primitives::ellipse::draw(
+            self,
+            &Ellipse::new(bounding_box.top_left, bounding_box.size),
+            style,
+        )
     }
 
     fn sector(
@@ -810,7 +766,11 @@ impl<C: Color + PackedColor + PixelColor, B: FramebufStorage<C>, P: FramePolicy>
         sweep: Angle,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        Sector::new(top_left, diameter, start, sweep).draw(self, *style)
+        primitives::sector::draw(
+            self,
+            &Sector::new(top_left, diameter, start, sweep),
+            style,
+        )
     }
 
     fn polygon(
@@ -819,12 +779,18 @@ impl<C: Color + PackedColor + PixelColor, B: FramebufStorage<C>, P: FramePolicy>
         _style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
         // TODO: I don't want to allocate a vector for conversion between my
-        // Point and EG Point, so better use custom primitive Polygon and
-        // implement AA and non-AA rendering for it.
+        // Point and EG Point, so better use custom primitive Polygon.
         //
         // TODO(unimplemented): polygon rendering for the embedded-graphics
         // backend. Skip (logged) instead of `todo!()` so drawing a polygon
         // degrades to nothing rather than aborting the device.
+        //
+        // The body already exists and is already unreachable — see
+        // `eg::primitives::polygon::draw`, which needs a `Renderer` rather
+        // than a `DrawTarget` and so cannot be called from here without
+        // recursing. The layer split's `raster::polygon` is what gives it a
+        // caller: `Rasterizer::polygon`'s default draws, and no primitive is
+        // ever unsupported (D3).
         log::warn!(
             "polygon() is not implemented for the embedded-graphics renderer; \
              skipping"
@@ -854,178 +820,6 @@ impl<C: Color + PackedColor + PixelColor, B: FramebufStorage<C>, P: FramePolicy>
                         current_pos.y - *radius as i32,
                     );
                     self.arc(top_left, diameter, *start, *sweep, style)?;
-                },
-                PathSegment::Close => {},
-            }
-        }
-        Ok(())
-    }
-
-    fn image<'a>(&mut self, image: DrawImage<'a, Self::Color>) -> RenderResult {
-        self.renderer_image(image)
-    }
-}
-
-impl<C: Color + PackedColor + PixelColor, B: FramebufStorage<C>, P: FramePolicy>
-    Renderer for EGRenderer<C, AntiAliasingEnabled, B, P>
-{
-    type Color = C;
-
-    /// Whatever policy this renderer was built with. It is the only thing rsact
-    /// learns about the surface — and it learns it as a *type*, so the buffer
-    /// itself never crosses into rsact-ui. The surface is checked against this
-    /// where both are known: [`EGRenderer::attach`].
-    type Policy = P;
-
-    fn size(&self) -> Size {
-        self.main_viewport
-    }
-
-    fn begin_region(&mut self, region: Rect) -> RenderResult {
-        self.renderer_begin_region(region)
-    }
-
-    fn push_clip(&mut self, area: Rect) {
-        self.renderer_push_clip(area)
-    }
-
-    fn pop_clip(&mut self) {
-        self.renderer_pop_clip()
-    }
-
-    fn clip_bounds(&self) -> Option<Rect> {
-        self.renderer_clip_bounds()
-    }
-
-    fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult {
-        self.rect(
-            rect,
-            &DrawStyle {
-                fill: Some(color),
-                stroke: None,
-                stroke_width: 0,
-                stroke_alignment: StrokeAlignment::Inside,
-            },
-        )
-    }
-
-    fn pixel(&mut self, point: Point, color: Self::Color) -> RenderResult {
-        embedded_graphics::Pixel(point.into(), color).draw(self)
-    }
-
-    fn line(
-        &mut self,
-        from: Point,
-        to: Point,
-        style: &DrawStyle<C>,
-    ) -> RenderResult {
-        Line::new(from, to).draw_aa(self, *style)
-    }
-
-    fn rect(
-        &mut self,
-        rect: Rect,
-        style: &DrawStyle<Self::Color>,
-    ) -> RenderResult {
-        let eg_rect: embedded_graphics::primitives::Rectangle = rect.into();
-        eg_rect
-            .draw_styled(&style.into_primitive_style(), self)
-            .ok()
-            .unwrap();
-        Ok(())
-    }
-
-    fn rounded_rect(
-        &mut self,
-        rect: Rect,
-        corners: CornerRadii,
-        style: &DrawStyle<Self::Color>,
-    ) -> RenderResult {
-        RoundedRect::new(rect, corners).draw_aa(self, *style)
-    }
-
-    fn circle(
-        &mut self,
-        top_left: Point,
-        diameter: u32,
-        style: &DrawStyle<Self::Color>,
-    ) -> RenderResult {
-        Circle::new(top_left, diameter).draw_aa(self, *style)
-    }
-
-    fn arc(
-        &mut self,
-        top_left: Point,
-        diameter: u32,
-        start: Angle,
-        sweep: Angle,
-        style: &DrawStyle<Self::Color>,
-    ) -> RenderResult {
-        Arc::new(top_left, diameter, start, sweep).draw_aa(self, *style)
-    }
-
-    fn ellipse(
-        &mut self,
-        bounding_box: Rect,
-        style: &DrawStyle<Self::Color>,
-    ) -> RenderResult {
-        Ellipse::new(bounding_box.top_left, bounding_box.size)
-            .draw_aa(self, *style)
-    }
-
-    fn sector(
-        &mut self,
-        top_left: Point,
-        diameter: u32,
-        start: Angle,
-        sweep: Angle,
-        style: &DrawStyle<Self::Color>,
-    ) -> RenderResult {
-        Sector::new(top_left, diameter, start, sweep).draw_aa(self, *style)
-    }
-
-    fn polygon(
-        &mut self,
-        _points: &[Point],
-        _style: &DrawStyle<Self::Color>,
-    ) -> RenderResult {
-        // TODO: I don't want to allocate a vector for conversion between my
-        // Point and EG Point, so better use custom primitive Polygon and
-        // implement AA and non-AA rendering for it.
-        //
-        // TODO(unimplemented): polygon rendering for the embedded-graphics
-        // backend. Skip (logged) instead of `todo!()` so drawing a polygon
-        // degrades to nothing rather than aborting the device.
-        log::warn!(
-            "polygon() is not implemented for the embedded-graphics renderer; \
-             skipping"
-        );
-        Ok(())
-    }
-
-    fn path(
-        &mut self,
-        path: &Path,
-        style: &DrawStyle<Self::Color>,
-    ) -> RenderResult {
-        let mut current_pos = Point::zero();
-        for segment in path.segments() {
-            match segment {
-                PathSegment::MoveTo(p) => {
-                    current_pos = *p;
-                },
-                PathSegment::LineTo(p) => {
-                    self.line(current_pos, *p, style)?;
-                    current_pos = *p;
-                },
-                PathSegment::ArcTo { center: _, radius, start, sweep } => {
-                    let diameter = radius * 2;
-                    let top_left = Point::new(
-                        current_pos.x - *radius as i32,
-                        current_pos.y - *radius as i32,
-                    );
-                    Arc::new(top_left, diameter, *start, *sweep)
-                        .draw_aa(self, *style)?;
                 },
                 PathSegment::Close => {},
             }
@@ -1077,17 +871,13 @@ mod tests {
         let rect = Rect::new(Point::new(3, 2), Size::new(9, 7));
         let color = Rgb888::new(10, 200, 30);
 
-        let mut fast = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
-            size,
-            surface::<Rgb888>(size),
-        );
+        let mut fast =
+            EGRenderer::<Rgb888, _>::new(size, surface::<Rgb888>(size));
         Renderer::fill_solid(&mut fast, rect, color).unwrap();
 
         // Reference: fill the same rect one pixel at a time (the draw_iter path).
-        let mut slow = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
-            size,
-            surface::<Rgb888>(size),
-        );
+        let mut slow =
+            EGRenderer::<Rgb888, _>::new(size, surface::<Rgb888>(size));
         for p in rect.points() {
             Renderer::pixel(&mut slow, p, color).unwrap();
         }
@@ -1192,10 +982,8 @@ mod tests {
         }
 
         // Reference: one full-size surface, one pass, one flush.
-        let mut full = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
-            viewport,
-            surface::<Rgb888>(viewport),
-        );
+        let mut full =
+            EGRenderer::<Rgb888, _>::new(viewport, surface::<Rgb888>(viewport));
         content(&mut full);
         let mut full_map = blank();
         let (_, full_units, full_at) = full.detach();
@@ -1205,11 +993,10 @@ mod tests {
         // — repainted and flushed region by region.
         const TILE_UNITS: usize = (W * 8) as usize; // Rgb888: one unit per pixel
         let tile_units = TILE_UNITS;
-        let mut tiled =
-            EGRenderer::<Rgb888, AntiAliasingDisabled, _, Tiles<W, 8>>::tiled(
-                viewport,
-                surface_units::<Rgb888>(TILE_UNITS),
-            );
+        let mut tiled = EGRenderer::<Rgb888, _, Tiles<W, 8>>::tiled(
+            viewport,
+            surface_units::<Rgb888>(TILE_UNITS),
+        );
         assert!(
             tile_units * 8 == (W * H) as usize,
             "the point of the test is that the surface is a FRACTION of the frame"
@@ -1278,10 +1065,8 @@ mod tests {
     #[test]
     fn the_renderer_gives_the_surface_back() {
         let viewport = Size::new(16, 16);
-        let mut r = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
-            viewport,
-            surface::<Rgb888>(viewport),
-        );
+        let mut r =
+            EGRenderer::<Rgb888, _>::new(viewport, surface::<Rgb888>(viewport));
 
         // Paint something, then take the buffer back and inspect it — the owner
         // can read what was painted, which is what "ship this tile" means.
@@ -1328,10 +1113,8 @@ mod tests {
         let region = Rect::new(Point::new(8, 24), Size::new(16, 8));
 
         // A surface spanning the whole frame — the case that used to differ.
-        let mut full = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
-            viewport,
-            surface::<Rgb888>(viewport),
-        );
+        let mut full =
+            EGRenderer::<Rgb888, _>::new(viewport, surface::<Rgb888>(viewport));
         full.begin_region(region).unwrap();
         let (_, _, covers) = full.detach();
         assert_eq!(
@@ -1340,11 +1123,10 @@ mod tests {
         );
 
         // And a tile, where it always held.
-        let mut tile =
-            EGRenderer::<Rgb888, AntiAliasingDisabled, _, Tiles<16, 8>>::tiled(
-                viewport,
-                surface_units::<Rgb888>(16 * 8),
-            );
+        let mut tile = EGRenderer::<Rgb888, _, Tiles<16, 8>>::tiled(
+            viewport,
+            surface_units::<Rgb888>(16 * 8),
+        );
         tile.begin_region(region).unwrap();
         let (_, _, covers) = tile.detach();
         assert_eq!(covers, region);
@@ -1375,11 +1157,10 @@ mod tests {
         // the end of the region's data instead of merely landing askew.
         let region = Rect::new(Point::new(40, 8), Size::new(5, 9));
 
-        let mut r =
-            EGRenderer::<Rgb888, AntiAliasingDisabled, _, Tiles<8, 16>>::tiled(
-                viewport,
-                surface_units::<Rgb888>(8 * 16),
-            );
+        let mut r = EGRenderer::<Rgb888, _, Tiles<8, 16>>::tiled(
+            viewport,
+            surface_units::<Rgb888>(8 * 16),
+        );
         r.begin_region(region).unwrap();
 
         // One distinguishable color per pixel of the region, in absolute
@@ -1432,10 +1213,8 @@ mod tests {
     #[test]
     fn reattaching_a_full_frame_surface_keeps_aiming_at_the_frame() {
         let viewport = Size::new(16, 16);
-        let r = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
-            viewport,
-            surface::<Rgb888>(viewport),
-        );
+        let r =
+            EGRenderer::<Rgb888, _>::new(viewport, surface::<Rgb888>(viewport));
         let full = Rect::new(Point::zero(), viewport);
 
         let (parked, buffer, first) = r.detach();
@@ -1475,7 +1254,6 @@ mod tests {
         assert_eq!(
             <<EGRenderer<
                 Rgb888,
-                AntiAliasingDisabled,
                 &'static mut [<Rgb888 as PackedColor>::Storage],
             > as Renderer>::Policy as FramePolicy>::MAX_REGION,
             None
@@ -1487,7 +1265,6 @@ mod tests {
         // needing 384 bytes would "fit" a 48-byte buffer.
         type Tiled<C> = EGRenderer<
             C,
-            AntiAliasingDisabled,
             &'static mut [<C as PackedColor>::Storage],
             Tiles<240, 24>,
         >;
@@ -1519,7 +1296,7 @@ mod tests {
     fn a_surface_too_small_for_the_policy_is_refused() {
         use crate::region::Tiles;
         // 240x24 RGB888 needs 5760 units; this holds one row.
-        let _ = EGRenderer::<Rgb888, AntiAliasingDisabled, _, Tiles<240, 24>>::tiled(
+        let _ = EGRenderer::<Rgb888, _, Tiles<240, 24>>::tiled(
             Size::new_equal(240),
             surface_units::<Rgb888>(240),
         );
@@ -1565,7 +1342,7 @@ mod tests {
     /// degrades, it does not abort).
     #[test]
     fn clip_stack_balances_and_never_pops_the_root() {
-        let mut r = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
+        let mut r = EGRenderer::<Rgb888, _>::new(
             Size::new(20, 16),
             surface::<Rgb888>(Size::new(20, 16)),
         );
@@ -1643,7 +1420,7 @@ mod tests {
     /// rect rather than a guess.
     #[test]
     fn a_nested_clip_narrows_and_never_widens() {
-        let mut r = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
+        let mut r = EGRenderer::<Rgb888, _>::new(
             Size::new(40, 40),
             surface::<Rgb888>(Size::new(40, 40)),
         );
@@ -1690,58 +1467,5 @@ mod tests {
             Some(Rect::new(Point::zero(), Size::new(40, 40))),
             "the root viewport reports the surface rect"
         );
-    }
-
-    /// WS6.4.0(i-1): `pixel_alpha` must read the destination through the SAME
-    /// viewport transform its write goes through. Under `ViewportKind::Cropped`
-    /// the write is rebased to the crop origin (eg's `cropped`) while the read
-    /// was raw, so the blend mixed against a different pixel than it wrote.
-    ///
-    /// Expressed as an invariance: `Cropped(crop)` + a viewport-local point must
-    /// produce the same framebuffer as `Fullscreen` + the absolute point. That
-    /// equivalence is exactly what painting into a tile relies on, which is why
-    /// this latent bug would have gone live with 6.4d.
-    #[test]
-    fn pixel_alpha_reads_through_the_viewport_transform() {
-        let size = Size::new(20, 16);
-        let crop = Rect::new(Point::new(5, 4), Size::new(10, 8));
-        let local = Point::new(2, 3);
-        let abs = local + crop.top_left;
-
-        // The backdrop must differ from the cleared background, or reading the
-        // wrong pixel would coincidentally produce the right color.
-        let backdrop = Rgb888::new(200, 0, 0);
-        let ink = Rgb888::new(0, 0, 200);
-        assert_ne!(backdrop, <Rgb888 as Color>::default_background());
-
-        // Cropped: seed the backdrop at the ABSOLUTE pixel, blend at the LOCAL
-        // point. Pre-fix, the read landed on `local` (still background).
-        let mut cropped = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
-            size,
-            surface::<Rgb888>(size),
-        );
-        Renderer::pixel(&mut cropped, abs, backdrop).unwrap();
-        // PR #31 collapsed `Viewport { layer, kind }` to a bare `ViewportKind`
-        // when the layer dimension was deleted.
-        cropped.viewport_stack.push(ViewportKind::Cropped(crop));
-        cropped.pixel_alpha(Pixel(local, ink), 0.5).unwrap();
-        cropped.viewport_stack.pop();
-
-        // Reference: the same blend written in absolute coordinates.
-        let mut absolute = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
-            size,
-            surface::<Rgb888>(size),
-        );
-        Renderer::pixel(&mut absolute, abs, backdrop).unwrap();
-        absolute.pixel_alpha(Pixel(abs, ink), 0.5).unwrap();
-
-        cropped.draw_buffer(|c| {
-            absolute.draw_buffer(|a| {
-                assert_eq!(
-                    c, a,
-                    "pixel_alpha blended against the untranslated destination"
-                );
-            })
-        });
     }
 }

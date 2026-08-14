@@ -2449,123 +2449,26 @@ mod tests {
         });
     }
 
-    // WS6.9: page-render draw-op goldens. Build a page through the *reusable*
-    // RecordingRenderer (rsact-render), render one full frame, and lock its
-    // draw-op log against a blessed golden file under `tests/goldens/`. This
-    // exercises the whole harness end-to-end and makes every later WS6 damage
-    // change reviewable as a golden diff — a damage frame will be a strict
-    // subset of this full-frame log.
+    // NOTE (layer split, PR A): `mod render_goldens` lived here — two page-level
+    // draw-op goldens (`checkbox_unchecked_64.txt`, `checkbox_checked_64.txt`)
+    // built through rsact-render's `RecordingRenderer`, forced to one full frame
+    // and locked against a blessed file. Deleted with their golden files
+    // (maintainer decision D8): they assert nothing about the layered renderer,
+    // and the harness they exercised end-to-end is exercised by
+    // `tests/tile_schedule.rs`, which KEEPS its goldens and becomes the
+    // refactor's behaviour-neutrality proof.
     //
-    // Deterministic by construction: fixed 64x64 viewport, the geometry-only
-    // (color-agnostic) op log, and a `Checkbox` (which resolves to the null
-    // theme's *default* colors — a bare `Container` would hit the
-    // `ColorStyle::expect` panic). Bless/update with `UPDATE_GOLDENS=1`.
-    mod render_goldens {
-        use super::*;
-        use crate::render::{
-            golden::assert_text_golden,
-            record::{RecordingRenderer, format_ops},
-        };
-        use crate::widget::checkbox::Checkbox;
-        use rsact_reactive::runtime::with_new_runtime;
-
-        type RecWtf = Wtf<RecordingRenderer<NullColor>, (), (), ()>;
-
-        /// Build a `RecWtf` page for `root`, settle its reactive render, run
-        /// `interact` (input/state changes to reach the state under test), then
-        /// force exactly one full frame and return its draw-op log as text.
-        ///
-        /// `force_redraw()` re-arms every part (WS6.4.0(iv): the flag is OR-ed
-        /// into each part's gate, no longer tracked by its probe), so the captured
-        /// frame is the complete paint — not a partial, probe-gated one — and
-        /// independent of exactly which parts `interact` happened to dirty.
-        fn full_frame_log_after(
-            root: impl View<RecWtf>,
-            interact: impl FnOnce(&mut Page<RecWtf>),
-        ) -> String {
-            let renderer =
-                RecordingRenderer::<NullColor>::new(Size::new_equal(64));
-            let recorder = renderer.clone(); // shares the op log via Rc
-            let arena = create_signal(ElArena::new()).name("Page arena");
-            let scope = new_scope();
-            let mut page: TestPage<RecWtf> = TestPage::new(
-                Page::new(
-                    (),
-                    root,
-                    arena,
-                    Size::new_equal(64),
-                    ().inert(),
-                    DevTools::default().signal(),
-                    Rc::new(FontCtx::new()),
-                    scope,
-                ),
-                renderer,
-            );
-
-            // Settle: the first frames may run the render observer a few times
-            // as reactive state stabilises. We discard those and capture a
-            // single forced frame below.
-            for _ in 0..4 {
-                page.use_renderer(|_| {});
-            }
-
-            interact(&mut page);
-
-            recorder.clear();
-            page.force_redraw();
-            page.use_renderer(|_| {});
-
-            format_ops(&recorder.ops())
-        }
-
-        /// No-interaction convenience wrapper.
-        fn full_frame_log(root: impl View<RecWtf>) -> String {
-            full_frame_log_after(root, |_| {})
-        }
-
-        #[test]
-        fn checkbox_unchecked_page() {
-            with_new_runtime(|_| {
-                let log = full_frame_log(Checkbox::<RecWtf>::new(false));
-                assert_text_golden(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "checkbox_unchecked_64.txt",
-                    &log,
-                );
-            });
-        }
-
-        /// The same checkbox after a click toggles it to checked — the golden
-        /// must now include the check-icon `Path` the unchecked frame omits.
-        /// This is the harness proving it distinguishes a real visual state
-        /// change, not just that *something* drew.
-        #[test]
-        fn checkbox_checked_page() {
-            use crate::event::{Event, PressEvent};
-
-            with_new_runtime(|_| {
-                let log = full_frame_log_after(
-                    Checkbox::<RecWtf>::new(false),
-                    |page| {
-                        // Focus the checkbox, then press+release to toggle it.
-                        page.state.focused = Some((page.root, 0));
-                        let _ = page.handle_events(
-                            [
-                                Event::Press(PressEvent::Press),
-                                Event::Press(PressEvent::Release),
-                            ]
-                            .into_iter(),
-                        );
-                    },
-                );
-                assert_text_golden(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "checkbox_checked_64.txt",
-                    &log,
-                );
-            });
-        }
-    }
+    // The bless workflow is untouched — `rsact_render::golden` is still there and
+    // the tile/schedule goldens still use it. What comes back here is WS6.9's
+    // deferred **PNG** half, which is worth most after the split: it is the only
+    // golden that can see anti-aliasing or spans, i.e. the only one that could
+    // tell `EgRasterizer` from `RsactRasterizer`.
+    //
+    // Two properties of the deleted harness are worth having written down,
+    // because whoever writes that half needs both: the page must be settled by
+    // running it a few frames and discarding them, and the captured frame must be
+    // FORCED (`force_redraw`) — otherwise it is a partial, probe-gated paint that
+    // depends on exactly which parts the interaction happened to dirty.
 
     /// WS6.4b: the geometry cull in `render_part`. What the op-log measurements
     /// (`tests/tile_schedule.rs`) cannot show is the *behaviour* around a culled

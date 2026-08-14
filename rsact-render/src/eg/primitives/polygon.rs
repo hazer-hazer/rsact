@@ -1,13 +1,10 @@
 use crate::{
     color::Color,
-    eg::primitives::{EgPrimitive, EgPrimitiveRenderer},
-    framebuf::PackedColor,
     geometry::{Point, PointExt as _},
-    output::pixel::Pixel,
     primitives::{line::Line, polygon::Polygon},
-    renderer::{AntiAliasingDisabled, AntiAliasingEnabled, RenderResult},
+    renderer::{RenderResult, Renderer},
+    style::DrawStyle,
 };
-use embedded_graphics::pixelcolor::PixelColor;
 
 impl Polygon {
     pub fn bounds(&self) -> (Point, Point) {
@@ -55,79 +52,52 @@ impl Polygon {
     }
 }
 
-impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Polygon {
-    // TODO: Review this implementation
-    fn draw<R: EgPrimitiveRenderer<C, AntiAliasingDisabled>>(
-        &self,
-        renderer: &mut R,
-        style: crate::prelude::DrawStyle<C>,
-    ) -> RenderResult {
-        if let Some(fill_color) = style.fill {
-            let (min, max) = self.bounds();
-            let fill = (min.y..=max.y).flat_map(|y| {
-                (min.x..=max.x).filter_map(move |x| {
-                    let point = Point::new(x, y);
-                    if self.contains(point) {
-                        Some(Pixel(point.into(), fill_color))
-                    } else {
-                        None
-                    }
-                })
-            });
-
-            renderer.draw_pixels(fill)?;
-        }
-
-        if style.stroke.is_some() && style.stroke_width > 0 {
-            self.lines().try_for_each(|line| {
-                renderer.line(line.from, line.to, &style)
-            })?;
-        }
-
-        Ok(())
-    }
-
-    fn draw_aa<R: EgPrimitiveRenderer<C, AntiAliasingEnabled>>(
-        &self,
-        renderer: &mut R,
-        style: crate::prelude::DrawStyle<C>,
-    ) -> RenderResult {
-        if let Some(fill_color) = style.fill {
-            let (min, max) = self.bounds();
-
-            for y in min.y..=max.y {
-                for x in min.x..=max.x {
-                    let point = Point::new(x, y);
-                    if self.contains(point) {
-                        renderer.pixel_alpha(Pixel(point, fill_color), 1.0)?;
-                    } else if style.stroke.is_none() || style.stroke_width == 0
-                    {
-                        // Note: Anti-aliasing happens here
-                        // TODO: Can optimize?
-                        self.lines().try_for_each(|line| {
-                            let distance = line.dist_to(point.into());
-
-                            if distance < 1.0 {
-                                let alpha = 1.0 - distance;
-                                renderer.pixel_alpha(
-                                    Pixel(point, fill_color),
-                                    alpha,
-                                )?;
-                            }
-                            Ok(())
-                        })?;
-                    }
+/// Scanline-ish polygon fill plus its edges.
+///
+/// # This function has no caller, and that is the point of writing it down
+///
+/// `Renderer::polygon` logs a warning and skips, on both embedded-graphics
+/// impls — so this body was already unreachable before PR A, hidden inside a
+/// trait impl where dead-code analysis does not look. It is `pub` now, which
+/// makes the state visible rather than merely true. The layer split's
+/// `raster::polygon` is where it gains a caller: `Rasterizer::polygon`'s
+/// default draws, which is the whole of D3 ("no primitive is ever
+/// unsupported"), and moving this there supplies the default and fixes the
+/// no-op in one step.
+///
+/// It also drops embedded-graphics entirely — the fill needs a `Renderer`, not
+/// a `DrawTarget`, unlike the six delegations beside it. That is why this file
+/// is the one that leaves `eg/` when the split lands.
+///
+/// The fill stays `O(w·h·edges)` on the move. A scanline fill emitting spans is
+/// the natural rewrite under the span protocol, but it is an algorithm change
+/// and does not belong in a mechanical PR — and the relocated version already
+/// draws where today's draws nothing.
+// TODO: Review this implementation
+pub fn draw<C: Color, R: Renderer<Color = C>>(
+    renderer: &mut R,
+    polygon: &Polygon,
+    style: &DrawStyle<C>,
+) -> RenderResult {
+    if let Some(fill_color) = style.fill {
+        let (min, max) = polygon.bounds();
+        for y in min.y..=max.y {
+            for x in min.x..=max.x {
+                let point = Point::new(x, y);
+                if polygon.contains(point) {
+                    renderer.pixel(point, fill_color)?;
                 }
             }
         }
-
-        if style.stroke.is_some() && style.stroke_width > 0 {
-            self.lines()
-                .try_for_each(|line| line.draw_aa(renderer, style))?;
-        }
-
-        Ok(())
     }
+
+    if style.stroke.is_some() && style.stroke_width > 0 {
+        polygon
+            .lines()
+            .try_for_each(|line| renderer.line(line.from, line.to, style))?;
+    }
+
+    Ok(())
 }
 
 // TODO: https://aykevl.nl/2024/02/tinygl-polygon/
