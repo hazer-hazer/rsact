@@ -1,9 +1,7 @@
 use crate::{
     color::{Color, RgbColor},
-    eg::{
-        framebuf::{Framebuffer, PackedColor, PackedFramebuf},
-        primitives::EgPrimitive,
-    },
+    eg::primitives::EgPrimitive,
+    framebuf::{Framebuf, FramebufStorage, PackedColor},
     geometry::*,
     image::DrawImage,
     output::pixel::Pixel,
@@ -127,7 +125,7 @@ impl<C: Color + PixelColor> DrawStyle<C> {
 }
 
 /// Renderer backed by embedded_graphics, drawing into a single owned
-/// `PackedFramebuf` under a clip/crop viewport stack.
+/// `Framebuf` under a clip/crop viewport stack.
 ///
 /// Preserves the PackedColor framebuffer optimization, alpha-channel blending,
 /// and anti-aliasing. Layer compositing was removed (see [`crate::surface`]).
@@ -150,17 +148,17 @@ impl<C: Color + PixelColor> DrawStyle<C> {
 /// region rsact may ask it to paint, and the only thing rsact knows about its
 /// storage. `B`'s capacity is checked against `P` when a buffer is
 /// [attached](Self::attach): at compile time for a fixed-size array
-/// ([`Framebuffer::UNITS`] is `Some`), at the hand-off for a runtime-length slice.
+/// ([`FramebufStorage::UNITS`] is `Some`), at the hand-off for a runtime-length slice.
 pub struct EGRenderer<
     C: Color + PackedColor,
     AA: AntiAliasing,
-    B: Framebuffer<C>,
+    B: FramebufStorage<C>,
     P: FramePolicy = Unbounded,
-    A: Attachment<PackedFramebuf<C, B>> = Attached,
+    A: Attachment<Framebuf<C, B>> = Attached,
 > {
     viewport_stack: Vec<ViewportKind>,
     /// The lent surface — and **only** in the [`Attached`] state, where its type
-    /// is `PackedFramebuf<C, B>`. In [`Detached`] it is `()`: not an absent
+    /// is `Framebuf<C, B>`. In [`Detached`] it is `()`: not an absent
     /// buffer but no field at all, so there is nothing to unwrap and no
     /// "drawing while detached" case for any method to handle. See
     /// [`Attachment`].
@@ -170,7 +168,7 @@ pub struct EGRenderer<
     policy: PhantomData<P>,
 }
 
-impl<C: Color + PackedColor, AA: AntiAliasing, B: Framebuffer<C>>
+impl<C: Color + PackedColor, AA: AntiAliasing, B: FramebufStorage<C>>
     EGRenderer<C, AA, B, Unbounded>
 {
     /// Full-frame: `buffer` covers the whole display, so no region can ever be
@@ -193,7 +191,7 @@ impl<C: Color + PackedColor, AA: AntiAliasing, B: Framebuffer<C>>
 impl<
     C: Color + PackedColor,
     AA: AntiAliasing,
-    B: Framebuffer<C>,
+    B: FramebufStorage<C>,
     P: FramePolicy,
 > EGRenderer<C, AA, B, P>
 {
@@ -301,15 +299,13 @@ impl<
     /// and since `begin_region` returns early for a full-frame surface, nothing
     /// ever re-aimed it. Every frame after the first reported a zero-sized dirty
     /// rect and flushed nothing.
-    fn wrap(viewport: Size, buffer: B) -> PackedFramebuf<C, B> {
-        let full_frame = crate::eg::framebuf::units_for::<C>(
-            viewport.width,
-            viewport.height,
-        );
+    fn wrap(viewport: Size, buffer: B) -> Framebuf<C, B> {
+        let full_frame =
+            crate::framebuf::units_for::<C>(viewport.width, viewport.height);
         if buffer.unit_count() >= full_frame {
-            PackedFramebuf::new(viewport, buffer)
+            Framebuf::new(viewport, buffer)
         } else {
-            PackedFramebuf::tile(buffer)
+            Framebuf::tile(buffer)
         }
     }
 
@@ -338,7 +334,7 @@ impl<
                 );
             }
             if let (Some(units), Some(needed)) =
-                (<B as Framebuffer<C>>::UNITS, policy_units::<P>())
+                (<B as FramebufStorage<C>>::UNITS, policy_units::<P>())
             {
                 assert!(
                     needed <= units,
@@ -380,7 +376,7 @@ impl<
 impl<
     C: Color + PackedColor,
     AA: AntiAliasing,
-    B: Framebuffer<C>,
+    B: FramebufStorage<C>,
     P: FramePolicy,
 > EGRenderer<C, AA, B, P, Detached>
 {
@@ -429,7 +425,7 @@ impl<
 impl<
     C: Color + PackedColor + PixelColor,
     AA: AntiAliasing,
-    B: Framebuffer<C>,
+    B: FramebufStorage<C>,
     P: FramePolicy,
 > EGRenderer<C, AA, B, P>
 {
@@ -575,7 +571,12 @@ impl<
         // Straight at the canvas, not through `Renderer::fill_solid`: the
         // region clip is pushed by the caller *after* this returns, and the
         // whole retargeted buffer is what needs priming.
-        DrawTarget::fill_solid(canvas, &region.into(), C::default_background())
+        //
+        // WS6.4e: the inherent fill rather than the `DrawTarget` one. Same
+        // algorithm — the trait method delegates here — but this is the call a
+        // non-embedded-graphics backend will make, so it is the one to write.
+        Framebuf::fill_solid(canvas, region, C::default_background());
+        Ok(())
     }
 
     // WS6.4b: narrowed by the active viewport so the top of the stack IS the
@@ -623,7 +624,7 @@ impl<
 impl<
     C: Color + PackedColor + PixelColor,
     AA: AntiAliasing,
-    B: Framebuffer<C>,
+    B: FramebufStorage<C>,
     P: FramePolicy,
 > DrawTarget for EGRenderer<C, AA, B, P>
 {
@@ -644,6 +645,11 @@ impl<
     /// fast path is never reached. Mirrors `draw_pixels`' viewport dispatch; the
     /// eg `clipped`/`cropped` adapters forward `fill_solid` to the canvas (with
     /// clip / translation), so those paths stay correct and also get the speedup.
+    ///
+    /// WS6.4e: the unclipped arm is spelled `DrawTarget::fill_solid(canvas, ..)`
+    /// rather than `canvas.fill_solid(..)` because `Framebuf` now has an
+    /// *inherent* `fill_solid` too, and inherent methods win method resolution.
+    /// Both are the same algorithm; only the argument types differ.
     fn fill_solid(
         &mut self,
         area: &embedded_graphics::primitives::Rectangle,
@@ -652,7 +658,9 @@ impl<
         let viewport = self.current_viewport();
         let canvas = &mut self.canvas;
         match viewport {
-            ViewportKind::Fullscreen => canvas.fill_solid(area, color),
+            ViewportKind::Fullscreen => {
+                DrawTarget::fill_solid(canvas, area, color)
+            },
             ViewportKind::Clipped(clip) => {
                 canvas.clipped(&clip.into()).fill_solid(area, color)
             },
@@ -666,7 +674,7 @@ impl<
 impl<
     C: Color + PackedColor + PixelColor,
     AA: AntiAliasing,
-    B: Framebuffer<C>,
+    B: FramebufStorage<C>,
     P: FramePolicy,
 > Dimensions for EGRenderer<C, AA, B, P>
 {
@@ -687,7 +695,7 @@ impl<
 
 // TODO: Generalize AA and non-AA Renderer implementations
 
-impl<C: Color + PackedColor + PixelColor, B: Framebuffer<C>, P: FramePolicy>
+impl<C: Color + PackedColor + PixelColor, B: FramebufStorage<C>, P: FramePolicy>
     Renderer for EGRenderer<C, AntiAliasingDisabled, B, P>
 {
     type Color = C;
@@ -858,7 +866,7 @@ impl<C: Color + PackedColor + PixelColor, B: Framebuffer<C>, P: FramePolicy>
     }
 }
 
-impl<C: Color + PackedColor + PixelColor, B: Framebuffer<C>, P: FramePolicy>
+impl<C: Color + PackedColor + PixelColor, B: FramebufStorage<C>, P: FramePolicy>
     Renderer for EGRenderer<C, AntiAliasingEnabled, B, P>
 {
     type Color = C;
@@ -1044,7 +1052,7 @@ mod tests {
     /// a framebuffer lives — an embedded app puts it in SDRAM, DTCM or a
     /// `#[link_section]` pool, and a blessed `heap_surface()` would both presume
     /// a global allocator and make the wrong thing the obvious one.
-    /// A `&'static mut` loan — the shape both `Framebuffer` impls describe, and
+    /// A `&'static mut` loan — the shape both `FramebufStorage` impls describe, and
     /// the only one a renderer reachable through `WidgetCtx` (`: 'static`) can
     /// hold. `Vec::leak` in a test is a `StaticCell` on a device.
     fn surface_units<C: Color + PackedColor>(
@@ -1494,12 +1502,12 @@ mod tests {
         // The hole, closed: a heap surface no longer claims infinite capacity,
         // so it cannot silently satisfy a policy it does not fit.
         assert_eq!(
-            <&mut [u32] as Framebuffer<Rgb888>>::UNITS,
+            <&mut [u32] as FramebufStorage<Rgb888>>::UNITS,
             None,
             "a runtime-sized surface must not state a compile-time capacity"
         );
         assert_eq!(
-            <&mut [u32; 5760] as Framebuffer<Rgb888>>::UNITS,
+            <&mut [u32; 5760] as FramebufStorage<Rgb888>>::UNITS,
             Some(5760)
         );
     }

@@ -36,6 +36,12 @@ impl FloatExt for f32 {}
 impl FloatExt for f64 {}
 
 pub mod color;
+// WS6.4e: packed pixel storage — `Framebuf`, `FramebufStorage`, `PackedColor`.
+// Unconditional, and that is the point of the item: nothing in it is specific
+// to embedded-graphics, and the render layer split's L3 blitter must be able to
+// use it without that dependency. What genuinely needs the crate stayed in
+// `eg/framebuf.rs`.
+pub mod framebuf;
 pub mod geometry;
 // `golden` is a std-only test-support module (file I/O for the WS6.9 golden
 // harness). It is reusable across crates — hence a real `#[cfg(feature="std")]`
@@ -74,15 +80,12 @@ pub mod tiny_skia;
 
 pub mod prelude {
     #[cfg(feature = "embedded-graphics")]
-    pub use crate::eg::{
-        framebuf::{Framebuffer, PackedColor, PackedFramebuf},
-        primitives::*,
-        renderer::EGRenderer,
-    };
+    pub use crate::eg::{primitives::*, renderer::EGRenderer};
     #[cfg(feature = "tiny-skia")]
     pub use crate::tiny_skia::TinySkiaRenderer;
     pub use crate::{
         color::{BigEndian, ByteOrder, Color, LittleEndian, RgbColor as _},
+        framebuf::{Framebuf, FramebufStorage, PackedColor},
         geometry::{Rect, Size, block_model::BlockModel, padding::Padding, *},
         output::MapColor,
         path::*,

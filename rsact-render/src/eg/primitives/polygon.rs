@@ -1,9 +1,7 @@
 use crate::{
     color::Color,
-    eg::{
-        framebuf::PackedColor,
-        primitives::{EgPrimitive, EgPrimitiveRenderer},
-    },
+    eg::primitives::{EgPrimitive, EgPrimitiveRenderer},
+    framebuf::PackedColor,
     geometry::{Point, PointExt as _},
     output::pixel::Pixel,
     primitives::{line::Line, polygon::Polygon},

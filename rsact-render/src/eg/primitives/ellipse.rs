@@ -2,10 +2,8 @@
 use crate::FloatExt as _;
 use crate::{
     color::Color,
-    eg::{
-        framebuf::PackedColor,
-        primitives::{EgPrimitive, EgPrimitiveRenderer},
-    },
+    eg::primitives::{EgPrimitive, EgPrimitiveRenderer},
+    framebuf::PackedColor,
     geometry::{Point, PointExt as _, Size},
     output::pixel::Pixel,
     primitives::{circle::Circle, ellipse::Ellipse},

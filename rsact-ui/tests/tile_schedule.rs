@@ -784,8 +784,7 @@ fn the_traversal_prune_hits_the_modelled_floor() {
 fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
     use embedded_graphics::pixelcolor::Rgb888;
     use rsact_render::{
-        eg::{framebuf::PackedColor, renderer::EGRenderer},
-        region::Tiles,
+        eg::renderer::EGRenderer, framebuf::PackedColor, region::Tiles,
         renderer::AntiAliasingDisabled,
     };
 
@@ -807,7 +806,7 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
     /// them at**, which is exactly what a real transport receives — an ST7789
     /// takes `CASET`/`RASET` and then the bytes.
     ///
-    /// Deliberately not re-wrapping the buffer in a `PackedFramebuf` to reuse
+    /// Deliberately not re-wrapping the buffer in a `Framebuf` to reuse
     /// `output_region`. That would let the test lean on rsact's own addressing
     /// to read back what rsact's addressing wrote, which proves nothing; this
     /// asserts the contract from outside — the tile is strided at its **own**
@@ -983,8 +982,7 @@ fn the_loop_the_examples_show_paints_the_frame_the_framebuffer_holds() {
         draw_target::DrawTarget, pixelcolor::Rgb888, prelude::OriginDimensions,
     };
     use rsact_render::{
-        eg::{framebuf::PackedColor, renderer::EGRenderer},
-        region::Tiles,
+        eg::renderer::EGRenderer, framebuf::PackedColor, region::Tiles,
         renderer::AntiAliasingDisabled,
     };
 

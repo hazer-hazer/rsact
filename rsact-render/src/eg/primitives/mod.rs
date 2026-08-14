@@ -1,6 +1,6 @@
 use crate::{
     color::Color,
-    eg::framebuf::{Framebuffer, PackedColor},
+    framebuf::{FramebufStorage, PackedColor},
     output::pixel::Pixel,
     region::FramePolicy,
     renderer::{
@@ -75,7 +75,7 @@ pub trait EgPrimitiveRenderer<
 impl<
     C: Color + PackedColor + PixelColor,
     AA: AntiAliasing,
-    B: Framebuffer<C>,
+    B: FramebufStorage<C>,
     P: FramePolicy,
 > EgPrimitiveRenderer<C, AA>
     for crate::eg::renderer::EGRenderer<C, AA, B, P, Attached>

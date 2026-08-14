@@ -6,7 +6,7 @@ use embedded_graphics::{
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
-use rsact_render::eg::{framebuf::PackedColor, renderer::EGRenderer};
+use rsact_render::{eg::renderer::EGRenderer, framebuf::PackedColor};
 use rsact_tiny_icons::{IconSet, common::CommonIcon, system::SystemIcon};
 use rsact_ui::{
     page::id::SinglePage,

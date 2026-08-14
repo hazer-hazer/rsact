@@ -16,14 +16,14 @@ pub type RenderResult = Result<(), ()>;
 /// The one place this arithmetic is written.
 /// [`assert_policy_fits`](crate::region::assert_policy_fits) compares a
 /// surface against it for WS6.4.0(iii)'s capacity proof, and
-/// [`units_for`](crate::eg::framebuf::units_for) is the color-typed wrapper
+/// [`units_for`](crate::framebuf::units_for) is the color-typed wrapper
 /// the embedded-graphics backend uses — they must not be allowed to drift,
 /// because a capacity check that disagrees with the buffer's real layout is
 /// worse than no check at all.
 ///
 /// Padding per row is what makes sub-byte packing correct: a 122-pixel 1-bpp
 /// row occupies 16 bytes, not 15.25. Area-based arithmetic gets this wrong, and
-/// is exactly the bug roadmap 6.5 has to undo in `PackedFramebuf::new`.
+/// is exactly the bug roadmap 6.5 has to undo in `Framebuf::new`.
 ///
 /// ```
 /// # use rsact_render::renderer::region_units;
@@ -214,7 +214,7 @@ pub trait Renderer {
     /// is deliberately not a fact about storage at all: it says *how big a
     /// rectangle you may ask me to paint*, which a GPU streaming commands and a
     /// renderer holding an 11 KiB tile can both answer. rsact never sees a
-    /// surface — no `Framebuffer` trait, no capacity number, no buffer type
+    /// surface — no `FramebufStorage` trait, no capacity number, no buffer type
     /// parameter reaches this trait — because a renderer is free to have no
     /// surface at all.
     ///
