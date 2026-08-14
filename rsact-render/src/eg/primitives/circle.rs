@@ -2,22 +2,22 @@
 use crate::FloatExt as _;
 use crate::{
     color::Color,
-    eg::{framebuf::PackedColor, primitives::EgPrimitive},
+    eg::{
+        framebuf::PackedColor,
+        primitives::{EgPrimitive, EgPrimitiveRenderer},
+    },
     geometry::{Axial as _, Point},
     output::pixel::Pixel,
     primitives::circle::Circle,
-    renderer::RenderResult,
+    renderer::{AntiAliasingDisabled, AntiAliasingEnabled, RenderResult},
     style::StrokeAlignment,
 };
 use embedded_graphics::{pixelcolor::PixelColor, primitives::StyledDrawable};
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Circle {
-    fn draw(
+    fn draw<R: EgPrimitiveRenderer<C, AntiAliasingDisabled>>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<
-            C,
-            crate::renderer::AntiAliasingDisabled,
-        >,
+        renderer: &mut R,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         embedded_graphics::primitives::Circle::new(
@@ -27,12 +27,9 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Circle {
         .draw_styled(&style.into_primitive_style(), renderer)
     }
 
-    fn draw_aa(
+    fn draw_aa<R: EgPrimitiveRenderer<C, AntiAliasingEnabled>>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<
-            C,
-            crate::renderer::AntiAliasingEnabled,
-        >,
+        renderer: &mut R,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         let radius = self.diameter as i32 / 2;

@@ -1,3 +1,4 @@
+use embedded_graphics::draw_target::DrawTarget;
 use embedded_graphics::{
     pixelcolor::Rgb888,
     prelude::{Dimensions, RgbColor},
@@ -5,6 +6,7 @@ use embedded_graphics::{
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
+use rsact_render::output::MapColor;
 use rsact_ui::{event::simulator::simulator_single_encoder, prelude::*};
 use std::{
     fmt::Display,
@@ -158,12 +160,16 @@ fn main() {
     window.set_max_fps(9999999);
     window.update(&display);
 
-    let mut ui = UI::new(
-        Theme::<tiny_skia::Color>::default(),
-        TinySkiaRenderer::new(display.bounding_box().size.into()),
-    )
-    .with_page(SinglePage, page)
-    .on_exit(|| std::process::exit(0));
+    let viewport: Size = display.bounding_box().size.into();
+    // The pixmap is the application's — rsact borrows it (WS6.4d).
+    let mut renderer = TinySkiaRenderer::new(
+        viewport,
+        tiny_skia::Pixmap::new(viewport.width, viewport.height).unwrap(),
+    );
+
+    let mut ui = UI::new(Theme::<tiny_skia::Color>::default(), viewport)
+        .with_page(SinglePage, page)
+        .on_exit(|| std::process::exit(0));
 
     let mut fps = 0;
     let mut last_time = Instant::now();
@@ -185,7 +191,35 @@ fn main() {
                 .inspect(|e| println!("Event: {e:?}")),
         );
 
-        ui.render(&mut display);
+        {
+            let mut frame = ui.start_frame(&mut renderer);
+            while frame.render(&mut renderer).is_some() {
+                let (parked, pixmap, at) = renderer.detach();
+                flush(&mut display, &pixmap, at);
+                renderer = parked.attach(pixmap);
+            }
+        }
         window.update(&display);
     }
+}
+
+/// Flush a detached pixmap to the display.
+///
+/// The tiny-skia mirror: rsact hands back a `Pixmap` sized to the region and the
+/// rect it belongs at, and what happens next is the application's. Here a
+/// simulator window; it could equally be `pixmap.encode_png(..)`, which is why
+/// this backend keeps a real `Pixmap` rather than lowering to an embedded color
+/// on the way out.
+fn flush<D: DrawTarget<Color = Rgb888>>(
+    display: &mut D,
+    pixmap: &tiny_skia::Pixmap,
+    at: Rect,
+) {
+    let _ = display.fill_contiguous(
+        &embedded_graphics::primitives::Rectangle::new(
+            at.top_left.into(),
+            at.size.into(),
+        ),
+        pixmap.pixels().iter().map(|p| p.map_color()),
+    );
 }

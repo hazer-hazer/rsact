@@ -2,7 +2,10 @@
 use crate::FloatExt as _;
 use crate::{
     color::Color,
-    eg::{framebuf::PackedColor, primitives::EgPrimitive},
+    eg::{
+        framebuf::PackedColor,
+        primitives::{EgPrimitive, EgPrimitiveRenderer},
+    },
     geometry::*,
     output::pixel::Pixel,
     primitives::arc::Arc,
@@ -13,9 +16,9 @@ use core::f32::consts::PI;
 use embedded_graphics::{pixelcolor::PixelColor, primitives::StyledDrawable};
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Arc {
-    fn draw(
+    fn draw<R: EgPrimitiveRenderer<C, AntiAliasingDisabled>>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingDisabled>,
+        renderer: &mut R,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         embedded_graphics::primitives::Arc::new(
@@ -27,9 +30,9 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Arc {
         .draw_styled(&style.into_primitive_style(), renderer)
     }
 
-    fn draw_aa(
+    fn draw_aa<R: EgPrimitiveRenderer<C, AntiAliasingEnabled>>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingEnabled>,
+        renderer: &mut R,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         if style.stroke.is_none() || style.stroke_width == 0 {

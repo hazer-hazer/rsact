@@ -54,7 +54,7 @@ use crate::{
 use alloc::vec::Vec;
 use rsact_reactive::{prelude::*, scope::new_scope};
 
-/// The recording widget context: colour-agnostic op log, unit page-id / stylist /
+/// The recording widget context: color-agnostic op log, unit page-id / stylist /
 /// event. Same shape the WS6.9 goldens use.
 pub type RecWtf = Wtf<RecordingRenderer<NullColor>, (), (), ()>;
 

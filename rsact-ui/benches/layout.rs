@@ -15,7 +15,16 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use rsact_reactive::{prelude::*, runtime::with_new_runtime};
 // Shared with metrics-probe (WS0.7j) so the bench and the snapshot tool build
 // the same canonical page and their numbers stay comparable.
-use rsact_ui::test_support::labels_page as build_ui;
+use rsact_ui::test_support::{TestUi, labels_page};
+
+// The renderer is the caller's now (WS6.4d); `TestUi` bundles the pair so the
+// bench measures layout rather than borrow plumbing.
+fn build_ui(
+    n: usize,
+) -> (TestUi<rsact_ui::test_support::NullWtf>, Vec<Signal<String>>) {
+    let (ui, labels) = labels_page(n);
+    (TestUi::new(ui, Default::default()), labels)
+}
 use std::{hint::black_box, time::Instant};
 
 const LABELS: usize = 10;
@@ -30,7 +39,7 @@ fn build_and_layout_full(c: &mut Criterion) {
             with_new_runtime(|_| {
                 let (mut ui, _labels) = build_ui(LABELS);
                 // First paint lays out the whole tree.
-                ui.use_renderer(|_| {});
+                ui.render();
                 black_box(&mut ui);
             })
         })
@@ -48,14 +57,14 @@ fn layout_only(c: &mut Criterion) {
         b.iter_custom(|iters| {
             with_new_runtime(|_| {
                 let (mut ui, labels) = build_ui(LABELS);
-                ui.use_renderer(|_| {});
+                ui.render();
                 let start = Instant::now();
                 for i in 0..iters {
                     let v = if i % 2 == 0 { "a" } else { "b" };
                     for mut label in labels.iter().copied() {
                         label.set(v.into());
                     }
-                    ui.use_renderer(|_| {});
+                    ui.render();
                 }
                 start.elapsed()
             })
@@ -70,7 +79,7 @@ fn layout_leaf_change(c: &mut Criterion) {
         b.iter_custom(|iters| {
             with_new_runtime(|_| {
                 let (mut ui, labels) = build_ui(LABELS);
-                ui.use_renderer(|_| {});
+                ui.render();
                 let mut driver = labels[0];
                 let start = Instant::now();
                 for i in 0..iters {
@@ -80,7 +89,7 @@ fn layout_leaf_change(c: &mut Criterion) {
                     } else {
                         "b".into()
                     });
-                    ui.use_renderer(|_| {});
+                    ui.render();
                 }
                 start.elapsed()
             })

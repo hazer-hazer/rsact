@@ -2,7 +2,10 @@
 use crate::FloatExt as _;
 use crate::{
     color::Color,
-    eg::{framebuf::PackedColor, primitives::EgPrimitive},
+    eg::{
+        framebuf::PackedColor,
+        primitives::{EgPrimitive, EgPrimitiveRenderer},
+    },
     geometry::PointExt as _,
     output::pixel::Pixel,
     primitives::line::Line,
@@ -14,9 +17,9 @@ use embedded_graphics::{
 };
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Line {
-    fn draw(
+    fn draw<R: EgPrimitiveRenderer<C, AntiAliasingDisabled>>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingDisabled>,
+        renderer: &mut R,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         embedded_graphics::primitives::Line::new(
@@ -26,9 +29,9 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Line {
         .draw_styled(&style.into_primitive_style(), renderer)
     }
 
-    fn draw_aa(
+    fn draw_aa<R: EgPrimitiveRenderer<C, AntiAliasingEnabled>>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingEnabled>,
+        renderer: &mut R,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         if style.stroke.is_none() || style.stroke_width == 0 {

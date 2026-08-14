@@ -57,7 +57,6 @@ pub mod renderer;
 // I/O (unlike `golden`), so a no_std integration test can use it too.
 pub mod schedule;
 pub mod style;
-pub mod surface;
 
 #[macro_use]
 extern crate alloc;
@@ -76,7 +75,7 @@ pub mod tiny_skia;
 pub mod prelude {
     #[cfg(feature = "embedded-graphics")]
     pub use crate::eg::{
-        framebuf::{Framebuf, PackedColor, PackedFramebuf},
+        framebuf::{Framebuffer, PackedColor, PackedFramebuf},
         primitives::*,
         renderer::EGRenderer,
     };
@@ -85,7 +84,7 @@ pub mod prelude {
     pub use crate::{
         color::{BigEndian, ByteOrder, Color, LittleEndian, RgbColor as _},
         geometry::{Rect, Size, block_model::BlockModel, padding::Padding, *},
-        output::{ColorMapper, FinishRender, MapColor, RenderTarget},
+        output::MapColor,
         path::*,
         primitives::{
             Primitive, PrimitiveKind, arc::Arc, block::Block, circle::Circle,
@@ -93,12 +92,12 @@ pub mod prelude {
             rounded_rect::RoundedRect, sector::Sector,
         },
         region::{
-            FramePolicy, RegionLimits, Tiles, Whole, assert_policy_fits,
-            plan_regions, plan_regions_into,
+            FramePolicy, RegionLimits, Tiles, Unbounded, Whole,
+            assert_policy_fits, plan_regions, plan_regions_into, policy_units,
         },
         renderer::{
-            AntiAliasing, NullColor, NullRenderer, RenderResult, Renderer,
-            ViewportKind, region_units,
+            AntiAliasing, Attached, Attachment, Detached, NullColor,
+            NullRenderer, RenderResult, Renderer, ViewportKind, region_units,
         },
         style::{ColorStyle, DrawStyle, StrokeAlignment, block::*},
     };

@@ -201,16 +201,12 @@ pub struct RegionLimits {
     /// states that directly; a `W × H` bound could only approximate it.
     ///
     /// `Option` rather than `usize::MAX` because "unbounded" is a real case, and
-    /// it lines up one-to-one with [`Renderer::SURFACE_UNITS`]'s default.
-    ///
-    /// [`Renderer::SURFACE_UNITS`]: crate::renderer::Renderer::SURFACE_UNITS
+    /// it lines up one-to-one with [`Unbounded`]'s `MAX_REGION: None`.
     pub max_units: Option<usize>,
 
-    /// How the surface packs pixels into storage units — [`Renderer::
-    /// SURFACE_PIXELS_PER_UNIT`], carried here so the planner can convert a
-    /// candidate region into units without knowing anything about colour.
-    ///
-    /// [`Renderer::SURFACE_PIXELS_PER_UNIT`]: crate::renderer::Renderer::SURFACE_PIXELS_PER_UNIT
+    /// How the surface packs pixels into storage units, carried here so the
+    /// planner can convert a candidate region into units without knowing
+    /// anything about color — or about surfaces, which rsact-ui never sees.
     pub pixels_per_unit: usize,
 
     /// Merge two regions when `union.area * 100 <= threshold * (a.area +
@@ -272,40 +268,103 @@ impl RegionLimits {
 /// not a dynamic value but one that applies a constraint over the framebuffer
 /// that can be passed … so we are sure that user cannot pass a framebuffer
 /// smaller than needed."* Hence the largest region a policy can ask for is an
-/// associated const, which `UI::start_frame` compares against the renderer's
-/// [`SURFACE_UNITS`] in a `const` block: **a framebuffer too small for the
-/// policy is a compile error**, not a runtime check, and no `Frame` whose
-/// regions could overflow the surface can be obtained.
+/// associated const, and the backend checks its surface against it — see
+/// [`Renderer::Policy`], which is where a renderer declares the one it obeys.
 ///
-/// Implement it on a zero-sized type; the two below cover the cases that exist.
+/// Implement it on a zero-sized type; the three below cover the cases that
+/// exist.
 ///
 /// # `W × H` is how you *spell* a budget, not a shape the planner obeys
 ///
 /// A policy names a rectangle because that is what a person can picture and
-/// what the compile error should say — but what it actually declares is the
+/// what the error should say — but what it actually declares is the
 /// **capacity** that rectangle implies. The planner is then free to emit any
 /// region needing no more storage units than that: under `Tiles<240, 24>` a
 /// 16×38 region (608 units) and a 120×48 one (5760) are both legal, and neither
 /// is chunked. Constraining the shape would be a constraint rsact invented —
 /// see [`RegionLimits::max_units`] for why the hardware does not have one.
 ///
-/// [`SURFACE_UNITS`]: crate::renderer::Renderer::SURFACE_UNITS
+/// [`Renderer::Policy`]: crate::renderer::Renderer::Policy
 pub trait FramePolicy {
-    /// The width of the region whose capacity this policy declares.
-    const MAX_W: u32;
-    /// The height of the region whose capacity this policy declares.
-    const MAX_H: u32;
+    /// The largest region this policy may ask a renderer to paint, or `None`
+    /// for "no bound at all".
+    ///
+    /// `None` is [`Unbounded`]: a GPU, a host renderer, any surface that always
+    /// covers the frame. It is a distinct case rather than a very large `Size`
+    /// because the capacity arithmetic would overflow on a 32-bit target long
+    /// before `u32::MAX × u32::MAX` meant anything, and because "unbounded" is
+    /// what the check must actually *skip*, not merely pass.
+    const MAX_REGION: Option<Size>;
 
-    /// The runtime constraints, given the viewport and how the surface packs.
+    /// How many pixels the surface this policy describes packs into one storage
+    /// unit.
     ///
-    /// A method rather than more consts because the knobs are viewport- and
-    /// renderer-relative, and because this is where a policy gets to be
-    /// opinionated without growing more type parameters. `pixels_per_unit` comes
-    /// from [`Renderer::SURFACE_PIXELS_PER_UNIT`] and is what turns the
-    /// declared `W × H` into a unit count.
+    /// `1` — the default, and right for every 8-bit-or-wider color and for any
+    /// surface that does not pack at all. It lives on the *policy* rather than
+    /// on [`Renderer`] because it is only ever consulted alongside
+    /// [`MAX_REGION`](Self::MAX_REGION): it is what turns a declared `W × H`
+    /// into a unit count, and it is meaningless without one. A renderer with no
+    /// capacity bound never packs anything as far as the planner is concerned.
     ///
-    /// [`Renderer::SURFACE_PIXELS_PER_UNIT`]: crate::renderer::Renderer::SURFACE_PIXELS_PER_UNIT
-    fn limits(viewport: Size, pixels_per_unit: usize) -> RegionLimits;
+    /// The row padding this implies is why capacity is not simply `w * h`: a
+    /// 122-pixel 1-bpp row occupies 16 bytes, not 15.25 (see [`region_units`]).
+    ///
+    /// **No packed policy ships yet**, because no packed surface needs tiling
+    /// today: 1-bpp is the SSD1306/SH1106 case, whose entire framebuffer is
+    /// 1 KiB, and e-paper's byte-aligned columns are roadmap 6.5's
+    /// `RegionPolicy`. When one arrives it is a five-line ZST setting this to
+    /// `8`; the backend asserts it against the color's own packing, so the two
+    /// cannot drift.
+    ///
+    /// [`Renderer`]: crate::renderer::Renderer
+    const PIXELS_PER_UNIT: usize = 1;
+
+    /// The runtime constraints, given the viewport.
+    ///
+    /// A method rather than more consts because the knobs are viewport-relative,
+    /// and because this is where a policy gets to be opinionated without growing
+    /// more type parameters.
+    fn limits(viewport: Size) -> RegionLimits;
+}
+
+/// Storage units policy `P`'s largest region needs, or `None` if `P` is
+/// [`Unbounded`].
+///
+/// The one conversion from a policy to a capacity requirement — a backend
+/// compares its surface against this, in a `const` block when the surface is a
+/// fixed-size array and at `attach` time when it is a runtime-length slice.
+pub const fn policy_units<P: FramePolicy>() -> Option<usize> {
+    match P::MAX_REGION {
+        None => None,
+        Some(max) => {
+            Some(region_units(max.width, max.height, P::PIXELS_PER_UNIT))
+        },
+    }
+}
+
+/// No capacity bound: the surface always covers the frame.
+///
+/// The policy for every renderer that never needed tiling — a GPU, a host
+/// renderer with a resizable buffer, [`NullRenderer`], `RecordingRenderer`, a
+/// full-framebuffer backend. Such a renderer accepts any region the planner
+/// arrives at, so the planner is free to stop chunking entirely.
+///
+/// It sits at the permissive end on purpose, and is the reason [`FramePolicy`]
+/// has no blanket default: associated *type* defaults are still unstable, so
+/// every [`Renderer`] must name its policy, and this is the name for "none".
+/// Being forced to write it is a small price for the alternative — a renderer
+/// that silently inherits a bound it does not have.
+///
+/// [`NullRenderer`]: crate::renderer::NullRenderer
+/// [`Renderer`]: crate::renderer::Renderer
+pub struct Unbounded;
+
+impl FramePolicy for Unbounded {
+    const MAX_REGION: Option<Size> = None;
+
+    fn limits(_viewport: Size) -> RegionLimits {
+        RegionLimits::whole()
+    }
 }
 
 /// A surface that covers the whole frame: a GPU, a host renderer, a full-size
@@ -331,13 +390,12 @@ pub trait FramePolicy {
 pub struct Whole<const W: u32, const H: u32>;
 
 impl<const W: u32, const H: u32> FramePolicy for Whole<W, H> {
-    const MAX_W: u32 = W;
-    const MAX_H: u32 = H;
+    const MAX_REGION: Option<Size> = Some(Size::new(W, H));
 
-    fn limits(_viewport: Size, pixels_per_unit: usize) -> RegionLimits {
+    fn limits(_viewport: Size) -> RegionLimits {
         RegionLimits::tiled(
-            region_units(W, H, pixels_per_unit),
-            pixels_per_unit,
+            region_units(W, H, Self::PIXELS_PER_UNIT),
+            Self::PIXELS_PER_UNIT,
         )
     }
 }
@@ -357,38 +415,44 @@ impl<const W: u32, const H: u32> FramePolicy for Whole<W, H> {
 pub struct Tiles<const W: u32, const H: u32>;
 
 impl<const W: u32, const H: u32> FramePolicy for Tiles<W, H> {
-    const MAX_W: u32 = W;
-    const MAX_H: u32 = H;
+    const MAX_REGION: Option<Size> = Some(Size::new(W, H));
 
-    fn limits(_viewport: Size, pixels_per_unit: usize) -> RegionLimits {
+    fn limits(_viewport: Size) -> RegionLimits {
         RegionLimits::tiled(
-            region_units(W, H, pixels_per_unit),
-            pixels_per_unit,
+            region_units(W, H, Self::PIXELS_PER_UNIT),
+            Self::PIXELS_PER_UNIT,
         )
     }
 }
 
-/// WS6.4.0(iii): compile-time proof that a surface can hold policy `P`'s
-/// largest region.
+/// WS6.4.0(iii): a surface of `surface_units` units can hold policy `P`'s
+/// largest region — assert it, or fail with a message naming both.
 ///
-/// Call it from a `const` block — `UI::start_frame` does, which is what makes a
-/// framebuffer too small for its policy a **compile error** rather than a
-/// runtime check, and what makes a `Frame` whose regions could overflow the
-/// surface unobtainable.
+/// `const` so a backend whose surface is a **fixed-size array** can call it in
+/// a `const` block and turn "this buffer is too small for its policy" into a
+/// compile error. A backend handed a runtime-length slice (`&'static mut [u8]`,
+/// which is how an embedded app usually places a buffer in a specific memory
+/// region) has no such const to check, so it calls the same function at
+/// `attach` time instead: same arithmetic, same message, one frame earlier than
+/// the corruption it prevents.
 ///
-/// Takes the two surface numbers rather than the renderer type so the proof can
-/// be exercised directly, without standing up a whole `Renderer` impl — the
+/// [`Unbounded`] always fits, and short-circuits before any arithmetic — its
+/// `MAX_REGION` is `None` precisely so this cannot overflow trying to prove the
+/// unprovable.
+///
+/// Takes the surface numbers rather than the renderer type so the proof can be
+/// exercised directly, without standing up a whole `Renderer` impl — the
 /// doctests below are the real test of the assertion, and they run in this
 /// crate's suite.
 ///
 /// ```
-/// # use rsact_render::region::{assert_policy_fits, Tiles, Whole};
+/// # use rsact_render::region::{assert_policy_fits, Tiles, Unbounded, Whole};
 /// // 240x24 RGB565 needs 5760 u16 — exactly what the buffer holds.
-/// const _: () = assert_policy_fits::<Tiles<240, 24>>(5760, 1);
-/// // 1-bpp, rows padded to whole bytes: 122px -> 16 bytes, x24 = 384.
-/// const _: () = assert_policy_fits::<Tiles<122, 24>>(384, 8);
+/// const _: () = assert_policy_fits::<Tiles<240, 24>>(5760);
 /// // A full framebuffer is just the degenerate policy.
-/// const _: () = assert_policy_fits::<Whole<240, 240>>(57600, 1);
+/// const _: () = assert_policy_fits::<Whole<240, 240>>(57600);
+/// // An unbounded policy imposes nothing, so even nothing satisfies it.
+/// const _: () = assert_policy_fits::<Unbounded>(0);
 /// ```
 ///
 /// One row too tall does not compile:
@@ -396,27 +460,24 @@ impl<const W: u32, const H: u32> FramePolicy for Tiles<W, H> {
 /// ```compile_fail
 /// # use rsact_render::region::{assert_policy_fits, Tiles};
 /// // 240x25 needs 6000 units; the surface holds 5760.
-/// const _: () = assert_policy_fits::<Tiles<240, 25>>(5760, 1);
+/// const _: () = assert_policy_fits::<Tiles<240, 25>>(5760);
 /// ```
 ///
-/// Nor does a mono surface sized by area instead of by padded rows — the case
-/// that silently corrupts every row after the first:
+/// Nor does a surface one row short:
 ///
 /// ```compile_fail
 /// # use rsact_render::region::{assert_policy_fits, Tiles};
-/// // 122x24 at 1bpp needs ceil(122/8)*24 = 384 bytes, not 122*24/8 = 366.
-/// const _: () = assert_policy_fits::<Tiles<122, 24>>(366, 8);
+/// const _: () = assert_policy_fits::<Tiles<240, 24>>(5759);
 /// ```
-pub const fn assert_policy_fits<P: FramePolicy>(
-    surface_units: usize,
-    pixels_per_unit: usize,
-) {
-    assert!(
-        region_units(P::MAX_W, P::MAX_H, pixels_per_unit) <= surface_units,
-        "the renderer's surface is too small for this frame policy: its \
-         largest region does not fit. Shrink the policy's region or enlarge \
-         the buffer — the instantiation in this error names both."
-    );
+pub const fn assert_policy_fits<P: FramePolicy>(surface_units: usize) {
+    if let Some(needed) = policy_units::<P>() {
+        assert!(
+            needed <= surface_units,
+            "the renderer's surface is too small for this frame policy: its \
+             largest region does not fit. Shrink the policy's region or \
+             enlarge the buffer — the instantiation in this error names both."
+        );
+    }
 }
 
 /// Plan `damage` into the regions to paint, appending them to `out`.
@@ -1002,21 +1063,22 @@ mod tests {
             [rect(0, 0, 320, 240), rect(10, 10, 8, 8), rect(300, 230, 8, 8)];
 
         fn check<P: FramePolicy>(damage: &[Rect], viewport: Rect) {
-            let limits = P::limits(viewport.size, 1);
-            let budget = region_units(P::MAX_W, P::MAX_H, 1);
+            let limits = P::limits(viewport.size);
+            let max = P::MAX_REGION.expect("a bounded policy");
+            let budget = policy_units::<P>().expect("a bounded policy");
             let planned = plan_regions(damage, viewport, &limits);
             assert!(!planned.is_empty());
             for region in &planned {
-                // The bound is the UNIT COUNT the compile-time proof was run
+                // The bound is the UNIT COUNT the capacity proof was run
                 // against — not the rectangle used to spell it. A region may be
-                // taller than `MAX_H` provided it is narrow enough to fit.
+                // taller than `max.height` provided it is narrow enough to fit.
                 assert!(
                     limits.units_of(*region) <= budget,
                     "{region:?} needs {} units, over the {budget} the capacity \
                      proof was run against ({}x{})",
                     limits.units_of(*region),
-                    P::MAX_W,
-                    P::MAX_H
+                    max.width,
+                    max.height
                 );
             }
         }

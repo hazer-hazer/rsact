@@ -24,8 +24,9 @@ fn main() -> ! {
         .collect();
     let init = labels.clone();
 
+    let mut renderer = NullRenderer::default();
     let mut ui: UI<NullWtf, _> =
-        UI::new((), NullRenderer::default()).with_page((), move || {
+        UI::new((), Size::zero()).with_page((), move || {
             Flex::col(
                 init.iter()
                     .map(|s| Label::new(*s).into_el())
@@ -34,7 +35,11 @@ fn main() -> ! {
             .into_el()
         });
     let _ = ui.current_page();
-    ui.use_renderer(|_| {});
+    // The one render path (WS6.4d): a frame is `start_frame` plus its region
+    // loop. The size probe measures what the real path monomorphizes to.
+    let mut frame = ui.start_frame(&mut renderer);
+    while frame.render(&mut renderer).is_some() {}
+    drop(frame);
 
     black_box(&ui);
     loop {}

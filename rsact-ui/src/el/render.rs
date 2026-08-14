@@ -385,14 +385,14 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
 /// instantiate against `RenderCtx<W>` instead of `W::Renderer` — the same count,
 /// plus these inlinable forwarders. No `dyn`, no second widget tree.
 ///
-/// [`SURFACE_UNITS`] is forwarded rather than left to default, so 6.4.0(iii)'s
-/// compile-time tile-capacity proof still sees the real surface through the seam.
+/// [`Policy`] is forwarded rather than restated, so the frame planner sees the
+/// real renderer's region bound through the seam.
 ///
-/// [`SURFACE_UNITS`]: Renderer::SURFACE_UNITS
+/// [`Policy`]: Renderer::Policy
 impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
     type Color = W::Color;
 
-    const SURFACE_UNITS: usize = <W::Renderer as Renderer>::SURFACE_UNITS;
+    type Policy = <W::Renderer as Renderer>::Policy;
 
     fn size(&self) -> Size {
         self.renderer.size()

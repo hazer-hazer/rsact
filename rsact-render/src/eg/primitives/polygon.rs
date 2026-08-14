@@ -1,12 +1,13 @@
 use crate::{
     color::Color,
-    eg::{framebuf::PackedColor, primitives::EgPrimitive},
+    eg::{
+        framebuf::PackedColor,
+        primitives::{EgPrimitive, EgPrimitiveRenderer},
+    },
     geometry::{Point, PointExt as _},
     output::pixel::Pixel,
     primitives::{line::Line, polygon::Polygon},
-    renderer::{
-        AntiAliasingDisabled, AntiAliasingEnabled, RenderResult, Renderer,
-    },
+    renderer::{AntiAliasingDisabled, AntiAliasingEnabled, RenderResult},
 };
 use embedded_graphics::pixelcolor::PixelColor;
 
@@ -58,9 +59,9 @@ impl Polygon {
 
 impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Polygon {
     // TODO: Review this implementation
-    fn draw(
+    fn draw<R: EgPrimitiveRenderer<C, AntiAliasingDisabled>>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingDisabled>,
+        renderer: &mut R,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         if let Some(fill_color) = style.fill {
@@ -88,9 +89,9 @@ impl<C: Color + PixelColor + PackedColor> EgPrimitive<C> for Polygon {
         Ok(())
     }
 
-    fn draw_aa(
+    fn draw_aa<R: EgPrimitiveRenderer<C, AntiAliasingEnabled>>(
         &self,
-        renderer: &mut crate::prelude::EGRenderer<C, AntiAliasingEnabled>,
+        renderer: &mut R,
         style: crate::prelude::DrawStyle<C>,
     ) -> RenderResult {
         if let Some(fill_color) = style.fill {

@@ -8,17 +8,16 @@
 //! about the draw log, not about the final image (the image is identical whether
 //! you repaint one rect or the whole screen).
 //!
-//! The log is **geometry-focused and colour-agnostic** on purpose: it records
+//! The log is **geometry-focused and color-agnostic** on purpose: it records
 //! positions, sizes, primitive kinds and clip regions — the WS6 damage signal —
-//! not exact colours, so it stays deterministic and generic over any [`Color`].
-//! Visual (colour / anti-aliasing) correctness is the tiny-skia PNG snapshot's
+//! not exact colors, so it stays deterministic and generic over any [`Color`].
+//! Visual (color / anti-aliasing) correctness is the tiny-skia PNG snapshot's
 //! job, not this one's.
 
 use crate::{
     color::Color,
     geometry::{Angle, CornerRadii, Point, Rect, Size},
     image::DrawImage,
-    output::{FinishRender, RenderTarget, pixel::Pixel},
     path::Path,
     renderer::{RenderResult, Renderer, ViewportKind},
     style::DrawStyle,
@@ -97,7 +96,7 @@ impl DrawOp {
     ///   makes the invariance check slightly weaker (it can miss a genuinely lost
     ///   op in a boundary sliver) but never wrong in the other direction. Fixing
     ///   it would mean recording style, which is exactly what keeps this log
-    ///   deterministic and colour-agnostic.
+    ///   deterministic and color-agnostic.
     ///
     /// [`tile_invariance`]: crate::schedule::tile_invariance
     /// [`Path::bounds`]: crate::path::Path::bounds
@@ -224,7 +223,7 @@ impl fmt::Display for DrawOp {
 /// Serialise a draw-op log to the stable, newline-terminated, one-op-per-line
 /// text used as the golden content (see [`DrawOp`]'s `Display`). This is the
 /// draw-call side of the WS6.9 harness: the exact primitives + positions a
-/// render pass emitted, comparable across runs and colour-agnostic.
+/// render pass emitted, comparable across runs and color-agnostic.
 pub fn format_ops(ops: &[DrawOp]) -> String {
     use fmt::Write as _;
     let mut out = String::new();
@@ -238,7 +237,16 @@ pub fn format_ops(ops: &[DrawOp]) -> String {
 /// A [`Renderer`] that logs its draw operations for golden tests. Cheap to clone
 /// — clones share one log (`Rc<RefCell<..>>`), so a copy handed to the render
 /// pass records into the same buffer the test reads.
-pub struct RecordingRenderer<C> {
+/// `P` is the [frame policy](crate::region::FramePolicy) this recorder reports,
+/// defaulting to [`Unbounded`](crate::region::Unbounded).
+///
+/// A recorder has no surface, so no policy is forced on it — but the frame
+/// planner reads the policy from the *renderer type*, and a harness measuring
+/// how a schedule behaves under `Tiles<240, 24>` needs a renderer that asks for
+/// `Tiles<240, 24>`. Making it a parameter is what lets one recorder stand in
+/// for any target's region bound while still recording every op, unclipped and
+/// unchunked by any real storage.
+pub struct RecordingRenderer<C, P = crate::region::Unbounded> {
     size: Size,
     ops: Rc<RefCell<Vec<DrawOp>>>,
     /// WS6.4b: a real clip stack, so [`Renderer::clip_bounds`] can report the
@@ -248,26 +256,29 @@ pub struct RecordingRenderer<C> {
     /// Shared with clones, like the log.
     clips: Rc<RefCell<Vec<ViewportKind>>>,
     _color: PhantomData<C>,
+    _policy: PhantomData<P>,
 }
 
-impl<C> Clone for RecordingRenderer<C> {
+impl<C, P> Clone for RecordingRenderer<C, P> {
     fn clone(&self) -> Self {
         Self {
             size: self.size,
             ops: Rc::clone(&self.ops),
             clips: Rc::clone(&self.clips),
             _color: PhantomData,
+            _policy: PhantomData,
         }
     }
 }
 
-impl<C> RecordingRenderer<C> {
+impl<C, P> RecordingRenderer<C, P> {
     pub fn new(size: Size) -> Self {
         Self {
             size,
             ops: Rc::new(RefCell::new(Vec::new())),
             clips: Rc::new(RefCell::new(vec![ViewportKind::root()])),
             _color: PhantomData,
+            _policy: PhantomData,
         }
     }
 
@@ -324,19 +335,15 @@ fn points_bounds(points: &[Point]) -> Rect {
     )
 }
 
-impl<C: Color> RenderTarget for RecordingRenderer<C> {
+impl<C: Color, P: crate::region::FramePolicy> Renderer
+    for RecordingRenderer<C, P>
+{
     type Color = C;
 
-    fn draw(&mut self, _pixels: impl Iterator<Item = Pixel<Self::Color>>) {}
-}
-
-// The finish target's colour is independent of the recorder's own colour.
-impl<C, D> FinishRender<D> for RecordingRenderer<C> {
-    fn finish_frame(&mut self, _target: &mut impl RenderTarget<Color = D>) {}
-}
-
-impl<C: Color> Renderer for RecordingRenderer<C> {
-    type Color = C;
+    /// Whatever policy the harness asked for — see the type's own docs. The
+    /// recorder never chunks anything itself, so what a test observes is exactly
+    /// the schedule the planner chose under that policy.
+    type Policy = P;
 
     fn size(&self) -> Size {
         self.size

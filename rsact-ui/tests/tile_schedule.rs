@@ -36,7 +36,7 @@ use rsact_ui::{
     widget::knob::Knob,
 };
 
-/// G3's colour reference target: 240x240 RGB565 ST7789, the display whose 112.5
+/// G3's color reference target: 240x240 RGB565 ST7789, the display whose 112.5
 /// KiB framebuffer does not fit the Black Pill's 96 K RAM — i.e. the exact case
 /// WS6.4 exists for.
 fn viewport() -> Size {
@@ -759,4 +759,401 @@ fn the_traversal_prune_hits_the_modelled_floor() {
             );
         }
     });
+}
+
+/// WS6.4d: the ownership contract, driven end to end — an **N-buffered** loop
+/// over a surface an eighth the size of the frame.
+///
+/// This is the shape the whole redesign exists to make expressible, and every
+/// line of it is the application's:
+///
+/// - the buffers are the app's, allocated where the app wants them (here a
+///   heap `Vec`; on a device a `StaticCell` in whatever memory region the board
+///   calls for);
+/// - the renderer is the app's, passed into rsact per call and owned by nobody
+///   else — `UI` has no renderer field to hold a surface hostage;
+/// - the transport is the app's: `detach` hands back the painted tile *with*
+///   the rect to blit it at, and what happens next (a channel, a DMA burst, a
+///   blocking `spi.write`) is not rsact's business.
+///
+/// The assertion is that the tiled loop reconstructs the frame a full-size
+/// surface would have painted, pixel for pixel. That is stronger than op-log
+/// invariance, which cannot see an addressing mistake: a wrong origin or stride
+/// leaves the op log intact and produces a *plausible* image.
+#[test]
+fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
+    use embedded_graphics::pixelcolor::Rgb888;
+    use rsact_render::{
+        eg::{framebuf::PackedColor, renderer::EGRenderer},
+        region::Tiles,
+        renderer::AntiAliasingDisabled,
+    };
+
+    const W: u32 = 64;
+    const H: u32 = 64;
+    const TILE_H: u32 = 8;
+    let viewport = Size::new(W, H);
+
+    /// A full-frame pixel map: what the panel would end up holding.
+    ///
+    /// A plain struct, not a `RenderTarget` — that trait is gone (WS6.4d). rsact
+    /// renders; the caller flushes, and here the caller is the test.
+    struct Panel {
+        px: Vec<Option<Rgb888>>,
+    }
+    let blank = || Panel { px: vec![None; (W * H) as usize] };
+
+    /// Blit a detached tile onto the panel: **raw units plus the rect to put
+    /// them at**, which is exactly what a real transport receives — an ST7789
+    /// takes `CASET`/`RASET` and then the bytes.
+    ///
+    /// Deliberately not re-wrapping the buffer in a `PackedFramebuf` to reuse
+    /// `output_region`. That would let the test lean on rsact's own addressing
+    /// to read back what rsact's addressing wrote, which proves nothing; this
+    /// asserts the contract from outside — the tile is strided at its **own**
+    /// region width, so row `i` starts at `i * region.width`.
+    fn blit(panel: &mut Panel, tile: &[u32], region: Rect) {
+        let w = region.size.width as usize;
+        for row in 0..region.size.height as usize {
+            for col in 0..w {
+                let x = region.top_left.x + col as i32;
+                let y = region.top_left.y + row as i32;
+                if x < 0 || y < 0 || x as u32 >= W || y as u32 >= H {
+                    continue;
+                }
+                let color =
+                    <Rgb888 as PackedColor>::as_color(&tile[row * w + col], 0);
+                panel.px[y as usize * W as usize + x as usize] = Some(color);
+            }
+        }
+    }
+
+    type Full = EGRenderer<Rgb888, AntiAliasingDisabled, &'static mut [u32]>;
+    type Tiled = EGRenderer<
+        Rgb888,
+        AntiAliasingDisabled,
+        &'static mut [u32],
+        Tiles<W, TILE_H>,
+    >;
+    type FullWtf = Wtf<Full, (), Theme<Rgb888>, ()>;
+    type TiledWtf = Wtf<Tiled, (), Theme<Rgb888>, ()>;
+
+    fn page() -> impl View<FullWtf> {
+        Flex::col(vec![
+            Label::new("alpha".inert()).into_el(),
+            Checkbox::new(true).into_el(),
+            Label::new("omega".inert()).into_el(),
+        ])
+        .fill()
+        .gap(4u32)
+    }
+    // Same tree, other context — `View` is generic over `W`, so this is the
+    // same page under a renderer whose surface is an eighth the size.
+    fn tiled_page() -> impl View<TiledWtf> {
+        Flex::col(vec![
+            Label::new("alpha".inert()).into_el(),
+            Checkbox::new(true).into_el(),
+            Label::new("omega".inert()).into_el(),
+        ])
+        .fill()
+        .gap(4u32)
+    }
+
+    // ---- reference: one full-size surface, the whole-frame path ------------
+    let reference = with_new_runtime(|_| {
+        let mut renderer =
+            Full::new(viewport, vec![0u32; (W * H) as usize].leak());
+        let mut ui: UI<FullWtf, _> =
+            UI::new(Theme::default(), viewport).with_page((), page);
+        let mut panel = blank();
+        // Eight frames through the one render path. The first is a full
+        // invalidate; the rest settle reactive state.
+        for _ in 0..8 {
+            let mut frame = ui.start_frame(&mut renderer);
+            while frame.render(&mut renderer).is_some() {}
+        }
+        let (_, units, at) = renderer.detach();
+        blit(&mut panel, &units, at);
+        panel
+    });
+
+    // ---- the same frame through an N-buffered tiled loop -------------------
+    let tiled = with_new_runtime(|_| {
+        // Three tiles in a pool, so the loop really does rotate buffers rather
+        // than reuse one — the case a single-buffer test would not exercise.
+        const TILE_UNITS: usize = (W * TILE_H) as usize;
+        // Three loans in a pool, so the loop really does rotate buffers rather
+        // than reuse one. `leak` in a test is a `StaticCell` on a device — both
+        // give the `'static` loan `WidgetCtx` requires.
+        let mut free: Vec<&'static mut [u32]> =
+            (0..3).map(|_| vec![0u32; TILE_UNITS].leak()).collect();
+
+        let mut renderer = Tiled::tiled(viewport, free.pop().unwrap());
+        let mut ui: UI<TiledWtf, _> =
+            UI::new(Theme::default(), viewport).with_page((), tiled_page);
+        let mut panel = blank();
+        let mut regions_painted = 0usize;
+
+        // Same eight frames. The first is a full invalidate, which at a
+        // 64x8 budget is the degenerate strip case — eight bands, every widget
+        // cut by some boundary.
+        for _ in 0..8 {
+            let mut frame = ui.start_frame(&mut renderer);
+            while frame.render(&mut renderer).is_some() {
+                regions_painted += 1;
+                // Publish first, acquire second — the ordering that keeps a
+                // single-buffer pool from deadlocking (see `EGRenderer::detach`).
+                // `detach` consumes the renderer and hands back a parked one, so
+                // the buffer cannot be painted into while the app holds it: that
+                // is the type-state, not a convention.
+                let (parked, tile, dirty) = renderer.detach();
+                blit(&mut panel, &tile, dirty);
+                free.push(tile);
+                renderer = parked.attach(free.remove(0));
+            }
+        }
+
+        assert!(
+            regions_painted > 1,
+            "the tiled loop painted {regions_painted} region(s); a {W}x{H} \
+             viewport at a {W}x{TILE_H} budget must take more than one"
+        );
+        panel
+    });
+
+    // Not vacuous: an all-`None` comparison would pass trivially, and an
+    // addressing bug is exactly the kind that can leave a map empty.
+    let painted = |p: &Panel| p.px.iter().filter(|c| c.is_some()).count();
+    assert!(
+        painted(&reference) > (W * H) as usize / 3,
+        "the reference frame painted only {} of {} pixels",
+        painted(&reference),
+        W * H
+    );
+
+    let mismatches: Vec<usize> = (0..(W * H) as usize)
+        .filter(|&i| reference.px[i] != tiled.px[i])
+        .collect();
+    assert!(
+        mismatches.is_empty(),
+        "{} of {} pixels differ between a full framebuffer and an N-buffered \
+         tiled loop; first at ({}, {}): full {:?} vs tiled {:?}",
+        mismatches.len(),
+        W * H,
+        mismatches[0] % W as usize,
+        mismatches[0] / W as usize,
+        reference.px[mismatches[0]],
+        tiled.px[mismatches[0]],
+    );
+}
+
+/// WS6.4d: **the loop the examples show, run and asserted against an absolute
+/// reference.**
+///
+/// The examples cannot be compile-checked — every one has been broken since
+/// before this workstream for unrelated reasons (ISSUE-5: no CI job builds them)
+/// — so a defect in the pattern they demonstrate is invisible. One already
+/// shipped that way: a loop flushing a damage *list* against a single buffer,
+/// which worked only because that buffer happened to span the frame.
+///
+/// So the pattern lives here too, verbatim, and is checked against a frame read
+/// **without** it. The first version of this test compared a whole-surface run
+/// to a tiled one through the same `flush`, which proved nothing: replacing the
+/// region stride with the frame width — the exact mistake at issue — left both
+/// runs equally wrong and the test green. The reference therefore reads the
+/// framebuffer directly, on the one region where stride cannot be ambiguous
+/// (the whole viewport, where region width *is* frame width).
+///
+/// # What this catches, and what it cannot
+///
+/// Mutation-tested rather than assumed. A wrong **origin** — blitting every
+/// region at `(0, 0)` — fails it at 3632 of 4096 pixels. A wrong **stride** —
+/// using the frame width instead of the region's — does **not**, and cannot:
+/// chunking is width-preserving, so a full-frame damage becomes full-width
+/// bands where the two spellings are the same number, and any narrower region
+/// comes from damage that is identical under both policies, so a shared helper
+/// is wrong identically on both sides and the difference cancels.
+///
+/// That is a limit of differential testing here, not an oversight. The stride is
+/// pinned where it is a contract rather than a convention:
+/// `a_narrow_region_is_laid_out_at_its_own_width` in `eg::renderer`.
+#[test]
+fn the_loop_the_examples_show_paints_the_frame_the_framebuffer_holds() {
+    use embedded_graphics::{
+        draw_target::DrawTarget, pixelcolor::Rgb888, prelude::OriginDimensions,
+    };
+    use rsact_render::{
+        eg::{framebuf::PackedColor, renderer::EGRenderer},
+        region::Tiles,
+        renderer::AntiAliasingDisabled,
+    };
+
+    const W: u32 = 64;
+    const H: u32 = 64;
+    const TILE_H: u32 = 8;
+    let viewport = Size::new(W, H);
+
+    /// Stands in for the simulator's `SimulatorDisplay` — a real
+    /// `embedded-graphics` target, so `fill_contiguous`'s row-major contract is
+    /// the genuine one rather than a mock of it.
+    struct Panel {
+        px: Vec<Option<Rgb888>>,
+    }
+    impl OriginDimensions for Panel {
+        fn size(&self) -> embedded_graphics::geometry::Size {
+            embedded_graphics::geometry::Size::new(W, H)
+        }
+    }
+    impl DrawTarget for Panel {
+        type Color = Rgb888;
+        type Error = core::convert::Infallible;
+        fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
+        where
+            I: IntoIterator<Item = embedded_graphics::Pixel<Self::Color>>,
+        {
+            for embedded_graphics::Pixel(p, c) in pixels {
+                if p.x >= 0 && p.y >= 0 && (p.x as u32) < W && (p.y as u32) < H
+                {
+                    self.px[p.y as usize * W as usize + p.x as usize] = Some(c);
+                }
+            }
+            Ok(())
+        }
+    }
+
+    // ── verbatim from the examples ──────────────────────────────────────────
+    fn flush<D: DrawTarget<Color = Rgb888>>(
+        display: &mut D,
+        units: &[u32],
+        at: Rect,
+    ) {
+        let stride = at.size.width as usize;
+        let _ = display.fill_contiguous(
+            &embedded_graphics::primitives::Rectangle::new(
+                at.top_left.into(),
+                at.size.into(),
+            ),
+            (0..at.size.height as usize).flat_map(|row| {
+                (0..stride).map(move |col| {
+                    <Rgb888 as PackedColor>::as_color(
+                        &units[row * stride + col],
+                        0,
+                    )
+                })
+            }),
+        );
+    }
+
+    type Whole = EGRenderer<Rgb888, AntiAliasingDisabled, &'static mut [u32]>;
+    type Tiled = EGRenderer<
+        Rgb888,
+        AntiAliasingDisabled,
+        &'static mut [u32],
+        Tiles<W, TILE_H>,
+    >;
+
+    macro_rules! page {
+        () => {
+            || {
+                Flex::col(vec![
+                    Label::new("alpha".inert()).into_el(),
+                    Checkbox::new(true).into_el(),
+                    Label::new("omega".inert()).into_el(),
+                ])
+                .fill()
+                .gap(4u32)
+                .into_el()
+            }
+        };
+    }
+
+    // ── the reference: one full-viewport region, read from the buffer ───────
+    //
+    // A page's first frame is a full invalidate, so an unbounded policy plans it
+    // as exactly one region covering the viewport — asserted below, because the
+    // whole point is that this region's width IS the frame width and therefore
+    // no stride convention can be got wrong here.
+    let reference: Vec<Option<Rgb888>> = with_new_runtime(|_| {
+        let mut renderer =
+            Whole::new(viewport, vec![0u32; (W * H) as usize].leak());
+        let mut ui: UI<Wtf<Whole, (), Theme<Rgb888>, ()>, _> =
+            UI::new(Theme::default(), viewport).with_page((), page!());
+
+        let mut frame = ui.start_frame(&mut renderer);
+        let at = frame.render(&mut renderer).expect("a first-frame region");
+        assert_eq!(
+            at,
+            Rect::new(Point::zero(), viewport),
+            "a page's first frame must plan as the whole viewport under an \
+             unbounded policy, or this reference is not stride-unambiguous"
+        );
+        assert!(
+            frame.render(&mut renderer).is_none(),
+            "…and as exactly ONE region"
+        );
+        drop(frame);
+
+        let (_, buf, _) = renderer.detach();
+        buf.iter()
+            .map(|u| Some(<Rgb888 as PackedColor>::as_color(u, 0)))
+            .collect()
+    });
+
+    // ── under test: the example loop, tiled, many regions ──────────────────
+    let tiled = with_new_runtime(|_| {
+        let mut panel = Panel { px: vec![None; (W * H) as usize] };
+        let mut renderer =
+            Tiled::tiled(viewport, vec![0u32; (W * TILE_H) as usize].leak());
+        let mut ui: UI<Wtf<Tiled, (), Theme<Rgb888>, ()>, _> =
+            UI::new(Theme::default(), viewport).with_page((), page!());
+
+        let mut regions = 0;
+        {
+            let mut frame = ui.start_frame(&mut renderer);
+            while frame.render(&mut renderer).is_some() {
+                regions += 1;
+                let (parked, buf, at) = renderer.detach();
+                flush(&mut panel, &buf, at);
+                renderer = parked.attach(buf);
+            }
+        }
+        assert!(
+            regions > 1,
+            "the tiled run took {regions} region(s); with a {W}x{TILE_H} \
+             budget a full first frame must take several, or the loop is not \
+             being exercised"
+        );
+        panel
+    });
+
+    // Not vacuous: the reference must hold a real picture. An all-background
+    // comparison would pass while proving nothing.
+    let ink = reference
+        .iter()
+        .filter(|c| {
+            **c != Some(
+                <Rgb888 as rsact_render::color::Color>::default_background(),
+            )
+        })
+        .count();
+    assert!(
+        ink > 64,
+        "the reference frame has only {ink} non-background pixels"
+    );
+
+    let mismatches: Vec<usize> = (0..(W * H) as usize)
+        .filter(|&i| reference[i] != tiled.px[i])
+        .collect();
+    assert!(
+        mismatches.is_empty(),
+        "{} of {} pixels differ between the framebuffer and what the example \
+         loop put on the display; first at ({}, {}): framebuffer {:?} vs \
+         display {:?}",
+        mismatches.len(),
+        W * H,
+        mismatches[0] % W as usize,
+        mismatches[0] / W as usize,
+        reference[mismatches[0]],
+        tiled.px[mismatches[0]],
+    );
 }

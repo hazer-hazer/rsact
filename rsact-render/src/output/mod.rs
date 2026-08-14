@@ -1,35 +1,37 @@
-use crate::{color::Color, geometry::Rect, output::pixel::Pixel};
-use core::marker::PhantomData;
-
 pub mod pixel;
 
-pub trait RenderTarget {
-    type Color;
+// NOTE (WS6.4d): `trait RenderTarget` and `struct ColorMapper` lived here, along
+// with `trait FinishRender` before them. All three were one mistake wearing
+// three hats: a **second seam**.
+//
+// The first seam is the real one — `Renderer`, which takes primitives and puts
+// them somewhere. `RenderTarget` was a second: it took what a renderer had
+// already produced and moved it somewhere else, so a backend both rendered AND
+// flushed. Flushing is the application's prerogative. It owns the transport, it
+// owns the timing, and (once the surface became a loan rather than a
+// possession) it owns the pixels too — it takes them back from `detach` and
+// ships them.
+//
+// `RenderTarget` was also just a mirror of embedded-graphics' `DrawTarget`,
+// re-declared so rsact-render could name it without depending on that crate. We
+// do not need a mirror. The three renderer shapes each meet their output
+// directly and differently:
+//
+//   - a framebuffer renderer (`EGRenderer`) draws into storage the caller lends
+//     it and hands it back;
+//   - a direct renderer will take a `DrawTarget` as its own parameter, using the
+//     real trait rather than a copy of it;
+//   - a GPU renderer produces commands and never has pixels at all.
+//
+// `MapColor` survives because it is not part of that seam: it is a plain color
+// conversion, and it is what a future `PixmapExt::map_to_framebuffer` would use
+// to bring tiny-skia's `PremultipliedColorU8` down to an embedded-friendly
+// color.
 
-    fn draw(&mut self, pixels: impl Iterator<Item = Pixel<Self::Color>>);
-}
-
-pub trait FinishRender<C> {
-    fn finish_frame(&mut self, target: &mut impl RenderTarget<Color = C>);
-
-    /// WS6.3: flush only the given damage `regions` to `target` (the damage-
-    /// driven flush). The default **ignores `regions` and flushes the whole
-    /// frame** — always correct (a full flush is a superset of any damage set),
-    /// just not the SPI win; region-aware backends (EG, tiny-skia) override this
-    /// to stream only the pixels inside the regions. Each region is clamped to
-    /// the viewport by the backend. Overlapping regions may flush a pixel more
-    /// than once (harmless — same value); callers that care pre-join them (the
-    /// LVGL-style joined-areas list, WS6.2). An empty slice flushes nothing.
-    fn finish_frame_regions(
-        &mut self,
-        target: &mut impl RenderTarget<Color = C>,
-        regions: &[Rect],
-    ) {
-        let _ = regions;
-        self.finish_frame(target);
-    }
-}
-
+/// Convert one color representation into another.
+///
+/// Not an output abstraction — just a conversion, which is why it outlived the
+/// `RenderTarget`/`ColorMapper` pair it used to serve.
 pub trait MapColor<O> {
     fn map_color(&self) -> O;
 }
@@ -37,74 +39,5 @@ pub trait MapColor<O> {
 impl<O: Clone> MapColor<O> for O {
     fn map_color(&self) -> O {
         self.clone()
-    }
-}
-
-pub struct ColorMapper<C: Color, O: Color, T: RenderTarget<Color = O>> {
-    target: T,
-    _input: PhantomData<C>,
-    _output: PhantomData<O>,
-}
-
-impl<C: Color, O: Color, T: RenderTarget<Color = O>> ColorMapper<C, O, T> {
-    pub fn new(target: T) -> Self {
-        Self { target, _input: PhantomData, _output: PhantomData }
-    }
-}
-
-impl<C: Color, O: Color, T: RenderTarget<Color = O>> RenderTarget
-    for ColorMapper<C, O, T>
-where
-    C: MapColor<O>,
-{
-    type Color = C;
-
-    fn draw(&mut self, pixels: impl Iterator<Item = Pixel<Self::Color>>) {
-        self.target
-            .draw(pixels.map(|p| Pixel(p.0, p.1.map_color())));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::geometry::{Point, Size};
-
-    struct NoopTarget;
-    impl RenderTarget for NoopTarget {
-        type Color = ();
-        fn draw(&mut self, _pixels: impl Iterator<Item = Pixel<()>>) {}
-    }
-
-    /// Only implements `finish_frame`; leans on the defaulted
-    /// `finish_frame_regions`.
-    struct FullFlushOnly {
-        frames: u32,
-    }
-    impl FinishRender<()> for FullFlushOnly {
-        fn finish_frame(
-            &mut self,
-            _target: &mut impl RenderTarget<Color = ()>,
-        ) {
-            self.frames += 1;
-        }
-    }
-
-    /// WS6.3 safety contract: a backend that does NOT override
-    /// `finish_frame_regions` still flushes correctly — the default ignores the
-    /// regions and does one full `finish_frame` (a full flush is a superset of
-    /// any damage set, so it can never be wrong, only unoptimised).
-    #[test]
-    fn default_regions_flush_falls_back_to_full_frame() {
-        let mut finisher = FullFlushOnly { frames: 0 };
-        let mut target = NoopTarget;
-        let regions = [Rect::new(Point::zero(), Size::new(2, 2)), Rect::zero()];
-
-        finisher.finish_frame_regions(&mut target, &regions);
-
-        assert_eq!(
-            finisher.frames, 1,
-            "default finish_frame_regions must delegate to one full finish_frame"
-        );
     }
 }

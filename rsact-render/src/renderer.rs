@@ -2,7 +2,6 @@ use crate::{
     color::{Color, Rgba},
     geometry::*,
     image::DrawImage,
-    output::{FinishRender, RenderTarget},
     path::Path,
     style::DrawStyle,
 };
@@ -14,9 +13,10 @@ pub type RenderResult = Result<(), ()>;
 /// Storage units a `w × h` region needs on a surface packing
 /// `pixels_per_unit` pixels per unit — **rows padded**, never area.
 ///
-/// The one place this arithmetic is written. [`Renderer::SURFACE_UNITS`] is
-/// compared against it for WS6.4.0(iii)'s compile-time proof, and
-/// [`units_for`](crate::eg::framebuf::units_for) is the colour-typed wrapper
+/// The one place this arithmetic is written.
+/// [`assert_policy_fits`](crate::region::assert_policy_fits) compares a
+/// surface against it for WS6.4.0(iii)'s capacity proof, and
+/// [`units_for`](crate::eg::framebuf::units_for) is the color-typed wrapper
 /// the embedded-graphics backend uses — they must not be allowed to drift,
 /// because a capacity check that disagrees with the buffer's real layout is
 /// worse than no check at all.
@@ -61,6 +61,73 @@ pub const fn region_units(w: u32, h: u32, pixels_per_unit: usize) -> usize {
 //         self
 //     }
 // }
+
+/// Whether a renderer is holding its surface — a **type-state**, not a flag.
+///
+/// The same shape as `UI<W, HasPages>`: a marker parameter that decides which
+/// methods exist. The twist is [`Slot`](Attachment::Slot), and it is what makes
+/// this worth doing rather than decorative — a plain marker could only *guard*
+/// an `Option<B>` field, leaving the `unwrap` inside. An associated type lets
+/// the field itself change shape: the surface when attached, `()` when not. So
+/// there is no `Option`, no `unwrap`, and no "drawing while detached" branch on
+/// any hot path — that state is simply not a value a drawing method can be
+/// called on.
+///
+/// The invariant it removes was real. `EGRenderer` used to log a warning and
+/// discard the frame when something painted between a `detach` and the next
+/// `attach`; that is a scheduling mistake the caller could make silently, once
+/// per frame, forever. Now it does not compile.
+pub trait Attachment<S> {
+    /// The surface field's type in this state: `S` attached, `()` detached.
+    type Slot;
+}
+
+/// The renderer is holding a surface and can draw.
+///
+/// Every drawing impl — [`Renderer`], `DrawTarget`, `EgPrimitiveRenderer` — is
+/// written for this state and no other, so the guarantee is structural:
+///
+/// ```
+/// # use rsact_render::{eg::renderer::EGRenderer, geometry::Size,
+/// #                    renderer::{AntiAliasingDisabled, Renderer}};
+/// # use embedded_graphics::pixelcolor::Rgb888;
+/// let buf: &'static mut [u32] = vec![0; 16 * 16].leak();
+/// let r = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
+///     Size::new_equal(16), buf,
+/// );
+/// // Attached: drawing is available.
+/// let _ = r.size();
+/// ```
+///
+/// and painting after a `detach` is not a logged no-op but a compile error:
+///
+/// ```compile_fail
+/// # use rsact_render::{eg::renderer::EGRenderer, geometry::Size,
+/// #                    renderer::{AntiAliasingDisabled, Renderer}};
+/// # use embedded_graphics::pixelcolor::Rgb888;
+/// let buf: &'static mut [u32] = vec![0; 16 * 16].leak();
+/// let r = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
+///     Size::new_equal(16), buf,
+/// );
+/// let (parked, _buf, _at) = r.detach();
+/// // The application is holding the buffer — there is nothing to draw into.
+/// let _ = parked.size();
+/// ```
+pub struct Attached;
+
+impl<S> Attachment<S> for Attached {
+    type Slot = S;
+}
+
+/// The owner is holding the surface; the renderer keeps only its configuration.
+///
+/// A real, useful state rather than an error case: it is where an app's buffer
+/// lives while it is being shipped over SPI, encoded to a PNG, or waited on.
+pub struct Detached;
+
+impl<S> Attachment<S> for Detached {
+    type Slot = ();
+}
 
 pub trait AntiAliasing {}
 
@@ -141,37 +208,33 @@ impl ViewportKind {
 pub trait Renderer {
     type Color: Color;
 
-    /// How many storage units this renderer's surface holds — the capacity side
-    /// of WS6.4.0(iii)'s compile-time tile check.
+    /// The largest region this renderer will accept, as a **type**.
     ///
-    /// `usize::MAX` means "my surface always covers the frame": a GPU, a host
-    /// renderer owning a resizable buffer, `NullRenderer`. Such a renderer
-    /// accepts any frame policy. A tile-backed renderer overrides this with its
-    /// buffer's `PixelBuf::UNITS`, after which a policy asking for a region
-    /// larger than the buffer fails to compile — see
-    /// [`assert_region_fits`](crate::eg::framebuf::assert_region_fits).
+    /// This is the whole of what rsact knows about a renderer's storage, and it
+    /// is deliberately not a fact about storage at all: it says *how big a
+    /// rectangle you may ask me to paint*, which a GPU streaming commands and a
+    /// renderer holding an 11 KiB tile can both answer. rsact never sees a
+    /// surface — no `Framebuffer` trait, no capacity number, no buffer type
+    /// parameter reaches this trait — because a renderer is free to have no
+    /// surface at all.
     ///
-    /// The default sits at the permissive end on purpose: a renderer that has
-    /// not opted into tiling is one that never needed the check.
-    const SURFACE_UNITS: usize = usize::MAX;
-
-    /// How many pixels this renderer's surface packs into one storage unit —
-    /// the other half of the capacity arithmetic.
+    /// [`Unbounded`] is the answer for every renderer that never needed tiling,
+    /// and there is no default because associated *type* defaults are still
+    /// unstable. Having to write it out is a feature: a renderer that silently
+    /// inherited a bound it does not have would mislead the planner in the
+    /// expensive direction.
     ///
-    /// `1` (the default) is "one unit per pixel", which is right for every
-    /// 8-bit-or-wider colour and for any renderer that does not pack at all. A
-    /// 1-bpp mono framebuffer sets `8`, and the row padding this implies is the
-    /// reason capacity is not simply `w * h`: a 122-pixel mono row occupies 16
-    /// bytes, not 15.25 (see [`region_units`]).
+    /// **Where the surface is checked against this: not here.** A backend owns
+    /// both facts — the policy it declares and the buffer it was handed — so it
+    /// makes the comparison itself via
+    /// [`assert_policy_fits`](crate::region::assert_policy_fits): in a `const`
+    /// block when its surface is a fixed-size array, at `attach` when it is a
+    /// runtime-length slice. Hoisting the check up here would force every
+    /// renderer to describe a surface just so the ones that have one could be
+    /// checked.
     ///
-    /// This exists so [`UI::start_frame`]'s compile-time capacity proof can be
-    /// written **without** a `PackedColor` bound — that trait belongs to the
-    /// embedded-graphics backend, and neither rsact-ui nor a GPU renderer should
-    /// have to name it to be checked. A backend built on `PackedColor` forwards
-    /// `C::PPS` here and the two agree by construction.
-    ///
-    /// [`UI::start_frame`]: https://docs.rs/rsact-ui
-    const SURFACE_PIXELS_PER_UNIT: usize = 1;
+    /// [`Unbounded`]: crate::region::Unbounded
+    type Policy: crate::region::FramePolicy;
 
     // NOTE (WS6.4.0(ii-2)): `type Options` + `fn set_options` lived here and
     // were removed as dead — all seven implementors were `type Options = ()`
@@ -387,7 +450,7 @@ impl Color for NullColor {
     }
 }
 
-/// A renderer that draws nothing, generic over the colour it accepts.
+/// A renderer that draws nothing, generic over the color it accepts.
 ///
 /// Two jobs. It is the stub every headless test and size/metrics probe builds a
 /// `Wtf` around — hence `C = NullColor` by default, so `Wtf<NullRenderer, ..>`
@@ -395,7 +458,7 @@ impl Color for NullColor {
 /// what 6.4c's **collect pass** runs widget bodies against: that pass must
 /// genuinely execute each body so reactive dependencies re-track and damage
 /// rects are pushed, but must not rasterise, and it has to satisfy
-/// `Renderer<Color = W::Color>` for the *application's* colour — which the
+/// `Renderer<Color = W::Color>` for the *application's* color — which the
 /// previous `type Color = NullColor` hard-wiring could not express.
 ///
 /// It carries no state, so `NullRenderer::<C>::default()` is free.
@@ -404,31 +467,18 @@ pub struct NullRenderer<C = NullColor> {
 }
 
 // Hand-written rather than derived: `#[derive(Default)]` would demand
-// `C: Default`, which no colour needs to satisfy for an empty struct.
+// `C: Default`, which no color needs to satisfy for an empty struct.
 impl<C> Default for NullRenderer<C> {
     fn default() -> Self {
         Self { _color: PhantomData }
     }
 }
 
-impl<C: Color> RenderTarget for NullRenderer<C> {
-    type Color = C;
-
-    fn draw(
-        &mut self,
-        _pixels: impl Iterator<Item = crate::output::pixel::Pixel<Self::Color>>,
-    ) {
-    }
-}
-
-impl<C, D> FinishRender<C> for NullRenderer<D> {
-    fn finish_frame(&mut self, target: &mut impl RenderTarget<Color = C>) {
-        let _ = target;
-    }
-}
-
 impl<C: Color> Renderer for NullRenderer<C> {
     type Color = C;
+
+    /// Draws nothing, so no region is ever too large.
+    type Policy = crate::region::Unbounded;
 
     fn size(&self) -> Size {
         Size::zero()

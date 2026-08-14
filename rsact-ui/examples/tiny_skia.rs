@@ -1,7 +1,9 @@
+use embedded_graphics::draw_target::DrawTarget;
 use embedded_graphics::pixelcolor::Rgb888;
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
+use rsact_render::output::MapColor;
 use rsact_render::{
     image::{DrawImage, ImageOwned},
     primitives::Primitive,
@@ -153,11 +155,44 @@ fn main() {
     .fill()
     .into_el();
 
-    let mut ui = UI::new(Theme::default(), TinySkiaRenderer::new(size))
+    // The pixmap is the application's — rsact borrows it (WS6.4d).
+    let mut renderer = TinySkiaRenderer::new(
+        size,
+        tiny_skia::Pixmap::new(size.width, size.height).unwrap(),
+    );
+    let mut ui = UI::new(Theme::default(), size)
         .no_events()
         .on_exit(|| process::exit(0))
         .with_page(SinglePage, page);
 
-    ui.render(&mut display);
+    {
+        let mut frame = ui.start_frame(&mut renderer);
+        while frame.render(&mut renderer).is_some() {
+            let (parked, pixmap, at) = renderer.detach();
+            flush(&mut display, &pixmap, at);
+            renderer = parked.attach(pixmap);
+        }
+    }
     window.show_static(&display);
+}
+
+/// Flush a detached pixmap to the display.
+///
+/// The tiny-skia mirror: rsact hands back a `Pixmap` sized to the region and the
+/// rect it belongs at, and what happens next is the application's. Here a
+/// simulator window; it could equally be `pixmap.encode_png(..)`, which is why
+/// this backend keeps a real `Pixmap` rather than lowering to an embedded color
+/// on the way out.
+fn flush<D: DrawTarget<Color = Rgb888>>(
+    display: &mut D,
+    pixmap: &tiny_skia::Pixmap,
+    at: Rect,
+) {
+    let _ = display.fill_contiguous(
+        &embedded_graphics::primitives::Rectangle::new(
+            at.top_left.into(),
+            at.size.into(),
+        ),
+        pixmap.pixels().iter().map(|p| p.map_color()),
+    );
 }
