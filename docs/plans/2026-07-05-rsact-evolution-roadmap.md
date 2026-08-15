@@ -2065,7 +2065,7 @@ Neither is subtle. Both are the kind of error a compiler catches instantly, and 
 | --- | --- |
 | **Filed** | 2026-08-14 (found while reviewing the render layer split against WS6) |
 | **Kind** | bug — latent today (nothing constructs an `ArcTo` yet), and simultaneously a 6.10 parity divergence |
-| **Status** | **OPEN** — fix it when `path` moves into the split plan's shared `raster::path`, which is the same edit. |
+| **Status** | **FIXED 2026-08-15** in the layer split's PR B — `raster::scan::path` flattens through `flatten()`, which generates each arc about the segment's own `center`, advances the cursor to the arc's last point, and ends a subpath on `Close`. Exactly the single edit this entry predicted. **Still open on 6.10's side:** no test constructs an `ArcTo`, so the parity work must not close without one. |
 | **Area** | `rsact-render` — `eg/renderer.rs:827` and `:998` (the same body in both the AA and non-AA impls) vs `tiny_skia/geometry.rs:22-40` |
 | **Relates** | **WS6.10** (this *is* an EG-vs-tiny-skia divergence of exactly the kind that item audits — and the split promotes 6.10 to a specification, so the contract this violates is about to be written down) · **WS6.4e / the layer split** (`raster::path` is where the corrected version lands) · **WS6.4a** (which recorded that `Path` "is not hypothetical — it is Checkbox's check icon") |
 
@@ -2077,6 +2077,29 @@ Neither is subtle. Both are the kind of error a compiler catches instantly, and 
 **Why it is latent.** Nothing in the workspace constructs a `PathSegment::ArcTo` — the Checkbox check icon is `MoveTo`/`LineTo` only — so no shipping widget draws a curved path on the eg backend. It goes live the first time anything does, and the failure mode is the one this codebase keeps flagging: a *plausible* image (an arc, of the right radius and sweep, in the wrong place) rather than an error.
 
 **Why it belongs to the split rather than a standalone fix.** The layer split deletes both copies of this loop and replaces them with one shared `raster::path` (D3: `path` is the universal decomposition, so every rasterizer inherits it). Fixing it twice in code that is about to be deleted is waste; fixing it once in `raster::path` is the same edit, and it is where the corrected geometry then serves `EgRasterizer`, `RsactRasterizer` and any future rasterizer at once. **Do not close 6.10's parity work without a case that exercises `ArcTo` + `Close`** — the divergence is currently invisible because no producer exists.
+
+### ISSUE-8 — `ImageRef`'s byte layout is undefined, and the two things that read it disagree
+
+| | |
+| --- | --- |
+| **Filed** | 2026-08-15 (found while writing the layer split's `raster::scan::image`) |
+| **Kind** | design hole — a public type whose contents have no stated contract |
+| **Status** | **OPEN**, and deliberately so: the maintainer's answer is *"make it the color's own storage"*, which is the right target and a larger change than the split. `raster::scan::image` decodes premultiplied RGBA8 in the meantime, documented at the site as provisional. |
+| **Area** | `rsact-render` — `image/mod.rs` (`ImageRef`, `ImageOwned`, `impl From<tiny_skia::Pixmap>`), `raster/scan.rs` (`image`), `tiny_skia/mod.rs` (`Renderer::image`), `eg/image.rs` |
+
+**`ImageRef<'a, C>` is `&[u8]` plus a `PhantomData<C>`, and nothing says what the bytes are.** Three consumers, and only one of them reads them:
+
+1. **embedded-graphics** — `impl ImageDrawable for ImageRef` is a **logged no-op** in both methods (`eg/image.rs`). It has never read a byte. This is the same shape of hole `polygon` had, and D3 ("no primitive is ever unsupported") forbids both.
+2. **tiny-skia** — `Renderer::image` hands the slice to `PixmapRef::from_bytes`, i.e. **premultiplied RGBA8, row-major, 4 bytes per pixel**.
+3. **`impl From<tiny_skia::Pixmap> for ImageOwned<C>`** — takes a `Pixmap`'s bytes verbatim, which agrees with (2).
+
+So the only *evidenced* layout is premultiplied RGBA8, and `raster::scan::image` decodes on that basis (un-premultiplying, then dropping alpha, because the span protocol carries one color plus a coverage run and has no per-pixel alpha).
+
+**Why that is the wrong long-term answer.** The `PhantomData<C>` is there for a reason: an image's bytes should be **`C::Storage`-shaped** — 2 bytes per pixel for Rgb565, packed bits for `BinaryColor` — which is what an embedded target wants and what makes `ImageRef<C>` mean something. Under RGBA8 a 240×240 mono splash screen costs 225 KiB to hold and a per-pixel conversion to draw; under `C::Storage` it is 7 KiB and a memcpy.
+
+**What the change costs.** It breaks the tiny-skia path, which genuinely needs RGBA8 — so `ImageRef<tiny_skia::Color>` and `ImageRef<Rgb565>` would carry different byte layouts, which is exactly what a `PhantomData<C>` is *for* but which needs `PackedColor` (or a new `ImageStorage`) to state. It also needs a decision about alpha, since packed embedded colors have none and image compositing is a *capability* the span protocol does not have.
+
+**Scoped as its own item**, after the split completes. Three places change together: `ImageRef`'s doc (from silence to a contract), `raster::scan::image`'s decode, and the `From<Pixmap>` conversion — which becomes a conversion rather than a move.
 
 ## Parting notes — operating wisdom (2026-07-08)
 

@@ -458,16 +458,23 @@ pub fn rounded_rect<T: Blitter + ?Sized>(
 
 /// Blit an image, one row run at a time.
 ///
-/// # The byte layout is an assumption, and it is recorded as one
+/// # The byte layout is PROVISIONAL — see ISSUE-8
 ///
-/// `ImageRef` is `&[u8]` plus a `PhantomData<C>` and nothing in the crate
-/// decodes it: the embedded-graphics `ImageDrawable` impl is a **logged no-op**
-/// (the same hole `polygon` had), and the only code that reads the bytes is
+/// `ImageRef` is `&[u8]` plus a `PhantomData<C>` and nothing states what the
+/// bytes are: the embedded-graphics `ImageDrawable` impl is a **logged no-op**
+/// (the same hole `polygon` had), and the only code that reads them is
 /// tiny-skia's `image`, which hands them to `PixmapRef::from_bytes` — i.e.
 /// **premultiplied RGBA8, row-major, four bytes per pixel**. That, plus
 /// `impl From<tiny_skia::Pixmap> for ImageOwned`, is the only evidence there is,
-/// so it is what this reads. If the layout is meant to be something else, this
-/// function and that `From` impl are the two places to change.
+/// so it is what this reads.
+///
+/// **It is not the intended answer.** The maintainer's decision is that an
+/// image's bytes should be the color's own storage — 2 bytes per pixel for
+/// Rgb565, packed bits for `BinaryColor` — which is what the `PhantomData<C>`
+/// is for and what makes a splash screen 7 KiB instead of 225 KiB on a mono
+/// panel. That change breaks the tiny-skia path, needs a bound to state the
+/// layout, and needs an answer about alpha, so it is scoped after the split:
+/// **ISSUE-8**, which names the three sites that move together.
 ///
 /// Alpha is un-premultiplied and then **dropped**: `Color::from_rgba` takes it,
 /// every implementation ignores it, and the span protocol has no per-pixel alpha
