@@ -89,7 +89,9 @@ pub mod tiny_skia;
 
 pub mod prelude {
     #[cfg(feature = "tiny-skia")]
-    pub use crate::tiny_skia::TinySkiaRenderer;
+    pub use crate::{
+        blitter::pixmap::PixmapBlitter, raster::tiny_skia::TinySkiaRasterizer,
+    };
     pub use crate::{
         blitter::{Blitter, Span, framebuf::FramebufBlitter},
         color::{BigEndian, ByteOrder, Color, LittleEndian, RgbColor as _},

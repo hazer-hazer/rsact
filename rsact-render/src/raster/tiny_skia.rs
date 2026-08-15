@@ -316,3 +316,316 @@ impl<T: Blitter + ?Sized> Rasterizer<T> for TinySkiaRasterizer {
         self.draw(cx, &ts, style);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        blitter::pixmap::PixmapBlitter,
+        color::Color as _,
+        geometry::Size,
+        region::Unbounded,
+        renderer::{RasterRenderer, Renderer},
+    };
+    use tiny_skia::Pixmap;
+
+    /// The pixmap is the TEST's, as it is any caller's — nothing in rsact
+    /// allocates one.
+    ///
+    /// White, because a fresh tiny-skia canvas is **opaque white** rather than
+    /// transparent: an assertion built on `alpha != 0` is true on every pixel of
+    /// an untouched surface and proves nothing. Every check below looks for
+    /// pixels that are *not* white.
+    fn pixmap(size: Size) -> Pixmap {
+        let mut p = Pixmap::new(size.width, size.height).unwrap();
+        p.fill(tiny_skia::Color::WHITE);
+        p
+    }
+
+    type Skia = RasterRenderer<TinySkiaRasterizer, PixmapBlitter, Unbounded>;
+
+    fn renderer(size: Size) -> Skia {
+        Skia::with_pixmap(TinySkiaRasterizer::new(), size, pixmap(size))
+    }
+
+    fn inked(p: &Pixmap) -> usize {
+        p.pixels()
+            .iter()
+            .filter(|c| (c.red(), c.green(), c.blue()) != (255, 255, 255))
+            .count()
+    }
+
+    /// **The point of making tiny-skia an L2 rasterizer**, as a test.
+    ///
+    /// A `Mask` is colorless, so coverage is produced once and blended once — in
+    /// *our* blitter. What that buys is anti-aliasing over storage tiny-skia has
+    /// never heard of, and this is the check: partial coverage must reach a
+    /// blitter as partial coverage, not as a thresholded on/off.
+    ///
+    /// Asserted on a diagonal, because an axis-aligned edge has no partially
+    /// covered pixels to produce.
+    #[test]
+    fn coverage_reaches_the_blitter_as_coverage() {
+        use crate::blitter::{Blitter, Span};
+        use crate::geometry::{Point, Rect};
+
+        /// Records the coverage values it is handed, and nothing else.
+        struct Coverage {
+            bounds: Rect,
+            seen: alloc::vec::Vec<u8>,
+        }
+        impl Blitter for Coverage {
+            type Color = tiny_skia::Color;
+            fn bounds(&self) -> Rect {
+                self.bounds
+            }
+            fn capacity(&self) -> Option<usize> {
+                None
+            }
+            fn fill_span(&mut self, span: Span, _color: Self::Color) {
+                // A thresholding blitter would arrive here instead; record it as
+                // fully-covered so the assertion below can tell them apart.
+                self.seen.extend(core::iter::repeat_n(255, span.len()));
+            }
+            fn blend_span(
+                &mut self,
+                _span: Span,
+                _color: Self::Color,
+                coverage: &[u8],
+            ) {
+                self.seen.extend_from_slice(coverage);
+            }
+            fn begin_region(
+                &mut self,
+                region: Rect,
+            ) -> crate::renderer::RenderResult {
+                self.bounds = region;
+                Ok(())
+            }
+        }
+
+        let bounds = Rect::new(Point::zero(), Size::new_equal(32));
+        let mut rec = Coverage { bounds, seen: alloc::vec::Vec::new() };
+        {
+            let mut cx = RasterCtx::new(&mut rec, bounds);
+            TinySkiaRasterizer::new().polygon(
+                &mut cx,
+                &[Point::new(2, 2), Point::new(29, 8), Point::new(8, 29)],
+                &DrawStyle::default().fill(tiny_skia::Color::BLACK),
+            );
+        }
+
+        let partial = rec.seen.iter().filter(|c| **c > 0 && **c < 255).count();
+        assert!(
+            partial > 10,
+            "only {partial} pixels arrived with partial coverage — the \
+             rasterizer is thresholding, not anti-aliasing, and the whole \
+             reason it is L2 rather than a fused backend is gone"
+        );
+    }
+
+    /// The same rasterizer over a **framebuffer**, which the fused tiny-skia API
+    /// could never do: `Mask` carries no color, so `impl<T: Blitter>` with no
+    /// bound on `T::Color` makes its anti-aliasing available over Rgb888 storage
+    /// as readily as over a `Pixmap`.
+    #[cfg(feature = "embedded-graphics")]
+    #[test]
+    fn tiny_skias_anti_aliasing_works_over_a_framebuffer() {
+        use crate::{
+            blitter::framebuf::FramebufBlitter, color::Color,
+            framebuf::PackedColor, geometry::Point,
+        };
+        use embedded_graphics::pixelcolor::Rgb888;
+
+        let size = Size::new_equal(32);
+        let buf: &'static mut [u32] =
+            alloc::vec![<Rgb888 as Color>::default_background().into_storage();
+                        32 * 32]
+            .leak();
+        let mut r = RasterRenderer::<_, FramebufBlitter<Rgb888, _>, Unbounded>::with_framebuf(
+            TinySkiaRasterizer::new(),
+            size,
+            buf,
+        );
+        Renderer::polygon(
+            &mut r,
+            &[Point::new(2, 2), Point::new(29, 8), Point::new(8, 29)],
+            &DrawStyle::default().fill(<Rgb888 as Color>::default_foreground()),
+        )
+        .unwrap();
+
+        let (_, units, _) = r.detach();
+        let bg = <Rgb888 as Color>::default_background().into_storage();
+        let fg = <Rgb888 as Color>::default_foreground().into_storage();
+        let painted = units.iter().filter(|u| **u != bg).count();
+        let blended = units.iter().filter(|u| **u != bg && **u != fg).count();
+        assert!(painted > 200, "the triangle painted only {painted} pixels");
+        assert!(
+            blended > 10,
+            "only {blended} pixels are neither background nor foreground — the \
+             coverage was thresholded on its way into the framebuffer"
+        );
+    }
+
+    /// WS6.4d: a pixmap smaller than the frame paints the same picture as a
+    /// full-frame one.
+    ///
+    /// It catches the class of bug the op logs cannot: the rebase is now
+    /// `PixmapBlitter`'s addressing rather than a `Transform`, and getting a
+    /// sign or a stride wrong yields a plausible image with an intact log.
+    #[test]
+    fn a_partial_pixmap_paints_what_a_full_one_would() {
+        use crate::geometry::{Point, Rect};
+
+        const W: u32 = 48;
+        const H: u32 = 48;
+        const BAND: u32 = 12;
+        let viewport = Size::new(W, H);
+
+        fn content<R: Renderer<Color = tiny_skia::Color>>(r: &mut R) {
+            Renderer::fill_solid(
+                r,
+                Rect::new(Point::new(4, 6), Size::new(30, 20)),
+                tiny_skia::Color::BLACK,
+            )
+            .unwrap();
+            Renderer::rect(
+                r,
+                Rect::new(Point::new(2, 2), Size::new(44, 44)),
+                &DrawStyle::default()
+                    .stroke(tiny_skia::Color::from_rgba8(0, 160, 0, 255))
+                    .stroke_width(2),
+            )
+            .unwrap();
+            for i in 0..40i32 {
+                Renderer::pixel(
+                    r,
+                    Point::new(i, 47 - i),
+                    tiny_skia::Color::from_rgba8(200, 0, 0, 255),
+                )
+                .unwrap();
+            }
+        }
+
+        let mut full = renderer(viewport);
+        content(&mut full);
+        let (_, reference, _) = full.detach();
+
+        let mut composed = pixmap(viewport);
+        let band = Size::new(W, BAND);
+        let mut tiled = Skia::with_pixmap(
+            TinySkiaRasterizer::new(),
+            viewport,
+            pixmap(band),
+        );
+        let mut spare = pixmap(band);
+
+        for i in 0..(H / BAND) as i32 {
+            let region = Rect::new(Point::new(0, i * BAND as i32), band);
+            tiled.begin_region(region).unwrap();
+            content(&mut tiled);
+            tiled.end_region().unwrap();
+
+            let (parked, tile, at) = tiled.detach();
+            // The caller's blit: raw pixels plus where they go.
+            for row in 0..at.size.height as usize {
+                for col in 0..at.size.width as usize {
+                    let src = tile.pixels()[row * at.size.width as usize + col];
+                    let x = at.top_left.x as usize + col;
+                    let y = at.top_left.y as usize + row;
+                    composed.pixels_mut()[y * W as usize + x] = src;
+                }
+            }
+            tiled = parked.attach(spare);
+            spare = tile;
+        }
+
+        assert!(
+            inked(&reference) > (W * H) as usize / 8,
+            "the reference frame painted only {} of {} pixels",
+            inked(&reference),
+            W * H
+        );
+        let mismatches: alloc::vec::Vec<usize> = (0..(W * H) as usize)
+            .filter(|&i| reference.pixels()[i] != composed.pixels()[i])
+            .collect();
+        assert!(
+            mismatches.is_empty(),
+            "{} of {} pixels differ between a full pixmap and a banded one; \
+             first at ({}, {})",
+            mismatches.len(),
+            W * H,
+            mismatches[0] % W as usize,
+            mismatches[0] / W as usize,
+        );
+    }
+
+    /// WS6.4d: a pixmap's bound is a **byte budget**, not a shape — the storage
+    /// is re-strided per region, so any region fitting the bytes is painted.
+    ///
+    /// This replaced a test asserting the opposite: a 64×8 pixmap used to
+    /// *refuse* a 32×16 region on the grounds that a pixmap has a fixed
+    /// `width()`. It does — but `take`/`from_vec` let the same allocation be
+    /// re-shaped, and both regions are 512 pixels.
+    #[test]
+    fn a_pixmap_is_reshaped_per_region_not_bound_to_its_shape() {
+        use crate::{
+            blitter::Blitter,
+            geometry::{Point, Rect},
+        };
+
+        let mut b = PixmapBlitter::new(
+            Size::new(64, 64),
+            pixmap(Size::new(64, 8)), // 512 px = 2048 bytes
+        );
+        let budget = b.capacity();
+
+        let square = Rect::new(Point::new(8, 16), Size::new(32, 16));
+        assert!(b.begin_region(square).is_ok(), "same bytes, other shape");
+        assert_eq!(b.bounds(), square);
+
+        // Paint at the region's far corner: it only lands if the stride
+        // followed the reshape.
+        b.pixel(Point::new(39, 31), tiny_skia::Color::BLACK);
+        let (_, tile, at) = b.detach();
+        assert_eq!(at, square);
+        let corner = tile.pixels()[15 * 32 + 31];
+        assert_ne!(
+            (corner.red(), corner.green(), corner.blue()),
+            (255, 255, 255),
+            "the bottom-right pixel of a reshaped region did not land"
+        );
+
+        // A narrow tall region — the case a fixed-width pixmap could never hold.
+        let mut b =
+            PixmapBlitter::new(Size::new(64, 64), pixmap(Size::new(64, 8)));
+        assert!(
+            b.begin_region(Rect::new(Point::zero(), Size::new(4, 128)))
+                .is_ok()
+        );
+        assert_eq!(
+            b.capacity(),
+            budget,
+            "the caller's allocation was replaced"
+        );
+    }
+
+    /// The bound still bites: a region needing more bytes than were lent is
+    /// refused rather than silently reallocating behind the caller.
+    #[test]
+    fn a_region_over_the_byte_budget_is_refused() {
+        use crate::{
+            blitter::Blitter,
+            geometry::{Point, Rect},
+        };
+        let mut b =
+            PixmapBlitter::new(Size::new(64, 64), pixmap(Size::new(64, 8)));
+        // 2052 bytes wanted against 2048 lent — one pixel too many.
+        let over = Rect::new(Point::zero(), Size::new(513, 1));
+        assert!(
+            b.begin_region(over).is_err(),
+            "a region over the lent byte budget must be refused; reallocating \
+             would quietly take ownership of storage that is not ours"
+        );
+    }
+}

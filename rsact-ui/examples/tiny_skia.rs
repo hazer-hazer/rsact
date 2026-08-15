@@ -5,13 +5,20 @@ use embedded_graphics_simulator::{
 };
 use rsact_render::output::MapColor;
 use rsact_render::{
+    blitter::pixmap::PixmapBlitter,
     image::{DrawImage, ImageOwned},
     primitives::Primitive,
-    tiny_skia::TinySkiaRenderer,
+    raster::tiny_skia::TinySkiaRasterizer,
+    region::Unbounded,
+    renderer::RasterRenderer,
 };
 use rsact_ui::{prelude::*, widget::canvas::Canvas};
 use std::process;
 use tiny_skia::Pixmap;
+
+/// The layer split's tiny-skia stack — see `widget_gallery.rs` for why it is
+/// spelled out rather than hidden behind a library alias.
+type Skia = RasterRenderer<TinySkiaRasterizer, PixmapBlitter, Unbounded>;
 
 /// Draw a `PrimitiveKind` through the renderer's typed methods. The old
 /// `DrawCommand` model carried this dispatch inside `Canvas::render`; with the
@@ -91,72 +98,67 @@ fn main() {
     // Immediate-mode Canvas: one closure re-issues the whole gallery each
     // frame, drawing straight into the renderer clipped to the Canvas rect
     // (WS1b b.1). No retained command buffer / image storage.
-    let page = Container::new(Canvas::new(
-        move |renderer: &mut TinySkiaRenderer<tiny_skia::Color>| {
-            draw_primitive(
-                renderer,
-                Arc {
-                    top_left: Point::new(20, 20),
-                    diameter: 60,
-                    start: Angle::zero(),
-                    sweep: Angle::from_degrees(120.0),
+    let page = Container::new(Canvas::new(move |renderer: &mut Skia| {
+        draw_primitive(
+            renderer,
+            Arc {
+                top_left: Point::new(20, 20),
+                diameter: 60,
+                start: Angle::zero(),
+                sweep: Angle::from_degrees(120.0),
+            },
+        )?;
+        draw_primitive(
+            renderer,
+            RoundedRect {
+                rect: Rect {
+                    top_left: Point::new(100, 20),
+                    size: Size::new(80, 50),
                 },
-            )?;
-            draw_primitive(
-                renderer,
-                RoundedRect {
-                    rect: Rect {
-                        top_left: Point::new(100, 20),
-                        size: Size::new(80, 50),
-                    },
-                    corners: CornerRadii {
-                        top_left: Size::new(0, 0),
-                        top_right: Size::new(10, 10),
-                        bottom_right: Size::new(20, 20),
-                        bottom_left: Size::new(40, 25),
-                    },
+                corners: CornerRadii {
+                    top_left: Size::new(0, 0),
+                    top_right: Size::new(10, 10),
+                    bottom_right: Size::new(20, 20),
+                    bottom_left: Size::new(40, 25),
                 },
-            )?;
-            draw_primitive(
-                renderer,
-                Rect { top_left: Point::new(200, 20), size: Size::new(80, 50) },
-            )?;
-            draw_primitive(
-                renderer,
-                Circle { top_left: Point::new(300, 20), diameter: 60 },
-            )?;
-            draw_primitive(
-                renderer,
-                Ellipse {
-                    top_left: Point::new(380, 20),
-                    size: Size::new(60, 20),
-                },
-            )?;
-            draw_primitive(
-                renderer,
-                Sector {
-                    top_left: Point::new(420, 20),
-                    diameter: 60,
-                    start: Angle::zero(),
-                    sweep: Angle::from_degrees(120.0),
-                },
-            )?;
-            draw_primitive(
-                renderer,
-                Line { from: Point::new(10, 10), to: Point::new(150, 10) },
-            )?;
+            },
+        )?;
+        draw_primitive(
+            renderer,
+            Rect { top_left: Point::new(200, 20), size: Size::new(80, 50) },
+        )?;
+        draw_primitive(
+            renderer,
+            Circle { top_left: Point::new(300, 20), diameter: 60 },
+        )?;
+        draw_primitive(
+            renderer,
+            Ellipse { top_left: Point::new(380, 20), size: Size::new(60, 20) },
+        )?;
+        draw_primitive(
+            renderer,
+            Sector {
+                top_left: Point::new(420, 20),
+                diameter: 60,
+                start: Angle::zero(),
+                sweep: Angle::from_degrees(120.0),
+            },
+        )?;
+        draw_primitive(
+            renderer,
+            Line { from: Point::new(10, 10), to: Point::new(150, 10) },
+        )?;
 
-            renderer
-                .image(DrawImage::new(image.as_ref(), Point::new(20, 260)))?;
+        renderer.image(DrawImage::new(image.as_ref(), Point::new(20, 260)))?;
 
-            Ok(())
-        },
-    ))
+        Ok(())
+    }))
     .fill()
     .into_el();
 
     // The pixmap is the application's — rsact borrows it (WS6.4d).
-    let mut renderer = TinySkiaRenderer::new(
+    let mut renderer = Skia::with_pixmap(
+        TinySkiaRasterizer::new(),
         size,
         tiny_skia::Pixmap::new(size.width, size.height).unwrap(),
     );

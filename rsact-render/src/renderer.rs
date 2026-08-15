@@ -1510,3 +1510,98 @@ mod raster_renderer_tests {
         );
     }
 }
+
+/// The pixmap path's loan, mirroring the framebuf one.
+///
+/// There is no compile-time half here: a `Pixmap`'s extent is a runtime fact
+/// (there is no `Pixmap<const W, const H>`), so `capacity()` is the only source
+/// and the check is the generic runtime one.
+#[cfg(feature = "tiny-skia")]
+impl<R, P> RasterRenderer<R, crate::blitter::pixmap::PixmapBlitter<Attached>, P>
+where
+    P: crate::region::FramePolicy,
+{
+    /// Build a renderer over a `Pixmap` the caller owns.
+    ///
+    /// **Nothing here allocates.** A pixmap covering the whole frame gives
+    /// classic full-surface behaviour; a smaller one is reshaped per region, on
+    /// the same byte-budget terms as a framebuffer.
+    ///
+    /// # Panics
+    ///
+    /// If the pixmap cannot hold policy `P`'s largest region.
+    pub fn with_pixmap(
+        rasterizer: R,
+        viewport: Size,
+        pixmap: tiny_skia::Pixmap,
+    ) -> Self {
+        use crate::blitter::Blitter as _;
+        let blitter =
+            crate::blitter::pixmap::PixmapBlitter::<Detached>::parked(viewport)
+                .attach(pixmap);
+        if let Some(units) = blitter.capacity() {
+            crate::region::assert_policy_fits::<P>(units);
+        }
+        Self {
+            rasterizer,
+            blitter,
+            clips: alloc::vec![Rect::new(Point::zero(), viewport)],
+            viewport,
+            policy: PhantomData,
+        }
+    }
+
+    /// Take the pixmap back, sized to the region that was painted — so what the
+    /// caller receives is exactly the tile, `encode_png`-able as-is.
+    ///
+    /// This is how the simulator gets its pixels: rsact renders, the caller
+    /// flushes, and the surface was never rsact's to keep.
+    pub fn detach(
+        self,
+    ) -> (
+        RasterRenderer<R, crate::blitter::pixmap::PixmapBlitter<Detached>, P>,
+        tiny_skia::Pixmap,
+        Rect,
+    ) {
+        let (parked, pixmap, at) = self.blitter.detach();
+        (
+            RasterRenderer {
+                rasterizer: self.rasterizer,
+                blitter: parked,
+                clips: self.clips,
+                viewport: self.viewport,
+                policy: PhantomData,
+            },
+            pixmap,
+            at,
+        )
+    }
+}
+
+#[cfg(feature = "tiny-skia")]
+impl<R, P> RasterRenderer<R, crate::blitter::pixmap::PixmapBlitter<Detached>, P>
+where
+    P: crate::region::FramePolicy,
+{
+    /// # Panics
+    ///
+    /// If the pixmap is smaller than policy `P` requires.
+    pub fn attach(
+        self,
+        pixmap: tiny_skia::Pixmap,
+    ) -> RasterRenderer<R, crate::blitter::pixmap::PixmapBlitter<Attached>, P>
+    {
+        use crate::blitter::Blitter as _;
+        let blitter = self.blitter.attach(pixmap);
+        if let Some(units) = blitter.capacity() {
+            crate::region::assert_policy_fits::<P>(units);
+        }
+        RasterRenderer {
+            rasterizer: self.rasterizer,
+            blitter,
+            clips: self.clips,
+            viewport: self.viewport,
+            policy: PhantomData,
+        }
+    }
+}

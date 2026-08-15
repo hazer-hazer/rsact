@@ -1,7 +1,7 @@
 # Render layer split — architecture plan
 
 **Status: in progress on `ws6.4e-framebuf-unbind`.**
-WS6.4e ✓ · PR A ✓ · PR B ✓ · PR C ✓ · PR D —
+WS6.4e ✓ · PR A ✓ · PR B ✓ · PR C ✓ · PR D ✓ — **complete**
 
 `EGRenderer` fuses three jobs — coordinating clips and regions, running
 rasterization algorithms, and owning pixel storage. This splits them:
@@ -901,6 +901,25 @@ it. One hazard it creates, worth knowing before touching eg call sites:
   primitive.
 - **`Whole<W, H>` was `Tiles<W, H>` under a second name** — same `MAX_REGION`,
   same limits, byte for byte. Deleted, with what it taught folded into `Tiles`.
+
+### What D confirmed
+
+D10's argument was that tiny-skia as an L2 rasterizer is *strictly better* than
+as an L1 backend, because a `Mask` is colourless. Two tests now hold that claim
+up rather than asserting it:
+
+- `coverage_reaches_the_blitter_as_coverage` — partial coverage arrives at a
+  blitter as partial coverage. If the rasterizer ever starts thresholding, the
+  reason it is L2 rather than a fused backend is gone, and this fails.
+- `tiny_skias_anti_aliasing_works_over_a_framebuffer` — the same rasterizer, an
+  `Rgb888` `FramebufBlitter`, and pixels that are neither background nor
+  foreground. The fused `PixmapMut` API could never do this.
+
+WS6.11's five clip tests are deleted rather than ported, per the roadmap: there
+are no tiny-skia draw entry points left to forget a mask, and the guarantee is
+now tested once where it is enforced (`RasterCtx`). Their one piece of hard-won
+knowledge — a fresh tiny-skia canvas is **opaque white**, so `alpha != 0` passes
+vacuously — is re-homed in `tiny_skia/mod.rs`'s module docs.
 
 **PR A is smaller than it looks, and that is what keeps B honest.** Every non-AA
 `draw` in `eg/primitives/*` is a ~10-line delegation to embedded-graphics'
