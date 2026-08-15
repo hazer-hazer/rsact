@@ -42,12 +42,12 @@ use crate::{
 /// The last row cannot be closed by types. It can be measured, and where it is
 /// cheap it is simply taken: [`scan::polygon`]'s fill bounds its scan by
 /// [`clip()`](Self::clip) rather than by the polygon's own box.
-pub struct RasterCtx<'a, T: Blitter + ?Sized> {
+pub struct RasterCtx<'a, T: Blitter> {
     blitter: &'a mut T,
     clip: Rect,
 }
 
-impl<'a, T: Blitter + ?Sized> RasterCtx<'a, T> {
+impl<'a, T: Blitter> RasterCtx<'a, T> {
     /// Only a renderer builds one — this is where `clip ⊆ bounds` is made true.
     ///
     /// The intersection is what makes the guarantee *structural* rather than a
@@ -163,7 +163,7 @@ impl<'a, T: Blitter + ?Sized> RasterCtx<'a, T> {
 /// [`pixel`](Self::pixel) are listed first because every override chain bottoms
 /// out in them, and `fill` is style-free because clears, backgrounds and region
 /// priming must not pay for style resolution.
-pub trait Rasterizer<T: Blitter + ?Sized> {
+pub trait Rasterizer<T: Blitter> {
     fn fill(&mut self, cx: &mut RasterCtx<'_, T>, rect: Rect, color: T::Color) {
         scan::fill(cx, rect, color)
     }
@@ -403,7 +403,7 @@ mod tests {
     #[test]
     fn every_default_draws() {
         struct Plain;
-        impl<T: Blitter + ?Sized> Rasterizer<T> for Plain {}
+        impl<T: Blitter> Rasterizer<T> for Plain {}
 
         let bounds = r(0, 0, 40, 40);
         let style = DrawStyle::default()
@@ -509,7 +509,7 @@ mod tests {
     #[test]
     fn a_filled_circle_is_filled_and_a_filled_arc_is_not_a_circle() {
         struct Plain;
-        impl<T: Blitter + ?Sized> Rasterizer<T> for Plain {}
+        impl<T: Blitter> Rasterizer<T> for Plain {}
 
         let bounds = r(0, 0, 40, 40);
         let filled = DrawStyle::default().fill(NullColor);

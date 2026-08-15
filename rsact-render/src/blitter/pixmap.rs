@@ -41,8 +41,6 @@ pub struct PixmapBlitter {
     capacity: usize,
     /// The rect the storage is currently shaped for, in absolute coordinates.
     region: Rect,
-    /// The display's size, not the region's.
-    viewport: Size,
 }
 
 fn bytes_for(size: Size) -> usize {
@@ -50,41 +48,42 @@ fn bytes_for(size: Size) -> usize {
 }
 
 impl PixmapBlitter {
-    /// Wrap the caller's pixmap.
-    pub fn new(viewport: Size, pixmap: Pixmap) -> Self {
+    /// Wrap the caller's pixmap. **Infallible**: any pixmap is a valid target,
+    /// and whether it is big enough is a question about a frame policy this type
+    /// has never heard of.
+    ///
+    /// Takes no viewport — unlike a bare `[u16; N]` a `Pixmap` knows its own
+    /// shape, so it starts aimed at its own extent at the origin. That aim is
+    /// overwritten by the first `begin_region` anyway; it exists so a caller who
+    /// never begins a region still gets a whole pixmap back rather than a
+    /// degenerate one.
+    pub fn new(pixmap: Pixmap) -> Self {
         let region = Rect::new(
             Point::zero(),
             Size::new(pixmap.width(), pixmap.height()),
         );
-        Self {
-            capacity: bytes_for(region.size),
-            pixels: pixmap.take(),
-            region,
-            viewport,
-        }
+        Self { capacity: bytes_for(region.size), pixels: pixmap.take(), region }
     }
 
     /// Take the pixmap back, sized to the region actually painted — so what the
     /// caller receives is exactly the tile, `encode_png`-able as-is. The
     /// vector's *capacity* survives the truncation, which is what makes
     /// re-wrapping it free.
-    pub fn into_pixmap(self) -> (Pixmap, Rect) {
+    ///
+    /// `None` if the target was aimed at a zero-sized region, which is the one
+    /// case tiny-skia cannot represent. An `Option` rather than a `1x1` stand-in
+    /// or an `expect`: handing back a pixmap that is not what was painted is a
+    /// plausible-wrong-image failure, and panicking is the caller's decision to
+    /// make, not ours.
+    pub fn into_pixmap(self) -> Option<(Pixmap, Rect)> {
         let at = self.region;
+        if at.is_zero_sized() {
+            return None;
+        }
         let mut pixels = self.pixels;
         pixels.resize(bytes_for(at.size), 0);
-        let pixmap = Pixmap::from_vec(
-            pixels,
-            IntSize::from_wh(at.size.width.max(1), at.size.height.max(1))
-                .expect("a 1x1 floor is always a valid size"),
-        )
-        .unwrap_or_else(|| {
-            Pixmap::new(1, 1).expect("a 1x1 pixmap always allocates")
-        });
-        (pixmap, at)
-    }
-
-    pub fn viewport(&self) -> Size {
-        self.viewport
+        let size = IntSize::from_wh(at.size.width, at.size.height)?;
+        Some((Pixmap::from_vec(pixels, size)?, at))
     }
 
     fn premultiplied(color: tiny_skia::Color) -> PremultipliedColorU8 {
@@ -110,9 +109,13 @@ impl Blitter for PixmapBlitter {
         self.region
     }
 
-    /// One unit is one pixel: `tiny_skia::Color` does not pack, so the units the
-    /// capacity proof counts and the pixels the pixmap holds are the same
-    /// number.
+    // `UNITS` stays at the trait default (`None`): a `Pixmap`'s extent is a
+    // runtime fact — there is no `Pixmap<const W, const H>` — so only the value
+    // can answer, and `capacity()` is where it does. `PIXELS_PER_UNIT` stays at
+    // 1: `tiny_skia::Color` does not pack.
+
+    /// One unit is one pixel, so the units the capacity proof counts and the
+    /// pixels the pixmap holds are the same number.
     fn capacity(&self) -> Option<usize> {
         Some(self.capacity / BYTES_PER_PIXEL)
     }

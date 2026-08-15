@@ -109,7 +109,7 @@ fn stroke_edges(
 // ───────────────────────────────────────────────────────── the primitives
 
 /// Style-free rect fill — clears, backgrounds, region priming.
-pub fn fill<T: Blitter + ?Sized>(
+pub fn fill<T: Blitter>(
     cx: &mut RasterCtx<'_, T>,
     rect: Rect,
     color: T::Color,
@@ -122,7 +122,7 @@ pub fn fill<T: Blitter + ?Sized>(
 /// Bands rather than four `line` calls, because each band is a rect and a rect
 /// is whole rows — a 1 px border on a 240-wide frame is 2 spans plus 2·h, not
 /// 2·240 pixels.
-pub fn rect<T: Blitter + ?Sized>(
+pub fn rect<T: Blitter>(
     cx: &mut RasterCtx<'_, T>,
     rect: Rect,
     style: &DrawStyle<T::Color>,
@@ -185,7 +185,7 @@ pub fn rect<T: Blitter + ?Sized>(
 /// — borders, separators, dividers, scrollbar tracks and table rules are most of
 /// the lines a UI draws, and each is one `fill_rect` here against `length ×
 /// width` pixels through the general path.
-pub fn line<T: Blitter + ?Sized>(
+pub fn line<T: Blitter>(
     cx: &mut RasterCtx<'_, T>,
     from: Point,
     to: Point,
@@ -265,7 +265,7 @@ pub fn line<T: Blitter + ?Sized>(
 /// One thing it does take: the scan is bounded by `cx.clip()`, not by the
 /// polygon's own box. That is the "advisory" row of `RasterCtx`'s table, and
 /// here it is free.
-pub fn polygon<T: Blitter + ?Sized>(
+pub fn polygon<T: Blitter>(
     cx: &mut RasterCtx<'_, T>,
     points: &[Point],
     style: &DrawStyle<T::Color>,
@@ -291,7 +291,7 @@ pub fn polygon<T: Blitter + ?Sized>(
 /// live. Flattening resolves them by construction — the arc is generated about
 /// its stated centre, the cursor is the last point emitted, and `Close` ends a
 /// subpath.
-pub fn path<T: Blitter + ?Sized>(
+pub fn path<T: Blitter>(
     cx: &mut RasterCtx<'_, T>,
     path: &Path,
     style: &DrawStyle<T::Color>,
@@ -321,7 +321,7 @@ pub fn path<T: Blitter + ?Sized>(
 /// `top_left` and `diameter` describe the circle's bounding box, as everywhere
 /// else in this trait. Angle zero is `+x` and a positive `sweep` runs toward
 /// `+y`, i.e. clockwise on screen.
-pub fn arc<T: Blitter + ?Sized>(
+pub fn arc<T: Blitter>(
     cx: &mut RasterCtx<'_, T>,
     top_left: Point,
     diameter: u32,
@@ -344,7 +344,7 @@ pub fn arc<T: Blitter + ?Sized>(
 }
 
 /// A sector — the pie slice, so unlike [`arc`] it has an interior.
-pub fn sector<T: Blitter + ?Sized>(
+pub fn sector<T: Blitter>(
     cx: &mut RasterCtx<'_, T>,
     top_left: Point,
     diameter: u32,
@@ -363,7 +363,7 @@ pub fn sector<T: Blitter + ?Sized>(
 }
 
 /// An ellipse inscribed in `bounding_box` — closed, so it fills.
-pub fn ellipse<T: Blitter + ?Sized>(
+pub fn ellipse<T: Blitter>(
     cx: &mut RasterCtx<'_, T>,
     bounding_box: Rect,
     style: &DrawStyle<T::Color>,
@@ -388,7 +388,7 @@ pub fn ellipse<T: Blitter + ?Sized>(
 /// The outline is walked once — edge, corner arc, edge, corner arc — and handed
 /// to [`polygon`], so fill and stroke come out of the same geometry and cannot
 /// disagree about where the corner is.
-pub fn rounded_rect<T: Blitter + ?Sized>(
+pub fn rounded_rect<T: Blitter>(
     cx: &mut RasterCtx<'_, T>,
     rect: Rect,
     corners: CornerRadii,
@@ -480,7 +480,7 @@ pub fn rounded_rect<T: Blitter + ?Sized>(
 /// every implementation ignores it, and the span protocol has no per-pixel alpha
 /// (`blend_span` carries one color and a coverage run). Per-pixel compositing is
 /// a capability, not geometry, and does not belong on this trait.
-pub fn image<T: Blitter + ?Sized>(
+pub fn image<T: Blitter>(
     cx: &mut RasterCtx<'_, T>,
     image: DrawImage<'_, T::Color>,
 ) {
@@ -612,7 +612,7 @@ fn arc_points(
         .collect()
 }
 
-fn fill_polygon<T: Blitter + ?Sized>(
+fn fill_polygon<T: Blitter>(
     cx: &mut RasterCtx<'_, T>,
     points: &[Point],
     color: T::Color,

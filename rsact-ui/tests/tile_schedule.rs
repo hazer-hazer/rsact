@@ -866,8 +866,9 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
         let mut renderer = Full::with_blitter(
             EgRasterizer,
             viewport,
-            Fb::new(viewport, vec![0u32; (W * H) as usize].leak()),
-        );
+            Fb::new(vec![0u32; (W * H) as usize].leak()),
+        )
+        .unwrap();
         let mut ui: UI<FullWtf, _> =
             UI::new(Theme::default(), viewport).with_page((), page);
         let mut panel = blank();
@@ -897,8 +898,9 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
         let mut renderer = Tiled::with_blitter(
             EgRasterizer,
             viewport,
-            Fb::new(viewport, free.pop().unwrap()),
-        );
+            Fb::new(free.pop().unwrap()),
+        )
+        .unwrap();
         let mut ui: UI<TiledWtf, _> =
             UI::new(Theme::default(), viewport).with_page((), tiled_page);
         let mut panel = blank();
@@ -920,7 +922,7 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
                 let (tile, dirty) = blitter.into_storage();
                 blit(&mut panel, &tile, dirty);
                 free.push(tile);
-                renderer = parked.attach(Fb::new(viewport, free.remove(0)));
+                renderer = parked.attach(Fb::new(free.remove(0))).unwrap();
             }
         }
 
@@ -1086,8 +1088,9 @@ fn the_loop_the_examples_show_paints_the_frame_the_framebuffer_holds() {
         let mut renderer = Whole::with_blitter(
             EgRasterizer,
             viewport,
-            Fb::new(viewport, vec![0u32; (W * H) as usize].leak()),
-        );
+            Fb::new(vec![0u32; (W * H) as usize].leak()),
+        )
+        .unwrap();
         let mut ui: UI<Wtf<Whole, (), Theme<Rgb888>, ()>, _> =
             UI::new(Theme::default(), viewport).with_page((), page!());
 
@@ -1118,8 +1121,9 @@ fn the_loop_the_examples_show_paints_the_frame_the_framebuffer_holds() {
         let mut renderer = Tiled::with_blitter(
             EgRasterizer,
             viewport,
-            Fb::new(viewport, vec![0u32; (W * TILE_H) as usize].leak()),
-        );
+            Fb::new(vec![0u32; (W * TILE_H) as usize].leak()),
+        )
+        .unwrap();
         let mut ui: UI<Wtf<Tiled, (), Theme<Rgb888>, ()>, _> =
             UI::new(Theme::default(), viewport).with_page((), page!());
 
@@ -1131,7 +1135,7 @@ fn the_loop_the_examples_show_paints_the_frame_the_framebuffer_holds() {
                 let (parked, blitter) = renderer.detach();
                 let (buf, at) = blitter.into_storage();
                 flush(&mut panel, &buf, at);
-                renderer = parked.attach(Fb::new(viewport, buf));
+                renderer = parked.attach(Fb::new(buf)).unwrap();
             }
         }
         assert!(

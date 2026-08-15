@@ -1,7 +1,7 @@
 # Render layer split — architecture plan
 
 **Status: in progress on `ws6.4e-framebuf-unbind`.**
-WS6.4e ✓ · PR A ✓ · PR B ✓ · PR C ✓ · PR D ✓ · attachment rework ✓ — **complete**
+WS6.4e ✓ · PR A ✓ · PR B ✓ · PR C ✓ · PR D ✓ · attachment rework ✓ · ownership + fallibility review ✓ — **complete**
 
 `EGRenderer` fuses three jobs — coordinating clips and regions, running
 rasterization algorithms, and owning pixel storage. This splits them:
@@ -144,12 +144,28 @@ pub const fn span_range(bounds: &Rect, span: Span) -> Range<usize>;
 /// already overrides `fill_solid` at framebuf and renderer level for exactly
 /// this reason.
 ///
-/// **No associated consts.** They make a trait dyn-incompatible (E0038), which
-/// would permanently foreclose `dyn Blitter<Color = C>` — the one lever that
-/// would collapse the rasterizer × blitter monomorphization cross-product.
-/// Nothing takes that lever today; the design must not remove it.
+/// **Associated consts, and dyn-compatibility spent to get them (E0038).** An
+/// earlier draft had none, to keep `dyn Blitter<Color = C>` available "in case
+/// the rasterizer × blitter cross-product needs collapsing". Maintainer's
+/// correction: an application uses **one** renderer + rasterizer + blitter
+/// combination, so there is no cross-product — only the inlining a monomorphized
+/// call gets, which is what an embedded target actually wants. The consts buy a
+/// compile-time capacity proof; the erasure bought nothing anyone was going to
+/// spend.
 pub trait Blitter {
     type Color: Color;
+
+    /// Units the **type** guarantees, or `None` when only the value knows.
+    /// `Some(n)` for a fixed-size array, which is what makes a too-small target
+    /// a **compile error**. Same "never unbounded" rule as
+    /// `FramebufStorage::UNITS`.
+    const UNITS: Option<usize> = None;
+
+    /// Pixels per unit — `8` for 1-bpp, `1` otherwise. A const because the check
+    /// it feeds is a compile-time one, for every blitter: comparing a policy's
+    /// budget against a capacity is meaningless unless they count the same
+    /// thing, and both sides are consts.
+    const PIXELS_PER_UNIT: usize = 1;
 
     /// The absolute rect it currently accepts writes for.
     /// After `begin_region(r)`, this is `r`.
@@ -239,6 +255,14 @@ pub trait Blitter {
 
 /// A blitter over a `Framebuf` the caller owns.
 ///
+/// **It is a colour buffer and nothing else: capacity plus addressing.** No
+/// viewport, no policy, no knowledge of a rasterizer or a renderer. The rect it
+/// answers for arrives with `begin_region`, which is the only thing that ever
+/// aims it — an earlier shape took a `viewport: Size` to choose between "aimed
+/// at the frame" and "aimed at nothing", a branch that was a fossil of the era
+/// when `begin_region` skipped full-frame surfaces. The field was written and
+/// never read.
+///
 /// **It always has its target.** There is no attached/detached type-state here:
 /// the state an application wants — "the renderer is between frames and I am
 /// holding the pixels" — belongs to the *renderer*, and this type is what moves
@@ -263,7 +287,10 @@ where
 }
 
 impl<C, B> FramebufBlitter<C, B> /* + the struct's bounds */ {
-    pub fn new(viewport: Size, storage: B) -> Self;
+    /// Infallible: a colour buffer of any size is a valid colour buffer, and
+    /// whether it is big enough is a question about a policy this type has
+    /// never heard of. Starts aimed at nothing.
+    pub fn new(storage: B) -> Self;
     pub fn into_storage(self) -> (B, Rect);
     pub fn framebuf(&self) -> &Framebuf<C, B>;
 }
@@ -595,19 +622,33 @@ impl<R, T, P> RasterRenderer<R, T, P, Detached> {
 }
 
 impl<R, T: Blitter, P: FramePolicy> RasterRenderer<R, T, P, Detached> {
-    /// **One implementation, every blitter** — and where the WHOLE capacity
-    /// proof runs, because both halves are values: `capacity()` reports the
-    /// units the target holds and `pixels_per_unit()` reports what a unit means.
+    /// **One implementation, every blitter**, and the whole capacity proof.
+    /// Checked BOTTOM-UP: the blitter states what it holds, the policy states
+    /// what the application wants asked of it.
     ///
-    /// # Panics
-    /// If the target cannot hold `P`'s largest region, or if `P`'s packing
-    /// disagrees with the target's.
-    pub fn attach(self, blitter: T) -> RasterRenderer<R, T, P, Attached>;
+    /// | the target | when it is checked |
+    /// |---|---|
+    /// | `&'static mut [u16; 5760]` | **compile time** — `UNITS` is `Some` |
+    /// | `&'static mut [u16]`, a `Pixmap` | here, as an `Err` |
+    /// | direct-to-panel | never — `capacity()` is `None`, i.e. *unbounded* |
+    ///
+    /// The packing agreement is always a compile error: both sides are consts.
+    ///
+    /// **Never panics.** Whether a memory-plan mistake should abort is the
+    /// application's call; `AttachError` hands back both halves.
+    pub fn attach(self, blitter: T)
+        -> Result<RasterRenderer<R, T, P, Attached>, AttachError<R, T, P>>;
 }
 
 impl<R, T: Blitter, P: FramePolicy> RasterRenderer<R, T, P, Attached> {
-    /// Sugar for `new(..).attach(..)`.
-    pub fn with_blitter(rasterizer: R, viewport: Size, blitter: T) -> Self;
+    /// The parked renderer, spelled on the ATTACHED type — that is the type an
+    /// application names (`W::Renderer`), so a caller never writes `Detached`.
+    pub fn parked(rasterizer: R, viewport: Size)
+        -> RasterRenderer<R, T, P, Detached>;
+
+    /// Sugar for `parked(..).attach(..)`.
+    pub fn with_blitter(rasterizer: R, viewport: Size, blitter: T)
+        -> Result<Self, AttachError<R, T, P>>;
 
     /// The blitter is the loan token: it owns whatever the caller lent it, so
     /// ownership moves out with it (WS6.7). The painted rect comes back as
@@ -622,15 +663,11 @@ impl<R, T: Blitter, P: FramePolicy> RasterRenderer<R, T, P, Attached> {
     fn split(&mut self) -> (&mut R, RasterCtx<'_, T>);
 }
 
-// NOTE: the **compile-time** half of the capacity proof is GONE, deliberately.
-// It needed `C`, `B` and `P` together, and a generic `attach<T: Blitter>` hides
-// the first two inside `T`. Rather than reintroduce specialization to keep it,
-// `Blitter::pixels_per_unit` makes both halves values, so `attach` checks both
-// at runtime for every blitter — strictly more coverage than the const block
-// had, since it only ever guarded the framebuf path while the pixmap path
-// compared units against a policy without checking they counted the same thing.
-// A `const` block is also invisible to `cargo check` and rust-analyzer, so what
-// it bought was a build failure rather than an editor diagnostic.
+// NOTE on the two halves: `Blitter::UNITS` carries the static one up to
+// `attach`, where a `const` block turns a too-small fixed-size array into a
+// build failure. That is the *only* assertion left in this crate's shipping
+// code, and it is a compile-time one. Everything a value can get wrong is a
+// `Result` or an `Option`.
 
 impl<R, T, P> Renderer for RasterRenderer<R, T, P, Attached>
 where R: Rasterizer<T>, T: Blitter, P: FramePolicy
@@ -716,7 +753,18 @@ these are the ones worth checking against.
    hand a rasterizer a `&mut T`.
 6. **No lookalike defaults.** Exact decomposition or `path`; a plausible wrong
    image is the failure mode this design refuses.
-7. **`detach` returns an owned blitter, which owns the buffer** — WS6.7's DMA soundness depends on ownership moving out, not on the shape of what moves.
+7. **`detach` returns an owned blitter, which owns the buffer** — WS6.7's DMA
+   soundness depends on ownership moving out, not on the shape of what moves.
+9. **rsact never panics on the user's behalf.** Construction and attachment
+   return `Option`/`Result`; the only assertions in shipping code are the
+   `const` ones in `attach`, which are build failures rather than runtime
+   panics. Whether a memory-plan mistake should abort is the application's
+   decision, and `unwrap` at the call site is that decision, written where a
+   reader can see it.
+10. **A blitter is aimed by `begin_region` and by nothing else.** It takes no
+   viewport and holds no shape of its own; "aimed wrongly at construction" is
+   not a state that exists, which retires the WS6.4d bug class rather than
+   fixing one instance of it.
 8. **Addressing stays overridable per blitter** (rotation, page packing), which
    is why `local`/`pixel_index`/`span_range` are free functions.
 
@@ -732,10 +780,14 @@ Each was verified against rustc; each is a place the obvious spelling fails.
 - **No associated consts on `Blitter`** — they make it dyn-incompatible (E0038).
 - **`Span` is `{y, x, w}`** — `Range` is not `Copy`, and defaults read the span
   twice (`E0382`).
-- **The capacity proof is one runtime check in `attach`.** Both halves are
-  values: `Blitter::capacity()` and `Blitter::pixels_per_unit()`. The static
-  half was dropped rather than kept behind specialization — see the NOTE in the
-  sketch for why that is a net gain in coverage.
+- **The capacity proof is one check in `attach`, split by what is knowable.**
+  `Blitter::UNITS` / `Blitter::PIXELS_PER_UNIT` are consts, so a too-small
+  fixed-size array and any packing disagreement are **build failures**;
+  `Blitter::capacity()` is the value, so a runtime-length target is an `Err`;
+  `capacity() == None` means *unbounded* and is not checked at all. That needed
+  associated consts on `Blitter`, which costs dyn-compatibility (E0038) — spent
+  deliberately, since an application uses one renderer + rasterizer + blitter
+  and there is no cross-product to erase.
 - **A colour-derived `PACKING` const would need `Color: PackedColor`**, which
   `tiny_skia::Color` and `NullColor` fail — so packing may never be a bound on
   `Blitter`. (Appendix A.)

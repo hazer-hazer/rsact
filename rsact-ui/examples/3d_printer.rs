@@ -370,7 +370,6 @@ fn main() {
             // The blitter IS the loan: it owns the buffer, and `detach` hands
             // the whole thing back.
             FramebufBlitter::new(
-                display.bounding_box().size.into(),
                 heap_surface::<Rgb888>(display.bounding_box().size.into()),
             ),
         )
@@ -468,10 +467,7 @@ fn main() {
                 let (parked, blitter) = renderer.detach();
                 let (buf, at) = blitter.into_storage();
                 flush(&mut display, &buf, at);
-                renderer = parked.attach(FramebufBlitter::new(
-                    display.bounding_box().size.into(),
-                    buf,
-                ));
+                renderer = parked.attach(FramebufBlitter::new(buf));
             }
         }
         mem_leaked += GLOBAL.allocated().saturating_sub(mem_start);

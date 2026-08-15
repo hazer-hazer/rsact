@@ -123,17 +123,58 @@ pub const fn span_range(bounds: &Rect, span: Span) -> Range<usize> {
 /// precedent: it already overrides `fill_solid` at framebuf and renderer level
 /// for exactly this reason.
 ///
-/// **No associated consts.** They make a trait dyn-incompatible (E0038), which
-/// would permanently foreclose `dyn Blitter<Color = C>` — the one lever that
-/// would collapse the rasterizer × blitter monomorphization cross-product.
-/// Nothing takes that lever today; the design must not remove it.
+/// # Capacity is stated twice, and the two are not redundant
 ///
-/// **No error channel.** Every method draws or does nothing; there is nothing to
+/// [`UNITS`](Self::UNITS) is what the **type** knows; [`capacity`](Self::capacity)
+/// is what the **value** knows. A `&'static mut [u16; 5760]` answers the first,
+/// so a target too small for a frame policy is a **compile error**; a
+/// `&'static mut [u16]` cannot, so it is checked when it is lent and the caller
+/// gets a `Result`. A direct-to-panel target answers `None` to both — its
+/// capacity is *unbounded*, there being no storage to overflow, so nothing is
+/// checked at all.
+///
+/// **Associated consts make this trait dyn-incompatible (E0038), and that is
+/// accepted.** An earlier draft avoided them to keep `dyn Blitter<Color = C>`
+/// available "in case the rasterizer × blitter cross-product needs collapsing".
+/// Maintainer's correction: an application uses **one** renderer + rasterizer +
+/// blitter combination, so there is no cross-product — only the inlining a
+/// monomorphized call gets, which is the thing an embedded target actually
+/// wants. The consts buy a compile-time capacity proof; the erasure bought
+/// nothing anyone was going to spend.
+///
+/// **No error channel on the drawing methods.** Every method draws or does nothing; there is nothing to
 /// report. [`begin_region`](Self::begin_region) is the exception and the reason
 /// is real: a region that does not fit the storage is a refusal, not a
 /// degradation.
 pub trait Blitter {
     type Color: Color;
+
+    /// Units the **type** guarantees, or `None` when only the value knows.
+    ///
+    /// `Some(n)` for a fixed-size array, which is what lets a policy violation
+    /// be a **compile error**. `None` for a runtime-length slice (checked when
+    /// the target is lent) and for a target with no storage at all (never
+    /// checked — see [`capacity`](Self::capacity)).
+    ///
+    /// It mirrors [`FramebufStorage::UNITS`](crate::framebuf::FramebufStorage::UNITS)
+    /// one layer up, and means the same thing: **`None` is "ask the value",
+    /// never "unbounded"**. That distinction is what a `usize::MAX` sentinel
+    /// erased once already, letting an *empty* boxed slice satisfy a full-frame
+    /// policy at compile time.
+    const UNITS: Option<usize> = None;
+
+    /// Pixels this target packs into one unit of capacity.
+    ///
+    /// `1` for anything that does not pack — a pixmap, an RGB framebuffer, a
+    /// direct-to-panel target — hence the default. `8` for a 1-bpp framebuffer.
+    ///
+    /// **A const because the check it feeds is a compile-time one.** Comparing a
+    /// frame policy's unit budget against a target's capacity is meaningless
+    /// unless the two count the same thing: a 1-bpp target under a
+    /// `PIXELS_PER_UNIT = 1` policy would appear to need eight times the storage
+    /// it does, and the reverse would silently under-demand. Both sides are
+    /// consts, so the disagreement never survives a build.
+    const PIXELS_PER_UNIT: usize = 1;
 
     /// The absolute rect it currently accepts writes for.
     /// After [`begin_region(r)`](Self::begin_region), this is `r`.
@@ -153,26 +194,6 @@ pub trait Blitter {
     /// [`region_units`]: crate::renderer::region_units
     /// [`assert_policy_fits`]: crate::region::assert_policy_fits
     fn capacity(&self) -> Option<usize>;
-
-    /// Pixels this target packs into one unit of [`capacity`](Self::capacity).
-    ///
-    /// `1` for anything that does not pack — a pixmap, an RGB framebuffer, a GPU
-    /// attachment — which is why it is defaulted.
-    ///
-    /// **It exists so the capacity proof can run generically.** A `FramePolicy`
-    /// states its own `PIXELS_PER_UNIT`, and comparing its budget against
-    /// `capacity()` is meaningless unless the two count the same thing: a 1-bpp
-    /// target under a `PIXELS_PER_UNIT = 1` policy would appear to need eight
-    /// times the storage it does, and the reverse would silently under-demand.
-    /// `RasterRenderer::attach` checks the two agree before comparing them.
-    ///
-    /// A **method**, not an associated const, for the same reason `Blitter` has
-    /// no consts at all: they make a trait dyn-incompatible (E0038), and
-    /// `dyn Blitter<Color = C>` is the one lever that would collapse the
-    /// rasterizer × blitter monomorphization cross-product.
-    fn pixels_per_unit(&self) -> usize {
-        1
-    }
 
     // ── required ────────────────────────────────────────────────────────────
 

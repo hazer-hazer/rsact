@@ -220,7 +220,8 @@ mod tests {
         let mut framebuf = Framebuf::new(
             Size::new(WIDTH, HEIGHT),
             heap_surface::<Rgb888>(Size::new(WIDTH, HEIGHT)),
-        );
+        )
+        .unwrap();
 
         for x in 0..WIDTH as i32 {
             for y in 0..HEIGHT as i32 {
@@ -246,7 +247,8 @@ mod tests {
         let mut framebuf = Framebuf::new(
             Size::new(WIDTH, HEIGHT),
             heap_surface::<BinaryColor>(Size::new(WIDTH, HEIGHT)),
-        );
+        )
+        .unwrap();
 
         for x in 0..WIDTH as i32 {
             for y in 0..HEIGHT as i32 {
@@ -282,7 +284,8 @@ mod tests {
         let framebuf = Framebuf::<Rgb888, _>::new(
             Size::new(W, H),
             heap_surface::<Rgb888>(Size::new(W, H)),
-        );
+        )
+        .unwrap();
 
         // Inside: answered.
         assert!(framebuf.pixel(Point::new(0, 0)).is_some());
@@ -380,13 +383,15 @@ mod tests {
         let mut inherent = Framebuf::<BinaryColor, _>::new(
             size,
             heap_surface::<BinaryColor>(size),
-        );
+        )
+        .unwrap();
         Framebuf::fill_solid(&mut inherent, area, ink);
 
         let mut through_eg = Framebuf::<BinaryColor, _>::new(
             size,
             heap_surface::<BinaryColor>(size),
-        );
+        )
+        .unwrap();
         DrawTarget::fill_solid(&mut through_eg, &area.into(), ink).unwrap();
 
         let inherent: Vec<_> = inherent.data().to_vec();

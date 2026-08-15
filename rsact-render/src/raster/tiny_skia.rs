@@ -71,7 +71,7 @@ impl TinySkiaRasterizer {
     /// The transform carries absolute coordinates into mask-local ones, so the
     /// mask's `(0, 0)` is the clip's top-left — which is what lets one buffer
     /// serve any clip without re-addressing.
-    fn emit<T: Blitter + ?Sized>(
+    fn emit<T: Blitter>(
         &mut self,
         cx: &mut RasterCtx<'_, T>,
         path: &tiny_skia::Path,
@@ -130,7 +130,7 @@ impl TinySkiaRasterizer {
     /// coverage, not paint, so a shape that is filled *and* stroked needs one
     /// mask per color. The stroke pass rasterizes the stroke **outline** — an
     /// ordinary filled path — which is how tiny-skia strokes internally too.
-    fn draw<T: Blitter + ?Sized>(
+    fn draw<T: Blitter>(
         &mut self,
         cx: &mut RasterCtx<'_, T>,
         path: &tiny_skia::Path,
@@ -155,7 +155,7 @@ impl TinySkiaRasterizer {
     }
 }
 
-impl<T: Blitter + ?Sized> Rasterizer<T> for TinySkiaRasterizer {
+impl<T: Blitter> Rasterizer<T> for TinySkiaRasterizer {
     fn line(
         &mut self,
         cx: &mut RasterCtx<'_, T>,
@@ -322,7 +322,6 @@ mod tests {
     use super::*;
     use crate::{
         blitter::pixmap::PixmapBlitter,
-        color::Color as _,
         geometry::Size,
         region::Unbounded,
         renderer::{RasterRenderer, Renderer},
@@ -348,8 +347,9 @@ mod tests {
         Skia::with_blitter(
             TinySkiaRasterizer::new(),
             size,
-            PixmapBlitter::new(size, pixmap(size)),
+            PixmapBlitter::new(pixmap(size)),
         )
+        .unwrap()
     }
 
     fn inked(p: &Pixmap) -> usize {
@@ -436,22 +436,26 @@ mod tests {
     #[test]
     fn tiny_skias_anti_aliasing_works_over_a_framebuffer() {
         use crate::{
-            blitter::framebuf::FramebufBlitter, color::Color,
-            framebuf::PackedColor, geometry::Point,
+            blitter::framebuf::FramebufBlitter,
+            color::Color,
+            framebuf::PackedColor,
+            geometry::{Point, Rect},
         };
         use embedded_graphics::pixelcolor::Rgb888;
 
         let size = Size::new_equal(32);
-        let buf: &'static mut [u32] =
-            alloc::vec![<Rgb888 as Color>::default_background().into_storage();
-                        32 * 32]
-            .leak();
+        // `begin_region` primes the target with the background, so the buffer's
+        // initial contents do not matter.
+        let buf: &'static mut [u32] = alloc::vec![0u32; 32 * 32].leak();
         let mut r =
             RasterRenderer::<_, FramebufBlitter<Rgb888, _>, Unbounded>::with_blitter(
                 TinySkiaRasterizer::new(),
                 size,
-                FramebufBlitter::new(size, buf),
-            );
+                FramebufBlitter::new(buf),
+            )
+            .unwrap();
+        // A blitter is aimed by `begin_region` and by nothing else.
+        Renderer::begin_region(&mut r, Rect::new(Point::zero(), size)).unwrap();
         Renderer::polygon(
             &mut r,
             &[Point::new(2, 2), Point::new(29, 8), Point::new(8, 29)],
@@ -516,15 +520,16 @@ mod tests {
         let mut full = renderer(viewport);
         content(&mut full);
         let (_, blitter) = full.detach();
-        let (reference, _) = blitter.into_pixmap();
+        let (reference, _) = blitter.into_pixmap().unwrap();
 
         let mut composed = pixmap(viewport);
         let band = Size::new(W, BAND);
         let mut tiled = Skia::with_blitter(
             TinySkiaRasterizer::new(),
             viewport,
-            PixmapBlitter::new(viewport, pixmap(band)),
-        );
+            PixmapBlitter::new(pixmap(band)),
+        )
+        .unwrap();
         let mut spare = pixmap(band);
 
         for i in 0..(H / BAND) as i32 {
@@ -534,7 +539,7 @@ mod tests {
             tiled.end_region().unwrap();
 
             let (parked, blitter) = tiled.detach();
-            let (tile, at) = blitter.into_pixmap();
+            let (tile, at) = blitter.into_pixmap().unwrap();
             // The caller's blit: raw pixels plus where they go.
             for row in 0..at.size.height as usize {
                 for col in 0..at.size.width as usize {
@@ -544,7 +549,7 @@ mod tests {
                     composed.pixels_mut()[y * W as usize + x] = src;
                 }
             }
-            tiled = parked.attach(PixmapBlitter::new(viewport, spare));
+            tiled = parked.attach(PixmapBlitter::new(spare)).unwrap();
             spare = tile;
         }
 
@@ -582,10 +587,8 @@ mod tests {
             geometry::{Point, Rect},
         };
 
-        let mut b = PixmapBlitter::new(
-            Size::new(64, 64),
-            pixmap(Size::new(64, 8)), // 512 px = 2048 bytes
-        );
+        // 64x8 = 512 px = 2048 bytes.
+        let mut b = PixmapBlitter::new(pixmap(Size::new(64, 8)));
         let budget = b.capacity();
 
         let square = Rect::new(Point::new(8, 16), Size::new(32, 16));
@@ -595,7 +598,7 @@ mod tests {
         // Paint at the region's far corner: it only lands if the stride
         // followed the reshape.
         b.pixel(Point::new(39, 31), tiny_skia::Color::BLACK);
-        let (tile, at) = b.into_pixmap();
+        let (tile, at) = b.into_pixmap().unwrap();
         assert_eq!(at, square);
         let corner = tile.pixels()[15 * 32 + 31];
         assert_ne!(
@@ -605,8 +608,7 @@ mod tests {
         );
 
         // A narrow tall region — the case a fixed-width pixmap could never hold.
-        let mut b =
-            PixmapBlitter::new(Size::new(64, 64), pixmap(Size::new(64, 8)));
+        let mut b = PixmapBlitter::new(pixmap(Size::new(64, 8)));
         assert!(
             b.begin_region(Rect::new(Point::zero(), Size::new(4, 128)))
                 .is_ok()
@@ -626,8 +628,7 @@ mod tests {
             blitter::Blitter,
             geometry::{Point, Rect},
         };
-        let mut b =
-            PixmapBlitter::new(Size::new(64, 64), pixmap(Size::new(64, 8)));
+        let mut b = PixmapBlitter::new(pixmap(Size::new(64, 8)));
         // 2052 bytes wanted against 2048 lent — one pixel too many.
         let over = Rect::new(Point::zero(), Size::new(513, 1));
         assert!(

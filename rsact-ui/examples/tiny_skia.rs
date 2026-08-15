@@ -161,10 +161,10 @@ fn main() {
         TinySkiaRasterizer::new(),
         size,
         PixmapBlitter::new(
-            size,
             tiny_skia::Pixmap::new(size.width, size.height).unwrap(),
         ),
-    );
+    )
+    .unwrap();
     let mut ui = UI::new(Theme::default(), size)
         .no_events()
         .on_exit(|| process::exit(0))
@@ -174,9 +174,9 @@ fn main() {
         let mut frame = ui.start_frame(&mut renderer);
         while frame.render(&mut renderer).is_some() {
             let (parked, blitter) = renderer.detach();
-            let (pixmap, at) = blitter.into_pixmap();
+            let (pixmap, at) = blitter.into_pixmap().unwrap();
             flush(&mut display, &pixmap, at);
-            renderer = parked.attach(PixmapBlitter::new(size, pixmap));
+            renderer = parked.attach(PixmapBlitter::new(pixmap));
         }
     }
     window.show_static(&display);

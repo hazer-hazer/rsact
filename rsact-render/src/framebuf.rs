@@ -29,7 +29,6 @@
 use crate::{
     color::Color,
     geometry::{Point, Rect, Size},
-    renderer::region_units,
 };
 
 pub trait PackedColor {
@@ -103,6 +102,7 @@ pub trait PackedColor {
 /// into a check that passes while the buffer is too small.
 ///
 /// [`policy_units`]: crate::region::policy_units
+/// [`region_units`]: crate::renderer::region_units
 pub const fn units_for<C: PackedColor>(w: u32, h: u32) -> usize {
     crate::renderer::region_units(w, h, C::PPS)
 }
@@ -463,38 +463,31 @@ impl<C: Color + PackedColor, B: FramebufStorage<C>> Framebuf<C, B> {
     /// borrower here, which is what lets an embedded app keep its tiles in a
     /// `StaticCell` pool and pass `&'static mut` slices through channels.
     ///
-    /// # Panics
+    /// `None` if `buffer` cannot hold a `size`-shaped region.
     ///
-    /// If `buffer` cannot hold a `size`-shaped region.
+    /// **An `Option`, not an assert.** Whether a too-small buffer should abort
+    /// is the caller's decision, not this crate's — an `unwrap` at the call site
+    /// is that decision, written where a reader can see it. (WS6.4e replaced an
+    /// `area % pps == 0` assert here with a capacity assert; this replaces the
+    /// assert itself.)
     ///
-    /// **WS6.4e: this replaces an `area % pps == 0` assert** which was both
-    /// wrong and insufficient — it rejected a real 122×250 mono e-paper panel
-    /// (roadmap 6.5(i)) while never once checking that the buffer was big
-    /// enough. The requirement is [`units_for`], the same row-padded formula
-    /// `retarget` and the policy proof already use; three
-    /// spellings of "does it fit" that could disagree is exactly how a capacity
-    /// check ends up worse than no check at all.
-    ///
-    /// Row padding makes this very slightly stricter than the addressing
-    /// strictly needs — a 122-px mono row is 16 bytes here and 15.25 to
-    /// `flat_index` — and that is the direction to be strict in: it is the
-    /// requirement once regions are byte-aligned (roadmap 6.5), and it is
-    /// identical for every color that does not pack.
-    pub fn new(size: Size, buffer: B) -> Self {
-        let needed = units_for::<C>(size.width, size.height);
-        let have = buffer.unit_count();
-        assert!(
-            have >= needed,
-            "[rsact] framebuffer too small: a {}x{} region needs {needed} \
-             storage units, this buffer holds {have}",
-            size.width,
-            size.height,
-        );
-        Self {
+    /// The requirement is [`units_for`], the same row-padded formula the policy
+    /// proof uses; three spellings of "does it fit" that could disagree is
+    /// exactly how a capacity check ends up worse than no check at all. Row
+    /// padding makes it very slightly stricter than the addressing needs — a
+    /// 122-px mono row is 16 bytes here and 15.25 to `flat_index` — and that is
+    /// the direction to be strict in: it is the requirement once regions are
+    /// byte-aligned (roadmap 6.5), and identical for every color that does not
+    /// pack.
+    pub fn new(size: Size, buffer: B) -> Option<Self> {
+        if buffer.unit_count() < units_for::<C>(size.width, size.height) {
+            return None;
+        }
+        Some(Self {
             viewport: Rect::new(Point::zero(), size),
             pixels: buffer,
             color: core::marker::PhantomData,
-        }
+        })
     }
 
     /// WS6.4d: hold `buffer`'s storage units with **no fixed shape**, for a
@@ -541,20 +534,12 @@ impl<C: Color + PackedColor, B: FramebufStorage<C>> Framebuf<C, B> {
     /// left in it, which is exactly why every region must paint its own
     /// background before drawing (roadmap 6.4 constraint (b)).
     ///
-    /// # Panics
-    ///
-    /// In debug builds, if `region` needs more units than the buffer holds. The
-    /// planner guarantees it never does, and the capacity check at `attach`
-    /// guarantees the planner's own bound fits — this is the backstop for a
-    /// renderer driven outside that path.
+    /// **Unchecked, and deliberately so.** It used to carry a `debug_assert`
+    /// that the region fits, which was a panic on a path that must never panic.
+    /// The check moved up one layer to `FramebufBlitter::begin_region`, which
+    /// **refuses** an oversized region and logs — the only caller, and the one
+    /// that has a `Result` to return.
     pub(crate) fn retarget(&mut self, region: Rect) {
-        debug_assert!(
-            region_units(region.size.width, region.size.height, C::PPS)
-                <= self.capacity_units(),
-            "[BUG] region {region:?} needs {} storage units, buffer holds {}",
-            region_units(region.size.width, region.size.height, C::PPS),
-            self.capacity_units(),
-        );
         self.viewport = region;
     }
 }
@@ -717,7 +702,8 @@ mod tests {
     #[test]
     fn a_122px_wide_mono_panel_is_constructible() {
         let mut buf = alloc::vec![0u8; units_for::<Mono>(122, 250)];
-        let fb = Framebuf::<Mono, _>::new(Size::new(122, 250), &mut buf[..]);
+        let fb = Framebuf::<Mono, _>::new(Size::new(122, 250), &mut buf[..])
+            .expect("the buffer was sized with units_for");
         assert_eq!(
             fb.viewport(),
             Rect::new(Point::zero(), Size::new(122, 250))
@@ -725,11 +711,14 @@ mod tests {
     }
 
     /// The check that replaced it is the one that was missing: too small is
-    /// refused, at construction, before anything paints.
+    /// refused, at construction, before anything paints — and as a `None`, not
+    /// a panic. Whether that should abort is the caller's decision.
     #[test]
-    #[should_panic(expected = "framebuffer too small")]
     fn a_buffer_too_small_for_its_size_is_refused() {
         let mut buf = alloc::vec![0u8; 10];
-        let _ = Framebuf::<Mono, _>::new(Size::new(122, 250), &mut buf[..]);
+        assert!(
+            Framebuf::<Mono, _>::new(Size::new(122, 250), &mut buf[..])
+                .is_none()
+        );
     }
 }

@@ -45,9 +45,9 @@ use embedded_graphics::{
 /// to serve a method whose default (`draw_iter`, i.e. `cx.pixel`) is already
 /// correct. Revisit when a rasterizer holds a scratch line for its own reasons;
 /// `RsactRasterizer` will.
-pub struct BlitTarget<'a, T: Blitter + ?Sized>(pub RasterCtx<'a, T>);
+pub struct BlitTarget<'a, T: Blitter>(pub RasterCtx<'a, T>);
 
-impl<'a, T: Blitter + ?Sized> Dimensions for BlitTarget<'a, T> {
+impl<'a, T: Blitter> Dimensions for BlitTarget<'a, T> {
     /// The **clip**, not the blitter's whole extent.
     ///
     /// This is the honest answer and also a free optimization: eg's own
@@ -59,7 +59,7 @@ impl<'a, T: Blitter + ?Sized> Dimensions for BlitTarget<'a, T> {
     }
 }
 
-impl<'a, T: Blitter + ?Sized> DrawTarget for BlitTarget<'a, T>
+impl<'a, T: Blitter> DrawTarget for BlitTarget<'a, T>
 where
     T::Color: PixelColor,
 {
@@ -107,7 +107,7 @@ where
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct EgRasterizer;
 
-impl<T: Blitter + ?Sized> Rasterizer<T> for EgRasterizer
+impl<T: Blitter> Rasterizer<T> for EgRasterizer
 where
     T::Color: Color + PixelColor,
 {

@@ -47,7 +47,6 @@ fn main() {
             // because the buffer contract is a `&'static mut` loan (a
             // `StaticCell` on a device) — a renderer BORROWS a surface.
             FramebufBlitter::new(
-                viewport,
                 vec![0u32; viewport.area() as usize].leak(),
             ),
         );
@@ -86,7 +85,7 @@ fn main() {
                 let (parked, blitter) = renderer.detach();
                 let (buf, at) = blitter.into_storage();
                 flush(&mut display, &buf, at);
-                renderer = parked.attach(FramebufBlitter::new(viewport, buf));
+                renderer = parked.attach(FramebufBlitter::new(buf));
             }
         }
         window.update(&display);

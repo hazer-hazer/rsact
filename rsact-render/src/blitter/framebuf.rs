@@ -8,17 +8,23 @@ use crate::{
 
 /// A blitter over a [`Framebuf`] whose storage the caller owns.
 ///
-/// **It always has its target.** There is no attached/detached type-state here:
-/// a blitter that has no buffer is not a thing an application needs, because the
-/// state it wants — "the renderer is between frames and I am holding the
-/// pixels" — belongs to the *renderer*. `RasterRenderer` carries that state and
-/// this type is what moves in and out of it. (The first shape of this design had
-/// it the other way round; see `RasterRenderer`'s docs for what that cost.)
+/// **It is a colour buffer and nothing else: capacity plus addressing.** It does
+/// not know the display's size, it does not know the frame policy, and it does
+/// not know what a rasterizer or a renderer is. The rect it currently answers
+/// for arrives with [`begin_region`](Blitter::begin_region), which is the only
+/// thing that ever aims it.
 ///
-/// **No `P` parameter.** A frame policy is the application's declaration about
-/// frames, not a property of a thing that merely has a size — so it stays on the
-/// renderer, which is where `attach` compares it against
-/// [`capacity`](Blitter::capacity).
+/// An earlier shape took a `viewport: Size` at construction, to choose between
+/// "aimed at the whole frame" and "aimed at nothing". That branch was a fossil:
+/// it mattered only while `begin_region` *skipped* full-frame surfaces, and
+/// WS6.4d made it retarget unconditionally — so the construction-time aim is
+/// overwritten before a single pixel lands, and the field was written and never
+/// read.
+///
+/// **It always has its target.** There is no attached/detached type-state here:
+/// the state an application wants — "the renderer is between frames and I am
+/// holding the pixels" — belongs to the *renderer*, and this type is what moves
+/// in and out of it.
 ///
 /// This type IS the loan: it owns `B`, so handing it back to the caller hands
 /// back the buffer, which is WS6.7's DMA-soundness requirement (a borrow the
@@ -31,14 +37,6 @@ where
     B: FramebufStorage<C>,
 {
     framebuf: Framebuf<C, B>,
-    /// The **display's** size, not the region's.
-    ///
-    /// Needed only at construction, to decide whether a buffer covers the frame
-    /// (aim it at the frame) or is a tile (aim it at nothing until the first
-    /// `begin_region`). Getting that wrong is not cosmetic: aiming a full-frame
-    /// buffer at nothing is the WS6.4d bug where every flush after the first
-    /// sent an empty rect.
-    viewport: Size,
 }
 
 impl<C, B> FramebufBlitter<C, B>
@@ -46,18 +44,15 @@ where
     C: Color + PackedColor,
     B: FramebufStorage<C>,
 {
-    /// Wrap the caller's storage.
+    /// Wrap the caller's storage. **Infallible**, because there is nothing to
+    /// check: a colour buffer of any size is a valid colour buffer, and whether
+    /// it is big enough is a question about the *frame policy*, which this type
+    /// has never heard of. That comparison happens when the target is lent to a
+    /// renderer.
     ///
-    /// A buffer big enough for the whole frame is aimed at the whole frame; a
-    /// smaller one is aimed at nothing until `begin_region` supplies a region.
-    pub fn new(viewport: Size, storage: B) -> Self {
-        let full_frame = units_for::<C>(viewport.width, viewport.height);
-        let framebuf = if storage.unit_count() >= full_frame {
-            Framebuf::new(viewport, storage)
-        } else {
-            Framebuf::tile(storage)
-        };
-        Self { framebuf, viewport }
+    /// Starts aimed at nothing. `begin_region` supplies the rect.
+    pub fn new(storage: B) -> Self {
+        Self { framebuf: Framebuf::tile(storage) }
     }
 
     /// Give the storage back, with the region that was painted into it.
@@ -70,11 +65,6 @@ where
     pub fn into_storage(self) -> (B, Rect) {
         let at = self.framebuf.viewport();
         (self.framebuf.into_buffer(), at)
-    }
-
-    /// The display's size, for a renderer that needs to report it.
-    pub fn viewport(&self) -> Size {
-        self.viewport
     }
 
     /// Read access to the lent storage — what a caller flushing a tile walks,
@@ -91,19 +81,21 @@ where
 {
     type Color = C;
 
+    /// What the storage **type** guarantees — `Some(N)` for a `&mut [T; N]`,
+    /// which is what makes a too-small buffer a compile error, and `None` for a
+    /// runtime-length slice, which is checked when the target is lent.
+    const UNITS: Option<usize> = <B as FramebufStorage<C>>::UNITS;
+
+    /// The colour's own packing: 8 for `BinaryColor`, 1 for anything a storage
+    /// word holds whole.
+    const PIXELS_PER_UNIT: usize = C::PPS;
+
     fn bounds(&self) -> Rect {
         self.framebuf.viewport()
     }
 
     fn capacity(&self) -> Option<usize> {
         Some(self.framebuf.capacity_units())
-    }
-
-    /// The color's own packing — 8 for `BinaryColor`, 1 for anything a storage
-    /// word holds whole. This is what lets `RasterRenderer::attach` check that a
-    /// frame policy's budget and this target's capacity count the same thing.
-    fn pixels_per_unit(&self) -> usize {
-        C::PPS
     }
 
     /// A span is a one-row rect, so this is WS6.3b's whole-word fill with a
@@ -175,7 +167,24 @@ where
     /// dead space — the gap between two damage rects, container padding, the
     /// area under a transparent `Flex` — flushing as whatever the previous
     /// region left there.
+    ///
+    /// # Errors
+    ///
+    /// If `region` needs more units than the buffer holds. Refused, not
+    /// asserted: the capacity check at attach guarantees the planner never asks,
+    /// so this is the backstop for a renderer driven outside that path, and a
+    /// backstop that aborts the device is worse than one that logs and skips
+    /// (WS1.8).
     fn begin_region(&mut self, region: Rect) -> RenderResult {
+        let want = units_for::<C>(region.size.width, region.size.height);
+        let have = self.framebuf.capacity_units();
+        if want > have {
+            log::error!(
+                "region {region:?} needs {want} storage units, the attached \
+                 buffer holds {have}; skipping it"
+            );
+            return Err(());
+        }
         self.framebuf.retarget(region);
         // Straight at the framebuf: the region clip is pushed by L1 *after* this
         // returns, and the whole retargeted buffer is what needs priming.
