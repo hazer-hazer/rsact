@@ -3,36 +3,37 @@ use crate::{
     color::Color,
     framebuf::{Framebuf, FramebufStorage, PackedColor, units_for},
     geometry::{Point, Rect, Size},
-    renderer::{Attached, Attachment, Detached, RenderResult},
+    renderer::RenderResult,
 };
 
-/// A blitter over a [`Framebuf`] the caller owns.
+/// A blitter over a [`Framebuf`] whose storage the caller owns.
 ///
-/// `A` is the attachment type-state: a parked blitter has no framebuf *field*,
-/// so there is nothing to unwrap and no "drawing while detached" branch
-/// anywhere. Every [`Blitter`] method is written for [`Attached`] and no other
-/// state, which is what makes the guarantee structural rather than checked.
+/// **It always has its target.** There is no attached/detached type-state here:
+/// a blitter that has no buffer is not a thing an application needs, because the
+/// state it wants — "the renderer is between frames and I am holding the
+/// pixels" — belongs to the *renderer*. `RasterRenderer` carries that state and
+/// this type is what moves in and out of it. (The first shape of this design had
+/// it the other way round; see `RasterRenderer`'s docs for what that cost.)
 ///
 /// **No `P` parameter.** A frame policy is the application's declaration about
 /// frames, not a property of a thing that merely has a size — so it stays on the
-/// renderer, where it is compared against
-/// [`capacity()`](Blitter::capacity).
+/// renderer, which is where `attach` compares it against
+/// [`capacity`](Blitter::capacity).
 ///
-/// Attach/detach are **inherent methods**, as they were on both concrete
-/// renderers before the split. No trait pair until something is generic over
-/// them — and [`detach`](Self::detach) returning an **owned** `B` is what
-/// satisfies WS6.7's DMA-soundness requirement: a borrow the core can still
-/// write through is UB, which is why `embedded-dma`'s `ReadBuffer` is `unsafe`.
-pub struct FramebufBlitter<C, B, A = Attached>
+/// This type IS the loan: it owns `B`, so handing it back to the caller hands
+/// back the buffer, which is WS6.7's DMA-soundness requirement (a borrow the
+/// core can still write through is UB, which is why `embedded-dma`'s
+/// `ReadBuffer` is `unsafe`). [`into_storage`](Self::into_storage) unwraps it
+/// where the raw slice is what the transport wants.
+pub struct FramebufBlitter<C, B>
 where
     C: Color + PackedColor,
     B: FramebufStorage<C>,
-    A: Attachment<Framebuf<C, B>>,
 {
-    framebuf: A::Slot,
+    framebuf: Framebuf<C, B>,
     /// The **display's** size, not the region's.
     ///
-    /// Needed only at attach time, to decide whether a buffer covers the frame
+    /// Needed only at construction, to decide whether a buffer covers the frame
     /// (aim it at the frame) or is a tile (aim it at nothing until the first
     /// `begin_region`). Getting that wrong is not cosmetic: aiming a full-frame
     /// buffer at nothing is the WS6.4d bug where every flush after the first
@@ -40,59 +41,35 @@ where
     viewport: Size,
 }
 
-impl<C, B> FramebufBlitter<C, B, Detached>
+impl<C, B> FramebufBlitter<C, B>
 where
     C: Color + PackedColor,
     B: FramebufStorage<C>,
 {
-    /// A blitter with no surface yet — the state a buffer is attached *to*.
-    pub fn parked(viewport: Size) -> Self {
-        Self { framebuf: (), viewport }
-    }
-
-    /// Lend it a surface. Consumes the parked blitter and returns an
-    /// [`Attached`] one — the only state that can draw.
-    pub fn attach(self, storage: B) -> FramebufBlitter<C, B, Attached> {
-        FramebufBlitter {
-            framebuf: Self::wrap(self.viewport, storage),
-            viewport: self.viewport,
-        }
-    }
-
-    /// Aim a freshly-lent buffer.
+    /// Wrap the caller's storage.
     ///
     /// A buffer big enough for the whole frame is aimed at the whole frame; a
     /// smaller one is aimed at nothing until `begin_region` supplies a region.
-    fn wrap(viewport: Size, storage: B) -> Framebuf<C, B> {
+    pub fn new(viewport: Size, storage: B) -> Self {
         let full_frame = units_for::<C>(viewport.width, viewport.height);
-        if storage.unit_count() >= full_frame {
+        let framebuf = if storage.unit_count() >= full_frame {
             Framebuf::new(viewport, storage)
         } else {
             Framebuf::tile(storage)
-        }
-    }
-}
-
-impl<C, B> FramebufBlitter<C, B, Attached>
-where
-    C: Color + PackedColor,
-    B: FramebufStorage<C>,
-{
-    pub fn new(viewport: Size, storage: B) -> Self {
-        FramebufBlitter::<C, B, Detached>::parked(viewport).attach(storage)
+        };
+        Self { framebuf, viewport }
     }
 
-    /// Take the surface back, with the region that was painted into it.
+    /// Give the storage back, with the region that was painted into it.
     ///
     /// The rect is the only one a caller needs: `begin_region` retargets
     /// unconditionally, so the buffer's extent and the painted region are the
     /// same rectangle for every surface — a tile and a full-frame framebuffer
     /// alike. It is both what to index the buffer at (rows are strided at its
     /// width) and what to send.
-    pub fn detach(self) -> (FramebufBlitter<C, B, Detached>, B, Rect) {
+    pub fn into_storage(self) -> (B, Rect) {
         let at = self.framebuf.viewport();
-        let parked = FramebufBlitter { framebuf: (), viewport: self.viewport };
-        (parked, self.framebuf.into_buffer(), at)
+        (self.framebuf.into_buffer(), at)
     }
 
     /// The display's size, for a renderer that needs to report it.
@@ -100,13 +77,14 @@ where
         self.viewport
     }
 
-    /// Read access to the lent storage — what a caller flushing a tile walks.
+    /// Read access to the lent storage — what a caller flushing a tile walks,
+    /// without giving the buffer back.
     pub fn framebuf(&self) -> &Framebuf<C, B> {
         &self.framebuf
     }
 }
 
-impl<C, B> Blitter for FramebufBlitter<C, B, Attached>
+impl<C, B> Blitter for FramebufBlitter<C, B>
 where
     C: Color + PackedColor,
     B: FramebufStorage<C>,
@@ -119,6 +97,13 @@ where
 
     fn capacity(&self) -> Option<usize> {
         Some(self.framebuf.capacity_units())
+    }
+
+    /// The color's own packing — 8 for `BinaryColor`, 1 for anything a storage
+    /// word holds whole. This is what lets `RasterRenderer::attach` check that a
+    /// frame policy's budget and this target's capacity count the same thing.
+    fn pixels_per_unit(&self) -> usize {
+        C::PPS
     }
 
     /// A span is a one-row rect, so this is WS6.3b's whole-word fill with a

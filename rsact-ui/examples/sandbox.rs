@@ -39,13 +39,17 @@ fn main() {
     // and never owns one. On a device this would be a `StaticCell` array
     // placed wherever that board wants it (SDRAM, DTCM, a DMA pool).
     let mut renderer =
-        RasterRenderer::<_, FramebufBlitter<Rgb888, _>, Unbounded>::with_framebuf(
+        RasterRenderer::<_, FramebufBlitter<Rgb888, _>, Unbounded>::with_blitter(
             EgRasterizer,
             viewport,
-            // `.leak()` rather than `into_boxed_slice()`: the buffer contract is
-            // a `&'static mut` loan (a `StaticCell` on a device), and the
-            // owned-`Box` impl went with WS6.4d — a renderer BORROWS a surface.
-            vec![0u32; viewport.area() as usize].leak(),
+            // The blitter IS the loan: it owns the buffer, and `detach` hands
+            // the whole thing back. `.leak()` rather than `into_boxed_slice()`
+            // because the buffer contract is a `&'static mut` loan (a
+            // `StaticCell` on a device) — a renderer BORROWS a surface.
+            FramebufBlitter::new(
+                viewport,
+                vec![0u32; viewport.area() as usize].leak(),
+            ),
         );
 
     let mut ui = UI::new(Theme::default(), viewport)
@@ -79,9 +83,10 @@ fn main() {
         {
             let mut frame = ui.start_frame(&mut renderer);
             while frame.render(&mut renderer).is_some() {
-                let (parked, buf, at) = renderer.detach();
+                let (parked, blitter) = renderer.detach();
+                let (buf, at) = blitter.into_storage();
                 flush(&mut display, &buf, at);
-                renderer = parked.attach(buf);
+                renderer = parked.attach(FramebufBlitter::new(viewport, buf));
             }
         }
         window.update(&display);

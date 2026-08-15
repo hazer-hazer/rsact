@@ -1,7 +1,7 @@
 # Render layer split — architecture plan
 
 **Status: in progress on `ws6.4e-framebuf-unbind`.**
-WS6.4e ✓ · PR A ✓ · PR B ✓ · PR C ✓ · PR D ✓ — **complete**
+WS6.4e ✓ · PR A ✓ · PR B ✓ · PR C ✓ · PR D ✓ · attachment rework ✓ — **complete**
 
 `EGRenderer` fuses three jobs — coordinating clips and regions, running
 rasterization algorithms, and owning pixel storage. This splits them:
@@ -167,6 +167,15 @@ pub trait Blitter {
     /// `width * height`.
     fn capacity(&self) -> Option<usize>;
 
+    /// Pixels this target packs into one unit of `capacity`. `1` for anything
+    /// that does not pack, hence the default.
+    ///
+    /// It exists so the capacity proof can run **generically**: comparing a
+    /// policy's budget against `capacity()` is meaningless unless the two count
+    /// the same thing, and a method (not an associated const) keeps the trait
+    /// dyn-compatible.
+    fn pixels_per_unit(&self) -> usize { 1 }
+
     // ── required ───────────────────────────────────────────────────────────
 
     /// `span` is guaranteed inside `bounds()` by the caller (`RasterCtx`).
@@ -228,39 +237,38 @@ pub trait Blitter {
     }
 }
 
-/// A blitter over a `Framebuf` the caller owns. `A` is the attachment
-/// type-state: a parked blitter has no framebuf *field*, so there is nothing to
-/// unwrap and no "drawing while detached" branch anywhere.
+/// A blitter over a `Framebuf` the caller owns.
+///
+/// **It always has its target.** There is no attached/detached type-state here:
+/// the state an application wants — "the renderer is between frames and I am
+/// holding the pixels" — belongs to the *renderer*, and this type is what moves
+/// in and out of it. (An earlier shape put the type-state here; see
+/// `RasterRenderer` for what that cost.)
 ///
 /// **No `P` parameter**: a policy is the application's declaration about
 /// frames, not a property of a thing that merely has a size.
 ///
-/// Attach/detach are **inherent methods**, as they are today on both concrete
-/// renderers. No trait pair until something is generic over them — and `detach`
-/// returning an **owned** `B` is what satisfies WS6.7's DMA-soundness
-/// requirement (a borrow the core can still write through is UB, which is why
-/// `embedded-dma`'s `ReadBuffer` is `unsafe`).
-pub struct FramebufBlitter<C, B, A = Attached>
+/// This type IS the loan. It owns `B`, so handing the blitter back hands back
+/// the buffer — WS6.7's DMA-soundness requirement (a borrow the core can still
+/// write through is UB, which is why `embedded-dma`'s `ReadBuffer` is
+/// `unsafe`). `into_storage` unwraps it where the raw slice is what the
+/// transport wants.
+pub struct FramebufBlitter<C, B>
 where
     C: Color + PackedColor,
     B: FramebufStorage<C>,
-    A: Attachment<Framebuf<C, B>>,
 {
-    framebuf: A::Slot,
+    framebuf: Framebuf<C, B>,
     viewport: Size, // the display's, not the region's
 }
 
-impl<C, B> FramebufBlitter<C, B, Detached> /* + the struct's bounds */ {
-    pub fn parked(viewport: Size) -> Self;
-    pub fn attach(self, storage: B) -> FramebufBlitter<C, B, Attached>;
-}
-
-impl<C, B> FramebufBlitter<C, B, Attached> /* + the struct's bounds */ {
+impl<C, B> FramebufBlitter<C, B> /* + the struct's bounds */ {
     pub fn new(viewport: Size, storage: B) -> Self;
-    pub fn detach(self) -> (FramebufBlitter<C, B, Detached>, B, Rect);
+    pub fn into_storage(self) -> (B, Rect);
+    pub fn framebuf(&self) -> &Framebuf<C, B>;
 }
 
-impl<C, B> Blitter for FramebufBlitter<C, B, Attached> {
+impl<C, B> Blitter for FramebufBlitter<C, B> {
     type Color = C;
     fn bounds(&self) -> Rect;
     fn capacity(&self) -> Option<usize> { Some(self.framebuf.capacity_units()) }
@@ -278,9 +286,9 @@ impl<C, B> Blitter for FramebufBlitter<C, B, Attached> {
 /// `begin_region` reshapes it per region (the trick WS6.4d already uses), so
 /// its bound is a byte budget exactly as for a framebuffer. The loan is the
 /// pixels, which the simulator takes back from `detach` and displays.
-pub struct PixmapBlitter<A = Attached> { /* pixmap: A::Slot, viewport: Size */ }
+pub struct PixmapBlitter { /* pixels: Vec<u8>, capacity, region, viewport */ }
 
-impl Blitter for PixmapBlitter<Attached> {
+impl Blitter for PixmapBlitter {
     type Color = tiny_skia::Color;
     fn bounds(&self) -> Rect;
     fn capacity(&self) -> Option<usize>;   // width * height — one unit per pixel
@@ -548,88 +556,83 @@ pub trait Renderer { /* unchanged — see renderer.rs */ }
 /// The `Renderer` built around a `Rasterizer`, with the blitter as the
 /// interchangeable sink.
 ///
-/// **No `where` clause on the struct.** Bounds live on the impls that draw —
-/// with them on the struct, the detached type `RasterRenderer<R, T::Parked, P>`
-/// is ill-formed (`E0277`), and adding the bound to fix it would restore the
-/// drawing-while-detached case the type-state exists to delete.
-pub struct RasterRenderer<R, T, P = Unbounded> {
+/// # The renderer is long-lived; the TARGET is what comes and goes
+///
+/// `A` is the attachment type-state, and it is on **this** type rather than on
+/// the blitter.
+///
+/// A renderer retains state a caller pays to build: the clip stack, and a
+/// rasterizer's caches (`TinySkiaRasterizer` holds a coverage `Mask` and a
+/// `PathStroker`; `RsactRasterizer` will hold a scanline). So it is created once
+/// and lives for the application. What is *lent* is the caller's paint target —
+/// a framebuffer, a pixmap, a `DrawTarget`, a GPU attachment — and a `Blitter`
+/// is exactly the thing that wraps one. So `attach` takes a blitter and `detach`
+/// gives it back, and a blitter is always in the one state where it has its
+/// target.
+///
+/// **The first shape of this put the type-state on the blitter**
+/// (`FramebufBlitter<C, B, Attached>`), which forced a *specialized* attach and
+/// detach pair on `RasterRenderer` per blitter kind — four impl blocks for two
+/// blitters, each re-stating the capacity proof, and one of them was written
+/// without the runtime half, so a 240-unit slice satisfied `Tiles<240, 24>` in
+/// silence. That duplication was structural: `DirectBlitter` and DMA2D would
+/// each have added another pair and another chance to forget. It also could not
+/// express a target that is not storage at all — a direct-to-`DrawTarget`
+/// blitter has no buffer to hand back, only itself.
+pub struct RasterRenderer<R, T, P = Unbounded, A: Attachment<T> = Attached> {
     rasterizer: R,
-    blitter: T,
-    clips: Vec<Rect>,
+    blitter: A::Slot,   // T attached, () detached
+    clips: Vec<Rect>,   // survives a detach: it is the renderer's, not the target's
     viewport: Size,
     policy: PhantomData<fn() -> P>, // marker-only: no dropck, no auto-traits
 }
 
-impl<R, T, P> RasterRenderer<R, T, P>
-where R: Rasterizer<T>, T: Blitter, P: FramePolicy
-{
-    /// The **runtime** half of the capacity proof, and it genuinely works for
-    /// any blitter: `region::policy_units::<P>()` needs only `P`, because
-    /// `PIXELS_PER_UNIT` lives on the *policy* today. So:
-    ///
-    /// ```text
-    /// match blitter.capacity() {
-    ///     Some(units) => assert_policy_fits::<P>(units),
-    ///     None        => {}   // unbounded — nothing to check
-    /// }
-    /// ```
-    pub fn new(rasterizer: R, blitter: T, viewport: Size) -> Self;
-
-    fn clip(&self) -> Rect { *self.clips.last().expect("clip stack is never empty") }
-
-    /// `&mut self.rasterizer` and `&mut self.blitter` are disjoint fields, so
-    /// one `&mut self` yields both; elision gives both borrows the same
-    /// lifetime and the tuple return is accepted.
-    ///
-    /// **Hot path.** `Renderer::pixel` goes through here once *per glyph
-    /// pixel* — `DrawTargetProxy::draw_iter` is the only path text takes, and a
-    /// text-heavy frame is O(10⁴) calls. Against today that adds one
-    /// `Rect::intersection`, inside `RasterCtx::new`. If it shows up in a
-    /// profile, note that the intersection is *provably redundant here*:
-    /// `begin_region` seeds the stack with the region and `push_clip`
-    /// intersects, so `clip ⊆ bounds()` already holds for this renderer. It can
-    /// become a `debug_assert!` plus a plain assignment — but only behind a
-    /// second constructor, because the intersection is what makes the guarantee
-    /// structural for any *other* L1 that builds a `RasterCtx`.
-    fn split(&mut self) -> (&mut R, RasterCtx<'_, T>) {
-        let clip = self.clip();
-        (&mut self.rasterizer, RasterCtx::new(&mut self.blitter, clip))
-    }
+impl<R, T, P> RasterRenderer<R, T, P, Detached> {
+    /// A renderer with no target yet — what an app builds at boot. No bound at
+    /// all, so it can be built before its blitter type is known to satisfy
+    /// `Blitter`.
+    pub fn new(rasterizer: R, viewport: Size) -> Self;
 }
 
-/// **The compile-time half of the proof lives on the framebuf path only** — the
-/// one place a *static* capacity exists. It is two assertions, both unchanged in
-/// substance from `EGRenderer::assert_static_capacity` (`eg/renderer.rs:323`):
-///
-/// 1. `assert_policy_fits::<P>(units)` when `B::UNITS` is `Some(units)` — skip
-///    when `None`, which means "ask the value" and is `attach`'s job.
-/// 2. `P::PIXELS_PER_UNIT == C::PPS` — the two are separate values today and
-///    must be kept in step. Appendix A is what eventually deletes this one, by
-///    making them one value.
-///
-/// A `DirectBlitter` has neither a static capacity nor a `C: PackedColor`, which
-/// is why this cannot sit on generic `new`.
-///
-/// A `const` block is invisible to `cargo check` and rust-analyzer — only
-/// codegen evaluates it — so `region.rs`'s eager `const _: () = …` doctests
-/// remain the only check-time-visible form. That is today's behaviour.
-impl<R, C, B, P> RasterRenderer<R, FramebufBlitter<C, B, Attached>, P> {
-    pub fn with_framebuf(rasterizer: R, viewport: Size, storage: B) -> Self;
-    pub fn detach(self)
-        -> (RasterRenderer<R, FramebufBlitter<C, B, Detached>, P>, B, Rect);
-}
-
-impl<R, C, B, P: FramePolicy> RasterRenderer<R, FramebufBlitter<C, B, Detached>, P> {
-    /// Where the runtime half runs — the one place `P` and a live blitter's
-    /// capacity are both in scope.
+impl<R, T: Blitter, P: FramePolicy> RasterRenderer<R, T, P, Detached> {
+    /// **One implementation, every blitter** — and where the WHOLE capacity
+    /// proof runs, because both halves are values: `capacity()` reports the
+    /// units the target holds and `pixels_per_unit()` reports what a unit means.
     ///
     /// # Panics
-    /// If the loan is smaller than `P` requires (runtime-length buffers only).
-    pub fn attach(self, storage: B)
-        -> RasterRenderer<R, FramebufBlitter<C, B, Attached>, P>;
+    /// If the target cannot hold `P`'s largest region, or if `P`'s packing
+    /// disagrees with the target's.
+    pub fn attach(self, blitter: T) -> RasterRenderer<R, T, P, Attached>;
 }
 
-impl<R, T, P> Renderer for RasterRenderer<R, T, P>
+impl<R, T: Blitter, P: FramePolicy> RasterRenderer<R, T, P, Attached> {
+    /// Sugar for `new(..).attach(..)`.
+    pub fn with_blitter(rasterizer: R, viewport: Size, blitter: T) -> Self;
+
+    /// The blitter is the loan token: it owns whatever the caller lent it, so
+    /// ownership moves out with it (WS6.7). The painted rect comes back as
+    /// `Blitter::bounds()`.
+    pub fn detach(self) -> (RasterRenderer<R, T, P, Detached>, T);
+
+    pub fn blitter(&self) -> &T;
+    pub fn covers(&self) -> Rect;         // == blitter.bounds()
+    pub fn rasterizer(&mut self) -> &mut R;
+
+    fn clip(&self) -> Rect;
+    fn split(&mut self) -> (&mut R, RasterCtx<'_, T>);
+}
+
+// NOTE: the **compile-time** half of the capacity proof is GONE, deliberately.
+// It needed `C`, `B` and `P` together, and a generic `attach<T: Blitter>` hides
+// the first two inside `T`. Rather than reintroduce specialization to keep it,
+// `Blitter::pixels_per_unit` makes both halves values, so `attach` checks both
+// at runtime for every blitter — strictly more coverage than the const block
+// had, since it only ever guarded the framebuf path while the pixmap path
+// compared units against a policy without checking they counted the same thing.
+// A `const` block is also invisible to `cargo check` and rust-analyzer, so what
+// it bought was a build failure rather than an editor diagnostic.
+
+impl<R, T, P> Renderer for RasterRenderer<R, T, P, Attached>
 where R: Rasterizer<T>, T: Blitter, P: FramePolicy
 {
     type Color = T::Color;
@@ -684,9 +687,10 @@ where R: Rasterizer<T>, T: Blitter, P: FramePolicy
 //
 //     let mut frame = ui.start_frame(&mut renderer);
 //     while frame.render(&mut renderer).is_some() {
-//         let (parked, buf, at) = renderer.detach();
+//         let (parked, blitter) = renderer.detach();
+//         let (buf, at) = blitter.into_storage();   // or read it in place
 //         flush(&mut display, &buf, at);
-//         renderer = parked.attach(buf);
+//         renderer = parked.attach(FramebufBlitter::new(viewport, buf));
 //     }
 ```
 
@@ -712,7 +716,7 @@ these are the ones worth checking against.
    hand a rasterizer a `&mut T`.
 6. **No lookalike defaults.** Exact decomposition or `path`; a plausible wrong
    image is the failure mode this design refuses.
-7. **`detach` returns an owned buffer** — WS6.7's DMA soundness depends on it.
+7. **`detach` returns an owned blitter, which owns the buffer** — WS6.7's DMA soundness depends on ownership moving out, not on the shape of what moves.
 8. **Addressing stays overridable per blitter** (rotation, page packing), which
    is why `local`/`pixel_index`/`span_range` are free functions.
 
@@ -720,17 +724,18 @@ these are the ones worth checking against.
 
 Each was verified against rustc; each is a place the obvious spelling fails.
 
-- **No `where` clause on `RasterRenderer`** — otherwise the detached type is
-  ill-formed (`E0277`).
+- **`A: Attachment<T>` on `RasterRenderer` is fine**, and the earlier "no
+  `where` clause" constraint dissolved with the rework: the bound that was
+  ill-formed was `T: Blitter`, because the *detached* `T` was a different,
+  non-`Blitter` type. Now `T` is the same type in both states and only `A`
+  changes, and `Attachment<S>` is implemented for any `S`.
 - **No associated consts on `Blitter`** — they make it dyn-incompatible (E0038).
 - **`Span` is `{y, x, w}`** — `Range` is not `Copy`, and defaults read the span
   twice (`E0382`).
-- **The two halves of the capacity proof live in different places.** The
-  *runtime* half works generically — `policy_units::<P>()` needs only `P`,
-  because `PIXELS_PER_UNIT` is on the policy — so it runs in `new` and again in
-  `attach` (a re-lent runtime-length buffer has a new extent). The *static* half
-  needs `B::UNITS` and `C::PPS`, so it sits on the framebuf-specialized
-  constructor only.
+- **The capacity proof is one runtime check in `attach`.** Both halves are
+  values: `Blitter::capacity()` and `Blitter::pixels_per_unit()`. The static
+  half was dropped rather than kept behind specialization — see the NOTE in the
+  sketch for why that is a net gain in coverage.
 - **A colour-derived `PACKING` const would need `Color: PackedColor`**, which
   `tiny_skia::Color` and `NullColor` fail — so packing may never be a bound on
   `Blitter`. (Appendix A.)
@@ -815,7 +820,7 @@ on master first and compare error sets.
 |---|---|---|
 | `rsact-ui/examples/{sandbox,scrollable}.rs` | name `AntiAliasingDisabled` explicitly — the witness is deleted | **A** |
 | `rsact-ui/examples/primitives_aa.rs` | **deleted**, with its `[[example]]` entry — its entire subject is what PR A removes | **A** |
-| `rsact-ui/examples/{icons,3d_printer,mem_usage_display_240_240}.rs` | `EGRenderer::new(…)` → `RasterRenderer::with_framebuf(EgRasterizer, …)` | **C** |
+| `rsact-ui/examples/{icons,3d_printer,mem_usage_display_240_240}.rs` | `EGRenderer::new(…)` → `RasterRenderer::with_blitter(EgRasterizer, viewport, FramebufBlitter::new(…))` | **C** |
 | `rsact-render/src/lib.rs:80` | prelude re-exports `EGRenderer` | **C** |
 | `eg/renderer.rs`'s tests (`:1450`–`:1739`) | move with the code they cover; the `pixel_alpha` invariance test is deleted outright (its subject is gone) | **A**/**C** |
 | `rsact-ui/src/el/ctx.rs` — `Wtf<R, …>` | nothing structural: `W::Renderer` is still one type, now a longer one. Consider a type alias in the prelude so examples name it once | **C** |

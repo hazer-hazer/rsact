@@ -154,6 +154,26 @@ pub trait Blitter {
     /// [`assert_policy_fits`]: crate::region::assert_policy_fits
     fn capacity(&self) -> Option<usize>;
 
+    /// Pixels this target packs into one unit of [`capacity`](Self::capacity).
+    ///
+    /// `1` for anything that does not pack — a pixmap, an RGB framebuffer, a GPU
+    /// attachment — which is why it is defaulted.
+    ///
+    /// **It exists so the capacity proof can run generically.** A `FramePolicy`
+    /// states its own `PIXELS_PER_UNIT`, and comparing its budget against
+    /// `capacity()` is meaningless unless the two count the same thing: a 1-bpp
+    /// target under a `PIXELS_PER_UNIT = 1` policy would appear to need eight
+    /// times the storage it does, and the reverse would silently under-demand.
+    /// `RasterRenderer::attach` checks the two agree before comparing them.
+    ///
+    /// A **method**, not an associated const, for the same reason `Blitter` has
+    /// no consts at all: they make a trait dyn-incompatible (E0038), and
+    /// `dyn Blitter<Color = C>` is the one lever that would collapse the
+    /// rasterizer × blitter monomorphization cross-product.
+    fn pixels_per_unit(&self) -> usize {
+        1
+    }
+
     // ── required ────────────────────────────────────────────────────────────
 
     /// `span` is guaranteed inside [`bounds()`](Self::bounds) by the caller

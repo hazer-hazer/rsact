@@ -345,7 +345,11 @@ mod tests {
     type Skia = RasterRenderer<TinySkiaRasterizer, PixmapBlitter, Unbounded>;
 
     fn renderer(size: Size) -> Skia {
-        Skia::with_pixmap(TinySkiaRasterizer::new(), size, pixmap(size))
+        Skia::with_blitter(
+            TinySkiaRasterizer::new(),
+            size,
+            PixmapBlitter::new(size, pixmap(size)),
+        )
     }
 
     fn inked(p: &Pixmap) -> usize {
@@ -442,11 +446,12 @@ mod tests {
             alloc::vec![<Rgb888 as Color>::default_background().into_storage();
                         32 * 32]
             .leak();
-        let mut r = RasterRenderer::<_, FramebufBlitter<Rgb888, _>, Unbounded>::with_framebuf(
-            TinySkiaRasterizer::new(),
-            size,
-            buf,
-        );
+        let mut r =
+            RasterRenderer::<_, FramebufBlitter<Rgb888, _>, Unbounded>::with_blitter(
+                TinySkiaRasterizer::new(),
+                size,
+                FramebufBlitter::new(size, buf),
+            );
         Renderer::polygon(
             &mut r,
             &[Point::new(2, 2), Point::new(29, 8), Point::new(8, 29)],
@@ -454,7 +459,8 @@ mod tests {
         )
         .unwrap();
 
-        let (_, units, _) = r.detach();
+        let (_, blitter) = r.detach();
+        let (units, _) = blitter.into_storage();
         let bg = <Rgb888 as Color>::default_background().into_storage();
         let fg = <Rgb888 as Color>::default_foreground().into_storage();
         let painted = units.iter().filter(|u| **u != bg).count();
@@ -509,14 +515,15 @@ mod tests {
 
         let mut full = renderer(viewport);
         content(&mut full);
-        let (_, reference, _) = full.detach();
+        let (_, blitter) = full.detach();
+        let (reference, _) = blitter.into_pixmap();
 
         let mut composed = pixmap(viewport);
         let band = Size::new(W, BAND);
-        let mut tiled = Skia::with_pixmap(
+        let mut tiled = Skia::with_blitter(
             TinySkiaRasterizer::new(),
             viewport,
-            pixmap(band),
+            PixmapBlitter::new(viewport, pixmap(band)),
         );
         let mut spare = pixmap(band);
 
@@ -526,7 +533,8 @@ mod tests {
             content(&mut tiled);
             tiled.end_region().unwrap();
 
-            let (parked, tile, at) = tiled.detach();
+            let (parked, blitter) = tiled.detach();
+            let (tile, at) = blitter.into_pixmap();
             // The caller's blit: raw pixels plus where they go.
             for row in 0..at.size.height as usize {
                 for col in 0..at.size.width as usize {
@@ -536,7 +544,7 @@ mod tests {
                     composed.pixels_mut()[y * W as usize + x] = src;
                 }
             }
-            tiled = parked.attach(spare);
+            tiled = parked.attach(PixmapBlitter::new(viewport, spare));
             spare = tile;
         }
 
@@ -587,7 +595,7 @@ mod tests {
         // Paint at the region's far corner: it only lands if the stride
         // followed the reshape.
         b.pixel(Point::new(39, 31), tiny_skia::Color::BLACK);
-        let (_, tile, at) = b.detach();
+        let (tile, at) = b.into_pixmap();
         assert_eq!(at, square);
         let corner = tile.pixels()[15 * 32 + 31];
         assert_ne!(

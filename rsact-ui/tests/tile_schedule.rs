@@ -863,10 +863,10 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
 
     // ---- reference: one full-size surface, the whole-frame path ------------
     let reference = with_new_runtime(|_| {
-        let mut renderer = Full::with_framebuf(
+        let mut renderer = Full::with_blitter(
             EgRasterizer,
             viewport,
-            vec![0u32; (W * H) as usize].leak(),
+            Fb::new(viewport, vec![0u32; (W * H) as usize].leak()),
         );
         let mut ui: UI<FullWtf, _> =
             UI::new(Theme::default(), viewport).with_page((), page);
@@ -877,7 +877,8 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
             let mut frame = ui.start_frame(&mut renderer);
             while frame.render(&mut renderer).is_some() {}
         }
-        let (_, units, at) = renderer.detach();
+        let (_, blitter) = renderer.detach();
+        let (units, at) = blitter.into_storage();
         blit(&mut panel, &units, at);
         panel
     });
@@ -893,8 +894,11 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
         let mut free: Vec<&'static mut [u32]> =
             (0..3).map(|_| vec![0u32; TILE_UNITS].leak()).collect();
 
-        let mut renderer =
-            Tiled::with_framebuf(EgRasterizer, viewport, free.pop().unwrap());
+        let mut renderer = Tiled::with_blitter(
+            EgRasterizer,
+            viewport,
+            Fb::new(viewport, free.pop().unwrap()),
+        );
         let mut ui: UI<TiledWtf, _> =
             UI::new(Theme::default(), viewport).with_page((), tiled_page);
         let mut panel = blank();
@@ -912,10 +916,11 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
                 // `detach` consumes the renderer and hands back a parked one, so
                 // the buffer cannot be painted into while the app holds it: that
                 // is the type-state, not a convention.
-                let (parked, tile, dirty) = renderer.detach();
+                let (parked, blitter) = renderer.detach();
+                let (tile, dirty) = blitter.into_storage();
                 blit(&mut panel, &tile, dirty);
                 free.push(tile);
-                renderer = parked.attach(free.remove(0));
+                renderer = parked.attach(Fb::new(viewport, free.remove(0)));
             }
         }
 
@@ -1078,10 +1083,10 @@ fn the_loop_the_examples_show_paints_the_frame_the_framebuffer_holds() {
     // whole point is that this region's width IS the frame width and therefore
     // no stride convention can be got wrong here.
     let reference: Vec<Option<Rgb888>> = with_new_runtime(|_| {
-        let mut renderer = Whole::with_framebuf(
+        let mut renderer = Whole::with_blitter(
             EgRasterizer,
             viewport,
-            vec![0u32; (W * H) as usize].leak(),
+            Fb::new(viewport, vec![0u32; (W * H) as usize].leak()),
         );
         let mut ui: UI<Wtf<Whole, (), Theme<Rgb888>, ()>, _> =
             UI::new(Theme::default(), viewport).with_page((), page!());
@@ -1100,7 +1105,8 @@ fn the_loop_the_examples_show_paints_the_frame_the_framebuffer_holds() {
         );
         drop(frame);
 
-        let (_, buf, _) = renderer.detach();
+        let (_, blitter) = renderer.detach();
+        let (buf, _) = blitter.into_storage();
         buf.iter()
             .map(|u| Some(<Rgb888 as PackedColor>::as_color(u, 0)))
             .collect()
@@ -1109,10 +1115,10 @@ fn the_loop_the_examples_show_paints_the_frame_the_framebuffer_holds() {
     // ── under test: the example loop, tiled, many regions ──────────────────
     let tiled = with_new_runtime(|_| {
         let mut panel = Panel { px: vec![None; (W * H) as usize] };
-        let mut renderer = Tiled::with_framebuf(
+        let mut renderer = Tiled::with_blitter(
             EgRasterizer,
             viewport,
-            vec![0u32; (W * TILE_H) as usize].leak(),
+            Fb::new(viewport, vec![0u32; (W * TILE_H) as usize].leak()),
         );
         let mut ui: UI<Wtf<Tiled, (), Theme<Rgb888>, ()>, _> =
             UI::new(Theme::default(), viewport).with_page((), page!());
@@ -1122,9 +1128,10 @@ fn the_loop_the_examples_show_paints_the_frame_the_framebuffer_holds() {
             let mut frame = ui.start_frame(&mut renderer);
             while frame.render(&mut renderer).is_some() {
                 regions += 1;
-                let (parked, buf, at) = renderer.detach();
+                let (parked, blitter) = renderer.detach();
+                let (buf, at) = blitter.into_storage();
                 flush(&mut panel, &buf, at);
-                renderer = parked.attach(buf);
+                renderer = parked.attach(Fb::new(viewport, buf));
             }
         }
         assert!(

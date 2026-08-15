@@ -157,10 +157,13 @@ fn main() {
     .into_el();
 
     // The pixmap is the application's — rsact borrows it (WS6.4d).
-    let mut renderer = Skia::with_pixmap(
+    let mut renderer = Skia::with_blitter(
         TinySkiaRasterizer::new(),
         size,
-        tiny_skia::Pixmap::new(size.width, size.height).unwrap(),
+        PixmapBlitter::new(
+            size,
+            tiny_skia::Pixmap::new(size.width, size.height).unwrap(),
+        ),
     );
     let mut ui = UI::new(Theme::default(), size)
         .no_events()
@@ -170,9 +173,10 @@ fn main() {
     {
         let mut frame = ui.start_frame(&mut renderer);
         while frame.render(&mut renderer).is_some() {
-            let (parked, pixmap, at) = renderer.detach();
+            let (parked, blitter) = renderer.detach();
+            let (pixmap, at) = blitter.into_pixmap();
             flush(&mut display, &pixmap, at);
-            renderer = parked.attach(pixmap);
+            renderer = parked.attach(PixmapBlitter::new(size, pixmap));
         }
     }
     window.show_static(&display);

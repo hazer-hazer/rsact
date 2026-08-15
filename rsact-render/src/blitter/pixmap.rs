@@ -4,7 +4,7 @@ use crate::{
     blitter::{Blitter, Span, span_range},
     color::Color,
     geometry::{Point, Rect, Size},
-    renderer::{Attached, Attachment, Detached, RenderResult},
+    renderer::RenderResult,
 };
 use alloc::vec::Vec;
 use tiny_skia::{IntSize, Pixmap, PremultipliedColorU8};
@@ -26,10 +26,13 @@ const BYTES_PER_PIXEL: usize = 4;
 /// caller still hands in and gets back a real `Pixmap`; bytes are only the form
 /// it is held in while lent.
 ///
-/// The loan is the pixels, which the simulator takes back from
-/// [`detach`](Self::detach) and displays.
-pub struct PixmapBlitter<A: Attachment<Vec<u8>> = Attached> {
-    pixels: A::Slot,
+/// **It always has its target**, and the renderer carries the attached/detached
+/// state — see `RasterRenderer`'s docs for why that is the right way round.
+/// This type IS the loan: the simulator gets it back from
+/// `RasterRenderer::detach` and takes the pixels with
+/// [`into_pixmap`](Self::into_pixmap).
+pub struct PixmapBlitter {
+    pixels: Vec<u8>,
     /// Bytes the attached vector was allocated with — the reshaping ceiling.
     ///
     /// `Vec::capacity` is not a contract (it may exceed what was asked for), so
@@ -46,42 +49,27 @@ fn bytes_for(size: Size) -> usize {
     size.width as usize * size.height as usize * BYTES_PER_PIXEL
 }
 
-impl PixmapBlitter<Detached> {
-    pub fn parked(viewport: Size) -> Self {
-        Self { pixels: (), capacity: 0, region: Rect::zero(), viewport }
-    }
-
-    pub fn attach(self, pixmap: Pixmap) -> PixmapBlitter<Attached> {
+impl PixmapBlitter {
+    /// Wrap the caller's pixmap.
+    pub fn new(viewport: Size, pixmap: Pixmap) -> Self {
         let region = Rect::new(
             Point::zero(),
             Size::new(pixmap.width(), pixmap.height()),
         );
-        PixmapBlitter {
+        Self {
             capacity: bytes_for(region.size),
             pixels: pixmap.take(),
             region,
-            viewport: self.viewport,
+            viewport,
         }
-    }
-}
-
-impl PixmapBlitter<Attached> {
-    pub fn new(viewport: Size, pixmap: Pixmap) -> Self {
-        PixmapBlitter::<Detached>::parked(viewport).attach(pixmap)
     }
 
     /// Take the pixmap back, sized to the region actually painted — so what the
     /// caller receives is exactly the tile, `encode_png`-able as-is. The
     /// vector's *capacity* survives the truncation, which is what makes
-    /// reattaching it free.
-    pub fn detach(self) -> (PixmapBlitter<Detached>, Pixmap, Rect) {
+    /// re-wrapping it free.
+    pub fn into_pixmap(self) -> (Pixmap, Rect) {
         let at = self.region;
-        let parked = PixmapBlitter {
-            pixels: (),
-            capacity: self.capacity,
-            region: self.region,
-            viewport: self.viewport,
-        };
         let mut pixels = self.pixels;
         pixels.resize(bytes_for(at.size), 0);
         let pixmap = Pixmap::from_vec(
@@ -92,7 +80,7 @@ impl PixmapBlitter<Attached> {
         .unwrap_or_else(|| {
             Pixmap::new(1, 1).expect("a 1x1 pixmap always allocates")
         });
-        (parked, pixmap, at)
+        (pixmap, at)
     }
 
     pub fn viewport(&self) -> Size {
@@ -115,7 +103,7 @@ impl PixmapBlitter<Attached> {
     }
 }
 
-impl Blitter for PixmapBlitter<Attached> {
+impl Blitter for PixmapBlitter {
     type Color = tiny_skia::Color;
 
     fn bounds(&self) -> Rect {
