@@ -317,6 +317,12 @@
     "branch": "ws6.4d-tile-renderer",
     "subject": "WS6.4d(12): retarget every surface — covers IS the region, one rect not two"
   },
+  "e1a65138cd4630bc25a9dcc91f6ab7c687c2025b": {
+    "date": 1786782684,
+    "parent": "",
+    "branch": "ws6.4e-framebuf-unbind",
+    "subject": "Roadmap + artifact: the layer split is complete"
+  },
   "e335d321b28483920afc3a0d5cfdbad94b3c70a5": {
     "date": 1786119235,
     "parent": "",
