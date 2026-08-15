@@ -143,7 +143,7 @@ impl FontHandler for FixedFont {
                         .text_color(color.map_through_rgba::<embedded_graphics::pixelcolor::Rgb888>())
                         .build(),
                 )
-                .draw(&mut rsact_render::eg::renderer::DrawTargetProxy::new(renderer))
+                .draw(&mut rsact_render::eg::interop::DrawTargetProxy::new(renderer))
                 .map(|_| ())
                 .map_err(|_| ()))
             },
@@ -158,7 +158,7 @@ impl FontHandler for FixedFont {
                     u8g2_fonts::types::VerticalPosition::Top,
                     u8g2_fonts::types::HorizontalAlignment::Left,
                     u8g2_fonts::types::FontColor::Transparent(color.map_through_rgba::<embedded_graphics::pixelcolor::Rgb888>()),
-                    &mut rsact_render::eg::renderer::DrawTargetProxy::new(renderer),
+                    &mut rsact_render::eg::interop::DrawTargetProxy::new(renderer),
                 );
                 Some(Ok(()))
             },

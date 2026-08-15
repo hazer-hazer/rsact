@@ -1,7 +1,7 @@
 # Render layer split — architecture plan
 
 **Status: in progress on `ws6.4e-framebuf-unbind`.**
-WS6.4e ✓ · PR A ✓ · PR B — · PR C — · PR D —
+WS6.4e ✓ · PR A ✓ · PR B ✓ · PR C ✓ · PR D —
 
 `EGRenderer` fuses three jobs — coordinating clips and regions, running
 rasterization algorithms, and owning pixel storage. This splits them:
@@ -856,7 +856,7 @@ delegating, or `FramebufBlitter::fill_rect` inherits a framebuf without the
 | **A — delete eg AA** | `eg/primitives/*`'s `draw_aa` halves, `EgPrimitive`, `EgPrimitiveRenderer`, `AntiAliasing{,Enabled,Disabled}`, `pixel_alpha` + its test, and the second (AA) `Renderer` impl. Also the two checkbox page goldens |
 | **B — the architecture, additive** | `Span`, `Blitter`, `FramebufBlitter`, `PixmapBlitter`, `RasterCtx`, `raster::*`, `Rasterizer`, `EgRasterizer`, `TinySkiaRasterizer`, `RasterRenderer`. Wired to nothing |
 | **C — integration, atomic** | `EGRenderer` replaced by `RasterRenderer<EgRasterizer, FramebufBlitter<…>>`; `ViewportKind` deleted; `Whole<W, H>` deleted |
-| **D — tiny-skia port** *(or fold into C)* | `TinySkiaRenderer` replaced by `RasterRenderer<TinySkiaRasterizer, PixmapBlitter>`; `clip_mask`/`rebuild_clip_mask` and WS6.11's five tests deleted — `RasterCtx` clips before any blitter sees a span, so a backend-side clip mask has nothing left to do; the simulator takes pixels from the blitter's loan |
+| **D — tiny-skia port** | `TinySkiaRenderer` replaced by `RasterRenderer<TinySkiaRasterizer, PixmapBlitter>`; `clip_mask`/`rebuild_clip_mask` and WS6.11's five tests deleted — `RasterCtx` clips before any blitter sees a span, so a backend-side clip mask has nothing left to do; the simulator takes pixels from the blitter's loan |
 
 No half-refactored `EGRenderer` may exist in history, which is why C is one
 commit-range. **D is separate** (maintainer decision) — an untouched second
@@ -872,6 +872,35 @@ embedded-graphics anywhere, which asserts the unbinding rather than describing
 it. One hazard it creates, worth knowing before touching eg call sites:
 `canvas.fill_solid(&eg_rect, c)` now resolves to the **inherent** method, so the
 `DrawTarget` one must be named explicitly.
+
+### What C decided that the plan left open
+
+- **`eg/renderer.rs` becomes `eg/interop.rs`.** Two things in it are not a
+  renderer and had to survive: `DrawTargetProxy` (how `embedded-text`/u8g2 hand
+  glyph pixels *down into* a `Renderer`) and the `DrawStyle` → `PrimitiveStyle`
+  conversions every `EgRasterizer` body needs. Keeping the old filename would
+  have left a module called `renderer` with no renderer in it.
+- **No crate-level type alias for the stack.** The plan suggested considering
+  one so examples name it once. Declined: the three parameters *are* the
+  architecture, hiding them behind `EgRenderer<C, B, P>` would re-create the
+  fused name the split exists to remove, and every real call site already binds
+  a local `type` (the tile-schedule harness binds three). A one-line alias
+  remains available if it ever grates.
+- **`ViewportKind`'s other two holders converted rather than waited.**
+  `RecordingRenderer` and `TinySkiaRenderer` both kept `Vec<ViewportKind>`;
+  both are now `Vec<Rect>`. The recorder gained a stated invariant worth having:
+  it logs the **requested** rect and stores the **narrowed** one, because the op
+  log measures what the widget layer asked for while `clip_bounds` must report
+  what is in force. tiny-skia keeps its "no mask when the clip covers the
+  surface" fast path, now spelled as a rect comparison instead of a variant.
+- **`Polygon`'s geometry moved to `primitives/polygon.rs`**, unconditional.
+  `bounds_of`/`contains` were behind the embedded-graphics feature, which is why
+  `raster::scan` could not use them; they are free functions over `&[Point]`
+  because both `Renderer::polygon` and `Rasterizer::polygon` take a slice, and
+  building a `Polygon` to ask whether a pixel is inside it would allocate per
+  primitive.
+- **`Whole<W, H>` was `Tiles<W, H>` under a second name** — same `MAX_REGION`,
+  same limits, byte for byte. Deleted, with what it taught folded into `Tiles`.
 
 **PR A is smaller than it looks, and that is what keeps B honest.** Every non-AA
 `draw` in `eg/primitives/*` is a ~10-line delegation to embedded-graphics'

@@ -9,11 +9,14 @@
 //!
 //! With the AA halves gone, what remains of each shape is a ~10-line call to
 //! embedded-graphics' `StyledDrawable`, and that needs only a `DrawTarget`,
-//! which `EGRenderer` already is. A trait whose sole job is to attach one
+//! which `BlitTarget` is. A trait whose sole job is to attach one
 //! function to one type is that function with an extra name and an extra
-//! import, so each is a free `draw` in its own module. The exception is
-//! [`polygon::draw`], which needs a full `Renderer` and no embedded-graphics at
-//! all.
+//! import, so each is a free `draw` in its own module.
+//!
+//! `polygon` was the exception and PR C deleted it: its fill needed a full
+//! `Renderer` rather than a `DrawTarget`, so it was never embedded-graphics'
+//! code at all, and `raster::scan::polygon` is where it lives now — reachable,
+//! this time, since `Renderer::polygon` no longer logs and skips.
 //!
 //! Anti-aliasing is **deleted, not migrated** (maintainer decision D1):
 //! `EgRasterizer` is embedded-graphics as-is, and rsact's own anti-aliased
@@ -25,6 +28,5 @@ pub mod arc;
 pub mod circle;
 pub mod ellipse;
 pub mod line;
-pub mod polygon;
 pub mod rounded_rect;
 pub mod sector;

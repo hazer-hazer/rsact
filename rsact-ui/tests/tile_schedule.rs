@@ -784,7 +784,11 @@ fn the_traversal_prune_hits_the_modelled_floor() {
 fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
     use embedded_graphics::pixelcolor::Rgb888;
     use rsact_render::{
-        eg::renderer::EGRenderer, framebuf::PackedColor, region::Tiles,
+        blitter::framebuf::FramebufBlitter,
+        framebuf::PackedColor,
+        raster::eg::EgRasterizer,
+        region::{Tiles, Unbounded},
+        renderer::RasterRenderer,
     };
 
     const W: u32 = 64;
@@ -826,8 +830,13 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
         }
     }
 
-    type Full = EGRenderer<Rgb888, &'static mut [u32]>;
-    type Tiled = EGRenderer<Rgb888, &'static mut [u32], Tiles<W, TILE_H>>;
+    // The layer split's stack, spelled once: an embedded-graphics rasterizer
+    // over a framebuffer blitter. Deliberately not hidden behind a crate-level
+    // alias — the three parameters ARE the architecture, and a call site that
+    // wants a shorter name binds one, as here.
+    type Fb = FramebufBlitter<Rgb888, &'static mut [u32]>;
+    type Full = RasterRenderer<EgRasterizer, Fb, Unbounded>;
+    type Tiled = RasterRenderer<EgRasterizer, Fb, Tiles<W, TILE_H>>;
     type FullWtf = Wtf<Full, (), Theme<Rgb888>, ()>;
     type TiledWtf = Wtf<Tiled, (), Theme<Rgb888>, ()>;
 
@@ -854,8 +863,11 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
 
     // ---- reference: one full-size surface, the whole-frame path ------------
     let reference = with_new_runtime(|_| {
-        let mut renderer =
-            Full::new(viewport, vec![0u32; (W * H) as usize].leak());
+        let mut renderer = Full::with_framebuf(
+            EgRasterizer,
+            viewport,
+            vec![0u32; (W * H) as usize].leak(),
+        );
         let mut ui: UI<FullWtf, _> =
             UI::new(Theme::default(), viewport).with_page((), page);
         let mut panel = blank();
@@ -881,7 +893,8 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
         let mut free: Vec<&'static mut [u32]> =
             (0..3).map(|_| vec![0u32; TILE_UNITS].leak()).collect();
 
-        let mut renderer = Tiled::tiled(viewport, free.pop().unwrap());
+        let mut renderer =
+            Tiled::with_framebuf(EgRasterizer, viewport, free.pop().unwrap());
         let mut ui: UI<TiledWtf, _> =
             UI::new(Theme::default(), viewport).with_page((), tiled_page);
         let mut panel = blank();
@@ -895,7 +908,7 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
             while frame.render(&mut renderer).is_some() {
                 regions_painted += 1;
                 // Publish first, acquire second — the ordering that keeps a
-                // single-buffer pool from deadlocking (see `EGRenderer::detach`).
+                // single-buffer pool from deadlocking (see `RasterRenderer::detach`).
                 // `detach` consumes the renderer and hands back a parked one, so
                 // the buffer cannot be painted into while the app holds it: that
                 // is the type-state, not a convention.
@@ -969,14 +982,18 @@ fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
 ///
 /// That is a limit of differential testing here, not an oversight. The stride is
 /// pinned where it is a contract rather than a convention:
-/// `a_narrow_region_is_laid_out_at_its_own_width` in `eg::renderer`.
+/// `a_narrow_region_is_laid_out_at_its_own_width` in `rsact_render::renderer`.
 #[test]
 fn the_loop_the_examples_show_paints_the_frame_the_framebuffer_holds() {
     use embedded_graphics::{
         draw_target::DrawTarget, pixelcolor::Rgb888, prelude::OriginDimensions,
     };
     use rsact_render::{
-        eg::renderer::EGRenderer, framebuf::PackedColor, region::Tiles,
+        blitter::framebuf::FramebufBlitter,
+        framebuf::PackedColor,
+        raster::eg::EgRasterizer,
+        region::{Tiles, Unbounded},
+        renderer::RasterRenderer,
     };
 
     const W: u32 = 64;
@@ -1035,8 +1052,9 @@ fn the_loop_the_examples_show_paints_the_frame_the_framebuffer_holds() {
         );
     }
 
-    type Whole = EGRenderer<Rgb888, &'static mut [u32]>;
-    type Tiled = EGRenderer<Rgb888, &'static mut [u32], Tiles<W, TILE_H>>;
+    type Fb = FramebufBlitter<Rgb888, &'static mut [u32]>;
+    type Whole = RasterRenderer<EgRasterizer, Fb, Unbounded>;
+    type Tiled = RasterRenderer<EgRasterizer, Fb, Tiles<W, TILE_H>>;
 
     macro_rules! page {
         () => {
@@ -1060,8 +1078,11 @@ fn the_loop_the_examples_show_paints_the_frame_the_framebuffer_holds() {
     // whole point is that this region's width IS the frame width and therefore
     // no stride convention can be got wrong here.
     let reference: Vec<Option<Rgb888>> = with_new_runtime(|_| {
-        let mut renderer =
-            Whole::new(viewport, vec![0u32; (W * H) as usize].leak());
+        let mut renderer = Whole::with_framebuf(
+            EgRasterizer,
+            viewport,
+            vec![0u32; (W * H) as usize].leak(),
+        );
         let mut ui: UI<Wtf<Whole, (), Theme<Rgb888>, ()>, _> =
             UI::new(Theme::default(), viewport).with_page((), page!());
 
@@ -1088,8 +1109,11 @@ fn the_loop_the_examples_show_paints_the_frame_the_framebuffer_holds() {
     // ── under test: the example loop, tiled, many regions ──────────────────
     let tiled = with_new_runtime(|_| {
         let mut panel = Panel { px: vec![None; (W * H) as usize] };
-        let mut renderer =
-            Tiled::tiled(viewport, vec![0u32; (W * TILE_H) as usize].leak());
+        let mut renderer = Tiled::with_framebuf(
+            EgRasterizer,
+            viewport,
+            vec![0u32; (W * TILE_H) as usize].leak(),
+        );
         let mut ui: UI<Wtf<Tiled, (), Theme<Rgb888>, ()>, _> =
             UI::new(Theme::default(), viewport).with_page((), page!());
 

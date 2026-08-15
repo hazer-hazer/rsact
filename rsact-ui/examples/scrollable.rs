@@ -42,10 +42,15 @@ fn main() {
     // The framebuffer is the APPLICATION's — rsact never allocates one
     // and never owns one. On a device this would be a `StaticCell` array
     // placed wherever that board wants it (SDRAM, DTCM, a DMA pool).
-    let mut renderer = EGRenderer::<Rgb888, _>::new(
-        viewport,
-        vec![0u32; viewport.area() as usize].into_boxed_slice(),
-    );
+    let mut renderer =
+        RasterRenderer::<_, FramebufBlitter<Rgb888, _>, Unbounded>::with_framebuf(
+            EgRasterizer,
+            viewport,
+            // `.leak()` rather than `into_boxed_slice()`: the buffer contract is
+            // a `&'static mut` loan (a `StaticCell` on a device), and the
+            // owned-`Box` impl went with WS6.4d — a renderer BORROWS a surface.
+            vec![0u32; viewport.area() as usize].leak(),
+        );
 
     let mut ui = UI::new(Theme::default(), viewport)
         .auto_focus()

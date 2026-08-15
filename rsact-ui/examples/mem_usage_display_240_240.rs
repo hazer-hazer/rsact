@@ -1,6 +1,6 @@
 use cap::Cap;
 use embedded_graphics::{
-    pixelcolor::Rgb565,
+    pixelcolor::{Rgb565, Rgb888},
     prelude::{Dimensions, RgbColor},
 };
 use embedded_graphics_simulator::{
@@ -355,7 +355,8 @@ fn main() {
 
     let mut ui = UI::new(
         Theme::default(),
-        EGRenderer::new(
+        RasterRenderer::<_, FramebufBlitter<Rgb888, _>, Unbounded>::with_framebuf(
+            EgRasterizer,
             display.bounding_box().size.into(),
             // The framebuffer is the APPLICATION's — rsact borrows it and gives
             // it back. On a device this would be a `StaticCell` array instead.

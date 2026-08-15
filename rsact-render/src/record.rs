@@ -19,7 +19,7 @@ use crate::{
     geometry::{Angle, CornerRadii, Point, Rect, Size},
     image::DrawImage,
     path::Path,
-    renderer::{RenderResult, Renderer, ViewportKind},
+    renderer::{RenderResult, Renderer},
     style::DrawStyle,
 };
 use alloc::{rc::Rc, string::String, vec::Vec};
@@ -254,7 +254,7 @@ pub struct RecordingRenderer<C, P = crate::region::Unbounded> {
     /// drawing code asked for, which is the measurement), but culling reads the
     /// clip, so the harness would see `None` and cull nothing without this.
     /// Shared with clones, like the log.
-    clips: Rc<RefCell<Vec<ViewportKind>>>,
+    clips: Rc<RefCell<Vec<Rect>>>,
     _color: PhantomData<C>,
     _policy: PhantomData<P>,
 }
@@ -276,7 +276,7 @@ impl<C, P> RecordingRenderer<C, P> {
         Self {
             size,
             ops: Rc::new(RefCell::new(Vec::new())),
-            clips: Rc::new(RefCell::new(vec![ViewportKind::root()])),
+            clips: Rc::new(RefCell::new(vec![Rect::new(Point::zero(), size)])),
             _color: PhantomData,
             _policy: PhantomData,
         }
@@ -305,13 +305,19 @@ impl<C, P> RecordingRenderer<C, P> {
         self.ops.borrow_mut().push(op);
     }
 
-    fn current_viewport(&self) -> ViewportKind {
+    /// The effective clip — the top of the stack, which `push_clip` keeps
+    /// intersected with its parent.
+    ///
+    /// The root is the recorder's own extent rather than "no clip", so a
+    /// harness measuring a full-frame capture sees the same cull rect a real
+    /// backend would report.
+    fn current_clip(&self) -> Rect {
         // The stack is created non-empty and `pop_clip` never empties it.
         self.clips
             .borrow()
             .last()
             .copied()
-            .unwrap_or_else(ViewportKind::root)
+            .unwrap_or(Rect::new(Point::zero(), self.size))
     }
 }
 
@@ -350,11 +356,13 @@ impl<C: Color, P: crate::region::FramePolicy> Renderer
     }
 
     fn push_clip(&mut self, area: Rect) {
+        // The log records what the drawing code ASKED for; the stack stores the
+        // narrowed rect. Those are deliberately different: the op log is a
+        // measurement of the widget layer's requests, while `clip_bounds` has to
+        // report the rect actually in force (WS6.4b — the top IS the effective
+        // clip, which is what makes reading it for culling exact).
         self.push(DrawOp::Clip(area));
-        // Narrowed by the active clip, so the top IS the effective clip
-        // (WS6.4b — see `ViewportKind::nested_in`).
-        let nested =
-            ViewportKind::Clipped(area).nested_in(self.current_viewport());
+        let nested = area.intersection(&self.current_clip());
         self.clips.borrow_mut().push(nested);
     }
 
@@ -365,8 +373,8 @@ impl<C: Color, P: crate::region::FramePolicy> Renderer
     // tile-invariance check ever needs clip *scope* rather than clip *order*,
     // add the marker there and bless the goldens in the same commit.
     fn pop_clip(&mut self) {
-        // Never pops the root, mirroring `EGRenderer`: an unbalanced pop must
-        // degrade, not leave the renderer with no viewport at all.
+        // Never pops the root, like every other holder: an unbalanced pop must
+        // degrade, not leave the renderer with no clip at all.
         let mut clips = self.clips.borrow_mut();
         if clips.len() > 1 {
             clips.pop();
@@ -374,13 +382,7 @@ impl<C: Color, P: crate::region::FramePolicy> Renderer
     }
 
     fn clip_bounds(&self) -> Option<Rect> {
-        // Fullscreen ⇒ the recorder's own extent, so a harness measuring a
-        // full-frame capture sees the same cull rect a real backend would.
-        Some(
-            self.current_viewport()
-                .clip_bounds()
-                .unwrap_or(Rect::new(Point::zero(), self.size)),
-        )
+        Some(self.current_clip())
     }
 
     fn fill_solid(&mut self, rect: Rect, _color: Self::Color) -> RenderResult {
@@ -531,7 +533,7 @@ mod tests {
         assert_eq!(rec.clip_bounds(), Some(r(0, 0, 20, 20)));
         rec.pop_clip();
         assert_eq!(rec.clip_bounds(), Some(surface));
-        // Unbalanced pop degrades rather than panicking (as `EGRenderer` does).
+        // Unbalanced pop degrades rather than panicking.
         rec.pop_clip();
         assert_eq!(rec.clip_bounds(), Some(surface));
 

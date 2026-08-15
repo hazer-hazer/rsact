@@ -73,7 +73,7 @@ pub const fn region_units(w: u32, h: u32, pixels_per_unit: usize) -> usize {
 /// any hot path — that state is simply not a value a drawing method can be
 /// called on.
 ///
-/// The invariant it removes was real. `EGRenderer` used to log a warning and
+/// The invariant it removes was real. The pre-split renderer logged a warning and
 /// discard the frame when something painted between a `detach` and the next
 /// `attach`; that is a scheduling mistake the caller could make silently, once
 /// per frame, forever. Now it does not compile.
@@ -88,26 +88,32 @@ pub trait Attachment<S> {
 /// and no other, so the guarantee is structural:
 ///
 /// ```
-/// # use rsact_render::{eg::renderer::EGRenderer, geometry::Size,
-/// #                    renderer::Renderer};
+/// # use rsact_render::{blitter::framebuf::FramebufBlitter, geometry::Size,
+/// #                    raster::eg::EgRasterizer, region::Unbounded,
+/// #                    renderer::{RasterRenderer, Renderer}};
 /// # use embedded_graphics::pixelcolor::Rgb888;
+/// # type Screen = RasterRenderer<
+/// #     EgRasterizer, FramebufBlitter<Rgb888, &'static mut [u32]>, Unbounded>;
 /// let buf: &'static mut [u32] = vec![0; 16 * 16].leak();
-/// let r = EGRenderer::<Rgb888, _>::new(Size::new_equal(16), buf);
+/// let r = Screen::with_framebuf(EgRasterizer, Size::new_equal(16), buf);
 /// // Attached: drawing is available.
-/// let _ = r.size();
+/// let _ = Renderer::size(&r);
 /// ```
 ///
 /// and painting after a `detach` is not a logged no-op but a compile error:
 ///
 /// ```compile_fail
-/// # use rsact_render::{eg::renderer::EGRenderer, geometry::Size,
-/// #                    renderer::Renderer};
+/// # use rsact_render::{blitter::framebuf::FramebufBlitter, geometry::Size,
+/// #                    raster::eg::EgRasterizer, region::Unbounded,
+/// #                    renderer::{RasterRenderer, Renderer}};
 /// # use embedded_graphics::pixelcolor::Rgb888;
+/// # type Screen = RasterRenderer<
+/// #     EgRasterizer, FramebufBlitter<Rgb888, &'static mut [u32]>, Unbounded>;
 /// let buf: &'static mut [u32] = vec![0; 16 * 16].leak();
-/// let r = EGRenderer::<Rgb888, _>::new(Size::new_equal(16), buf);
+/// let r = Screen::with_framebuf(EgRasterizer, Size::new_equal(16), buf);
 /// let (parked, _buf, _at) = r.detach();
 /// // The application is holding the buffer — there is nothing to draw into.
-/// let _ = parked.size();
+/// let _ = Renderer::size(&parked);
 /// ```
 pub struct Attached;
 
@@ -140,71 +146,29 @@ impl<S> Attachment<S> for Detached {
 // see the commented-out `RendererOptions` block at the top of this file. That
 // sketch mentions an `AntiAliasing` enum; it means a value, not this type.
 
-#[derive(Clone, Copy, Debug)]
-pub enum ViewportKind {
-    Fullscreen,
-    /// Clipped part of the parent viewport with absolute positions relative to
-    /// the screen top-left point
-    Clipped(Rect),
-    /// Part of the parent viewport with positions relative to this viewport's
-    /// top-left point
-    Cropped(Rect),
-}
-
-impl ViewportKind {
-    pub fn root() -> Self {
-        Self::Fullscreen
-    }
-
-    /// The absolute rect this viewport confines drawing to, or `None` for
-    /// [`Self::Fullscreen`] (confined only by the surface itself).
-    ///
-    /// WS6.4b reads this as the **cull rect**: a widget whose bounds miss it
-    /// cannot affect the output, so it need not be drawn at all. That is only
-    /// sound if the stack composes — see [`Self::nested_in`].
-    ///
-    /// The rect is in **the caller's coordinate space**, i.e. absolute, for every
-    /// variant — including [`Self::Cropped`], whose stored rect is absolute and
-    /// whose *rebasing* is the renderer's private business (WS6.4.0(ii-3): rsact
-    /// paints in absolute coordinates and a region-backed renderer offsets
-    /// internally). That is what lets both consumers compare against it directly:
-    /// `render_part`'s cull, which holds an absolute `layout.outer`, and
-    /// `DrawTargetProxy`'s per-pixel filter, which sees the coordinates the
-    /// drawing code emitted. A variant reporting a viewport-local rect here would
-    /// silently invert both tests the moment WS6.4d starts constructing `Cropped`.
-    pub fn clip_bounds(&self) -> Option<Rect> {
-        match *self {
-            ViewportKind::Fullscreen => None,
-            ViewportKind::Clipped(area) | ViewportKind::Cropped(area) => {
-                Some(area)
-            },
-        }
-    }
-
-    /// This viewport as it must be recorded *inside* `parent` — narrowed by it.
-    ///
-    /// **WS6.4b bug fix.** Nested clips did not compose: `push_clip` stored the
-    /// raw area and the write filter consulted only the top of the stack, so a
-    /// clip *wider* than its parent widened the effective clip. Unreachable today
-    /// (nothing sets `ElState::clip_path`, so a frame's own push is the only one)
-    /// and live the moment either WS6.4d pushes a region clip with a widget clip
-    /// inside it — where drawing would escape the tile — or `Scrollable`'s
-    /// commented-out clip is implemented. Intersecting on push also makes the top
-    /// of the stack *be* the effective clip, which is what makes reading it for
-    /// culling exact rather than approximate.
-    ///
-    /// `Cropped` passes through on either side: it re-bases coordinates, so
-    /// narrowing it is not a rect intersection. Nothing constructs it today, and
-    /// the coordinate-space rule is WS6.4d's to define when tile origins arrive.
-    pub fn nested_in(self, parent: ViewportKind) -> Self {
-        match (self, parent) {
-            (ViewportKind::Clipped(area), ViewportKind::Clipped(parent)) => {
-                ViewportKind::Clipped(area.intersection(&parent))
-            },
-            _ => self,
-        }
-    }
-}
+// NOTE (layer split, PR C): `enum ViewportKind` lived here — `Fullscreen`,
+// `Clipped(Rect)` and `Cropped(Rect)` — with `root()`, `clip_bounds()` and
+// `nested_in()`. Every backend held a `Vec<ViewportKind>` as its clip stack.
+//
+// **`Cropped` is deleted (maintainer decision D4) and the other two collapse.**
+// `Cropped` re-based coordinates rather than narrowing them; it had no live
+// constructor and no planned one, because absolute positioning is a *bounds*
+// extension (`paint_bounds`/`ext_draw`, WS6.4c(G)) rather than a coordinate
+// space, and offscreen layers rebase at L3 where `local()` already lives. That
+// left `Fullscreen` and `Clipped(Rect)` — and `Fullscreen` already behaved as
+// `Clipped(surface_rect)` everywhere, because `clip_bounds` substituted the
+// surface rect for it deliberately (WS6.4b needed culling to pay on an ordinary
+// full-frame render, not only under tiles).
+//
+// So a clip stack is a plain `Vec<Rect>` seeded with the surface rect, and
+// `nested_in` becomes one `Rect::intersection`. Three properties survive as
+// documented, tested behaviour on every holder — see `RasterRenderer::clips`:
+// push stores `area ∩ top`, pop never pops the root, and a region IS the root.
+//
+// No `ClipStack` type replaced it (D9): the invariant it would have shared is
+// one line, and the two remaining holders — `RasterRenderer` and
+// `RecordingRenderer`, the latter necessarily L1 because it logs *primitives* —
+// do different things on mutation anyway.
 
 /// Core renderer trait: defines primitive drawing methods independent of
 /// embedded_graphics.
@@ -263,7 +227,7 @@ pub trait Renderer {
     /// **The default is _correct_, not merely permissive** — a full-frame
     /// surface receives absolute coordinates and needs no transform at all, so
     /// [`NullRenderer`], [`RecordingRenderer`](crate::record::RecordingRenderer)
-    /// and a full-frame `EGRenderer` are already right with no code.
+    /// and a full-frame `RasterRenderer` are already right with no code.
     ///
     /// Deliberately part of `Renderer` rather than a separate `TileAware` trait:
     /// it states _where_ you are drawing, the same category as [`size`] and
@@ -861,7 +825,7 @@ where
     P: crate::region::FramePolicy,
 {
     /// Two assertions, both unchanged in substance from the pre-split
-    /// `EGRenderer::assert_static_capacity`, and fired once per instantiation at
+    /// the pre-split `assert_static_capacity`, and fired once per instantiation at
     /// monomorphization:
     ///
     /// 1. `assert_policy_fits::<P>(units)` when `B::UNITS` is `Some` — skipped
@@ -1024,11 +988,21 @@ where
 mod raster_renderer_tests {
     use super::*;
     use crate::{
-        blitter::framebuf::FramebufBlitter, eg::renderer::EGRenderer,
-        framebuf::PackedColor, raster::eg::EgRasterizer, region::Tiles,
+        blitter::framebuf::FramebufBlitter,
+        framebuf::PackedColor,
+        raster::eg::EgRasterizer,
+        region::{FramePolicy, Tiles, Unbounded},
         style::DrawStyle,
     };
     use embedded_graphics::pixelcolor::Rgb888;
+
+    /// The concrete stack under test, named once so no construction has to
+    /// annotate a color the buffer type cannot imply (several colors share
+    /// `Storage = u32`).
+    type Fb = FramebufBlitter<Rgb888, &'static mut [u32]>;
+    type Full = RasterRenderer<EgRasterizer, Fb, Unbounded>;
+    type TiledBy<const W: u32, const H: u32> =
+        RasterRenderer<EgRasterizer, Fb, Tiles<W, H>>;
 
     /// A `&'static mut` loan, which is the shape both `FramebufStorage` impls
     /// describe and the only one a renderer reachable through `WidgetCtx`
@@ -1087,56 +1061,19 @@ mod raster_renderer_tests {
         }
     }
 
-    /// **The acceptance test for the whole refactor**, proved one PR before the
-    /// substitution it licenses.
-    ///
-    /// `RasterRenderer<EgRasterizer, FramebufBlitter<..>>` must paint what
-    /// `EGRenderer` paints — the same pixels, not merely the same draw calls.
-    /// The op-log goldens cannot see this: they sit above L1 and record what the
-    /// widget layer *asked* for, so an addressing or clipping mistake below them
-    /// leaves them intact and produces a plausible image.
-    #[test]
-    fn the_layered_renderer_paints_what_eg_renderer_paints() {
-        let viewport = Size::new(64, 64);
-
-        let mut old =
-            EGRenderer::<Rgb888, _>::new(viewport, surface::<Rgb888>(viewport));
-        content(&mut old);
-
-        let mut new =
-            RasterRenderer::<_, _, crate::region::Unbounded>::with_framebuf(
-                EgRasterizer,
-                viewport,
-                surface::<Rgb888>(viewport),
-            );
-        content(&mut new);
-
-        let (_, old_units, old_at) = old.detach();
-        let (_, new_units, new_at) = new.detach();
-        assert_eq!(old_at, new_at, "the two renderers cover different rects");
-
-        // Not vacuous: a substantial part of the frame must have been painted,
-        // or two identically-blank buffers would pass.
-        let bg = <Rgb888 as Color>::default_background().into_storage();
-        let painted = old_units.iter().filter(|u| **u != bg).count();
-        assert!(
-            painted > (64 * 64) / 4,
-            "the reference frame painted only {painted} of 4096 pixels"
-        );
-
-        let mismatches: alloc::vec::Vec<usize> = (0..old_units.len())
-            .filter(|&i| old_units[i] != new_units[i])
-            .collect();
-        assert!(
-            mismatches.is_empty(),
-            "{} of {} pixels differ between EGRenderer and \
-             RasterRenderer<EgRasterizer, FramebufBlitter>; first at ({}, {})",
-            mismatches.len(),
-            old_units.len(),
-            mismatches[0] % 64,
-            mismatches[0] / 64,
-        );
-    }
+    // NOTE (layer split, PR C): `the_layered_renderer_paints_what_eg_renderer_paints`
+    // lived here — it ran the same content through `EGRenderer` and through
+    // `RasterRenderer<EgRasterizer, FramebufBlitter<..>>` and compared raw
+    // storage units, pixel for pixel. It passed, which is what licensed this PR
+    // to delete `EGRenderer`; with the reference gone there is nothing left to
+    // compare against, so the test goes with it rather than degenerating into a
+    // renderer compared with itself.
+    //
+    // What survives of its guarantee: the tiling equality below (the same claim
+    // against a *different* configuration of the same renderer), and the fact
+    // that the tile/schedule goldens came out byte-identical across all three
+    // PRs. The differential itself is in the PR B commit, and re-creatable by
+    // checking that commit out.
 
     /// The tiling equality, on the layered renderer: a surface a fraction of the
     /// frame's size paints the same pixels as a full one.
@@ -1174,19 +1111,18 @@ mod raster_renderer_tests {
         }
         let blank = || Map { px: alloc::vec![None; (W * H) as usize] };
 
-        let mut full =
-            RasterRenderer::<_, _, crate::region::Unbounded>::with_framebuf(
-                EgRasterizer,
-                viewport,
-                surface::<Rgb888>(viewport),
-            );
+        let mut full = Full::with_framebuf(
+            EgRasterizer,
+            viewport,
+            surface::<Rgb888>(viewport),
+        );
         content(&mut full);
         let mut full_map = blank();
         let (_, full_units, full_at) = full.detach();
         blit(&mut full_map, &full_units, full_at);
 
         const TILE_UNITS: usize = (W * BAND) as usize;
-        let mut tiled = RasterRenderer::<_, _, Tiles<W, BAND>>::with_framebuf(
+        let mut tiled = TiledBy::<W, BAND>::with_framebuf(
             EgRasterizer,
             viewport,
             surface_units::<Rgb888>(TILE_UNITS),
@@ -1237,7 +1173,7 @@ mod raster_renderer_tests {
     #[test]
     fn a_region_is_the_root_of_the_clip_stack() {
         let viewport = Size::new(64, 64);
-        let mut r = RasterRenderer::<_, _, Tiles<64, 8>>::with_framebuf(
+        let mut r = TiledBy::<64, 8>::with_framebuf(
             EgRasterizer,
             viewport,
             surface_units::<Rgb888>(64 * 8),
@@ -1272,17 +1208,302 @@ mod raster_renderer_tests {
         Renderer::pixel(&mut r, Point::new(1, 17), Rgb888::WHITE).unwrap();
     }
 
+    /// WS6.3b, through the new stack: the fast `fill_solid` (whole-word writes
+    /// in the framebuffer) must land the SAME pixels as the per-pixel path.
+    ///
+    /// The route is longer than it was — `Renderer::fill_solid` →
+    /// `Rasterizer::fill` → `RasterCtx::rect` → `Blitter::fill_rect` →
+    /// `Framebuf::fill_solid` — and every hop is a place the rect could be
+    /// clipped, shifted or split differently from the per-pixel one.
+    #[test]
+    fn fill_solid_matches_per_pixel() {
+        let size = Size::new(20, 16);
+        let rect = Rect::new(Point::new(3, 2), Size::new(9, 7));
+        let color = Rgb888::new(10, 200, 30);
+
+        let mut fast =
+            Full::with_framebuf(EgRasterizer, size, surface::<Rgb888>(size));
+        Renderer::fill_solid(&mut fast, rect, color).unwrap();
+
+        let mut slow =
+            Full::with_framebuf(EgRasterizer, size, surface::<Rgb888>(size));
+        for p in rect.points() {
+            Renderer::pixel(&mut slow, p, color).unwrap();
+        }
+
+        let (_, fast_units, _) = fast.detach();
+        let (_, slow_units, _) = slow.detach();
+        assert_eq!(fast_units, slow_units, "fill_solid != per-pixel fill");
+    }
+
+    /// WS6.4d: the renderer **borrows** its surface — it never allocates one and
+    /// always gives it back.
+    ///
+    /// On a device the buffer lives in the application's `StaticCell` pool and
+    /// moves through channels; rsact holds it only while painting.
+    /// `WidgetCtx: 'static` rules out expressing that as a `&'a mut [T]` field,
+    /// so the loan is a move in and a move out — which is also exactly the shape
+    /// DMA wants, since a borrow the core could still write through is UB
+    /// (roadmap 6.7).
+    #[test]
+    fn the_renderer_gives_the_surface_back() {
+        let viewport = Size::new(16, 16);
+        let mut r = Full::with_framebuf(
+            EgRasterizer,
+            viewport,
+            surface::<Rgb888>(viewport),
+        );
+
+        let ink = Rgb888::new(9, 9, 9);
+        Renderer::fill_solid(&mut r, Rect::new(Point::zero(), viewport), ink)
+            .unwrap();
+        let (parked, buffer, dirty) = r.detach();
+        assert_eq!(buffer.len(), 16 * 16);
+        assert_eq!(
+            dirty,
+            Rect::new(Point::zero(), viewport),
+            "a full-frame surface reports the whole frame as its dirty region"
+        );
+        assert!(
+            buffer.iter().all(|u| *u == ink.into_storage()),
+            "the owner got back a buffer that does not hold what was painted"
+        );
+
+        // `parked` has no drawing methods AT ALL — painting between a detach and
+        // the next attach does not compile. There is nothing to assert here
+        // because there is nothing to call.
+        let _ = parked.attach(surface::<Rgb888>(viewport));
+    }
+
+    /// WS6.4d: after `begin_region`, the rect a buffer covers **is** the region
+    /// it was asked to paint — for every surface, not only for tiles.
+    ///
+    /// This is what lets a caller carry one rectangle instead of two. It held
+    /// only for tiles until `begin_region` stopped exempting full-frame
+    /// surfaces from retargeting, and the asymmetry was invisible in every test
+    /// because each used one surface kind at a time.
+    #[test]
+    fn what_a_buffer_covers_is_the_region_it_painted() {
+        let viewport = Size::new(64, 64);
+        let region = Rect::new(Point::new(8, 24), Size::new(16, 8));
+
+        let mut full = Full::with_framebuf(
+            EgRasterizer,
+            viewport,
+            surface::<Rgb888>(viewport),
+        );
+        full.begin_region(region).unwrap();
+        let (_, _, covers) = full.detach();
+        assert_eq!(
+            covers, region,
+            "a frame-sized buffer must report the region, not the frame"
+        );
+
+        let mut tile = TiledBy::<16, 8>::with_framebuf(
+            EgRasterizer,
+            viewport,
+            surface_units::<Rgb888>(16 * 8),
+        );
+        tile.begin_region(region).unwrap();
+        let (_, _, covers) = tile.detach();
+        assert_eq!(covers, region);
+    }
+
+    /// WS6.4d: a region's units are laid out at **its own width**, so a region
+    /// narrower than the frame is contiguous rows of `region.width`.
+    ///
+    /// Asserted directly because a differential test cannot reach it: chunking
+    /// preserves width, so tiling a full frame yields full-width bands where
+    /// "region width" and "frame width" are the same number, and a caller's
+    /// helper using the wrong one is wrong the same way on both sides of any
+    /// comparison — the difference cancels.
+    ///
+    /// The region is deliberately narrow AND tall, so a frame-width stride runs
+    /// off the end of the region's data instead of merely landing askew.
+    #[test]
+    fn a_narrow_region_is_laid_out_at_its_own_width() {
+        let viewport = Size::new(64, 64);
+        let region = Rect::new(Point::new(40, 8), Size::new(5, 9));
+
+        let mut r = TiledBy::<8, 16>::with_framebuf(
+            EgRasterizer,
+            viewport,
+            surface_units::<Rgb888>(8 * 16),
+        );
+        r.begin_region(region).unwrap();
+
+        let color_at = |x: i32, y: i32| {
+            Rgb888::new(
+                (x as u8).wrapping_mul(7),
+                (y as u8).wrapping_mul(11),
+                3,
+            )
+        };
+        for p in region.points() {
+            Renderer::pixel(&mut r, p, color_at(p.x, p.y)).unwrap();
+        }
+
+        let (_, units, at) = r.detach();
+        assert_eq!(at, region);
+
+        let stride = region.size.width as usize;
+        for row in 0..region.size.height as usize {
+            for col in 0..stride {
+                let want = color_at(
+                    region.top_left.x + col as i32,
+                    region.top_left.y + row as i32,
+                );
+                let got = <Rgb888 as PackedColor>::as_color(
+                    &units[row * stride + col],
+                    0,
+                );
+                assert_eq!(
+                    got, want,
+                    "unit at row {row}, col {col} — rows must be strided at \
+                     the REGION's width, not the frame's",
+                );
+            }
+        }
+    }
+
+    /// WS6.4d bug fix: a full-frame renderer that detaches and reattaches must
+    /// come back aimed at the **whole frame**, not at nothing.
+    ///
+    /// `attach` used to wrap every buffer as a tile (viewport `Rect::zero()`),
+    /// and `begin_region` returned early for a full-frame surface — so nothing
+    /// ever re-aimed it. The ordinary flush loop therefore reported a zero-sized
+    /// dirty rect from the second frame onward and flushed nothing at all.
+    /// Silent, and invisible to the op-log checks. The logic now lives in
+    /// `FramebufBlitter::wrap`, so it is re-proved here.
+    #[test]
+    fn reattaching_a_full_frame_surface_keeps_aiming_at_the_frame() {
+        let viewport = Size::new(16, 16);
+        let r = Full::with_framebuf(
+            EgRasterizer,
+            viewport,
+            surface::<Rgb888>(viewport),
+        );
+        let full = Rect::new(Point::zero(), viewport);
+
+        let (parked, buffer, first) = r.detach();
+        assert_eq!(first, full);
+
+        let r = parked.attach(buffer);
+        let (_, _, second) = r.detach();
+        assert_eq!(
+            second, full,
+            "a reattached full-frame surface must still cover the frame; a \
+             zero rect here means every flush after the first sends nothing"
+        );
+    }
+
+    /// WS6.4d: a renderer **declares** the largest region it will accept, and
+    /// its surface is checked against that declaration — not the other way
+    /// round.
+    ///
+    /// This closed a hole that went through two shapes: a `usize::MAX` default
+    /// that read as "my surface always covers the frame", and a `PixelBuf for
+    /// Box<[S]>` impl claiming the same, which made **every heap surface**
+    /// exempt — an *empty* boxed slice satisfied a full-frame policy at compile
+    /// time. Capacity a type cannot state is now `None` ("ask the value").
+    #[test]
+    fn a_renderer_declares_the_regions_it_accepts() {
+        use crate::framebuf::FramebufStorage;
+
+        assert_eq!(
+            <<Full as Renderer>::Policy as FramePolicy>::MAX_REGION,
+            None,
+            "a full-frame renderer accepts anything, which is honest"
+        );
+
+        assert_eq!(
+            <<TiledBy<240, 24> as Renderer>::Policy as FramePolicy>::MAX_REGION,
+            Some(Size::new(240, 24))
+        );
+        assert_eq!(crate::region::policy_units::<Tiles<240, 24>>(), Some(5760));
+        assert_eq!(crate::region::policy_units::<Unbounded>(), None);
+
+        assert_eq!(
+            <&mut [u32] as FramebufStorage<Rgb888>>::UNITS,
+            None,
+            "a runtime-sized surface must not state a compile-time capacity"
+        );
+        assert_eq!(
+            <&mut [u32; 5760] as FramebufStorage<Rgb888>>::UNITS,
+            Some(5760)
+        );
+    }
+
+    /// WS6.4b: a nested clip must be **narrowed by** its parent, not replace it.
+    ///
+    /// Asserted where it actually matters — on the framebuffer, not on the
+    /// stack: a pixel inside the inner clip but outside the outer one must not
+    /// land. It used to, because `push_clip` stored the raw area and the write
+    /// filter consulted only the top of the stack, so an inner clip reaching
+    /// beyond its parent *widened* the effective clip. Under tiling that is
+    /// drawing escaping its tile.
+    #[test]
+    fn a_nested_clip_narrows_and_never_widens() {
+        let size = Size::new(40, 40);
+        let mut r =
+            Full::with_framebuf(EgRasterizer, size, surface::<Rgb888>(size));
+
+        r.push_clip(Rect::new(Point::new(0, 0), Size::new(20, 20)));
+        // Overlaps the parent over (10,10)..(20,20) and reaches BEYOND it.
+        r.push_clip(Rect::new(Point::new(10, 10), Size::new(20, 20)));
+        assert_eq!(
+            r.clip_bounds(),
+            Some(Rect::new(Point::new(10, 10), Size::new(10, 10))),
+            "the effective clip is the intersection, not the inner rect"
+        );
+
+        // The probe color must DIFFER from the untouched framebuffer, or the
+        // assertions below hold whatever the clip does: `default_background()`
+        // for RGB is WHITE, so a white probe proves nothing (this test was
+        // written that way first and passed its "rejected" case vacuously).
+        let bg = <Rgb888 as Color>::default_background();
+        let ink = <Rgb888 as Color>::default_foreground();
+        assert_ne!(ink, bg, "the probe color must be visible");
+
+        Renderer::pixel(&mut r, Point::new(25, 15), ink).unwrap(); // outside parent
+        Renderer::pixel(&mut r, Point::new(15, 15), ink).unwrap(); // inside both
+
+        // Popping restores the parent, not the raw inner rect.
+        r.pop_clip();
+        assert_eq!(
+            r.clip_bounds(),
+            Some(Rect::new(Point::new(0, 0), Size::new(20, 20)))
+        );
+        r.pop_clip();
+        assert_eq!(
+            r.clip_bounds(),
+            Some(Rect::new(Point::zero(), size)),
+            "the root reports the surface rect"
+        );
+        // Unmatched pops degrade rather than emptying the stack.
+        r.pop_clip();
+        r.pop_clip();
+        assert_eq!(r.clip_bounds(), Some(Rect::new(Point::zero(), size)));
+
+        let (_, units, _) = r.detach();
+        let at = |x: usize, y: usize| {
+            <Rgb888 as PackedColor>::as_color(&units[y * 40 + x], 0)
+        };
+        assert_eq!(
+            at(25, 15),
+            bg,
+            "a write outside the PARENT clip escaped the nested clip"
+        );
+        assert_eq!(at(15, 15), ink);
+    }
+
     /// A surface too small for the declared policy is refused at construction,
     /// before anything paints into it — the runtime half of the capacity proof,
     /// which the layered renderer runs generically rather than per backend.
     #[test]
     #[should_panic(expected = "too small for this frame policy")]
     fn a_surface_too_small_for_the_policy_is_refused() {
-        let _ = RasterRenderer::<
-            EgRasterizer,
-            FramebufBlitter<Rgb888, _>,
-            Tiles<240, 24>,
-        >::with_framebuf(
+        let _ = TiledBy::<240, 24>::with_framebuf(
             EgRasterizer,
             Size::new_equal(240),
             surface_units::<Rgb888>(240),

@@ -367,38 +367,20 @@ impl FramePolicy for Unbounded {
     }
 }
 
-/// A surface that covers the whole frame: a GPU, a host renderer, a full-size
-/// framebuffer. `W`/`H` are the display's own size, so the capacity proof still
-/// runs — it is exactly the check that the full-framebuffer path has a full
-/// framebuffer.
-///
-/// **A capacity claim, not a region-count claim.** This said "one region per
-/// frame" and pinned the region count to one, justified as "a GPU wants one
-/// walk, one scissor" — which conflated two unrelated things and measured at
-/// **88% of the screen repainted for six small changes** (50600 px against
-/// 1092), because a single region has to be the bounding box of all damage.
-/// Region count is whatever the area test arrives at, here as everywhere.
-///
-/// Damage still shrinks the flush: regions are the damage rects, so an idle-ish
-/// frame transfers very little even with a full framebuffer behind it.
-///
-/// `W`/`H` bound the emitted region rather than merely describing it, which
-/// matters when they and the viewport disagree: a `Whole<240, 240>` policy
-/// driving a 320×240 viewport degrades into bands instead of handing the surface
-/// a frame 25% larger than it can hold. The compile-time proof only covers what
-/// the *policy* asks for, so the policy has to be honest.
-pub struct Whole<const W: u32, const H: u32>;
-
-impl<const W: u32, const H: u32> FramePolicy for Whole<W, H> {
-    const MAX_REGION: Option<Size> = Some(Size::new(W, H));
-
-    fn limits(_viewport: Size) -> RegionLimits {
-        RegionLimits::tiled(
-            region_units(W, H, Self::PIXELS_PER_UNIT),
-            Self::PIXELS_PER_UNIT,
-        )
-    }
-}
+// NOTE (layer split, PR C): `pub struct Whole<W, H>` lived here, and it was
+// `Tiles<W, H>` under a second name — the same `MAX_REGION`, the same
+// `RegionLimits::tiled`, byte for byte. It began as a *region-count* claim ("one
+// region per frame, because a GPU wants one walk, one scissor"), which conflated
+// two unrelated things and measured at **88% of the screen repainted for six
+// small changes** (50600 px against 1092), because a single region has to be the
+// bounding box of all damage. That claim was removed; the name outlived it.
+//
+// What it taught, and what `Tiles` inherits: `W`/`H` **bound** the emitted region
+// rather than merely describing it, which matters when they and the viewport
+// disagree — a 240x240 policy driving a 320x240 viewport degrades into bands
+// instead of handing the surface a frame 25% larger than it can hold. The
+// compile-time proof only covers what the *policy* asks for, so the policy has to
+// be honest.
 
 /// A surface the size of a `W × H` region.
 ///
@@ -446,11 +428,11 @@ impl<const W: u32, const H: u32> FramePolicy for Tiles<W, H> {
 /// crate's suite.
 ///
 /// ```
-/// # use rsact_render::region::{assert_policy_fits, Tiles, Unbounded, Whole};
+/// # use rsact_render::region::{assert_policy_fits, Tiles, Unbounded};
 /// // 240x24 RGB565 needs 5760 u16 — exactly what the buffer holds.
 /// const _: () = assert_policy_fits::<Tiles<240, 24>>(5760);
 /// // A full framebuffer is just the degenerate policy.
-/// const _: () = assert_policy_fits::<Whole<240, 240>>(57600);
+/// const _: () = assert_policy_fits::<Tiles<240, 240>>(57600);
 /// // An unbounded policy imposes nothing, so even nothing satisfies it.
 /// const _: () = assert_policy_fits::<Unbounded>(0);
 /// ```
@@ -1083,7 +1065,7 @@ mod tests {
             }
         }
 
-        check::<Whole<240, 240>>(&damage, viewport);
+        check::<Tiles<240, 240>>(&damage, viewport);
         check::<Tiles<240, 24>>(&damage, viewport);
         check::<Tiles<32, 32>>(&damage, viewport);
     }

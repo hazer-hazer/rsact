@@ -68,8 +68,8 @@ pub trait PackedColor {
 // The chain, with no `generic_const_exprs`:
 //
 //   buffer type ─────────────▶ FramebufStorage::UNITS ─┐
-//                                                  ├─▶ EGRenderer::attach
-//   Renderer::Policy + PPS ──▶ policy_units ───────┘
+//                                                     ├─▶ RasterRenderer::attach
+//   Renderer::Policy + PPS ──▶ policy_units ──────────┘
 //
 // so a surface too small for the policy its renderer declares is rejected
 // before anything paints into it — a **compile error** when the buffer is a
@@ -236,7 +236,7 @@ native_framebuf_storage!(u8, u16, u32);
 // NOTE (WS6.4d): `assert_region_fits<C, B>(w, h)` lived here — a `const fn`
 // asserting a `w × h` region fits buffer `B`. Removed as **dead**: its only
 // callers were its own doctests. The check it performed is now
-// `EGRenderer::assert_static_capacity`, which runs the same comparison against
+// `RasterRenderer::assert_static_capacity`, which runs the same comparison against
 // the renderer's declared `FramePolicy` rather than against a rectangle a caller
 // passes by hand — one fewer way to state the same requirement, and the one
 // that cannot disagree with what the planner will actually emit.
@@ -263,7 +263,7 @@ native_framebuf_storage!(u8, u16, u32);
 /// **WS6.4d: the rect is not fixed.** `viewport` is the region this buffer
 /// currently stands for, in *absolute* screen coordinates, and its width is the
 /// stride — so one allocation of `N` storage units serves any region needing at
-/// most `N` (see [`Self::retarget`]). A full-frame buffer is the degenerate
+/// most `N` (see `Self::retarget`). A full-frame buffer is the degenerate
 /// case: origin zero, size the screen, retargeted never.
 ///
 /// Absolute coordinates throughout is what makes this cheap:
@@ -471,7 +471,7 @@ impl<C: Color + PackedColor, B: FramebufStorage<C>> Framebuf<C, B> {
     /// wrong and insufficient — it rejected a real 122×250 mono e-paper panel
     /// (roadmap 6.5(i)) while never once checking that the buffer was big
     /// enough. The requirement is [`units_for`], the same row-padded formula
-    /// [`retarget`](Self::retarget) and the policy proof already use; three
+    /// `retarget` and the policy proof already use; three
     /// spellings of "does it fit" that could disagree is exactly how a capacity
     /// check ends up worse than no check at all.
     ///
@@ -498,7 +498,7 @@ impl<C: Color + PackedColor, B: FramebufStorage<C>> Framebuf<C, B> {
     }
 
     /// WS6.4d: hold `buffer`'s storage units with **no fixed shape**, for a
-    /// buffer that will be [`retarget`](Self::retarget)ed per region.
+    /// buffer that will be `retarget`ed per region.
     ///
     /// This is the tiled constructor, and the acceptance target it exists for:
     /// a 240×240 RGB565 frame is 57600 units (112.5 KiB), while a buffer able to

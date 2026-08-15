@@ -17,7 +17,8 @@ pub mod pixel;
 // do not need a mirror. The three renderer shapes each meet their output
 // directly and differently:
 //
-//   - a framebuffer renderer (`EGRenderer`) draws into storage the caller lends
+//   - a framebuffer renderer (a `FramebufBlitter` under `RasterRenderer`)
+//     draws into storage the caller lends
 //     it and hands it back;
 //   - a direct renderer will take a `DrawTarget` as its own parameter, using the
 //     real trait rather than a copy of it;

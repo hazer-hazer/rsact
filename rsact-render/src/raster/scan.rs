@@ -612,37 +612,6 @@ fn arc_points(
         .collect()
 }
 
-fn polygon_bounds(points: &[Point]) -> Option<Rect> {
-    let first = *points.first()?;
-    let (min, max) = points.iter().fold((first, first), |(min, max), p| {
-        (
-            Point::new(min.x.min(p.x), min.y.min(p.y)),
-            Point::new(max.x.max(p.x), max.y.max(p.y)),
-        )
-    });
-    Some(Rect::new(
-        min,
-        Size::new((max.x - min.x + 1) as u32, (max.y - min.y + 1) as u32),
-    ))
-}
-
-/// Non-zero winding rule.
-fn polygon_contains(points: &[Point], point: Point) -> bool {
-    let mut winding = 0i32;
-    for i in 0..points.len() {
-        let ls = points[i];
-        let le = points[(i + 1) % points.len()];
-        if ls.y <= point.y {
-            if le.y > point.y && (le - ls).determinant(point - ls) > 0 {
-                winding += 1;
-            }
-        } else if le.y <= point.y && (le - ls).determinant(point - ls) < 0 {
-            winding -= 1;
-        }
-    }
-    winding != 0
-}
-
 fn fill_polygon<T: Blitter + ?Sized>(
     cx: &mut RasterCtx<'_, T>,
     points: &[Point],
@@ -651,7 +620,9 @@ fn fill_polygon<T: Blitter + ?Sized>(
     if points.len() < 3 {
         return;
     }
-    let Some(bounds) = polygon_bounds(points) else { return };
+    let Some(bounds) = crate::primitives::polygon::bounds_of(points) else {
+        return;
+    };
     let bounds = bounds.intersection(&cx.clip());
     if bounds.is_zero_sized() {
         return;
@@ -661,7 +632,7 @@ fn fill_polygon<T: Blitter + ?Sized>(
     for y in bounds.rows() {
         let mut run: Option<i32> = None;
         for x in bounds.columns() {
-            if polygon_contains(points, Point::new(x, y)) {
+            if crate::primitives::polygon::contains(points, Point::new(x, y)) {
                 run.get_or_insert(x);
             } else if let Some(start) = run.take() {
                 cx.span(Span::new(y, start, (x - start) as u32), color);

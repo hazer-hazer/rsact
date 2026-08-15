@@ -4,7 +4,7 @@
 //! [`Blitter`] through a [`RasterCtx`], which is the only thing it is ever given
 //! and the reason it cannot write outside the clip.
 //!
-//! **This is a crate-internal seam.** [`RasterCtx::new`] is `pub(crate)`, so a
+//! **This is a crate-internal seam.** `RasterCtx::new` is `pub(crate)`, so a
 //! downstream crate can write a `Blitter` but cannot drive a `Rasterizer`;
 //! [`Renderer`](crate::renderer::Renderer) is the published backend seam, and
 //! the extension promise binds once, there.

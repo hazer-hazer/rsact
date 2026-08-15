@@ -88,11 +88,10 @@ pub mod eg;
 pub mod tiny_skia;
 
 pub mod prelude {
-    #[cfg(feature = "embedded-graphics")]
-    pub use crate::eg::{primitives::*, renderer::EGRenderer};
     #[cfg(feature = "tiny-skia")]
     pub use crate::tiny_skia::TinySkiaRenderer;
     pub use crate::{
+        blitter::{Blitter, Span, framebuf::FramebufBlitter},
         color::{BigEndian, ByteOrder, Color, LittleEndian, RgbColor as _},
         framebuf::{Framebuf, FramebufStorage, PackedColor},
         geometry::{Rect, Size, block_model::BlockModel, padding::Padding, *},
@@ -103,14 +102,20 @@ pub mod prelude {
             ellipse::Ellipse, line::Line, polygon::Polygon,
             rounded_rect::RoundedRect, sector::Sector,
         },
+        raster::{RasterCtx, Rasterizer},
         region::{
-            FramePolicy, RegionLimits, Tiles, Unbounded, Whole,
-            assert_policy_fits, plan_regions, plan_regions_into, policy_units,
+            FramePolicy, RegionLimits, Tiles, Unbounded, assert_policy_fits,
+            plan_regions, plan_regions_into, policy_units,
         },
         renderer::{
             Attached, Attachment, Detached, NullColor, NullRenderer,
-            RenderResult, Renderer, ViewportKind, region_units,
+            RasterRenderer, RenderResult, Renderer, region_units,
         },
         style::{ColorStyle, DrawStyle, StrokeAlignment, block::*},
+    };
+    #[cfg(feature = "embedded-graphics")]
+    pub use crate::{
+        eg::{interop::DrawTargetProxy, primitives::*},
+        raster::eg::EgRasterizer,
     };
 }

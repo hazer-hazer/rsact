@@ -3,7 +3,7 @@
 //! A [`Blitter`] accepts already-clipped, already-rasterized pixel work. Named
 //! in the Skia/AGG sense. It is *not* the buffer itself — that is a
 //! [`FramebufStorage`](crate::framebuf::FramebufStorage), which a
-//! [`FramebufBlitter`] borrows.
+//! [`FramebufBlitter`](framebuf::FramebufBlitter) borrows.
 //!
 //! [`Span`] and the three addressing helpers live here rather than beside the
 //! rasterizer, and the reason is the dependency direction: an L3 blitter must be

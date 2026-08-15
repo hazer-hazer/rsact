@@ -18,9 +18,9 @@ pub mod path;
 
 /// A renderer that draws into a [`Pixmap`] the **caller** owns.
 ///
-/// The mirror of [`EGRenderer`]'s design, with one deliberate difference: the
-/// surface is a `tiny_skia::Pixmap`, not an embedded-friendly color buffer, and
-/// that is the point rather than an oversight. A detached pixmap is
+/// The mirror of the framebuffer backend's design, with one deliberate
+/// difference: the surface is a `tiny_skia::Pixmap`, not an embedded-friendly
+/// color buffer, and that is the point rather than an oversight. A detached pixmap is
 /// `encode_png`-able, which makes this the renderer for showcase renders and
 /// golden images. Bringing it down to an embedded color is a separate future
 /// step (a `PixmapExt::map_to_framebuffer` over [`MapColor`]), not something
@@ -42,10 +42,9 @@ pub mod path;
 /// precisely what [`attach`](TinySkiaRenderer::attach) checks.
 ///
 /// The consequence is that this backend takes a fixed pixmap pool under a
-/// `Tiles<W, H>` policy on the same terms as [`EGRenderer`], and the two
+/// `Tiles<W, H>` policy on the same terms as a `FramebufBlitter`, and the two
 /// backends differ only in what the storage *is*.
 ///
-/// [`EGRenderer`]: crate::eg::renderer::EGRenderer
 /// [`begin_region`]: Renderer::begin_region
 pub struct TinySkiaRenderer<
     C,
@@ -80,14 +79,20 @@ pub struct TinySkiaRenderer<
     /// The display's size — what rsact lays out and culls against, unchanged by
     /// how small the attached pixmap is.
     size: Size,
-    viewport_stack: Vec<ViewportKind>,
+    /// The clip stack, in absolute coordinates.
+    ///
+    /// **PR C: a plain `Vec<Rect>`**, seeded with the surface rect — see the
+    /// note where `ViewportKind` was deleted for why the three-variant enum
+    /// collapsed to this. Push intersects, pop never pops the root, and
+    /// `begin_region` makes the region the root.
+    clips: Vec<Rect>,
     /// WS6.11: the active clip, as a tiny-skia [`Mask`].
     ///
     /// tiny-skia has no scissor rect — every draw call takes an
     /// `Option<&Mask>`, so a clip has to be an actual alpha mask. Rebuilt only
     /// when the clip stack changes (a `Mask` is `w*h` bytes, which is why it is
-    /// cached rather than constructed per primitive), and `None` while the
-    /// viewport is `Fullscreen`, which is both cheaper and the common case.
+    /// cached rather than constructed per primitive), and `None` while the clip
+    /// covers the whole surface, which is both cheaper and the common case.
     clip_mask: Option<Mask>,
     _color: PhantomData<C>,
     _policy: PhantomData<P>,
@@ -137,7 +142,7 @@ impl<P: crate::region::FramePolicy> TinySkiaRenderer<tiny_skia::Color, P> {
             region: self.region,
             origin: self.origin,
             size: self.size,
-            viewport_stack: self.viewport_stack,
+            clips: self.clips,
             clip_mask: self.clip_mask,
             _color: PhantomData,
             _policy: PhantomData,
@@ -160,7 +165,7 @@ impl<P: crate::region::FramePolicy> TinySkiaRenderer<tiny_skia::Color, P> {
     ///
     /// Sugar over detach + attach, and — unlike them — it keeps `&mut self`,
     /// because the renderer is never observably without a surface. Not the
-    /// primitive: see `EGRenderer::detach` for why a single-buffer pool
+    /// primitive: see `RasterRenderer::detach` for why a single-buffer pool
     /// deadlocks under swap-only.
     pub fn swap(&mut self, next: Pixmap) -> (Pixmap, Rect) {
         let capacity = Self::check_capacity(&next);
@@ -191,7 +196,7 @@ impl<P: crate::region::FramePolicy> TinySkiaRenderer<tiny_skia::Color, P> {
     ///
     /// # Panics
     ///
-    /// If it does not. Same reasoning as `EGRenderer`: a static property of the
+    /// If it does not. Same reasoning as the framebuffer path: a static property of the
     /// application's memory plan, discovered at the hand-off, with no degraded
     /// mode worth having.
     fn check_capacity(pixmap: &Pixmap) -> usize {
@@ -258,7 +263,7 @@ impl<P: crate::region::FramePolicy>
             region: Size::new(0, 0),
             origin: Point::zero(),
             size,
-            viewport_stack: vec![ViewportKind::root()],
+            clips: vec![Rect::new(Point::zero(), size)],
             clip_mask: None,
             _color: PhantomData,
             _policy: PhantomData,
@@ -285,7 +290,7 @@ impl<P: crate::region::FramePolicy>
             region,
             origin: self.origin,
             size: self.size,
-            viewport_stack: self.viewport_stack,
+            clips: self.clips,
             clip_mask: self.clip_mask,
             _color: PhantomData,
             _policy: PhantomData,
@@ -303,15 +308,25 @@ impl<P: crate::region::FramePolicy> TinySkiaRenderer<tiny_skia::Color, P> {
         Transform::from_translate(-self.origin.x as f32, -self.origin.y as f32)
     }
 
-    fn current_viewport(&self) -> ViewportKind {
-        *self.viewport_stack.last().unwrap()
+    /// The effective clip — the top of the stack, kept intersected with its
+    /// parent by `push_clip`.
+    fn current_clip(&self) -> Rect {
+        self.clips
+            .last()
+            .copied()
+            .unwrap_or(Rect::new(self.origin, self.painted_size()))
+    }
+
+    /// The rect the attached pixmap covers, absolute.
+    fn surface_rect(&self) -> Rect {
+        Rect::new(self.origin, self.painted_size())
     }
 
     /// Rebuild [`clip_mask`] from the composed viewport (WS6.11).
     ///
     /// Called only from `push_clip`/`pop_clip`, so the per-primitive cost is a
     /// null check. `enter_viewport` already intersects nested clips
-    /// (`ViewportKind::nested_in`), so the rect here is the *composed* one —
+    /// (`push_clip` intersects), so the rect here is the *composed* one —
     /// the same rect `clip_bounds()` reports, which is what keeps the culling
     /// contract and the actual clipping in agreement.
     fn rebuild_clip_mask(&mut self) {
@@ -319,29 +334,32 @@ impl<P: crate::region::FramePolicy> TinySkiaRenderer<tiny_skia::Color, P> {
         // clip rect is rebased by the origin like every other coordinate. A
         // frame-sized mask over a tile-sized pixmap would both over-allocate and
         // mis-address, letting drawing escape the region — the exact failure
-        // `ViewportKind::nested_in` exists to prevent one level up.
+        // intersecting on push exists to prevent one level up.
         let size = self.painted_size();
         let transform = self.base_transform();
-        self.clip_mask = match self.current_viewport().clip_bounds() {
-            None => None,
-            Some(area) => {
-                let mut mask = Mask::new(size.width, size.height)
-                    .expect("clip mask allocation failed");
-                let mut path = PathBuilder::new();
-                path.push_rect(area.into());
-                if let Some(path) = path.finish() {
-                    mask.fill_path(
-                        &path,
-                        tiny_skia::FillRule::default(),
-                        // No AA: a clip edge is a hard boundary. Anti-aliasing
-                        // it would leak half-covered pixels outside the rect,
-                        // which is exactly what a clip must not do.
-                        false,
-                        transform,
-                    );
-                }
-                Some(mask)
-            },
+        let area = self.current_clip();
+        // A clip covering the whole surface constrains nothing, and a `Mask` is
+        // `w*h` bytes plus a fill — so the common case stays `None`, exactly as
+        // it did when that case was spelled `ViewportKind::Fullscreen`.
+        self.clip_mask = if area == self.surface_rect() {
+            None
+        } else {
+            let mut mask = Mask::new(size.width, size.height)
+                .expect("clip mask allocation failed");
+            let mut path = PathBuilder::new();
+            path.push_rect(area.into());
+            if let Some(path) = path.finish() {
+                mask.fill_path(
+                    &path,
+                    tiny_skia::FillRule::default(),
+                    // No AA: a clip edge is a hard boundary. Anti-aliasing it
+                    // would leak half-covered pixels outside the rect, which is
+                    // exactly what a clip must not do.
+                    false,
+                    transform,
+                );
+            }
+            Some(mask)
         };
     }
 
@@ -460,35 +478,35 @@ impl<P: crate::region::FramePolicy> Renderer
         // tiny-skia composites `SourceOver` against the destination — so
         // without this the first blended edge would mix with an unrelated pixel
         // (roadmap 6.4 constraint (b)). Unconditional, including for a pixmap
-        // that spans the frame: see `EGRenderer::begin_region` for why retention
+        // that spans the frame: see `Blitter::begin_region` for why retention
         // is a cost saving rather than a correctness requirement, and what
         // giving it up buys.
         self.canvas().fill(tiny_skia::Color::WHITE);
+        // The region is the ROOT of the clip stack, so nothing painted into it
+        // can escape it — the same rule the layered renderer follows.
+        self.clips.clear();
+        self.clips.push(region);
         self.rebuild_clip_mask();
         Ok(())
     }
 
     fn push_clip(&mut self, area: Rect) {
-        let nested =
-            ViewportKind::Clipped(area).nested_in(self.current_viewport());
-        self.viewport_stack.push(nested);
+        let nested = area.intersection(&self.current_clip());
+        self.clips.push(nested);
         self.rebuild_clip_mask();
     }
 
     fn pop_clip(&mut self) {
-        self.viewport_stack.pop();
-        self.rebuild_clip_mask();
+        // Never pops the root: an unbalanced pop must degrade, not leave the
+        // renderer with no clip at all.
+        if self.clips.len() > 1 {
+            self.clips.pop();
+            self.rebuild_clip_mask();
+        }
     }
 
     fn clip_bounds(&self) -> Option<Rect> {
-        // Fullscreen ⇒ the surface rect (see `EGRenderer::renderer_clip_bounds`).
-        // Absolute, like every rect crossing this boundary: the pixmap's own
-        // rect is `origin + its size`, not `(0,0) + its size`.
-        Some(
-            self.current_viewport()
-                .clip_bounds()
-                .unwrap_or_else(|| Rect::new(self.origin, self.painted_size())),
-        )
+        Some(self.current_clip())
     }
 
     fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult {
@@ -836,8 +854,8 @@ mod tests {
         assert!(row_has_ink(&r, SIZE - 1), "the clip outlived its pop");
     }
 
-    /// Nested clips **intersect** — the same composition `ViewportKind::nested_in`
-    /// gives the other backends, and what `clip_bounds()` promises the culler.
+    /// Nested clips **intersect** — the same composition every other holder
+    /// performs, and what `clip_bounds()` promises the culler.
     /// A wider inner clip must not widen the effective one.
     #[test]
     fn a_nested_clip_narrows_and_never_widens() {

@@ -6,7 +6,10 @@ use embedded_graphics::{
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
-use rsact_render::{eg::renderer::EGRenderer, framebuf::PackedColor};
+use rsact_render::{
+    blitter::framebuf::FramebufBlitter, framebuf::PackedColor,
+    raster::eg::EgRasterizer, region::Unbounded, renderer::RasterRenderer,
+};
 use rsact_tiny_icons::{IconSet, common::CommonIcon, system::SystemIcon};
 use rsact_ui::{
     page::id::SinglePage,
@@ -45,7 +48,8 @@ fn main() {
 
     let mut ui = UI::new(
         Theme::default(),
-        EGRenderer::new(
+        RasterRenderer::<_, FramebufBlitter<Rgb888, _>, Unbounded>::with_framebuf(
+            EgRasterizer,
             display.bounding_box().size.into(),
             // The framebuffer is the APPLICATION's — rsact borrows it and gives
             // it back. On a device this would be a `StaticCell` array instead.
