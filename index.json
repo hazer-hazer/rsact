@@ -203,6 +203,12 @@
     "branch": "ws6.4d-tile-renderer",
     "subject": "WS6.4d(10): Frame is the only render path; a Pixmap is reshaped, not shape-bound"
   },
+  "8fdec7a8549c80d6a349cb7c1c12c8da197d078e": {
+    "date": 1786828577,
+    "parent": "",
+    "branch": "ws6.4e-framebuf-unbind",
+    "subject": "Attachment belongs to the renderer, not the blitter (maintainer correction)"
+  },
   "928cc223de79fa88ca848ef6c90878697f0b9c98": {
     "date": 1785969528,
     "parent": "",
