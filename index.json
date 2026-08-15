@@ -353,6 +353,12 @@
     "branch": "issue-4-style-traits",
     "subject": "Roadmap: ISSUE-4 — style-property traits + a `Style` associated type"
   },
+  "f2cfb0e07dae66e7fc52d2ac107e728f813eb755": {
+    "date": 1786830827,
+    "parent": "",
+    "branch": "ws6.4e-framebuf-unbind",
+    "subject": "Blitters are colour buffers: no viewport, static checks back, no panics"
+  },
   "fd8109d5bbf4821ce947275bb2824a69a197b4af": {
     "date": 1786224574,
     "parent": "",
