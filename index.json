@@ -95,6 +95,12 @@
     "branch": "ws-home-hero",
     "subject": "site: nav order, metrics-page spacing, chart glow radius, feature-icon asset"
   },
+  "363362730cbd33facff08ff7721f8500be46c344": {
+    "date": 1786912066,
+    "parent": "",
+    "branch": "ws6.4e-framebuf-unbind",
+    "subject": "Cut the module tree by feature gate, and four smaller corrections"
+  },
   "37731598dad6d746bd63e4f1f9744a3a4f0dee0c": {
     "date": 1785866016,
     "parent": "",
