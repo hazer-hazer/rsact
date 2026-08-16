@@ -48,11 +48,6 @@ pub mod color;
 // `eg/framebuf.rs`.
 pub mod framebuf;
 pub mod geometry;
-// `golden` is a std-only test-support module (file I/O for the WS6.9 golden
-// harness). It is reusable across crates — hence a real `#[cfg(feature="std")]`
-// module, not `#[cfg(test)]` (downstream crates' tests can't see test code).
-#[cfg(feature = "std")]
-pub mod golden;
 pub mod image;
 pub mod output;
 pub mod path;
@@ -72,11 +67,15 @@ pub mod renderer;
 // of `raster` rather than a child: that file is the contract, this one is 600
 // lines of algorithm, and the two are read for different reasons.
 pub mod scan;
-// WS6.4a's measurement + tile-invariance arithmetic over `record`'s op logs.
-// Unconditional for the same reason `record` is: pure `alloc` math with no file
-// I/O (unlike `golden`), so a no_std integration test can use it too.
-pub mod schedule;
 pub mod style;
+// Harness code, not API: WS6.4a's tile measurement and WS6.9's golden bless
+// workflow, moved out of `src`'s public surface so the two are not read as
+// peers of `renderer`/`raster`/`blitter`. Gated by a feature rather than
+// `#[cfg(test)]` because every consumer of them is in *another* crate, and
+// `cfg(test)` does not cross a crate boundary — see the module's own docs.
+#[cfg(feature = "test-utils")]
+#[doc(hidden)]
+pub mod test_support;
 
 #[macro_use]
 extern crate alloc;

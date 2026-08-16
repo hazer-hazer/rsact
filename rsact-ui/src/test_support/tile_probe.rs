@@ -1,6 +1,6 @@
 //! WS6.4a: capture a real page's frame as a **tile schedule** and measure it.
 //!
-//! [`rsact_render::schedule`] owns the arithmetic; this module owns the driving.
+//! [`rsact_render::test_support::schedule`] owns the arithmetic; this module owns the driving.
 //! It builds a page against a [`RecordingRenderer`], captures the frame once
 //! whole and once per region, and reports two independent cost terms:
 //!
@@ -36,8 +36,8 @@
 //! [`Page::collect`]: crate::page::Page::collect
 //! [`Page::paint_region`]: crate::page::Page::paint_region
 //!
-//! [`ScheduleReport`]: rsact_render::schedule::ScheduleReport
-//! [`tile_invariance`]: rsact_render::schedule::tile_invariance
+//! [`ScheduleReport`]: rsact_render::test_support::schedule::ScheduleReport
+//! [`tile_invariance`]: rsact_render::test_support::schedule::tile_invariance
 
 use crate::{
     el::{arena::ElArena, ctx::Wtf, view::View},
@@ -47,7 +47,7 @@ use crate::{
     prelude::*,
     render::{
         record::{DrawOp, RecordingRenderer},
-        schedule::{ScheduleLog, TilePass, TileSchedule},
+        test_support::schedule::{ScheduleLog, TilePass, TileSchedule},
     },
     test_support::TestPage,
 };

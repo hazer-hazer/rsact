@@ -908,7 +908,7 @@ mod tests {
             record::RecordingRenderer,
             region::{Tiles, Unbounded},
             renderer::NullColor,
-            schedule::{ScheduleLog, TilePass, tile_invariance},
+            test_support::schedule::{ScheduleLog, TilePass, tile_invariance},
         };
 
         let viewport = Size::new_equal(64);

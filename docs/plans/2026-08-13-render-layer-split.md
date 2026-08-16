@@ -841,11 +841,36 @@ rsact-render/src/
     color.rs · geometry.rs · path.rs
     blitter.rs           PixmapBlitter
     rasterizer.rs        TinySkiaRasterizer
+  test_support/          [feature test-utils, #[doc(hidden)]]
+    schedule.rs          tile measurement · tile_invariance    [WS6.4a]
+    golden.rs            the bless workflow    [feature std too, WS6.9]
 ```
 
 `scan` is a **sibling** of `raster`, not a child: `raster.rs` is the contract
 (the clip gate and the trait), `scan.rs` is 600 lines of algorithm, and the two
 are read for different reasons.
+
+`test_support` is the same idea applied to the harness: it is not API, so it
+should not sit in `src/` beside `renderer`/`raster`/`blitter` where it reads as
+a peer. The gate is a **feature and not `#[cfg(test)]`** — `cfg(test)` is set
+only for the crate being test-compiled, and every consumer of these two modules
+lives in another crate (`rsact-ui/tests/tile_schedule.rs`,
+`rsact-ui/src/test_support/tile_probe.rs`, `rsact-ui/src/ui.rs`'s own tests), all
+of which link rsact-render built normally. Dev targets get it from a self
+dev-dependency, the shape rsact-reactive's `test-utils` already established;
+resolver 3 keeps it out of normal builds. `rsact-ui::test_support` gained the
+matching gate, and `metrics-probe` — the one *non-test* consumer, since its
+scenarios **are** those headless pages — takes it as a normal dependency
+feature.
+
+`record` deliberately stayed **outside** the gate. `RecordingRenderer` is a
+`Renderer` like any other and `PrimitiveKind` is the value vocabulary for
+recording, replay and `Canvas`'s command list; a devtool that inspects draw
+calls is a plausible product feature, and gating it would assert it never will
+be. `schedule` depending on `record` is the sound direction — gated may depend
+on ungated, never the reverse. The one cost of the gate is that an ungated item
+cannot intra-doc-link into a gated one, so `record.rs`'s pointer at
+`tile_invariance` is now inline code rather than a link.
 
 **`eg/primitives/` is gone.** It held seven files of `pub fn draw`, each taking
 an rsact `Line`/`Arc`/`Circle` and converting to embedded-graphics' — a shape

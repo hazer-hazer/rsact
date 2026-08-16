@@ -7,7 +7,7 @@
 //!   geometry the full frame never produced (WS6.4's absolute-coordinate
 //!   invariant). This is vacuous *today* — nothing culls yet, so every region
 //!   redraws everything — and becomes load-bearing the moment WS6.4b starts
-//!   pruning. `rsact_render::schedule`'s own tests are what prove the check has
+//!   pruning. `rsact_render::test_support::schedule`'s own tests are what prove the check has
 //!   teeth, by feeding it deliberately broken replays.
 //! - **The measurement.** A blessed report of what tiling costs now (`emitted`)
 //!   against the floor a perfect geometric cull would reach (`required`), plus the
@@ -20,13 +20,15 @@
 use core::fmt::Write as _;
 use rsact_reactive::runtime::with_new_runtime;
 use rsact_render::{
-    golden::assert_text_golden,
     record::DrawOp,
     region::{RegionLimits, plan_regions},
     renderer::region_units,
-    schedule::{
-        ScheduleReport, TileSchedule, format_report, merge_verdict,
-        tile_invariance,
+    test_support::{
+        golden::assert_text_golden,
+        schedule::{
+            ScheduleReport, TileSchedule, format_report, merge_verdict,
+            tile_invariance,
+        },
     },
 };
 use rsact_ui::{

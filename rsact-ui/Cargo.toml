@@ -50,6 +50,10 @@ embedded-graphics-simulator = { workspace = true }
 # `test-utils` feature. Enabled here for dev targets only (resolver 3 keeps it
 # out of the normal rsact-ui build graph) — WS1.2.
 rsact-reactive = { workspace = true, features = ["test-utils"] }
+# Same, for this crate's own `test-utils` — `tests/`, `benches/` and the unit
+# tests all reach `rsact_ui::test_support`, and dev targets are the only place
+# it should exist.
+rsact-ui = { path = ".", features = ["test-utils"] }
 
 # WS0.5 layout timing benches. `required-features` keeps `cargo test`/`cargo
 # build` from trying to compile it without a render backend; run with:
@@ -74,6 +78,12 @@ micromath = ["rsact-render/micromath"]
 # (≤64 B, compiled out under default features) so it can be recomputed in
 # isolation. Gated until the differential fuzz test has soaked.
 incremental-layout = []
+
+# `test_support`: headless scaffolding (`TestUi`, `TestPage`, `NullWtf`,
+# WS6.4a's `tile_probe`) shared by this crate's unit tests, its integration
+# tests and its benches. Not API. Forwards rsact-render's `test-utils` because
+# `tile_probe` drives that crate's tile-schedule arithmetic.
+test-utils = ["rsact-render/test-utils"]
 
 debug-info = ["rsact-reactive/debug-info"]
 defmt = [

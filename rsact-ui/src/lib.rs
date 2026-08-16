@@ -16,7 +16,11 @@ pub mod font;
 pub mod layout;
 pub mod page;
 pub mod style;
-// Shared headless test/bench scaffolding (WS0.7j); doc-hidden, not public API.
+// Shared headless test/bench scaffolding (WS0.7j): not API, so it is behind
+// `test-utils` and doc-hidden. A feature and not `#[cfg(test)]` because
+// `tests/tile_schedule.rs` and `benches/layout.rs` are separate crates that
+// link this one built normally, and `cfg(test)` does not reach them.
+#[cfg(feature = "test-utils")]
 #[doc(hidden)]
 pub mod test_support;
 pub mod ui;

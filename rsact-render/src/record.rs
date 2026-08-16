@@ -77,9 +77,11 @@ impl DrawOp {
     /// direction: *if* this bound intersects a region, a renderer replaying the
     /// frame region-by-region **must** emit the op for that region. A culler is
     /// free to skip a region the bound misses; it may never skip one the bound
-    /// hits. [`tile_invariance`] is that sentence turned into an assertion, so
-    /// this method and any future geometric cull must stay the *same* predicate —
-    /// a cull tighter than this bound would pass review and fail on screen.
+    /// hits. `test_support::schedule::tile_invariance` is that sentence turned
+    /// into an assertion, so this method and any future geometric cull must stay
+    /// the *same* predicate — a cull tighter than this bound would pass review
+    /// and fail on screen. (Not a link: that module is behind `test-utils`, and
+    /// an ungated item cannot intra-doc-link into a gated one.)
     ///
     /// Two deliberate imprecisions, both recorded because they set the limits of
     /// what the check can prove:
@@ -98,7 +100,6 @@ impl DrawOp {
     ///   it would mean recording style, which is exactly what keeps this log
     ///   deterministic and color-agnostic.
     ///
-    /// [`tile_invariance`]: crate::schedule::tile_invariance
     /// [`Path::bounds`]: crate::path::Path::bounds
     pub fn bounds(&self) -> Option<Rect> {
         // A `diameter`-wide primitive anchored at its top-left corner.

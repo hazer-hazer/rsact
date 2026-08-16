@@ -2458,9 +2458,9 @@ mod tests {
     // `tests/tile_schedule.rs`, which KEEPS its goldens and becomes the
     // refactor's behaviour-neutrality proof.
     //
-    // The bless workflow is untouched — `rsact_render::golden` is still there and
-    // the tile/schedule goldens still use it. What comes back here is WS6.9's
-    // deferred **PNG** half, which is worth most after the split: it is the only
+    // The bless workflow is untouched — `rsact_render::test_support::golden` is
+    // still there and the tile/schedule goldens still use it. What comes back
+    // here is WS6.9's deferred **PNG** half, which is worth most after the split: it is the only
     // golden that can see anti-aliasing or spans, i.e. the only one that could
     // tell `EgRasterizer` from `RsactRasterizer`.
     //
