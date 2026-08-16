@@ -18,34 +18,31 @@ use crate::{
 
 /// Where a [`Rasterizer`] emits its pixels.
 ///
-/// Every method clips, so drawing outside [`clip()`](Self::clip) is discarded
-/// rather than forbidden — emitting geometry that lands nowhere is correct, just
-/// wasted. Bound your loops by `clip()` where it is cheap to do so.
+/// Every method clips, so geometry outside [`clip()`](Self::clip) is discarded
+/// rather than forbidden — bound your loops by it where that is cheap.
 ///
 /// [`span`](Self::span) and [`rect`](Self::rect) are the fast paths;
-/// [`run`](Self::run) takes one color per pixel, [`blend`](Self::blend) takes
-/// coverage, and [`pixel`](Self::pixel) is the fallback. Use
-/// [`reborrow`](Self::reborrow) to pass it on to another primitive's method.
+/// [`run`](Self::run) takes a color per pixel and [`blend`](Self::blend)
+/// coverage. [`reborrow`](Self::reborrow) passes it to another primitive.
 pub struct RasterCtx<'a, T: Blitter> {
     blitter: &'a mut T,
     clip: Rect,
 }
 
 impl<'a, T: Blitter> RasterCtx<'a, T> {
-    /// Narrows `clip` to the blitter's bounds here rather than trusting the
-    /// caller, so no renderer can widen a clip past its own surface.
+    /// Narrows `clip` to the blitter's bounds, so no renderer can widen one
+    /// past its own surface.
     pub(crate) fn new(blitter: &'a mut T, clip: Rect) -> Self {
         let clip = clip.intersection(&blitter.bounds());
         Self { blitter, clip }
     }
 
-    /// Advisory: bound your loops with this and nothing is thrown away.
+    /// Bound your loops with this and nothing is thrown away.
     pub fn clip(&self) -> Rect {
         self.clip
     }
 
-    /// For delegating to another primitive — every default body that composes
-    /// needs it.
+    /// For delegating to another primitive.
     pub fn reborrow(&mut self) -> RasterCtx<'_, T> {
         RasterCtx { blitter: &mut *self.blitter, clip: self.clip }
     }
@@ -69,9 +66,7 @@ impl<'a, T: Blitter> RasterCtx<'a, T> {
         }
     }
 
-    /// Clipping slices per-pixel data in step — [`Span::clip_to`] returns the
-    /// offset so that arithmetic exists once. Getting it wrong shifts an image
-    /// by a few pixels, which is a plausible picture rather than a failure.
+    /// Slices `colors` in step with the clip.
     pub fn run(&mut self, span: Span, colors: &[T::Color]) {
         debug_assert_eq!(colors.len(), span.len());
         if let Some((clipped, offset)) = span.clip_to(&self.clip) {
@@ -97,21 +92,14 @@ impl<'a, T: Blitter> RasterCtx<'a, T> {
 /// The blitter arrives per call rather than being held, so a rasterizer may keep
 /// caches — a coverage line, a `Mask`, a glyph atlas — across targets.
 ///
-/// # Nothing is required
+/// **Nothing is required**: every method has a default that draws, so
+/// `impl Rasterizer for X {}` works and you override only what you have better
+/// algorithms for. A default must decompose *exactly* onto the other methods or
+/// go through [`path`](Self::path) — never approximate one shape with another,
+/// which renders a plausible wrong image.
 ///
-/// Every method has a default that **draws**, so `impl Rasterizer for X {}` is
-/// a working rasterizer and you override only what you have better algorithms
-/// for. [`fill`](Self::fill) and [`pixel`](Self::pixel) are where every override
-/// chain bottoms out; `fill` is style-free so clears and backgrounds do not pay
-/// for style resolution.
-///
-/// A default must never be a **lookalike** — a squircle drawn as a rounded rect
-/// — because that renders a plausible wrong image. Decompose exactly onto the
-/// existing methods, or go through [`path`](Self::path), which can express any
-/// 2D shape.
-///
-/// Rasterizers need not agree pixel for pixel; differing output is the reason
-/// there is more than one. They must agree on **parameter semantics**:
+/// Rasterizers need not agree pixel for pixel, but must agree on **parameter
+/// semantics**:
 ///
 /// - **Angle zero is `+x`, and a positive sweep runs toward `+y`** — clockwise
 ///   on screen, because `y` grows downward. Same convention as
@@ -220,18 +208,12 @@ pub trait Rasterizer<T: Blitter> {
         crate::scan::image(cx, image)
     }
 
-    /// Exact: a circle is an ellipse with equal axes.
+    /// A circle is an ellipse with equal axes, dispatched through `self` so an
+    /// overridden `ellipse` carries it.
     ///
-    /// **Not `self.arc` with a full sweep**, which the design sketch proposed
-    /// and which is wrong for a reason worth keeping: an arc is a *curve*, so it
-    /// has no interior and ignores `style.fill`. Routing `circle` through it
-    /// would render a filled circle as an outline — a plausible wrong image,
-    /// which is precisely the failure mode "no lookalike defaults" forbids.
-    ///
-    /// Through `self`, so a rasterizer that overrides `ellipse` gets a circle of
-    /// the same quality for free. `EgRasterizer` overrides this anyway:
-    /// embedded-graphics has its own circle algorithm and taking any default
-    /// would silently discard it.
+    /// **Not `self.arc` with a full sweep** — an arc is a curve with no
+    /// interior, so it ignores `style.fill` and would render a filled circle as
+    /// an outline.
     fn circle(
         &mut self,
         cx: &mut RasterCtx<'_, T>,
@@ -242,10 +224,8 @@ pub trait Rasterizer<T: Blitter> {
         self.ellipse(cx, Rect::new(top_left, Size::new_equal(diameter)), style)
     }
 
-    // TODO: `glyphs`. Its default is not geometry: the font layer
-    // supplies a coverage bitmap, so the default blits it row by row through
-    // `cx.blend`. Until then text keeps its per-pixel path through the existing
-    // `DrawTargetProxy`, and the layering is clean everywhere else.
+    // TODO: `glyphs`, blitting the font layer's coverage bitmap row by row
+    // through `cx.blend`. Until then text goes per-pixel via `DrawTargetProxy`.
 }
 
 #[cfg(test)]
@@ -259,11 +239,8 @@ mod tests {
     };
     use alloc::{boxed::Box, vec, vec::Vec};
 
-    /// A blitter that records where it was written, and nothing else.
-    ///
-    /// Its `bounds` is deliberately *smaller* than the clips the tests hand
-    /// `RasterCtx`, so every test also exercises the intersect-on-construct that
-    /// makes `clip ⊆ bounds` true.
+    /// Records where it was written, and nothing else. Its `bounds` is smaller
+    /// than the clips the tests pass, so they exercise the narrowing too.
     struct Recorder {
         bounds: Rect,
         writes: Vec<Point>,
@@ -348,13 +325,9 @@ mod tests {
         assert_eq!(rec.writes.len(), 16);
     }
 
-    /// **D3, as a test: no primitive is ever unsupported.**
-    ///
-    /// `Plain` overrides nothing, so every call below runs a *default* — and
-    /// every default must put pixels somewhere. This is what makes
-    /// `impl Rasterizer for X {}` a legal rasterizer rather than a stub, and it
-    /// is the check that would have caught `polygon` and `image` being logged
-    /// no-ops on the embedded-graphics backend for as long as they were.
+    /// `Plain` overrides nothing, so every call runs a default — and every
+    /// default must put pixels somewhere. Catches a primitive silently becoming
+    /// a no-op.
     #[test]
     fn every_default_draws() {
         struct Plain;
@@ -454,13 +427,8 @@ mod tests {
         });
     }
 
-    /// A **filled** circle must be filled.
-    ///
-    /// The design sketch defaulted `circle` to a full-sweep `arc`, which is a
-    /// curve and therefore has no interior — so a filled circle would have come
-    /// out as an outline. That is a *plausible wrong image*, the failure mode
-    /// "no lookalike defaults" exists to refuse, and it is the reason the default
-    /// routes through `ellipse` instead.
+    /// A **filled** circle must be filled. Defaulting `circle` to a full-sweep
+    /// `arc` would draw an outline instead, an arc having no interior.
     #[test]
     fn a_filled_circle_is_filled_and_a_filled_arc_is_not_a_circle() {
         struct Plain;
@@ -484,8 +452,7 @@ mod tests {
         // And the centre is inside it, which an outline's is not.
         assert!(circle.writes.contains(&Point::new(16, 16)));
 
-        // An arc with the same style paints nothing, because an arc has no
-        // interior and `fill` is documented as ignored on it.
+        // An arc with the same style paints nothing: `fill` is ignored.
         let mut arc = Recorder::new(bounds);
         {
             let mut cx = RasterCtx::new(&mut arc, bounds);

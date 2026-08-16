@@ -13,16 +13,11 @@ const BYTES_PER_PIXEL: usize = 4;
 
 /// A blitter over a tiny-skia `Pixmap` the caller owns.
 ///
-/// The pixels are held as bytes while lent. A `Pixmap` has a fixed `width()`,
-/// which suggests the bound must be a *shape* — but `take()` yields its
-/// `Vec<u8>` and `from_vec` rebuilds one at any size the length matches, so
-/// [`begin_region`](Blitter::begin_region) reshapes the storage per region and
-/// the bound is a **byte budget**, as it is for a framebuffer. Reshaping stays
-/// within the original allocation, so nothing reallocates.
+/// Held as bytes while lent, so [`begin_region`](Blitter::begin_region) can
+/// reshape the storage per region: the bound is a **byte budget**, not the
+/// pixmap's shape. Reshaping stays inside the original allocation.
 ///
-/// This type is the loan itself: the caller gets it back from
-/// `RasterRenderer::detach` and takes the pixels with
-/// [`into_pixmap`](Self::into_pixmap).
+/// Take the pixels back with [`into_pixmap`](Self::into_pixmap).
 pub struct PixmapBlitter {
     pixels: Vec<u8>,
     /// The reshaping ceiling. Remembered rather than read back from
@@ -37,12 +32,9 @@ fn bytes_for(size: Size) -> usize {
 }
 
 impl PixmapBlitter {
-    /// Wrap the caller's pixmap. Infallible — whether it is big enough is a
-    /// question about a frame policy this type has never heard of.
-    ///
-    /// It starts aimed at the pixmap's own extent, which the first
-    /// `begin_region` overwrites; the initial aim only matters to a caller who
-    /// never begins one.
+    /// Wrap the caller's pixmap, aimed at its own extent until the first
+    /// `begin_region`. Infallible — whether it is big enough is a question
+    /// about a frame policy.
     pub fn new(pixmap: Pixmap) -> Self {
         let region = Rect::new(
             Point::zero(),
@@ -51,12 +43,8 @@ impl PixmapBlitter {
         Self { capacity: bytes_for(region.size), pixels: pixmap.take(), region }
     }
 
-    /// Take the pixmap back, sized to the region actually painted, along with
-    /// where that region was.
-    ///
-    /// `None` for a zero-sized region — the one shape tiny-skia cannot
-    /// represent. Returning a `1x1` stand-in instead would hand back a pixmap
-    /// that is not what was painted.
+    /// Take the pixmap back, sized to the region painted, with where it was.
+    /// `None` for a zero-sized region, which tiny-skia cannot represent.
     pub fn into_pixmap(self) -> Option<(Pixmap, Rect)> {
         let at = self.region;
         if at.is_zero_sized() {

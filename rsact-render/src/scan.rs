@@ -1,20 +1,15 @@
 //! Shared scan conversion — the bodies every [`Rasterizer`](crate::raster::Rasterizer) default delegates
 //! to.
 //!
-//! Free functions rather than provided trait bodies, so they monomorphize over
-//! the blitter alone rather than once per rasterizer.
+//! Free functions, so they monomorphize over the blitter alone rather than once
+//! per rasterizer.
 //!
-//! # Four algorithms; everything else decomposes
+//! Only [`rect`], [`line`], [`polygon`]'s scan and [`image`]'s row decode are
+//! real scan conversion; [`arc`], [`sector`], [`ellipse`] and [`rounded_rect`]
+//! flatten to a polyline and reuse [`polygon`].
 //!
-//! Only [`rect`]'s fill, [`line`], the polygon scan inside [`polygon`] and
-//! [`image`]'s row decode are real scan conversion. [`arc`], [`sector`],
-//! [`ellipse`] and [`rounded_rect`] flatten to a polyline and reuse the polygon
-//! machinery — an approximation of the *same* shape with bounded error, never a
-//! lookalike such as a squircle drawn as a rounded rect.
-//!
-//! Everything here is aliased and integer-exact: no coverage, no blending, no
-//! attempt at quality. It is the floor a rasterizer stands on before it
-//! overrides anything, and the reason `impl Rasterizer for X {}` draws.
+//! Everything here is aliased and integer-exact — the floor a rasterizer stands
+//! on before it overrides anything.
 //!
 //! [`Rasterizer`]: crate::raster::Rasterizer
 
@@ -31,19 +26,14 @@ use crate::{
 };
 use alloc::{vec, vec::Vec};
 
-/// Roughly how many pixels of arc one flattened segment spans. Smaller is
-/// smoother and slower; 2 px keeps a 100 px-radius quarter-circle at ~79
-/// segments, which is imperceptible at these sizes and cheap.
+/// Pixels of arc per flattened segment. Smaller is smoother and slower; 2 px
+/// puts a 100 px-radius quarter-circle at ~79 segments.
 const FLATTEN_STEP_PX: f32 = 2.0;
 
 // ───────────────────────────────────────────────────────── style helpers
 
-/// The stroke width that will actually be drawn.
-///
-/// A width without a color draws nothing, and — this is the part worth stating
-/// — it must also not *shrink the fill*. A `DrawStyle` carrying
-/// `stroke_width: 2, stroke: None` describes an unstroked shape, so the fill
-/// covers the whole rect.
+/// The stroke width that will actually be drawn. A width without a color draws
+/// nothing **and must not shrink the fill**.
 fn effective_stroke<C: Color>(style: &DrawStyle<C>) -> Option<(C, u32)> {
     match (style.stroke, style.stroke_width) {
         (Some(color), width @ 1..) => Some((color, width)),
@@ -81,10 +71,8 @@ fn shrink(rect: Rect, by: u32) -> Rect {
     )
 }
 
-/// The outer and inner edges of a `width`-thick stroke around `rect`.
-///
-/// A `Center` stroke of odd width puts the extra pixel **inside**, which is the
-/// parameter semantics documented on the trait.
+/// The outer and inner edges of a `width`-thick stroke around `rect`. A
+/// `Center` stroke of odd width puts the extra pixel **inside**.
 fn stroke_edges(
     rect: Rect,
     width: u32,
@@ -110,10 +98,8 @@ pub fn fill<T: Blitter>(
     cx.rect(rect, color)
 }
 
-/// A styled rectangle: the fill, then the stroke as four bands.
-///
-/// Bands rather than four `line` calls, because each band is a rect and a rect
-/// is whole rows — a 1 px border on a 240-wide frame is 2 spans plus 2·h, not
+/// A styled rectangle: the fill, then the stroke as four bands. Bands rather
+/// than lines — a 1 px border on a 240-wide frame is 2 spans plus 2·h, not
 /// 2·240 pixels.
 pub fn rect<T: Blitter>(
     cx: &mut RasterCtx<'_, T>,
@@ -133,8 +119,7 @@ pub fn rect<T: Blitter>(
     let Some((stroke_color, _)) = stroke else { return };
 
     if inner.is_zero_sized() {
-        // The stroke swallowed the shape — one solid rect, not four bands with
-        // a negative middle.
+        // The stroke swallowed the shape: one solid rect.
         cx.rect(outer, stroke_color);
         return;
     }
@@ -144,8 +129,7 @@ pub fn rect<T: Blitter>(
     let (ix, iy) = (inner.top_left.x, inner.top_left.y);
     let (iw, ih) = (inner.size.width, inner.size.height);
 
-    // Top and bottom span the full width; left and right fill only the gap
-    // between them, so no pixel is written twice.
+    // Left and right fill only the gap, so no pixel is written twice.
     cx.rect(
         Rect::new(Point::new(ox, oy), Size::new(ow, (iy - oy) as u32)),
         stroke_color,
@@ -170,14 +154,12 @@ pub fn rect<T: Blitter>(
     );
 }
 
-/// A straight line of `stroke_width`, centred on the segment.
+/// A straight line of `stroke_width`, centred on the segment. A line has no
+/// interior, so `style.fill` is ignored.
 ///
-/// Stroke-only: a line has no interior, so `style.fill` is ignored.
-///
-/// **Axis-aligned lines take a rect path**, and that is not a micro-optimization
-/// — borders, separators, dividers, scrollbar tracks and table rules are most of
-/// the lines a UI draws, and each is one `fill_rect` here against `length ×
-/// width` pixels through the general path.
+/// Axis-aligned lines take a rect path — borders, separators and dividers are
+/// most of the lines a UI draws, and each is one `fill_rect` rather than
+/// `length × width` pixels.
 pub fn line<T: Blitter>(
     cx: &mut RasterCtx<'_, T>,
     from: Point,
@@ -206,12 +188,9 @@ pub fn line<T: Blitter>(
         return;
     }
 
-    // Bresenham, emitting a `width`-thick run perpendicular to the major axis.
-    // On a steep line that run is horizontal, so it is one span; on a shallow
-    // one it is vertical, so it is `width` pixels. Thickening perpendicular to
-    // the major axis rather than truly perpendicular to the line is the classic
-    // approximation: it narrows a diagonal stroke by up to √2, and correcting it
-    // is stroke-outline work that belongs to `RsactRasterizer`.
+    // Bresenham, thickened perpendicular to the MAJOR AXIS rather than to the
+    // line, which narrows a diagonal stroke by up to √2. Correcting that is
+    // stroke-outline work.
     let dx = (to.x - from.x).abs();
     let dy = (to.y - from.y).abs();
     let sx = if from.x < to.x { 1 } else { -1 };
@@ -246,18 +225,9 @@ pub fn line<T: Blitter>(
 
 /// A closed polygon: a winding-rule fill, then its edges.
 ///
-/// The fill is `O(w·h·edges)` — it tests every pixel of the bounding box against
-/// a winding number. **This is the algorithm that was already in the tree**
-/// (`eg/primitives/polygon.rs`), unreachable because `Renderer::polygon` logged
-/// and skipped instead of calling it; relocating it here is what finally gives
-/// `polygon` a body. A scanline fill emitting spans is the natural rewrite under
-/// this protocol, but mixing an algorithm change into a mechanical PR is how a
-/// refactor stops being reviewable — and this already draws where the previous
-/// arrangement drew nothing.
-///
-/// One thing it does take: the scan is bounded by `cx.clip()`, not by the
-/// polygon's own box. That is the "advisory" row of `RasterCtx`'s table, and
-/// here it is free.
+/// The fill is `O(w·h·edges)`, testing every pixel of the bounding box against a
+/// winding number; a scanline fill emitting spans is the natural rewrite. The
+/// scan is bounded by `cx.clip()` rather than the polygon's own box.
 pub fn polygon<T: Blitter>(
     cx: &mut RasterCtx<'_, T>,
     points: &[Point],
@@ -273,17 +243,9 @@ pub fn polygon<T: Blitter>(
     }
 }
 
-/// A path: fill each subpath, then stroke it.
-///
-/// # ISSUE-7 is fixed here
-///
-/// `EGRenderer::path` had three defects in one match arm, all of them in
-/// `ArcTo`: it computed the arc's box from `current_pos` instead of the
-/// segment's own `center`, it never advanced `current_pos` past the arc, and it
-/// ignored `Close` entirely. `Path` is Checkbox's check icon, so all three were
-/// live. Flattening resolves them by construction — the arc is generated about
-/// its stated centre, the cursor is the last point emitted, and `Close` ends a
-/// subpath.
+/// A path: fill each subpath, then stroke it. Flattening first is what keeps
+/// `ArcTo` honest — the arc is generated about its stated centre and the cursor
+/// is the last point emitted.
 pub fn path<T: Blitter>(
     cx: &mut RasterCtx<'_, T>,
     path: &Path,
@@ -367,9 +329,8 @@ pub fn ellipse<T: Blitter>(
         bounding_box.top_left.x + (bounding_box.size.width / 2) as i32,
         bounding_box.top_left.y + (bounding_box.size.height / 2) as i32,
     );
-    // One point short of a full turn: the closing edge is supplied by `polygon`,
-    // and a duplicated first/last vertex is a zero-length edge the winding test
-    // has to step over.
+    // One point short of a full turn: `polygon` closes it, and a duplicated
+    // vertex would be a zero-length edge for the winding test to step over.
     let mut points =
         arc_points(center, rx, ry, Angle::ZERO, Angle::FULL_CIRCLE);
     points.pop();
@@ -378,9 +339,8 @@ pub fn ellipse<T: Blitter>(
 
 /// A rectangle with elliptical corners.
 ///
-/// The outline is walked once — edge, corner arc, edge, corner arc — and handed
-/// to [`polygon`], so fill and stroke come out of the same geometry and cannot
-/// disagree about where the corner is.
+/// Walked once — edge, corner arc, edge, corner arc — and handed to [`polygon`],
+/// so fill and stroke cannot disagree about where a corner is.
 pub fn rounded_rect<T: Blitter>(
     cx: &mut RasterCtx<'_, T>,
     rect: Rect,
@@ -397,9 +357,7 @@ pub fn rounded_rect<T: Blitter>(
     let quarter = Angle::QUARTER_CIRCLE;
     let mut points = Vec::new();
 
-    // Clockwise from the top edge. Each corner's arc is generated about the
-    // centre of its own radius ellipse, which is what keeps a non-uniform
-    // `CornerRadii` honest.
+    // Clockwise from the top edge, each corner about its own radius ellipse.
     let corner =
         |points: &mut Vec<Point>, cx_: i32, cy_: i32, r: Size, from: f32| {
             if r.width == 0 || r.height == 0 {
@@ -457,16 +415,13 @@ pub fn rounded_rect<T: Blitter>(
 /// per pixel** — what tiny-skia's `PixmapRef::from_bytes` wants, and the only
 /// layout anything in the crate currently assumes.
 ///
-/// TODO (ISSUE-8): the bytes should instead be the color's own storage — two
-/// per pixel for Rgb565, packed bits for `BinaryColor`, which is what the
-/// `PhantomData<C>` is for and what makes a splash screen 7 KiB rather than
-/// 225 KiB on a mono panel. Changing it breaks the tiny-skia path, needs a
-/// bound to state the layout, and needs an answer about alpha.
+/// TODO (ISSUE-8): they should be the color's own storage — two bytes per pixel
+/// for Rgb565, packed bits for `BinaryColor` — which makes a splash screen 7 KiB
+/// rather than 225 KiB on a mono panel. Changing it breaks the tiny-skia path
+/// and needs an answer about alpha.
 ///
-/// Alpha is un-premultiplied and then **dropped**: `Color::from_rgba` takes it,
-/// every implementation ignores it, and the span protocol has no per-pixel alpha
-/// (`blend_span` carries one color and a coverage run). Per-pixel compositing is
-/// a capability, not geometry, and does not belong on this trait.
+/// Alpha is un-premultiplied and then **dropped**: the span protocol has no
+/// per-pixel alpha, `blend_span` carrying one color and a coverage run.
 pub fn image<T: Blitter>(
     cx: &mut RasterCtx<'_, T>,
     image: DrawImage<'_, T::Color>,
@@ -479,8 +434,7 @@ pub fn image<T: Blitter>(
     }
 
     let origin = image.position();
-    // One allocation for the whole call, reused per row — a row of decoded
-    // colors is what `fill_run` wants and what `Span::clip_to`'s offset indexes.
+    // One allocation, reused per row, which is what `fill_run` wants.
     let mut row: Vec<T::Color> = Vec::with_capacity(w);
 
     for y in 0..h {

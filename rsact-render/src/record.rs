@@ -1,12 +1,11 @@
 //! A [`Renderer`] that records the draw operations it is asked to perform.
 //!
-//! Unlike [`NullRenderer`](crate::renderer::NullRenderer), a pure no-op, this
-//! keeps an ordered log of every primitive and clip region, so a test can assert
-//! *what* was drawn and *where* — which a finished image cannot show, looking
-//! identical whether one rect or the whole screen was repainted.
+//! Lets a test assert *what* was drawn and *where*, which a finished image
+//! cannot show — it looks identical whether one rect or the whole screen was
+//! repainted.
 //!
-//! The log is **geometry-only and color-agnostic**, so it is deterministic and
-//! works with any [`Color`]. Use a pixel snapshot to check colors.
+//! The log is **geometry-only and color-agnostic**. Use a pixel snapshot to
+//! check colors.
 
 use crate::{
     color::Color,
@@ -46,15 +45,13 @@ pub enum DrawOp {
         top_left: Point,
         diameter: u32,
     },
-    /// `bounds` is the polygon's own bounding box: the individual points are not
-    /// kept (the log is a *count* of primitives, not a copy of their input), but
-    /// the extent is, because the [`Self::bounds`] contract needs it.
+    /// The points are not kept, only their bounding box, which is what
+    /// [`Self::bounds`] needs.
     Polygon {
         points: usize,
         bounds: Rect,
     },
-    /// Ditto — [`Path::bounds`] at record time, so the log stays `Copy` and
-    /// allocation-free while remaining geometrically checkable.
+    /// Ditto: [`Path::bounds`] at record time keeps the log `Copy`.
     Path {
         bounds: Rect,
     },
@@ -67,23 +64,13 @@ impl DrawOp {
     /// The conservative pixel bound of what this op draws, or `None` for an op
     /// that draws nothing.
     ///
-    /// **This is the culling contract**, and it runs one way: *if* this bound
-    /// intersects a region, a renderer replaying the frame region by region
-    /// **must** emit the op there. A culler may skip a region the bound misses;
-    /// it may never skip one the bound hits. Any geometric cull must stay the
-    /// same predicate — a tighter one would pass review and fail on screen.
+    /// **The culling contract**, one-way: a culler may skip a region this bound
+    /// misses, never one it hits.
     ///
-    /// Two imprecisions set the limits of what a check over this can prove:
-    ///
-    /// - **`None` means bookkeeping, not "everywhere".** Only [`Self::Clip`]
-    ///   returns it, and a clip paints nothing, so a *lost* clip is invisible
-    ///   here — that failure mode is over-painting, which pixel snapshots catch.
-    /// - **Stroke width is not recorded**, so a stroked primitive paints up to
-    ///   `stroke_width / 2` outside its geometry and the bound
-    ///   *under*-approximates by that margin. Recording style would fix it, at
-    ///   the cost of the determinism that makes this log worth having.
-    ///
-    /// [`Path::bounds`]: crate::path::Path::bounds
+    /// Two imprecisions bound what a check over it can prove. `None` means
+    /// bookkeeping rather than "everywhere" — only [`Self::Clip`] returns it, so
+    /// a *lost* clip is invisible here. And stroke width is not recorded, so a
+    /// stroked primitive paints up to `stroke_width / 2` outside this.
     pub fn bounds(&self) -> Option<Rect> {
         // A `diameter`-wide primitive anchored at its top-left corner.
         let square = |top_left: Point, diameter: u32| {
@@ -91,7 +78,7 @@ impl DrawOp {
         };
 
         match *self {
-            // Bookkeeping, not drawing — see the note above.
+            // Bookkeeping, not drawing.
             DrawOp::Clip(_) => None,
             DrawOp::FillSolid(rect)
             | DrawOp::Rect(rect)
@@ -103,7 +90,7 @@ impl DrawOp {
             DrawOp::Pixel(point) => Some(Rect::new(point, Size::new_equal(1))),
             DrawOp::Line { from, to } => Some(Rect::new(
                 Point::new(from.x.min(to.x), from.y.min(to.y)),
-                // Inclusive endpoints, exclusive rect edge — hence `+ 1`, so a
+                // Inclusive endpoints against an exclusive rect edge, so a
                 // horizontal line is 1 pixel tall rather than zero-area.
                 Size::new(
                     (from.x.max(to.x) - from.x.min(to.x) + 1) as u32,
@@ -120,13 +107,11 @@ impl DrawOp {
 }
 
 impl fmt::Display for DrawOp {
-    /// A stable, one-op-per-line textual form for golden comparison. Formatted
-    /// by hand (not via the geometry types' own `Display`) so the golden format
-    /// is under this module's control and can't drift if `Rect`/`Point` change
-    /// how they print. A `Rect` renders as `x,y WxH`, a `Point` as `x,y`.
+    /// One op per line, for golden comparison: a `Rect` renders as `x,y WxH`,
+    /// a `Point` as `x,y`. Formatted by hand so the golden format cannot drift
+    /// with the geometry types' own `Display`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Local formatters — a `Rect`/`Point` argument would need its own
-        // wrapper type to reuse across arms, so inline closures keep it simple.
+        // Inline closures: reusing these across arms would need a wrapper.
         let rect = |f: &mut fmt::Formatter<'_>, r: Rect| {
             write!(
                 f,
@@ -183,10 +168,8 @@ impl fmt::Display for DrawOp {
                 point(f, top_left)?;
                 write!(f, " d={diameter}")
             },
-            // Print the bound for the three ops whose own line carries no
-            // position at all. Without it `Path` logs as the bare word "Path",
-            // and a golden cannot tell a correctly placed check-icon from a
-            // displaced one.
+            // These three carry no position of their own, so without the
+            // bound a golden cannot tell a placed icon from a displaced one.
             DrawOp::Polygon { points, bounds } => {
                 write!(f, "Polygon n={points} ")?;
                 rect(f, bounds)
@@ -203,10 +186,8 @@ impl fmt::Display for DrawOp {
     }
 }
 
-/// Serialise a draw-op log to the stable, newline-terminated, one-op-per-line
-/// text used as the golden content (see [`DrawOp`]'s `Display`). This is the
-/// draw-call side of the golden harness: the exact primitives + positions a
-/// render pass emitted, comparable across runs and color-agnostic.
+/// Serialise a draw-op log to the newline-terminated text used as golden
+/// content — see [`DrawOp`]'s `Display`.
 pub fn format_ops(ops: &[DrawOp]) -> String {
     use fmt::Write as _;
     let mut out = String::new();
@@ -217,26 +198,18 @@ pub fn format_ops(ops: &[DrawOp]) -> String {
     out
 }
 
-/// A [`Renderer`] that logs its draw operations for golden tests. Cheap to clone
-/// — clones share one log (`Rc<RefCell<..>>`), so a copy handed to the render
-/// pass records into the same buffer the test reads.
+/// A [`Renderer`] that logs its draw operations. Clones share one log, so a
+/// copy handed to the render pass records into the buffer the test reads.
 /// `P` is the [frame policy](crate::region::FramePolicy) this recorder reports,
 /// defaulting to [`Unbounded`](crate::region::Unbounded).
 ///
-/// A recorder has no surface, so no policy is forced on it — but the frame
-/// planner reads the policy from the *renderer type*, and a harness measuring
-/// how a schedule behaves under `Tiles<240, 24>` needs a renderer that asks for
-/// `Tiles<240, 24>`. Making it a parameter is what lets one recorder stand in
-/// for any target's region bound while still recording every op, unclipped and
-/// unchunked by any real storage.
+/// A recorder has no surface, so the parameter lets it stand in for any
+/// target's region bound while still recording every op.
 pub struct RecordingRenderer<C, P = crate::region::Unbounded> {
     size: Size,
     ops: Rc<RefCell<Vec<DrawOp>>>,
-    /// A real clip stack, so [`Renderer::clip_bounds`] can report the
-    /// effective clip. The recorder does not *apply* clips (it records what the
-    /// drawing code asked for, which is the measurement), but culling reads the
-    /// clip, so the harness would see `None` and cull nothing without this.
-    /// Shared with clones, like the log.
+    /// A real clip stack, so [`Renderer::clip_bounds`] reports something a
+    /// culler can use. Clips are recorded, not applied. Shared with clones.
     clips: Rc<RefCell<Vec<Rect>>>,
     _color: PhantomData<C>,
     _policy: PhantomData<P>,
@@ -279,7 +252,7 @@ impl<C, P> RecordingRenderer<C, P> {
         self.ops.borrow().is_empty()
     }
 
-    /// Drop the log (e.g. between frames, to record just the next one).
+    /// Drop the log, to record just the next frame.
     pub fn clear(&self) {
         self.ops.borrow_mut().clear();
     }
@@ -288,14 +261,10 @@ impl<C, P> RecordingRenderer<C, P> {
         self.ops.borrow_mut().push(op);
     }
 
-    /// The effective clip — the top of the stack, which `push_clip` keeps
-    /// intersected with its parent.
-    ///
-    /// The root is the recorder's own extent rather than "no clip", so a
-    /// harness measuring a full-frame capture sees the same cull rect a real
-    /// backend would report.
+    /// The effective clip: the top of the stack, whose root is the recorder's
+    /// own extent so a full-frame capture reports what a real backend would.
     fn current_clip(&self) -> Rect {
-        // The stack is created non-empty and `pop_clip` never empties it.
+        // Non-empty by construction; `pop_clip` never empties it.
         self.clips
             .borrow()
             .last()
@@ -304,10 +273,8 @@ impl<C, P> RecordingRenderer<C, P> {
     }
 }
 
-/// The bounding box of a point set — the recorded extent of a polygon, whose
-/// individual points the log does not keep. Empty input has no extent, and a
-/// zero-sized rect intersects nothing, which is the right answer for a primitive
-/// that draws nothing.
+/// The bounding box of a point set. `None` for empty input, which draws
+/// nothing.
 fn points_bounds(points: &[Point]) -> Rect {
     let Some(first) = points.first() else {
         return Rect::zero();
@@ -329,9 +296,7 @@ impl<C: Color, P: crate::region::FramePolicy> Renderer
 {
     type Color = C;
 
-    /// Whatever policy the harness asked for — see the type's own docs. The
-    /// recorder never chunks anything itself, so what a test observes is exactly
-    /// the schedule the planner chose under that policy.
+    /// Whatever the harness asked for; the recorder never chunks anything.
     type Policy = P;
 
     fn size(&self) -> Size {
@@ -339,25 +304,17 @@ impl<C: Color, P: crate::region::FramePolicy> Renderer
     }
 
     fn push_clip(&mut self, area: Rect) {
-        // The log records what the drawing code ASKED for; the stack stores the
-        // narrowed rect. Those are deliberately different: the op log is a
-        // measurement of the widget layer's requests, while `clip_bounds` has to
-        // report the rect actually in force (the top IS the effective
-        // clip, which is what makes reading it for culling exact).
+        // The log records what was ASKED for; the stack stores the narrowed
+        // rect, which is what `clip_bounds` must report.
         self.push(DrawOp::Clip(area));
         let nested = area.intersection(&self.current_clip());
         self.clips.borrow_mut().push(nested);
     }
 
-    // Deliberately records NOTHING. The op log is a linear
-    // trace in which a `Clip` applies to the ops that follow it, so emitting an
-    // "unclip" marker would change every golden for no information gain —
-    // the previous closure form recorded no end marker either. If 6.4a's
-    // tile-invariance check ever needs clip *scope* rather than clip *order*,
-    // add the marker there and bless the goldens in the same commit.
+    // Records NOTHING: the log is a linear trace in which a `Clip` applies to
+    // the ops that follow it, so an "unclip" marker would add no information.
     fn pop_clip(&mut self) {
-        // Never pops the root, like every other holder: an unbalanced pop must
-        // degrade, not leave the renderer with no clip at all.
+        // Never pops the root: an unbalanced pop must degrade.
         let mut clips = self.clips.borrow_mut();
         if clips.len() > 1 {
             clips.pop();
@@ -467,8 +424,7 @@ impl<C: Color, P: crate::region::FramePolicy> Renderer
         path: &Path,
         _style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        // A path that reaches no point draws nothing; `Rect::zero` is exactly
-        // that in bound form (it intersects no region).
+        // Draws nothing, and `Rect::zero` intersects no region.
         self.push(DrawOp::Path {
             bounds: path.bounds().unwrap_or(Rect::zero()),
         });
@@ -490,11 +446,9 @@ mod tests {
         Rect::new(Point::new(x, y), Size::new(w, h))
     }
 
-    /// The recorder does not *apply* clips — it records what the drawing
-    /// code asked for, which is the measurement — but it must still *report* the
-    /// effective clip, because that is what culling reads. Without a real stack
-    /// here the tile harness would see `None`, cull nothing, and silently measure
-    /// the un-culled cost as though it were the culled one.
+    /// The recorder records clips rather than applying them, but must still
+    /// *report* the effective one — a harness that saw `None` would cull nothing
+    /// and measure the un-culled cost as though it were culled.
     #[test]
     fn clip_bounds_reports_the_effective_clip() {
         let mut rec = RecordingRenderer::<NullColor>::new(Size::new_equal(64));
@@ -528,10 +482,9 @@ mod tests {
         );
     }
 
-    /// A renderer that does not report a clip must disable culling, not enable it
-    /// with a zero rect: `NullRenderer::size()` is `Size::zero()`, so a default of
-    /// `Rect::new(zero, size())` would read as "clips everything away" and cull
-    /// every widget on every headless page.
+    /// A renderer that reports no clip must disable culling, not enable it with
+    /// a zero rect — `NullRenderer::size()` is zero, which would read as "clips
+    /// everything away".
     #[test]
     fn a_non_reporting_renderer_disables_culling() {
         use crate::renderer::NullRenderer;
@@ -559,13 +512,8 @@ mod tests {
         rec.fill_solid(r(2, 2, 3, 3), NullColor).unwrap();
         rec.pop_clip();
 
-        // The clip region is logged before the ops that drew inside it — this is
-        // what lets a test assert "drawing was confined to the damage rect".
-        //
-        // `pop_clip` deliberately records nothing, so this log — and every
-        // golden — is byte-identical to the closure-based form
-        // it replaces. The trace is linear: a `Clip` applies to the ops that
-        // follow it.
+        // The clip is logged before the ops it applies to, which is what lets
+        // a test assert "drawing was confined to the damage rect".
         assert_eq!(
             rec.ops(),
             [DrawOp::Clip(r(1, 1, 8, 8)), DrawOp::FillSolid(r(2, 2, 3, 3))]
@@ -610,11 +558,8 @@ Image 0,0 16x16
         );
     }
 
-    /// [`DrawOp::bounds`] is the culling contract, so the arithmetic that
-    /// derives a bound from a primitive's own anchor is pinned here. The three
-    /// cases that are easy to get wrong: an inclusive-endpoint line must not
-    /// collapse to zero area, a `Pixel` covers exactly one, and a `Clip` carries
-    /// no obligation at all.
+    /// The three bounds easy to get wrong: an inclusive-endpoint line must not
+    /// collapse to zero area, a `Pixel` covers exactly one, and a `Clip` none.
     #[test]
     fn bounds_are_the_conservative_pixel_extent() {
         assert_eq!(
@@ -625,8 +570,7 @@ Image 0,0 16x16
             DrawOp::Pixel(Point::new(7, 9)).bounds(),
             Some(r(7, 9, 1, 1))
         );
-        // A horizontal line is one pixel TALL, not zero-area — a zero-area bound
-        // would intersect no tile and so oblige nobody to draw it.
+        // One pixel tall: a zero-area bound would oblige nobody to draw it.
         assert_eq!(
             DrawOp::Line { from: Point::new(2, 5), to: Point::new(8, 5) }
                 .bounds(),
@@ -647,9 +591,8 @@ Image 0,0 16x16
         assert_eq!(DrawOp::Clip(r(0, 0, 64, 64)).bounds(), None);
     }
 
-    /// A polygon's points are not kept in the log, so its extent must be captured
-    /// at record time — including the inclusive-corner `+1`, without which a
-    /// flat (collinear) polygon would record a zero-area bound.
+    /// A polygon's extent is captured at record time, including the
+    /// inclusive-corner `+1` a collinear polygon needs to be non-empty.
     #[test]
     fn polygon_records_its_extent_not_its_points() {
         let mut rec = RecordingRenderer::<NullColor>::new(Size::new_equal(64));

@@ -1,14 +1,11 @@
 //! The blessed-reference machinery behind the render tests.
 //!
-//! A *golden* is a committed reference file. A test produces current output — a
-//! [`format_ops`](crate::record::format_ops) draw-call log, or an encoded PNG —
-//! and asserts it equals the golden. When the output legitimately changes,
-//! re-running with `UPDATE_GOLDENS=1` rewrites the golden instead of failing, so
-//! a render change is reviewed as a diff of that file.
+//! A test asserts its output equals a committed reference file. Re-running with
+//! `UPDATE_GOLDENS=1` rewrites that file instead of failing, so a render change
+//! is reviewed as a diff.
 //!
-//! `std`-gated for the file I/O. Each caller passes its own
-//! `env!("CARGO_MANIFEST_DIR")`, so goldens live under that crate's
-//! `tests/goldens/`.
+//! Each caller passes its own `env!("CARGO_MANIFEST_DIR")`, so goldens live
+//! under that crate's `tests/goldens/`.
 
 use alloc::string::String;
 use std::{fs, path::PathBuf};
@@ -27,8 +24,7 @@ fn blessing() -> bool {
     std::env::var("UPDATE_GOLDENS").ok().as_deref() == Some("1")
 }
 
-/// Write `bytes` to `path`, creating `tests/goldens/` if needed. Used by the
-/// bless path of both asserts.
+/// Write `bytes` to `path`, creating `tests/goldens/` if needed.
 fn bless(path: &PathBuf, bytes: &[u8]) {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).unwrap_or_else(|e| {

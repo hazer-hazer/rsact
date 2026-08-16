@@ -1,16 +1,12 @@
 //! Packed pixel storage, independent of any backend.
 //!
 //! [`PackedColor`] says how a color packs into a storage word,
-//! [`FramebufStorage`] is a caller-owned buffer, and [`Framebuf`] is the
-//! addressing arithmetic over the two. The embedded-graphics half — the
-//! `PackedColor` impls for its color types, and the `DrawTarget` impl that lets
-//! a `Framebuf` *be* a draw target — lives in `eg/framebuf.rs`.
+//! [`FramebufStorage`] is a caller-owned buffer, and [`Framebuf`] addresses one
+//! through the other. The embedded-graphics impls are in `eg/framebuf.rs`.
 //!
-//! **No `embedded_graphics` import may appear here, not even in a doctest.** A
-//! doctest compiles as its own crate against whatever features the test command
-//! enabled, so one naming an optional dependency breaks `cargo test --features
-//! std`. That is why [`units_for`]'s example is a `text` block with a unit test
-//! behind it.
+//! **No `embedded_graphics` import may appear here, not even in a doctest** — a
+//! doctest compiles as its own crate, so naming an optional dependency breaks
+//! `cargo test --features std`.
 
 use crate::{
     color::Color,
@@ -20,11 +16,9 @@ use crate::{
 pub trait PackedColor {
     type Storage: Clone + Send + Sync + 'static;
 
-    /// Pixels per storage unit — 8 for a 1-bit color in a `u8`, 1 for a color
-    /// with a word of its own.
-    ///
-    /// A const rather than only a method: the capacity proof needs it inside
-    /// `const { assert!(..) }`, and a trait method cannot be called there.
+    /// Pixels per storage unit: 8 for a 1-bit color in a `u8`, 1 for a color
+    /// with a word of its own. A const so the capacity proof can use it inside
+    /// `const { assert!(..) }`.
     const PPS: usize;
 
     /// Method form of [`PPS`](PackedColor::PPS). Do not override.
@@ -37,11 +31,9 @@ pub trait PackedColor {
     fn as_color(packed: &Self::Storage, offset: usize) -> Self;
     fn set_color(packed: &mut Self::Storage, offset: usize, color: Self);
 
-    /// A storage word holding `pps` copies of `color` (mono: `0x00`/`0xFF`;
-    /// one-pixel-per-word colors: the pixel itself).
-    ///
-    /// [`Framebuf::fill_solid`] `slice::fill`s with it. Only whole words are
-    /// filled that way, so partial edge words are not this method's problem.
+    /// A storage word holding `pps` copies of `color` — `0x00`/`0xFF` for mono,
+    /// the pixel itself where a word holds one. [`Framebuf::fill_solid`]
+    /// `slice::fill`s whole words with it; edge words go through `set_color`.
     fn solid_storage(color: Self) -> Self::Storage;
 }
 
@@ -52,50 +44,36 @@ pub trait PackedColor {
 /// Units of `C::Storage` needed to hold a `w × h` region, **including row
 /// padding**.
 ///
-/// Rows pad to a whole number of storage units, which is what makes sub-byte
-/// packing correct: a 122-pixel 1-bpp row occupies 16 bytes, not 15.25.
+/// Rows pad to whole units, which is what makes sub-byte packing correct: a
+/// 122-pixel 1-bpp row occupies 16 bytes, not 15.25.
 ///
 /// ```text
 /// units_for::<Rgb565>(240, 24)      == 5760   // one unit per pixel
 /// units_for::<BinaryColor>(122, 24) == 384    // 1-bpp: 16 bytes per row
 /// ```
 ///
-/// (A `text` block, not a doctest: this module must not name
-/// embedded-graphics. Both equalities are asserted in [`region_units`]'s
-/// doctest and in this module's tests.)
-///
-/// [`region_units`]: crate::renderer::region_units
+/// (`text` and not a doctest: this module must not name embedded-graphics.)
 pub const fn units_for<C: PackedColor>(w: u32, h: u32) -> usize {
     crate::renderer::region_units(w, h, C::PPS)
 }
 
-/// A caller-owned buffer the renderer can draw into — **capacity plus access**.
+/// A caller-owned buffer a renderer can draw into: capacity plus access.
 ///
-/// rsact never holds one. The user lends it to a renderer and takes it back
-/// with `detach`. The loan is a move in and a move out rather than a
-/// `&'a mut [T]` field, because rsact-ui's `WidgetCtx` is `'static` and so rules
-/// out a renderer with a lifetime parameter — and because DMA needs it: a
-/// borrow the core could still write through is UB.
+/// Lent by moving in and taken back by moving out, rather than borrowed — a
+/// renderer cannot carry a lifetime parameter, and DMA needs ownership anyway.
 pub trait FramebufStorage<C: PackedColor> {
-    /// Capacity in storage units when the **type** knows it, `None` when only
-    /// the value does.
+    /// Capacity when the **type** knows it — `Some(N)` for a fixed-size array,
+    /// making a policy violation a compile error — and `None` for a slice,
+    /// checked at `attach` instead.
     ///
-    /// `Some(N)` for a fixed-size array, which is what makes a policy violation
-    /// a compile error; `None` for a slice, whose length is a runtime fact and
-    /// is checked at `attach` instead.
-    ///
-    /// **`None` means "ask the value", never "unbounded".** Spelling the
-    /// unknown case as `usize::MAX` instead reads as "always big enough" and
-    /// bypasses the proof entirely — an empty `Box<[u16]>` then satisfies
-    /// `assert_policy_fits::<Tiles<240, 240>>` at compile time.
+    /// **`None` means "ask the value", never "unbounded".**
     const UNITS: Option<usize>;
 
     fn units(&self) -> &[C::Storage];
     fn units_mut(&mut self) -> &mut [C::Storage];
 
-    /// This buffer's real capacity, in storage units. Always available, unlike
-    /// [`UNITS`](Self::UNITS) — a slice knows its own length even when its type
-    /// does not.
+    /// This buffer's real capacity. Always available, unlike
+    /// [`UNITS`](Self::UNITS).
     fn unit_count(&self) -> usize {
         self.units().len()
     }
@@ -103,14 +81,9 @@ pub trait FramebufStorage<C: PackedColor> {
 
 macro_rules! native_framebuf_storage {
     ($($storage:ty),* $(,)?) => {$(
-        // ── Statically-sized, and BORROWED ────────────────────────────────
-        //
-        // `&mut [T; N]` rather than `[T; N]`: the extent stays in the type, so
-        // a policy violation is still a compile error, but the loan is a
-        // pointer. `attach`/`detach` move `B` by value, so an owned array would
-        // memcpy the whole framebuffer twice per region — on the path that
-        // exists to avoid copying it. `&'static mut` is also what a
-        // `StaticCell` yields, which is where a device's buffer wants to live.
+        // `&mut [T; N]` rather than `[T; N]`: the extent stays in the type but
+        // the loan is a pointer. `attach`/`detach` move `B` by value, so an
+        // owned array would memcpy the framebuffer twice per region.
         impl<C: PackedColor<Storage = $storage>, const N: usize> FramebufStorage<C>
             for &mut [$storage; N]
         {
@@ -120,11 +93,7 @@ macro_rules! native_framebuf_storage {
             fn units_mut(&mut self) -> &mut [$storage] { &mut self[..] }
         }
 
-        // ── Runtime-sized ─────────────────────────────────────────────────
-        //
-        // The same loan without a compile-time extent, for a buffer whose size
-        // is decided at run time: a `Vec`/`Box` on a host, a runtime-carved
-        // region of SDRAM on a device. Checked at `attach` instead.
+        // Runtime-sized: checked at `attach` instead of at compile time.
         impl<C: PackedColor<Storage = $storage>> FramebufStorage<C>
             for &mut [$storage]
         {
@@ -134,34 +103,24 @@ macro_rules! native_framebuf_storage {
             fn units_mut(&mut self) -> &mut [$storage] { self }
         }
 
-        // NOTE: no impl for `Box<[T]>`. A boxed slice reaches the impl above
-        // through `&mut boxed[..]`, and a trait implemented for owned buffers
-        // would invite moving one per hand-off.
+        // NOTE: no impl for `Box<[T]>` — reach the one above via
+        // `&mut boxed[..]`. Owned storage would be moved per hand-off.
     )*};
 }
 
-// Keyed by storage type, so each impl targets a distinct `Self` and coherence
-// holds without any negative reasoning.
+// Keyed by storage type, so each impl targets a distinct `Self`.
 native_framebuf_storage!(u8, u16, u32);
 
-// TODO (transport, roadmap 6.7): a byte-buffer view, so an RGB565 tile can be
-// handed to SPI as bytes. It needs a newtype — `FramebufStorage<C: …Storage =
-// u8>` and `<C: …Storage = u16>` for `[u8; N]` are E0119 conflicting impls,
-// since Rust cannot see that a color's `Storage` is only ever one of them — and
-// that newtype must make alignment true rather than assumed (`#[repr(align)]`,
-// or a constructor that rejects a misaligned slice) before it can hand out
-// `&mut [u16]` over a byte array.
+// TODO (transport): a byte-buffer view, so an RGB565 tile can go to SPI as
+// bytes. Needs a newtype — the two `FramebufStorage` impls for `[u8; N]` are
+// E0119 conflicting — and that newtype must guarantee alignment before it can
+// hand out `&mut [u16]` over a byte array.
 
-/// A packed pixel buffer that addresses an arbitrary rect of the screen.
+/// A packed pixel buffer addressing an arbitrary rect of the screen.
 ///
-/// The rect is not fixed: `viewport` is the region the buffer currently stands
-/// for, in **absolute** screen coordinates, and its width is the stride — so one
-/// allocation of `N` units serves any region needing at most `N` (see
-/// `retarget`). A full-frame buffer is the degenerate case.
-///
-/// Working in absolute coordinates is what makes that cheap:
-/// [`flat_index`](Self::flat_index) resolves a point against `viewport`, so no
-/// caller translates by hand.
+/// Its `viewport` is that rect, in **absolute** coordinates, and its width is
+/// the stride — so one allocation of `N` units serves any region needing at most
+/// `N`. Every method takes absolute coordinates and resolves them against it.
 pub struct Framebuf<C: Color + PackedColor, B: FramebufStorage<C>> {
     viewport: Rect,
     pixels: B,
@@ -270,39 +229,27 @@ impl<C: Color + PackedColor, B: FramebufStorage<C>> Framebuf<C, B> {
         }
     }
 
-    // A framebuffer knows how to *be* read, not where its contents should go:
-    // to flush a detached buffer, walk rows at `viewport().size.width` and
-    // convert with `PackedColor::as_color` — what a DMA burst does with a
-    // `CASET`/`RASET` window, and what the host tests do to compare frames.
+    // To flush a detached buffer, walk rows at `viewport().size.width` and
+    // convert with `PackedColor::as_color`.
 
     /// Flat pixel index of `point`, in this buffer's own 0-based space.
     ///
-    /// **The single source of truth for addressing.** Every path from a
-    /// coordinate to a storage index goes through this, or through
-    /// [`row_stride`] to step between rows; open-coding `y * width + x` a second
-    /// time means a later change to the origin lands one path in the wrong row
-    /// and leaves the other correct — a plausible image rather than an obvious
-    /// failure.
+    /// **The only place addressing is written** — go through this or through
+    /// [`row_stride`](Self::row_stride), never a second `y * width + x`, or a
+    /// later change to the origin lands one path in the wrong row and leaves
+    /// the other correct.
     ///
-    /// `point` must be inside [`viewport`]: bounds-check with
-    /// [`point_to_subpart`] or clip with [`local_bounds`] first.
-    ///
-    /// [`row_stride`]: Self::row_stride
-    /// [`viewport`]: Self::viewport
-    /// [`point_to_subpart`]: Self::point_to_subpart
-    /// [`local_bounds`]: Self::local_bounds
+    /// `point` must be inside the viewport: bounds-check with
+    /// [`point_to_subpart`](Self::point_to_subpart) or clip with
+    /// [`local_bounds`](Self::local_bounds) first.
     pub fn flat_index(&self, point: Point) -> usize {
         let viewport = self.viewport();
         let local = point - viewport.top_left;
         local.y as usize * viewport.size.width as usize + local.x as usize
     }
 
-    /// Flat-index distance between vertically adjacent pixels — i.e. one row.
-    /// A buffer's own width *is* its stride, so this derives from [`viewport`]
-    /// like [`flat_index`] does.
-    ///
-    /// [`viewport`]: Self::viewport
-    /// [`flat_index`]: Self::flat_index
+    /// Flat-index distance between vertically adjacent pixels: the viewport's
+    /// own width, which is the stride.
     pub fn row_stride(&self) -> usize {
         self.viewport().size.width as usize
     }
@@ -327,18 +274,12 @@ impl<C: Color + PackedColor, B: FramebufStorage<C>> Framebuf<C, B> {
 
 impl<C: Color + PackedColor, B: FramebufStorage<C>> Framebuf<C, B> {
     /// Wrap the caller's `buffer`, **aimed at nothing** — a color buffer has
-    /// capacity, not a shape, and only `retarget` gives it
-    /// one. That is the point: a 240×240 RGB565 frame is 57600 units
-    /// (112.5 KiB), while a buffer holding any region up to a 240×24 tile is
-    /// 5760 (11.25 KiB).
+    /// capacity, not a shape. That is what makes it small: a 240×240 RGB565
+    /// frame is 112.5 KiB, a buffer for any region up to a 240×24 tile 11.25.
     ///
-    /// Does not allocate and does not keep the buffer —
-    /// [`into_buffer`](Self::into_buffer) hands it back, so an embedded app can
-    /// keep its tiles in a `StaticCell` pool and lend out `&'static mut` slices.
-    ///
-    /// Infallible: any buffer is a valid buffer of its own size, and "is it big
-    /// enough" is a question about a region or a frame policy, answered by
-    /// `FramebufBlitter::begin_region` and `RasterRenderer::attach`.
+    /// Does not allocate; [`into_buffer`](Self::into_buffer) hands it back.
+    /// Infallible — whether it is big enough is a question about a region or a
+    /// frame policy, answered by `begin_region` and `attach`.
     pub fn new(buffer: B) -> Self {
         Self {
             viewport: Rect::zero(),
@@ -352,24 +293,19 @@ impl<C: Color + PackedColor, B: FramebufStorage<C>> Framebuf<C, B> {
         self.pixels
     }
 
-    /// Storage units this buffer can hold — its capacity, independent of shape.
+    /// Storage units this buffer can hold, independent of shape.
     pub fn capacity_units(&self) -> usize {
         self.pixels.unit_count()
     }
 
     /// Re-aim the buffer at `region` (absolute screen coordinates).
     ///
-    /// The region's **own width becomes the stride**, so the sub-rect is
-    /// contiguous by construction and any shape fitting the capacity works —
-    /// which is what lets a frame policy be a byte budget rather than a
-    /// rectangle.
+    /// The region's own width becomes the stride, so any shape fitting the
+    /// capacity works.
     ///
-    /// Contents are *not* cleared: a tile arrives holding whatever the last one
-    /// left in it, so every region must paint its own background first.
-    ///
-    /// Unchecked. `FramebufBlitter::begin_region` is the only caller and the one
-    /// with a `Result` to return, so it refuses an oversized region there rather
-    /// than panicking here.
+    /// Contents are **not** cleared, so every region must paint its own
+    /// background first. Unchecked — `FramebufBlitter::begin_region` refuses an
+    /// oversized region before calling this.
     pub(crate) fn retarget(&mut self, region: Rect) {
         self.viewport = region;
     }
@@ -448,9 +384,8 @@ mod tests {
     use super::*;
     use crate::geometry::Size;
 
-    /// A 1-bpp color with **no embedded-graphics anywhere**. If this stops
-    /// compiling, `PackedColor` or `Framebuf` has grown a dependency it must
-    /// not have.
+    /// A 1-bpp color with no embedded-graphics anywhere. If this stops
+    /// compiling, this module has grown a dependency it must not have.
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     struct Mono(bool);
 
@@ -515,9 +450,7 @@ mod tests {
         }
     }
 
-    /// The worked example on [`units_for`], as a real check. Rows pad to whole
-    /// storage units, so a 122-pixel 1-bpp row costs 16 bytes and not 15.25 —
-    /// the arithmetic a `size.area() / pps` allocation gets wrong.
+    /// [`units_for`]'s worked example, as a real check.
     #[test]
     fn units_pad_per_row_not_per_area() {
         assert_eq!(units_for::<Mono>(122, 24), 16 * 24);
@@ -527,8 +460,8 @@ mod tests {
     }
 
     /// A mono panel whose width is not a whole number of bytes is
-    /// constructible. Rejecting `area % pps != 0` instead would refuse a real
-    /// 122×250 e-paper panel, whose 30500 pixels are not divisible by 8.
+    /// constructible — a 122×250 e-paper panel has 30500 pixels, not divisible
+    /// by 8.
     #[test]
     fn a_122px_wide_mono_panel_is_addressable() {
         let panel = Rect::new(Point::zero(), Size::new(122, 250));
@@ -540,9 +473,8 @@ mod tests {
         assert!(fb.point_to_subpart(Point::new(121, 249)).is_some());
     }
 
-    /// Capacity is not this type's question: a buffer too small for its region
-    /// is refused by `FramebufBlitter::begin_region`, and one too small for the
-    /// frame policy by `RasterRenderer::attach`.
+    /// Capacity is not this type's question — `begin_region` and `attach` are
+    /// where a too-small buffer is refused.
     #[test]
     fn capacity_is_not_this_types_question() {
         let mut buf = alloc::vec![0u8; 10];

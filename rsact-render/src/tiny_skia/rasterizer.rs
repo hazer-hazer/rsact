@@ -12,23 +12,17 @@ use tiny_skia::{FillRule, Mask, PathBuilder, Stroke, Transform};
 
 /// tiny-skia's scan conversion, producing **coverage** rather than pixels.
 ///
-/// tiny-skia's painting API is fused — `PixmapMut::fill_path` rasterizes and
-/// blends in one call, into a `Pixmap` — so none of it is used here.
-/// [`Mask::fill_path`] is the primitive underneath, and it hands back the
-/// coverage buffer itself. Coverage is therefore produced once and blended once,
-/// in the blitter, and no color is pinned: `impl<T: Blitter> Rasterizer<T>` puts
-/// tiny-skia's anti-aliasing over an Rgb565 framebuffer as readily as over a
-/// `Pixmap`.
+/// Built on [`Mask::fill_path`] rather than tiny-skia's fused painting API, so
+/// coverage is produced once and blended once by the blitter — and no color is
+/// pinned, which puts its anti-aliasing over an Rgb565 framebuffer as readily as
+/// over a `Pixmap`.
 ///
-/// The mask is keyed on the **clip**, the largest rect a primitive may write.
-/// It is grow-only and re-used — a `Mask` is `w·h` bytes, so reallocating one
-/// per primitive would dominate everything else — and rows are read at the
-/// *allocated* width.
+/// The mask is grow-only and keyed on the clip, so rows are read at the
+/// *allocated* width, not the clip's.
 ///
 /// [`fill`](Rasterizer::fill), [`pixel`](Rasterizer::pixel) and
-/// [`image`](Rasterizer::image) are inherited: an axis-aligned rect has no edge
-/// to anti-alias and a decode is not a rasterization, so a coverage buffer and a
-/// per-pixel blend would buy nothing.
+/// [`image`](Rasterizer::image) are inherited — none has an edge to
+/// anti-alias.
 pub struct TinySkiaRasterizer {
     mask: Option<Mask>,
     /// The allocated size: the high-water mark of every clip seen so far.
@@ -52,11 +46,8 @@ impl TinySkiaRasterizer {
         }
     }
 
-    /// Rasterize `path` into the mask and blit its coverage as `color`.
-    ///
-    /// The transform carries absolute coordinates into mask-local ones, so the
-    /// mask's `(0, 0)` is the clip's top-left — which is what lets one buffer
-    /// serve any clip without re-addressing.
+    /// Rasterize `path` into the mask and blit its coverage as `color`. The
+    /// transform puts the clip's top-left at the mask's `(0, 0)`.
     fn emit<T: Blitter>(
         &mut self,
         cx: &mut RasterCtx<'_, T>,
@@ -79,9 +70,8 @@ impl TinySkiaRasterizer {
         }
         let Some(mask) = self.mask.as_mut() else { return };
 
-        // `fill_path` accumulates onto whatever is already there — it is
-        // documented as drawing on top — so the previous primitive's coverage
-        // has to go first, or every shape inherits the last one's edges.
+        // `fill_path` draws on top of existing content, so without this every
+        // shape would inherit the last one's edges.
         mask.clear();
         mask.fill_path(
             path,
@@ -110,12 +100,9 @@ impl TinySkiaRasterizer {
         }
     }
 
-    /// Fill then stroke, each as its own coverage pass.
-    ///
-    /// Two passes rather than one because they are two colors: a mask carries
-    /// coverage, not paint, so a shape that is filled *and* stroked needs one
-    /// mask per color. The stroke pass rasterizes the stroke **outline** — an
-    /// ordinary filled path — which is how tiny-skia strokes internally too.
+    /// Fill then stroke, one coverage pass each — a mask carries coverage, not
+    /// paint, so two colors need two passes. The stroke pass fills the stroke's
+    /// **outline**, which is how tiny-skia strokes internally too.
     fn draw<T: Blitter>(
         &mut self,
         cx: &mut RasterCtx<'_, T>,
@@ -149,8 +136,8 @@ impl<T: Blitter> Rasterizer<T> for TinySkiaRasterizer {
         let mut path = PathBuilder::new();
         path.move_to(from.x as f32, from.y as f32);
         path.line_to(to.x as f32, to.y as f32);
-        // A line has no interior; only the stroke pass can produce anything, and
-        // `Mask::fill_path` refuses a zero-area path anyway.
+        // A line has no interior, so only the stroke pass can produce
+        // anything.
         if let Some(path) = path.finish() {
             self.draw(cx, &path, &DrawStyle { fill: None, ..*style });
         }

@@ -1,9 +1,6 @@
-//! What a [`Framebuf`] needs embedded-graphics for: the [`PackedColor`] impls
-//! for its color types, where the `IntoStorage`/`RawData` conversions live, and
-//! the `Dimensions` + `DrawTarget` impls that let a [`Framebuf`] *be* an
-//! embedded-graphics draw target.
-//!
-//! The framebuffer itself is in [`crate::framebuf`], which depends on nothing.
+//! [`PackedColor`] impls for embedded-graphics' color types, and the
+//! `DrawTarget` impl that lets a [`Framebuf`] *be* a draw target. The
+//! framebuffer itself is in [`crate::framebuf`].
 
 use crate::{
     color::Color,
@@ -100,9 +97,8 @@ impl PackedColor for BinaryColor {
 
         // *packed |= value << (3 - offset) * 2;
 
-        // Clear the target bit before setting it: a plain `|=` can only turn a
-        // pixel On, never back Off, so redrawing On->Off would leave a stale
-        // set bit (ghosting on partial redraw / reused framebuffers).
+        // Clear before setting: a plain `|=` could only turn a pixel On, so
+        // redrawing On->Off would ghost.
         let mask = 1u8 << (7 - offset);
         match color {
             BinaryColor::Off => *packed &= !mask,
@@ -119,10 +115,9 @@ impl PackedColor for BinaryColor {
     }
 }
 
-// `Dimensions`, not `OriginDimensions`: embedded-graphics' `clipped`/`cropped`
-// intersect against this box, and rsact hands them ABSOLUTE rects. Reporting
-// origin-zero was correct only while the buffer always was the whole frame; a
-// tile at (0, 24) would have had its every write clipped away.
+// `Dimensions`, not `OriginDimensions`: eg's `clipped`/`cropped` intersect
+// against this box and rsact hands them ABSOLUTE rects, so a tile at (0, 24)
+// reporting origin-zero would have every write clipped away.
 impl<C: Color + PackedColor, B: FramebufStorage<C>> Dimensions
     for Framebuf<C, B>
 {
@@ -152,12 +147,9 @@ impl<
         Ok(())
     }
 
-    /// The fast solid fill, reached from embedded-graphics.
-    ///
-    /// A delegation: the algorithm is inherent on [`Framebuf::fill_solid`] so a
-    /// caller that is not a draw target gets the whole-word writes too. The
-    /// override still has to exist — without it eg's default bounces through
-    /// `fill_contiguous` → `draw_iter` and never reaches the fast path.
+    /// Delegates to [`Framebuf::fill_solid`]. Without this override, eg's
+    /// default bounces through `fill_contiguous` → `draw_iter` and never
+    /// reaches the fast path.
     fn fill_solid(
         &mut self,
         area: &embedded_graphics::primitives::Rectangle,
@@ -172,15 +164,8 @@ impl<
 mod tests {
     use crate::framebuf::{Framebuf, PackedColor};
 
-    /// A `&'static mut` loan, which is what both `FramebufStorage` impls take.
-    /// Local to the tests because the library must not choose where a
-    /// framebuffer lives.
-    ///
-    /// `Vec::leak` rather than a local `&mut buf[..]`: rsact-ui's `WidgetCtx` is
-    /// `'static`, so any renderer reachable through the UI holds a `'static`
-    /// loan anyway, and a borrowed local would exercise a shape production
-    /// cannot use. On a device this is a `StaticCell` — the same loan without
-    /// the leak.
+    /// A `&'static mut` loan — `Vec::leak` here, a `StaticCell` on a device.
+    /// Local to the tests: the library must not choose where a buffer lives.
     fn heap_surface<C: crate::color::Color + PackedColor>(
         size: Size,
     ) -> &'static mut [<C as PackedColor>::Storage] {
@@ -192,9 +177,7 @@ mod tests {
     }
     use crate::geometry::{Point, Rect, Size};
 
-    /// A framebuffer wrapped and then **aimed**, which is the two steps every
-    /// real caller takes: `Framebuf::new` gives it capacity, `retarget` gives it
-    /// a shape. Only the tests need the pair in one call.
+    /// Wrapped and then aimed — the two steps every real caller takes.
     fn aimed<
         C: crate::color::Color + PackedColor,
         B: crate::framebuf::FramebufStorage<C>,
@@ -267,12 +250,7 @@ mod tests {
         }
     }
 
-    /// The reading contract: a buffer answers for the coordinates it covers
-    /// and refuses the rest.
-    ///
-    /// Asserted on `pixel` rather than on a flush loop, because that is what a
-    /// caller walking a detached buffer actually calls — the clamping is a
-    /// property of the accessor, not of any loop over it.
+    /// A buffer answers for the coordinates it covers and refuses the rest.
     #[test]
     fn a_buffer_answers_only_for_the_region_it_covers() {
         const W: u32 = 10;
