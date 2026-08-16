@@ -329,6 +329,12 @@
     "branch": "ws6.4d-tiled-output",
     "subject": "WS6.4d(1): demote max_regions to a list bound; reopen the merge threshold"
   },
+  "de46c997441a78d436a1a03439e4a395553e8a2f": {
+    "date": 1786919923,
+    "parent": "",
+    "branch": "ws6.4e-framebuf-unbind",
+    "subject": "rsact-render: cut the comments down to what a reader needs"
+  },
   "e0f302713e55c32f30fb9413e22097c0032a3670": {
     "date": 1786445287,
     "parent": "",
