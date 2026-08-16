@@ -1,40 +1,33 @@
-//! WS6.4a: measurement + invariance arithmetic over a **tile schedule** — one
-//! frame replayed region by region instead of once over the whole viewport.
+//! Measurement and invariance arithmetic over a **tile schedule** — one frame
+//! replayed region by region instead of once over the whole viewport.
 //!
-//! This is the instrument WS6.4d is gated on. It answers three questions from a
-//! pair of [`DrawOp`] logs, with no renderer, no pixels and no timing:
+//! Three questions, answered from a pair of [`DrawOp`] logs with no renderer, no
+//! pixels and no timing:
 //!
-//! 1. **What does tiling cost today?** `emitted` — the ops a real N-region
-//!    replay actually issues, summed over regions.
+//! 1. **What does tiling cost today?** `emitted` — the ops an N-region replay
+//!    actually issues, summed over regions.
 //! 2. **What could it cost?** `required` — for each op the full frame drew, the
-//!    number of regions its [`DrawOp::bounds`] intersects. This is the floor a
-//!    perfect geometric cull (WS6.4b) would reach, computed from real layout
-//!    geometry rather than estimated, and it is the number that replaces WS6.4's
-//!    estimated "×1.6–2.0 per-object multiplier".
+//!    number of regions its [`DrawOp::bounds`] intersects. The floor a perfect
+//!    geometric cull would reach, from real layout geometry.
 //! 3. **Is the replay sound?** [`tile_invariance`] — every op a region is
-//!    obliged to draw must appear in that region's log, and no region may draw a
-//!    geometry the full frame never produced.
+//!    obliged to draw appears in that region's log, and no region draws geometry
+//!    the full frame never produced.
 //!
 //! # Why op counts, and where they mislead
 //!
-//! The WS6.4 cost model says per-pixel work is *invariant* under tiling (each
-//! output pixel is written once across the whole schedule) and only per-object
-//! work repeats. An op log does not respect that split: text is drawn through
-//! `DrawTargetProxy`, which issues **one `Pixel` op per glyph pixel**, so a
-//! text-heavy page's log is dominated by what the cost model calls per-pixel
-//! work. That is exactly why [`ScheduleReport`] reports `Pixel` separately and
-//! carries a **structural** subtotal (every kind except `Pixel`): the structural
-//! multiplier is the per-object number the cost model predicts, and the all-ops
-//! multiplier is what the CPU actually pays. Where they diverge is the finding,
-//! not a defect in the instrument — a clip that is a write-*filter* rather than a
-//! loop bound shows up precisely as per-pixel work that fails to shrink.
+//! Per-pixel work is invariant under tiling — each output pixel is written once
+//! across the schedule — and only per-object work repeats. An op log does not
+//! respect that split: text arrives through `DrawTargetProxy` as **one `Pixel`
+//! op per glyph pixel**, so a text-heavy page's log is dominated by per-pixel
+//! work. Hence [`ScheduleReport`] reports `Pixel` separately and carries a
+//! **structural** subtotal of every other kind: the structural multiplier is the
+//! per-object cost, the all-ops multiplier is what the CPU pays, and a clip that
+//! is a write-*filter* rather than a loop bound shows up exactly as the gap
+//! between them.
 //!
-//! # What "bookkeeping" means here
-//!
-//! Ops with no [`DrawOp::bounds`] (only [`DrawOp::Clip`]) paint nothing, so they
-//! carry no obligation and are excluded from every count and comparison. A region
-//! replay legitimately pushes its own region clip that the full frame never had;
-//! excluding clips is what keeps that from reading as a violation.
+//! Ops with no bounds — only [`DrawOp::Clip`] — paint nothing and are excluded
+//! from every count, so a region replay pushing its own region clip does not
+//! read as a violation.
 
 use crate::{
     geometry::{Point, Rect, Size},
@@ -45,7 +38,7 @@ use core::fmt;
 
 /// How a frame is cut into regions.
 ///
-/// Region *shape* is the economic lever (WS6.4c(1): a tile has no history, so
+/// Region *shape* is the economic lever (a tile has no history, so
 /// everything intersecting a region repaints), which is why this is a first-class
 /// value with several constructors rather than a tile height parameter: the whole
 /// point of 6.4a is comparing shapes.
@@ -64,7 +57,7 @@ impl TileSchedule {
 
     /// Full-width horizontal bands, top to bottom. The last band is clipped to
     /// the viewport, so a height that does not divide evenly is still an exact
-    /// partition (this is the "classic strips" degenerate case of WS6.4d(1)).
+    /// partition — the "classic strips" degenerate case.
     pub fn rows(viewport: Rect, tile_height: u32) -> Self {
         Self::grid(viewport, Size::new(viewport.size.width, tile_height))
     }
@@ -91,7 +84,7 @@ impl TileSchedule {
         Self { viewport, tiles }
     }
 
-    /// An explicit region list — the shape WS6.4d actually produces (tight damage
+    /// An explicit region list — the shape the planner produces (tight damage
     /// rects after an area-test merge), which is neither a partition nor
     /// necessarily disjoint.
     pub fn from_regions(
@@ -119,7 +112,7 @@ impl TileSchedule {
 
     /// Σ region areas ÷ viewport area: `1.0` for an exact partition, `< 1.0` for
     /// a damage-driven schedule that covers only part of the screen, `> 1.0` when
-    /// regions overlap (which double-paints, and is what WS6.4d's merge test
+    /// regions overlap (which double-paints, and is what the merge test
     /// exists to avoid).
     pub fn coverage(&self) -> f32 {
         let viewport = self.viewport.size.area() as f32;
@@ -166,7 +159,7 @@ pub enum Violation {
     /// A region drew a geometry that appears **nowhere** in the full frame.
     ///
     /// The failure this catches is position-dependent work computed in
-    /// *region-relative* coordinates (WS6.4's absolute-coordinate invariant): the
+    /// *region-relative* coordinates — absolute is the invariant: the
     /// op count would be right and every rect subtly displaced, which no count
     /// comparison notices. Note what it does *not* mean: an op drawn in a region
     /// its bounds misses is legitimate today (there is no culling yet) and is
@@ -260,8 +253,8 @@ impl KindCount {
         ratio(self.emitted, self.full)
     }
 
-    /// `required / full` — the floor WS6.4b's culling could reach. This is the
-    /// per-object multiplier the WS6.4 cost model estimates at ×1.6–2.0.
+    /// `required / full` — the floor a perfect geometric cull could reach,
+    /// and the per-object multiplier the cost model predicts.
     pub fn required_multiplier(&self) -> f32 {
         ratio(self.required, self.full)
     }
@@ -280,7 +273,7 @@ pub struct ScheduleReport {
     /// frame omitted.
     pub per_kind: Vec<KindCount>,
     /// Ops a region issued whose bounds do not touch that region: pure waste,
-    /// and the budget WS6.4b is spending against.
+    /// and the budget culling spends against.
     pub wasted: usize,
     /// Bookkeeping ops seen and excluded (clips), reported so the exclusion is
     /// visible rather than silent.
@@ -356,7 +349,7 @@ impl ScheduleReport {
 
 impl fmt::Display for ScheduleReport {
     /// A fixed-width table, stable enough to keep as a blessed golden so any
-    /// change in op emission shows up as a reviewable diff (and so WS6.4b's win
+    /// change in op emission shows up as a reviewable diff (and so a culling win
     /// is visible as one).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "{} tiles", self.tiles)?;
@@ -387,7 +380,7 @@ impl fmt::Display for ScheduleReport {
 }
 
 /// Whether merging two damage rects into their union is cheaper than painting
-/// them separately — WS6.4d's area-test threshold, measured instead of guessed.
+/// them separately — the area-test threshold, measured instead of guessed.
 ///
 /// Both costs are real: `separate` pays the per-region overhead twice
 /// (`CASET`/`RASET`/`RAMWR`, plus one background fill per region) and paints the
@@ -667,7 +660,7 @@ mod tests {
 
     /// The measurement that matters: with no culling, an N-region replay pays N×
     /// for *everything*, while `required` stays at the geometric floor. The gap
-    /// is what WS6.4b is worth.
+    /// is what culling is worth.
     #[test]
     fn no_culling_costs_the_full_frame_per_region() {
         let full = one_per_band();
@@ -700,7 +693,7 @@ mod tests {
         }
         let report = ScheduleReport::of(&unculled_log(&full, &bands()));
         // All-ops is dominated by per-pixel work; the structural subtotal is the
-        // per-object number the WS6.4 cost model predicts.
+        // per-object number the cost model predicts.
         assert_eq!(report.total.full, 5);
         assert_eq!(report.structural.full, 1);
         assert_eq!(report.structural.emitted, 4);
@@ -825,7 +818,7 @@ mod tests {
     }
 
     /// Far-apart rects: the union's dead space is most of it, so the area test
-    /// must reject the merge. This is the case WS6.4d's threshold exists for.
+    /// must reject the merge. This is the case the threshold exists for.
     #[test]
     fn merging_far_apart_rects_is_rejected_by_area() {
         let full =

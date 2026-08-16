@@ -1,18 +1,14 @@
-//! A [`Renderer`] that records the draw operations it is asked to perform, for
-//! golden ("blessed reference") render tests (WS6.9).
+//! A [`Renderer`] that records the draw operations it is asked to perform.
 //!
-//! Unlike [`NullRenderer`](crate::renderer::NullRenderer) — a pure no-op — this
-//! keeps a shared, ordered log of every primitive and clip region, so a test can
-//! assert *what* was drawn and *where*. That is exactly the signal WS6's
-//! damage-driven rendering needs: "only this rect was touched" is a statement
-//! about the draw log, not about the final image (the image is identical whether
-//! you repaint one rect or the whole screen).
+//! Unlike [`NullRenderer`](crate::renderer::NullRenderer), a pure no-op, this
+//! keeps an ordered log of every primitive and clip region, so a test can assert
+//! *what* was drawn and *where*. That is the signal damage-driven rendering
+//! needs: "only this rect was touched" is a statement about the draw log, never
+//! about the final image, which looks identical whether one rect or the whole
+//! screen was repainted.
 //!
-//! The log is **geometry-focused and color-agnostic** on purpose: it records
-//! positions, sizes, primitive kinds and clip regions — the WS6 damage signal —
-//! not exact colors, so it stays deterministic and generic over any [`Color`].
-//! Visual (color / anti-aliasing) correctness is the tiny-skia PNG snapshot's
-//! job, not this one's.
+//! The log is **geometry-only and color-agnostic**, so it stays deterministic
+//! and generic over any [`Color`]. Visual correctness is a pixel snapshot's job.
 
 use crate::{
     color::Color,
@@ -54,7 +50,7 @@ pub enum DrawOp {
     },
     /// `bounds` is the polygon's own bounding box: the individual points are not
     /// kept (the log is a *count* of primitives, not a copy of their input), but
-    /// the extent is, because WS6.4a's [`Self::bounds`] contract needs it.
+    /// the extent is, because the [`Self::bounds`] contract needs it.
     Polygon {
         points: usize,
         bounds: Rect,
@@ -73,32 +69,21 @@ impl DrawOp {
     /// The conservative pixel bound of what this op draws, or `None` for an op
     /// that draws nothing.
     ///
-    /// **This is the culling contract** (WS6.4a). Read it as an obligation in one
-    /// direction: *if* this bound intersects a region, a renderer replaying the
-    /// frame region-by-region **must** emit the op for that region. A culler is
-    /// free to skip a region the bound misses; it may never skip one the bound
-    /// hits. `test_support::schedule::tile_invariance` is that sentence turned
-    /// into an assertion, so this method and any future geometric cull must stay
-    /// the *same* predicate — a cull tighter than this bound would pass review
-    /// and fail on screen. (Not a link: that module is behind `test-utils`, and
-    /// an ungated item cannot intra-doc-link into a gated one.)
+    /// **This is the culling contract**, and it runs one way: *if* this bound
+    /// intersects a region, a renderer replaying the frame region by region
+    /// **must** emit the op there. A culler may skip a region the bound misses;
+    /// it may never skip one the bound hits. Any geometric cull must stay the
+    /// same predicate — a tighter one would pass review and fail on screen.
     ///
-    /// Two deliberate imprecisions, both recorded because they set the limits of
-    /// what the check can prove:
+    /// Two imprecisions set the limits of what a check over this can prove:
     ///
     /// - **`None` means bookkeeping, not "everywhere".** Only [`Self::Clip`]
-    ///   returns it: a clip paints nothing, so it carries no obligation, and
-    ///   WS6.4a's arithmetic skips such ops entirely rather than treating them as
-    ///   present-in-every-tile. A *lost clip* is therefore invisible to the
-    ///   invariance check — that failure mode is over-painting, which is the
-    ///   pixel goldens' business (WS6.9's deferred PNG half).
-    /// - **Stroke width is not recorded** (the log is style-agnostic on purpose),
-    ///   so a stroked primitive paints up to `stroke_width / 2` outside its
-    ///   geometry. The bound therefore *under*-approximates by that margin, which
-    ///   makes the invariance check slightly weaker (it can miss a genuinely lost
-    ///   op in a boundary sliver) but never wrong in the other direction. Fixing
-    ///   it would mean recording style, which is exactly what keeps this log
-    ///   deterministic and color-agnostic.
+    ///   returns it, and a clip paints nothing, so a *lost* clip is invisible
+    ///   here — that failure mode is over-painting, which pixel snapshots catch.
+    /// - **Stroke width is not recorded**, so a stroked primitive paints up to
+    ///   `stroke_width / 2` outside its geometry and the bound
+    ///   *under*-approximates by that margin. Recording style would fix it, at
+    ///   the cost of the determinism that makes this log worth having.
     ///
     /// [`Path::bounds`]: crate::path::Path::bounds
     pub fn bounds(&self) -> Option<Rect> {
@@ -200,11 +185,10 @@ impl fmt::Display for DrawOp {
                 point(f, top_left)?;
                 write!(f, " d={diameter}")
             },
-            // WS6.4a prints the bound for the three ops whose own line carries
-            // no position at all. `Path` in particular used to log as the bare
-            // word "Path", so the checkbox goldens could not tell a correctly
-            // placed check-icon from a displaced one. The two WS6.9 goldens are
-            // re-blessed in the same commit (as `pop_clip`'s note requires).
+            // Print the bound for the three ops whose own line carries no
+            // position at all. Without it `Path` logs as the bare word "Path",
+            // and a golden cannot tell a correctly placed check-icon from a
+            // displaced one.
             DrawOp::Polygon { points, bounds } => {
                 write!(f, "Polygon n={points} ")?;
                 rect(f, bounds)
@@ -223,7 +207,7 @@ impl fmt::Display for DrawOp {
 
 /// Serialise a draw-op log to the stable, newline-terminated, one-op-per-line
 /// text used as the golden content (see [`DrawOp`]'s `Display`). This is the
-/// draw-call side of the WS6.9 harness: the exact primitives + positions a
+/// draw-call side of the golden harness: the exact primitives + positions a
 /// render pass emitted, comparable across runs and color-agnostic.
 pub fn format_ops(ops: &[DrawOp]) -> String {
     use fmt::Write as _;
@@ -250,7 +234,7 @@ pub fn format_ops(ops: &[DrawOp]) -> String {
 pub struct RecordingRenderer<C, P = crate::region::Unbounded> {
     size: Size,
     ops: Rc<RefCell<Vec<DrawOp>>>,
-    /// WS6.4b: a real clip stack, so [`Renderer::clip_bounds`] can report the
+    /// A real clip stack, so [`Renderer::clip_bounds`] can report the
     /// effective clip. The recorder does not *apply* clips (it records what the
     /// drawing code asked for, which is the measurement), but culling reads the
     /// clip, so the harness would see `None` and cull nothing without this.
@@ -360,16 +344,16 @@ impl<C: Color, P: crate::region::FramePolicy> Renderer
         // The log records what the drawing code ASKED for; the stack stores the
         // narrowed rect. Those are deliberately different: the op log is a
         // measurement of the widget layer's requests, while `clip_bounds` has to
-        // report the rect actually in force (WS6.4b — the top IS the effective
+        // report the rect actually in force (the top IS the effective
         // clip, which is what makes reading it for culling exact).
         self.push(DrawOp::Clip(area));
         let nested = area.intersection(&self.current_clip());
         self.clips.borrow_mut().push(nested);
     }
 
-    // Deliberately records NOTHING (WS6.4.0(ii-1)). The op log is a linear
+    // Deliberately records NOTHING. The op log is a linear
     // trace in which a `Clip` applies to the ops that follow it, so emitting an
-    // "unclip" marker would change every WS6.9 golden for no information gain —
+    // "unclip" marker would change every golden for no information gain —
     // the previous closure form recorded no end marker either. If 6.4a's
     // tile-invariance check ever needs clip *scope* rather than clip *order*,
     // add the marker there and bless the goldens in the same commit.
@@ -508,7 +492,7 @@ mod tests {
         Rect::new(Point::new(x, y), Size::new(w, h))
     }
 
-    /// WS6.4b: the recorder does not *apply* clips — it records what the drawing
+    /// The recorder does not *apply* clips — it records what the drawing
     /// code asked for, which is the measurement — but it must still *report* the
     /// effective clip, because that is what culling reads. Without a real stack
     /// here the tile harness would see `None`, cull nothing, and silently measure
@@ -538,7 +522,7 @@ mod tests {
         rec.pop_clip();
         assert_eq!(rec.clip_bounds(), Some(surface));
 
-        // None of it touches the op log — the WS6.9 goldens stay valid.
+        // None of it touches the op log, so the goldens stay valid.
         assert_eq!(
             rec.ops(),
             [DrawOp::Clip(r(0, 0, 20, 20)), DrawOp::Clip(r(10, 10, 20, 20))],
@@ -578,10 +562,10 @@ mod tests {
         rec.pop_clip();
 
         // The clip region is logged before the ops that drew inside it — this is
-        // what lets WS6 assert "drawing was confined to the damage rect".
+        // what lets a test assert "drawing was confined to the damage rect".
         //
-        // WS6.4.0(ii-1): `pop_clip` deliberately records nothing, so this log —
-        // and every WS6.9 golden — is byte-identical to the closure-based form
+        // `pop_clip` deliberately records nothing, so this log — and every
+        // golden — is byte-identical to the closure-based form
         // it replaces. The trace is linear: a `Clip` applies to the ops that
         // follow it.
         assert_eq!(
@@ -628,7 +612,7 @@ Image 0,0 16x16
         );
     }
 
-    /// WS6.4a: [`DrawOp::bounds`] is the culling contract, so the arithmetic that
+    /// [`DrawOp::bounds`] is the culling contract, so the arithmetic that
     /// derives a bound from a primitive's own anchor is pinned here. The three
     /// cases that are easy to get wrong: an inclusive-endpoint line must not
     /// collapse to zero area, a `Pixel` covers exactly one, and a `Clip` carries

@@ -5,18 +5,11 @@
 //! [`FramebufStorage`](crate::framebuf::FramebufStorage), which a
 //! [`FramebufBlitter`] borrows.
 //!
-//! [`Span`] and the three addressing helpers live here rather than beside the
-//! rasterizer, and the reason is the dependency direction: an L3 blitter must be
-//! definable **without** an L2 rasterizer — that is what makes a `DirectBlitter`
-//! straight to a panel, or a DMA2D fill, expressible — while a rasterizer is
-//! meaningless without something to emit into. So `raster` depends on `blitter`
-//! and never the reverse.
-//!
-//! [`FramebufBlitter`] is here too, and `PixmapBlitter` is not: this file is
-//! unconditional, and the module tree is cut by **feature gate** rather than by
-//! layer. A blitter that needs a backend crate lives in that backend's module
-//! (`tiny_skia::blitter`), so enabling a feature adds a directory rather than
-//! scattering `#[cfg]` through a shared one.
+//! [`Span`] and the addressing helpers live here rather than beside the
+//! rasterizer, because the dependency runs one way: a blitter must be definable
+//! without a rasterizer — that is what makes a direct-to-panel or DMA2D blitter
+//! expressible — while a rasterizer is meaningless without something to emit
+//! into.
 
 use crate::{
     color::Color,
@@ -31,11 +24,10 @@ use core::ops::Range;
 /// `{y, x, w}` rather than `{y, x: Range}` because [`Range`] is not [`Copy`] and
 /// every defaulted method reads the span twice.
 ///
-/// **Spans never wrap a row.** The one case where wrapping would win — a rect
-/// spanning the blitter's full width — is [`Blitter::fill_rect`], which the
-/// blitter coalesces using its own stride. A wrapping span would be the
-/// rasterizer asserting it knows that stride, which is L3's private fact and
-/// wrong the moment a region is retargeted.
+/// **Spans never wrap a row.** The case where wrapping would win — a rect
+/// spanning the full width — is [`Blitter::fill_rect`], which coalesces using
+/// the blitter's own stride. A wrapping span would be the rasterizer asserting
+/// it knows that stride, which is L3's private fact.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Span {
     pub y: i32,
@@ -63,9 +55,9 @@ impl Span {
     /// Clip to `rect`, returning the surviving span **and the offset into any
     /// per-pixel data indexed from the original start**.
     ///
-    /// That offset is why this is a method rather than three inline copies:
-    /// forgetting it shifts a coverage array by a few pixels, which yields a
-    /// plausible image rather than a failure.
+    /// The offset is why this is a method rather than inline copies: forgetting
+    /// it shifts a coverage array by a few pixels, which yields a plausible
+    /// image rather than a failure.
     pub fn clip_to(&self, rect: &Rect) -> Option<(Span, usize)> {
         if self.is_empty() || rect.is_zero_sized() {
             return None;
@@ -87,14 +79,12 @@ impl Span {
 
 // ── Addressing ──────────────────────────────────────────────────────────────
 //
-// **Helpers, not a contract.** A plain row-major framebuf uses them; a rotating
-// (WS6.8) or page-packed blitter maps its own way. Free functions rather than
-// provided trait methods, so that overriding is not a special case — a provided
-// method would hard-code `y * width + x` and foreclose both.
+// **Helpers, not a contract.** A row-major framebuf uses them; a rotating or
+// page-packed blitter maps its own way. Free functions rather than provided
+// trait methods, which would hard-code `y * width + x` and foreclose that.
 //
-// They yield **pixel** indices, not storage indices: dividing by the color's
-// packing is the storage layer's job, and is what `Framebuf::point_to_subpart`
-// already does. Same convention as `Framebuf::flat_index`, deliberately.
+// They yield **pixel** indices, not storage indices — dividing by the color's
+// packing is the storage layer's job.
 
 /// `p` in `bounds`-local coordinates.
 pub const fn local(bounds: &Rect, p: Point) -> Point {
@@ -119,35 +109,27 @@ pub const fn span_range(bounds: &Rect, span: Span) -> Range<usize> {
 ///
 /// The single required *drawing* method is a **row run**, because that is what a
 /// packed framebuffer does best (`slice::fill` inside one row) and what a
-/// display window does best (one SPI burst). This inverts the `draw_iter`-
-/// required arrangement embedded-graphics imposes, which forces every fill
-/// algorithm to destructure output it already had in span form. WS6.3b is the
-/// precedent: it already overrides `fill_solid` at framebuf and renderer level
-/// for exactly this reason.
+/// display window does best (one SPI burst). A `draw_iter`-shaped requirement
+/// inverts it, forcing every fill algorithm to destructure output it already
+/// had in span form.
 ///
 /// # Capacity is stated twice, and the two are not redundant
 ///
 /// [`UNITS`](Self::UNITS) is what the **type** knows; [`capacity`](Self::capacity)
 /// is what the **value** knows. A `&'static mut [u16; 5760]` answers the first,
-/// so a target too small for a frame policy is a **compile error**; a
-/// `&'static mut [u16]` cannot, so it is checked when it is lent and the caller
-/// gets a `Result`. A direct-to-panel target answers `None` to both — its
-/// capacity is *unbounded*, there being no storage to overflow, so nothing is
-/// checked at all.
+/// so a target too small for a frame policy is a compile error; a
+/// `&'static mut [u16]` cannot, so it is checked when lent and the caller gets a
+/// `Result`. A direct-to-panel target answers `None` to both — its capacity is
+/// *unbounded*, so nothing is checked at all.
 ///
-/// **Associated consts make this trait dyn-incompatible (E0038), and that is
-/// accepted.** An earlier draft avoided them to keep `dyn Blitter<Color = C>`
-/// available "in case the rasterizer × blitter cross-product needs collapsing".
-/// Maintainer's correction: an application uses **one** renderer + rasterizer +
-/// blitter combination, so there is no cross-product — only the inlining a
-/// monomorphized call gets, which is the thing an embedded target actually
-/// wants. The consts buy a compile-time capacity proof; the erasure bought
-/// nothing anyone was going to spend.
+/// Associated consts make this trait dyn-incompatible (E0038), which is
+/// accepted: an application uses one renderer + rasterizer + blitter
+/// combination, so erasure would buy nothing that monomorphized inlining does
+/// not already give.
 ///
-/// **No error channel on the drawing methods.** Every method draws or does nothing; there is nothing to
-/// report. [`begin_region`](Self::begin_region) is the exception and the reason
-/// is real: a region that does not fit the storage is a refusal, not a
-/// degradation.
+/// **No error channel on the drawing methods** — each draws or does nothing.
+/// [`begin_region`](Self::begin_region) is the exception, because a region that
+/// does not fit the storage is a refusal rather than a degradation.
 pub trait Blitter {
     type Color: Color;
 
@@ -158,11 +140,9 @@ pub trait Blitter {
     /// the target is lent) and for a target with no storage at all (never
     /// checked — see [`capacity`](Self::capacity)).
     ///
-    /// It mirrors [`FramebufStorage::UNITS`](crate::framebuf::FramebufStorage::UNITS)
-    /// one layer up, and means the same thing: **`None` is "ask the value",
-    /// never "unbounded"**. That distinction is what a `usize::MAX` sentinel
-    /// erased once already, letting an *empty* boxed slice satisfy a full-frame
-    /// policy at compile time.
+    /// Mirrors [`FramebufStorage::UNITS`](crate::framebuf::FramebufStorage::UNITS)
+    /// and means the same thing: **`None` is "ask the value", never
+    /// "unbounded"**.
     const UNITS: Option<usize> = None;
 
     /// Pixels this target packs into one unit of capacity.
@@ -170,27 +150,22 @@ pub trait Blitter {
     /// `1` for anything that does not pack — a pixmap, an RGB framebuffer, a
     /// direct-to-panel target — hence the default. `8` for a 1-bpp framebuffer.
     ///
-    /// **A const because the check it feeds is a compile-time one.** Comparing a
-    /// frame policy's unit budget against a target's capacity is meaningless
-    /// unless the two count the same thing: a 1-bpp target under a
-    /// `PIXELS_PER_UNIT = 1` policy would appear to need eight times the storage
-    /// it does, and the reverse would silently under-demand. Both sides are
-    /// consts, so the disagreement never survives a build.
+    /// A const because the check it feeds is a compile-time one: a 1-bpp target
+    /// under a `PIXELS_PER_UNIT = 1` policy would appear to need eight times the
+    /// storage it does, and the reverse would silently under-demand.
     const PIXELS_PER_UNIT: usize = 1;
 
     /// The absolute rect it currently accepts writes for.
     /// After [`begin_region(r)`](Self::begin_region), this is `r`.
     fn bounds(&self) -> Rect;
 
-    /// Units it can hold, or `None` for no storage bound at all (a
-    /// `DirectBlitter`, a GPU attachment). Two states, because at the *value*
-    /// level "the type cannot say" does not arise — that case belongs to the
-    /// compile-time proof, which reads the storage type directly.
+    /// Units it can hold, or `None` for no storage bound at all — a
+    /// direct-to-panel target, a GPU attachment.
     ///
-    /// **A unit is one `C::Storage` element** — the same vocabulary
-    /// [`FramebufStorage::unit_count`] and [`region_units`] already use, so the
-    /// value drops straight into [`assert_policy_fits`]. For a color that does
-    /// not pack, one unit is one pixel, so a pixmap reports `width * height`.
+    /// **A unit is one `C::Storage` element**, the same vocabulary
+    /// [`FramebufStorage::unit_count`] and [`region_units`] use, so the value
+    /// drops straight into [`assert_policy_fits`]. For a color that does not
+    /// pack, one unit is one pixel.
     ///
     /// [`FramebufStorage::unit_count`]: crate::framebuf::FramebufStorage::unit_count
     /// [`region_units`]: crate::renderer::region_units
@@ -212,15 +187,14 @@ pub trait Blitter {
     /// every addressing helper assumes it did.
     ///
     /// **Priming belongs here, atomically with the retarget.** A region is
-    /// scratch with no history, so it must start at the true background or a
-    /// tile flushes with holes; the region clip is pushed by L1 *after* this
+    /// scratch with no history, so it must start at the true background or the
+    /// tile flushes with holes — and L1 pushes the region clip only *after* this
     /// returns, so the fill cannot go through the clipped path. The background
-    /// is a color-level fact ([`Color::default_background`]), which is why L3 can
-    /// supply it without a theme.
+    /// is a color-level fact ([`Color::default_background`]), so L3 can supply it
+    /// without a theme.
     ///
-    /// There is no `end_region`. Every implementation of it in this codebase was
-    /// a no-op, and the one real job it could have — a completion barrier for
-    /// asynchronous writes — belongs where the loan goes back.
+    /// There is no `end_region`: the one real job it could have — a completion
+    /// barrier for asynchronous writes — belongs where the loan goes back.
     ///
     /// [`Color::default_background`]: crate::color::Color::default_background
     fn begin_region(&mut self, region: Rect) -> RenderResult;
@@ -254,17 +228,13 @@ pub trait Blitter {
 
     /// Anti-aliased run. `coverage.len() == span.len()`; 0 = untouched.
     ///
-    /// Exercised from day one: `TinySkiaRasterizer` emits coverage from a
-    /// `Mask`. The default thresholds at 128, which is a **last resort** and not
-    /// a story for 1-bpp — on a non-blending target it leaves a *gapped*
-    /// hairline, because both pixels of each 45° step fall below the threshold.
-    /// A rasterizer that cares must be able to ask whether blending is real;
-    /// that query is deliberately not designed yet, and this default is not a
-    /// substitute for it.
+    /// The default thresholds at 128, which is a last resort: on a non-blending
+    /// target it leaves a *gapped* hairline, both pixels of each 45° step
+    /// falling below the threshold. A rasterizer that cares needs to ask whether
+    /// blending is real, and that query is not designed yet.
     ///
-    /// Deliberately no `read_pixel`: blending is the only reason to read, so the
-    /// capability and its use stay in one method instead of two that can
-    /// disagree.
+    /// No `read_pixel`: blending is the only reason to read, so the capability
+    /// and its use stay in one method rather than two that can disagree.
     fn blend_span(&mut self, span: Span, color: Self::Color, coverage: &[u8]) {
         debug_assert_eq!(coverage.len(), span.len());
         // Coalesce covered pixels into runs rather than emitting one span each:
@@ -301,29 +271,20 @@ pub trait Blitter {
 
 /// A blitter over a [`Framebuf`] whose storage the caller owns.
 ///
-/// **It is a color buffer and nothing else: capacity plus addressing.** It does
-/// not know the display's size, it does not know the frame policy, and it does
-/// not know what a rasterizer or a renderer is. The rect it currently answers
-/// for arrives with [`begin_region`](Blitter::begin_region), which is the only
-/// thing that ever aims it.
+/// **A color buffer and nothing else: capacity plus addressing.** It does not
+/// know the display's size, the frame policy, or what a rasterizer is. The rect
+/// it answers for arrives with [`begin_region`](Blitter::begin_region), the only
+/// thing that ever aims it — a construction-time aim would be overwritten before
+/// a pixel lands.
 ///
-/// An earlier shape took a `viewport: Size` at construction, to choose between
-/// "aimed at the whole frame" and "aimed at nothing". That branch was a fossil:
-/// it mattered only while `begin_region` *skipped* full-frame surfaces, and
-/// WS6.4d made it retarget unconditionally — so the construction-time aim is
-/// overwritten before a single pixel lands, and the field was written and never
-/// read.
+/// It always has its target: the attached/detached state an application wants
+/// belongs to the *renderer*, and this type is what moves in and out of it.
 ///
-/// **It always has its target.** There is no attached/detached type-state here:
-/// the state an application wants — "the renderer is between frames and I am
-/// holding the pixels" — belongs to the *renderer*, and this type is what moves
-/// in and out of it.
-///
-/// This type IS the loan: it owns `B`, so handing it back to the caller hands
-/// back the buffer, which is WS6.7's DMA-soundness requirement (a borrow the
-/// core can still write through is UB, which is why `embedded-dma`'s
-/// `ReadBuffer` is `unsafe`). [`into_storage`](Self::into_storage) unwraps it
-/// where the raw slice is what the transport wants.
+/// This type **is** the loan — it owns `B`, so handing it back hands back the
+/// buffer, which is what DMA needs (a borrow the core can still write through is
+/// UB, hence `embedded-dma`'s `ReadBuffer` being `unsafe`).
+/// [`into_storage`](Self::into_storage) unwraps it where the transport wants the
+/// raw slice.
 pub struct FramebufBlitter<C, B>
 where
     C: Color + PackedColor,
@@ -337,24 +298,21 @@ where
     C: Color + PackedColor,
     B: FramebufStorage<C>,
 {
-    /// Wrap the caller's storage. **Infallible**, because there is nothing to
-    /// check: a color buffer of any size is a valid color buffer, and whether
-    /// it is big enough is a question about the *frame policy*, which this type
-    /// has never heard of. That comparison happens when the target is lent to a
-    /// renderer.
+    /// Wrap the caller's storage. Infallible: a color buffer of any size is a
+    /// valid color buffer, and whether it is big enough is a question about the
+    /// frame policy, answered when the target is lent to a renderer.
     ///
-    /// Starts aimed at nothing. `begin_region` supplies the rect.
+    /// Starts aimed at nothing; `begin_region` supplies the rect.
     pub fn new(storage: B) -> Self {
         Self { framebuf: Framebuf::new(storage) }
     }
 
     /// Give the storage back, with the region that was painted into it.
     ///
-    /// The rect is the only one a caller needs: `begin_region` retargets
-    /// unconditionally, so the buffer's extent and the painted region are the
-    /// same rectangle for every surface — a tile and a full-frame framebuffer
-    /// alike. It is both what to index the buffer at (rows are strided at its
-    /// width) and what to send.
+    /// One rect suffices: `begin_region` retargets unconditionally, so the
+    /// buffer's extent and the painted region are the same rectangle for every
+    /// surface. It is both what to index the buffer at — rows are strided at its
+    /// width — and what to send.
     pub fn into_storage(self) -> (B, Rect) {
         let at = self.framebuf.viewport();
         (self.framebuf.into_buffer(), at)
@@ -391,13 +349,12 @@ where
         Some(self.framebuf.capacity_units())
     }
 
-    /// A span is a one-row rect, so this is WS6.3b's whole-word fill with a
-    /// height of one: partial head word, `slice::fill` over the whole words,
-    /// partial tail word. Going through
+    /// A span is a one-row rect, so this is the whole-word fill at height one.
+    /// Going through
     /// [`Framebuf::fill_solid`](crate::framebuf::Framebuf::fill_solid) rather
-    /// than re-deriving the index is the point of WS6.4e making that method
-    /// inherent — a second copy of the addressing is how a tiled buffer ends up
-    /// with fast fills in the wrong row and correct per-pixel writes.
+    /// than re-deriving the index keeps the addressing in one place; a second
+    /// copy is how a tiled buffer ends up with fast fills in the wrong row and
+    /// correct per-pixel writes.
     fn fill_span(&mut self, span: Span, color: C) {
         self.framebuf.fill_solid(
             Rect::new(Point::new(span.x, span.y), Size::new(span.w, 1)),
@@ -463,11 +420,10 @@ where
     ///
     /// # Errors
     ///
-    /// If `region` needs more units than the buffer holds. Refused, not
-    /// asserted: the capacity check at attach guarantees the planner never asks,
-    /// so this is the backstop for a renderer driven outside that path, and a
-    /// backstop that aborts the device is worse than one that logs and skips
-    /// (WS1.8).
+    /// If `region` needs more units than the buffer holds. Refused rather than
+    /// asserted: the capacity check at attach means the planner never asks, so
+    /// this is a backstop for a renderer driven outside that path — and one that
+    /// aborts the device is worse than one that logs and skips.
     fn begin_region(&mut self, region: Rect) -> RenderResult {
         let want = units_for::<C>(region.size.width, region.size.height);
         let have = self.framebuf.capacity_units();
@@ -495,10 +451,9 @@ mod tests {
         Rect::new(Point::new(x, y), Size::new(w, h))
     }
 
-    /// The offset is the whole reason `clip_to` exists: a coverage or color
-    /// array is indexed from the span's ORIGINAL start, so clipping the span
-    /// without slicing the data in step shifts an image by a few pixels — a
-    /// plausible picture rather than a failure.
+    /// A coverage or color array is indexed from the span's *original* start,
+    /// so clipping the span without slicing the data in step shifts an image by
+    /// a few pixels — a plausible picture rather than a failure.
     #[test]
     fn clipping_a_span_reports_where_its_data_now_starts() {
         let clip = r(10, 5, 10, 10);

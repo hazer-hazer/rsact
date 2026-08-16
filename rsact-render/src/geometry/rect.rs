@@ -134,7 +134,7 @@ impl Rect {
     ///
     /// A zero-sized rect covers no pixel, so it intersects nothing — the same
     /// convention [`Self::intersection`] already uses for the disjoint case (it
-    /// returns [`Self::zero`], not an `Option`). WS6.4a leans on that: an op with
+    /// returns [`Self::zero`], not an `Option`). Culling leans on that: an op with
     /// a zero-area bound paints nothing, so no tile is obliged to draw it.
     pub fn intersects(&self, other: &Self) -> bool {
         !self.intersection(other).is_zero_sized()
@@ -142,7 +142,7 @@ impl Rect {
 
     /// Grow this rect outward by `by` on each side.
     ///
-    /// WS6.4c(G): the arithmetic behind `paint_bounds` — a widget's painted area
+    /// The arithmetic behind `paint_bounds` — a widget's painted area
     /// is its layout rect grown by however far it draws *outside* that rect
     /// (`ext_draw`: an outline today, box shadows and tooltips later). The
     /// inverse of shrinking by padding, hence the name.
@@ -370,7 +370,7 @@ mod tests {
         assert_eq!(Rect::zero().union(&Rect::zero()), Rect::zero());
     }
 
-    /// WS6.4a: `intersects` decides which tiles must redraw an op, so the
+    /// `intersects` decides which tiles must redraw an op, so the
     /// touching-but-not-overlapping boundary is the case that matters — the
     /// bottom-right edge is exclusive, so two rects sharing an edge do NOT
     /// intersect. Off by one here and every tile boundary either double-paints or

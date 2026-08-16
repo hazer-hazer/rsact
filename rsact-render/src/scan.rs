@@ -1,27 +1,20 @@
 //! Shared scan conversion — the bodies every [`Rasterizer`](crate::raster::Rasterizer) default delegates
 //! to.
 //!
-//! Two reasons this is a module of free functions rather than provided trait
-//! bodies. It is **shared** rather than monomorphized per rasterizer (only over
-//! the blitter, which it must be); and it makes "the default *draws*" a
-//! statement about real code rather than about a stub someone will fill in.
+//! Free functions rather than provided trait bodies, so they monomorphize over
+//! the blitter alone rather than once per rasterizer.
 //!
-//! # The primitive set is four algorithms; everything else decomposes
+//! # Four algorithms; everything else decomposes
 //!
-//! Only [`rect`]'s fill, [`line`], the polygon scan inside [`polygon`], and
+//! Only [`rect`]'s fill, [`line`], the polygon scan inside [`polygon`] and
 //! [`image`]'s row decode are real scan conversion. [`arc`], [`sector`],
 //! [`ellipse`] and [`rounded_rect`] flatten to a polyline and reuse the polygon
-//! machinery, which is what the design means by "exact decomposition onto the
-//! existing set, or via `path`". Flattening is an approximation of the *same*
-//! shape with bounded error, not a different shape — the thing forbidden is a
-//! **lookalike**, a squircle drawn as a rounded rect.
+//! machinery — an approximation of the *same* shape with bounded error, never a
+//! lookalike such as a squircle drawn as a rounded rect.
 //!
-//! # What this is not
-//!
-//! It is not `RsactRasterizer`. Everything here is aliased and integer-exact;
-//! there is no coverage, no blending and no attempt at quality. It is the floor
-//! a rasterizer stands on before it overrides anything, and the reason
-//! `impl Rasterizer for X {}` is a legal, drawing rasterizer.
+//! Everything here is aliased and integer-exact: no coverage, no blending, no
+//! attempt at quality. It is the floor a rasterizer stands on before it
+//! overrides anything, and the reason `impl Rasterizer for X {}` draws.
 //!
 //! [`Rasterizer`]: crate::raster::Rasterizer
 

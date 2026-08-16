@@ -13,17 +13,14 @@ pub type RenderResult = Result<(), ()>;
 /// Storage units a `w × h` region needs on a surface packing
 /// `pixels_per_unit` pixels per unit — **rows padded**, never area.
 ///
-/// The one place this arithmetic is written.
-/// [`assert_policy_fits`](crate::region::assert_policy_fits) compares a
-/// surface against it for WS6.4.0(iii)'s capacity proof, and
-/// [`units_for`](crate::framebuf::units_for) is the color-typed wrapper
-/// the embedded-graphics backend uses — they must not be allowed to drift,
-/// because a capacity check that disagrees with the buffer's real layout is
-/// worse than no check at all.
+/// The one place this arithmetic is written:
+/// [`assert_policy_fits`](crate::region::assert_policy_fits) and
+/// [`units_for`](crate::framebuf::units_for) both route through it, because a
+/// capacity check that disagrees with the buffer's real layout is worse than no
+/// check at all.
 ///
-/// Padding per row is what makes sub-byte packing correct: a 122-pixel 1-bpp
-/// row occupies 16 bytes, not 15.25. Area-based arithmetic gets this wrong, and
-/// is exactly the bug roadmap 6.5 has to undo in `Framebuf::new`.
+/// Per-row padding is what makes sub-byte packing correct: a 122-pixel 1-bpp
+/// row occupies 16 bytes, not 15.25. Area arithmetic gets this wrong.
 ///
 /// ```
 /// # use rsact_render::renderer::region_units;
@@ -31,8 +28,8 @@ pub type RenderResult = Result<(), ()>;
 /// assert_eq!(region_units(122, 24, 8), 384);  // 1-bpp: 16 bytes per row
 /// ```
 pub const fn region_units(w: u32, h: u32, pixels_per_unit: usize) -> usize {
-    // A renderer that reports zero would divide by zero; treat it as unpacked,
-    // which over-estimates the requirement and so fails safe.
+    // Zero would divide by zero; treat it as unpacked, which over-estimates
+    // the requirement and so fails safe.
     let pps = if pixels_per_unit == 0 { 1 } else { pixels_per_unit };
     // `div_ceil` written out: keeps this a plain const fn on stable.
     let row_units = ((w as usize) + pps - 1) / pps;
@@ -64,19 +61,12 @@ pub const fn region_units(w: u32, h: u32, pixels_per_unit: usize) -> usize {
 
 /// Whether a renderer is holding its surface — a **type-state**, not a flag.
 ///
-/// The same shape as `UI<W, HasPages>`: a marker parameter that decides which
-/// methods exist. The twist is [`Slot`](Attachment::Slot), and it is what makes
-/// this worth doing rather than decorative — a plain marker could only *guard*
-/// an `Option<B>` field, leaving the `unwrap` inside. An associated type lets
-/// the field itself change shape: the surface when attached, `()` when not. So
-/// there is no `Option`, no `unwrap`, and no "drawing while detached" branch on
-/// any hot path — that state is simply not a value a drawing method can be
-/// called on.
-///
-/// The invariant it removes was real. The pre-split renderer logged a warning and
-/// discard the frame when something painted between a `detach` and the next
-/// `attach`; that is a scheduling mistake the caller could make silently, once
-/// per frame, forever. Now it does not compile.
+/// [`Slot`](Attachment::Slot) is what makes it more than decorative: a plain
+/// marker could only guard an `Option<T>` field, leaving the `unwrap` inside. An
+/// associated type lets the field itself change shape — the surface when
+/// attached, `()` when not — so there is no `Option`, no `unwrap`, and no
+/// "drawing while detached" branch. Painting between a `detach` and the next
+/// `attach` is a compile error rather than a silently discarded frame.
 pub trait Attachment<S> {
     /// The surface field's type in this state: `S` attached, `()` detached.
     type Slot;
@@ -84,8 +74,7 @@ pub trait Attachment<S> {
 
 /// The renderer is holding a surface and can draw.
 ///
-/// Every drawing impl — [`Renderer`], `DrawTarget` — is written for this state
-/// and no other, so the guarantee is structural:
+/// Every drawing impl is written for this state and no other:
 ///
 /// ```
 /// # use rsact_render::{blitter::FramebufBlitter, geometry::Size,
@@ -119,7 +108,7 @@ pub trait Attachment<S> {
 /// // is what an app whose targets arrive from a channel uses.
 /// let r = Screen::with_blitter(EgRasterizer, size, FramebufBlitter::new(buf))
 ///     .unwrap();
-/// let (parked, _blitter) = take(r);
+/// let (parked, _blitter) = r.detach();
 /// // The application is holding the buffer — there is nothing to draw into.
 /// let _ = Renderer::size(&parked);
 /// ```
@@ -131,124 +120,57 @@ impl<S> Attachment<S> for Attached {
 
 /// The owner is holding the surface; the renderer keeps only its configuration.
 ///
-/// A real, useful state rather than an error case: it is where an app's buffer
-/// lives while it is being shipped over SPI, encoded to a PNG, or waited on.
+/// Not an error case — it is where the buffer lives while it is being shipped
+/// over SPI, encoded to a PNG, or waited on.
 pub struct Detached;
 
 impl<S> Attachment<S> for Detached {
     type Slot = ();
 }
 
-// NOTE (layer split, PR A): `trait AntiAliasing` with the `AntiAliasingEnabled`
-// / `AntiAliasingDisabled` witnesses lived here. It was a **type-level** switch:
-// `EGRenderer<C, AA, ..>` had two `Renderer` impls, and the witness is what kept
-// their call graphs from resolving into each other (`Renderer::line` and the
-// primitives' mutual `draw_aa` calls both dispatch on it).
-//
-// Both impls and every `draw_aa` are deleted with it — maintainer decision D1:
-// `EgRasterizer` is embedded-graphics **as-is**, and anti-aliasing belongs to
-// rsact's own `RsactRasterizer`, which will produce coverage and spans instead
-// of blending `f32` per pixel through the renderer.
-//
-// The *runtime* option this shadowed is a different question and still open —
-// see the commented-out `RendererOptions` block at the top of this file. That
-// sketch mentions an `AntiAliasing` enum; it means a value, not this type.
-
-// NOTE (layer split, PR C): `enum ViewportKind` lived here — `Fullscreen`,
-// `Clipped(Rect)` and `Cropped(Rect)` — with `root()`, `clip_bounds()` and
-// `nested_in()`. Every backend held a `Vec<ViewportKind>` as its clip stack.
-//
-// **`Cropped` is deleted (maintainer decision D4) and the other two collapse.**
-// `Cropped` re-based coordinates rather than narrowing them; it had no live
-// constructor and no planned one, because absolute positioning is a *bounds*
-// extension (`paint_bounds`/`ext_draw`, WS6.4c(G)) rather than a coordinate
-// space, and offscreen layers rebase at L3 where `local()` already lives. That
-// left `Fullscreen` and `Clipped(Rect)` — and `Fullscreen` already behaved as
-// `Clipped(surface_rect)` everywhere, because `clip_bounds` substituted the
-// surface rect for it deliberately (WS6.4b needed culling to pay on an ordinary
-// full-frame render, not only under tiles).
-//
-// So a clip stack is a plain `Vec<Rect>` seeded with the surface rect, and
-// `nested_in` becomes one `Rect::intersection`. Three properties survive as
-// documented, tested behaviour on every holder — see `RasterRenderer::clips`:
-// push stores `area ∩ top`, pop never pops the root, and a region IS the root.
-//
-// No `ClipStack` type replaced it (D9): the invariant it would have shared is
-// one line, and the two remaining holders — `RasterRenderer` and
-// `RecordingRenderer`, the latter necessarily L1 because it logs *primitives* —
-// do different things on mutation anyway.
-
-/// Core renderer trait: defines primitive drawing methods independent of
-/// embedded_graphics.
+/// Primitive drawing, independent of any backend.
+///
+/// Clips are a stack: [`push_clip`](Renderer::push_clip) stores `area ∩ top`,
+/// [`pop_clip`](Renderer::pop_clip) never pops the root, and the root is the
+/// region currently being painted.
 pub trait Renderer {
     type Color: Color;
 
     /// The largest region this renderer will accept, as a **type**.
     ///
-    /// This is the whole of what rsact knows about a renderer's storage, and it
-    /// is deliberately not a fact about storage at all: it says *how big a
-    /// rectangle you may ask me to paint*, which a GPU streaming commands and a
-    /// renderer holding an 11 KiB tile can both answer. rsact never sees a
-    /// surface — no `FramebufStorage` trait, no capacity number, no buffer type
-    /// parameter reaches this trait — because a renderer is free to have no
-    /// surface at all.
+    /// Not a fact about storage: it says *how big a rectangle you may ask me to
+    /// paint*, which a GPU streaming commands and a renderer holding an 11 KiB
+    /// tile can both answer. No buffer type or capacity reaches this trait,
+    /// because a renderer is free to have no surface at all.
     ///
-    /// [`Unbounded`] is the answer for every renderer that never needed tiling,
-    /// and there is no default because associated *type* defaults are still
-    /// unstable. Having to write it out is a feature: a renderer that silently
-    /// inherited a bound it does not have would mislead the planner in the
-    /// expensive direction.
+    /// [`Unbounded`] for anything that never needed tiling. There is no default
+    /// — associated type defaults are unstable — and writing it out is no loss:
+    /// a renderer that silently inherited a bound it does not have would mislead
+    /// the planner in the expensive direction.
     ///
-    /// **Where the surface is checked against this: not here.** A backend owns
-    /// both facts — the policy it declares and the buffer it was handed — so it
-    /// makes the comparison itself via
-    /// [`assert_policy_fits`](crate::region::assert_policy_fits): in a `const`
-    /// block when its surface is a fixed-size array, at `attach` when it is a
-    /// runtime-length slice. Hoisting the check up here would force every
-    /// renderer to describe a surface just so the ones that have one could be
-    /// checked.
+    /// The surface is *not* compared against this here. A backend owns both
+    /// facts, so it makes the comparison itself; see
+    /// [`RasterRenderer::attach`].
     ///
     /// [`Unbounded`]: crate::region::Unbounded
     type Policy: crate::region::FramePolicy;
-
-    // NOTE (WS6.4.0(ii-2)): `type Options` + `fn set_options` lived here and
-    // were removed as dead — all seven implementors were `type Options = ()`
-    // with an empty body, and nothing ever called the setter. The associated
-    // type also had to be named in any `dyn Renderer<Color = _, Options = _>`,
-    // so it cost something despite carrying nothing.
-    //
-    // The design it was a placeholder for is NOT dropped: see the commented-out
-    // `RendererOptions` / `AntiAliasing` block at the top of this file, which is
-    // still the sketch for runtime renderer options. Reintroduce the hook there
-    // when something actually configures a renderer at runtime — by then the
-    // shape will be known, instead of an empty slot guessing at it.
 
     fn size(&self) -> Size;
 
     /// rsact is about to paint `region` (absolute screen coordinates).
     ///
-    /// WS6.4.0(ii-3). What a backend does with it is its own business: a tile
-    /// framebuffer sets its origin offset so absolute coordinates land in a
-    /// surface smaller than the frame; a GPU sets a scissor rect; a renderer
-    /// whose surface already covers the whole frame ignores it.
+    /// What a backend does with it is its own business: a tile framebuffer sets
+    /// its origin so absolute coordinates land in a surface smaller than the
+    /// frame; a GPU sets a scissor rect; a renderer already covering the frame
+    /// ignores it.
     ///
-    /// **The default is _correct_, not merely permissive** — a full-frame
-    /// surface receives absolute coordinates and needs no transform at all, so
-    /// [`NullRenderer`], [`RecordingRenderer`](crate::record::RecordingRenderer)
-    /// and a full-frame `RasterRenderer` are already right with no code.
+    /// The default is **correct**, not merely permissive — a full-frame surface
+    /// takes absolute coordinates and needs no transform — so [`NullRenderer`],
+    /// [`RecordingRenderer`](crate::record::RecordingRenderer) and a full-frame
+    /// `RasterRenderer` are right with no code.
     ///
-    /// Deliberately part of `Renderer` rather than a separate `TileAware` trait:
-    /// it states _where_ you are drawing, the same category as [`size`] and
-    /// [`push_clip`], so no `where` clause leaks into the render entry point.
-    /// Equally deliberately it says nothing about *tiles* — the number and shape
-    /// of regions is the frame policy's business (roadmap 6.4d), and this trait
-    /// stays "how to draw a primitive".
-    ///
-    /// No caller yet: the multi-region driver is 6.4d. Landed with the rest of
-    /// the trait shape so 6.4d adds a strategy rather than reopening the trait.
-    ///
-    /// [`size`]: Renderer::size
-    /// [`push_clip`]: Renderer::push_clip
+    /// It says nothing about *tiles*: how many regions there are and what shape
+    /// they take is the frame policy's business.
     fn begin_region(&mut self, region: Rect) -> RenderResult {
         let _ = region;
         Ok(())
@@ -265,18 +187,13 @@ pub trait Renderer {
 
     /// Restrict subsequent drawing to `area` until the matching [`pop_clip`].
     ///
-    /// WS6.4.0(ii-1): a **stack** rather than the previous
-    /// `clipped(area, impl FnOnce(&mut Self))` closure form. Every backend
-    /// already kept a stack internally and merely wrapped it in a closure, so
-    /// this exposes what was already there. Two reasons to prefer it: a
-    /// multi-pass (tiled) renderer re-establishes clips once per pass, which
-    /// closure nesting fights; and the closure form takes `Self` by value in a
-    /// generic parameter, so it is the one method keeping this trait
-    /// dyn-incompatible. Closure sugar survives where it reads better — see
-    /// `RenderCtx::clip_inner` in rsact-ui, which pairs push/pop for its caller.
+    /// A stack rather than a `clipped(area, impl FnOnce(&mut Self))` closure:
+    /// a tiled renderer re-establishes its clips once per pass, which closure
+    /// nesting fights, and a closure taking `Self` by value would make this the
+    /// one method keeping the trait dyn-incompatible.
     ///
-    /// Calls must be balanced. An unmatched [`pop_clip`] is a no-op, never a
-    /// panic (WS1.8: the UI logs and degrades, it does not abort).
+    /// Calls must be balanced, but an unmatched [`pop_clip`] degrades rather
+    /// than panicking.
     ///
     /// [`pop_clip`]: Renderer::pop_clip
     fn push_clip(&mut self, area: Rect);
@@ -289,22 +206,20 @@ pub trait Renderer {
     /// The absolute rect drawing is currently confined to, or `None` for "not
     /// confined / not reported".
     ///
-    /// WS6.4b: this is the **cull rect**, and the contract runs one way —
-    /// *anything whose bounds miss it cannot affect the output*, so a caller may
-    /// skip drawing it. It must therefore never report *narrower* than what the
-    /// renderer actually clips to; reporting wider (or `None`) only costs
-    /// redundant paint. Same asymmetry as
-    /// [`DrawOp::bounds`](crate::record::DrawOp::bounds), and deliberately the
-    /// same predicate: WS6.4a's tile-invariance check is written against it.
+    /// This is the **cull rect**, and the contract runs one way: anything whose
+    /// bounds miss it cannot affect the output, so a caller may skip drawing it.
+    /// It must therefore never report *narrower* than what the renderer actually
+    /// clips to — reporting wider, or `None`, only costs redundant paint. Same
+    /// asymmetry as [`DrawOp::bounds`](crate::record::DrawOp::bounds), and the
+    /// same predicate.
     ///
     /// The default is `None`, which disables culling for a backend that does not
     /// report — the safe direction, and correct for a no-op sink like
     /// [`NullRenderer`], whose `size()` is zero and would otherwise read as
     /// "clips everything away".
     ///
-    /// Note what this is *not*: a way to ask "what is my surface". A tile-backed
-    /// renderer under WS6.4d reports its **region**, not its buffer — the whole
-    /// point being that the region is what bounds the frame's useful work.
+    /// Not a way to ask "what is my surface": a tile-backed renderer reports its
+    /// **region**, which is what bounds the frame's useful work.
     fn clip_bounds(&self) -> Option<Rect> {
         None
     }
@@ -427,16 +342,13 @@ impl Color for NullColor {
 
 /// A renderer that draws nothing, generic over the color it accepts.
 ///
-/// Two jobs. It is the stub every headless test and size/metrics probe builds a
-/// `Wtf` around — hence `C = NullColor` by default, so `Wtf<NullRenderer, ..>`
-/// and `&mut NullRenderer` keep working unannotated. And (WS6.4.0(ii-4)) it is
-/// what 6.4c's **collect pass** runs widget bodies against: that pass must
-/// genuinely execute each body so reactive dependencies re-track and damage
-/// rects are pushed, but must not rasterise, and it has to satisfy
-/// `Renderer<Color = W::Color>` for the *application's* color — which the
-/// previous `type Color = NullColor` hard-wiring could not express.
+/// The stub headless tests and size probes build a `Wtf` around — hence
+/// `C = NullColor` by default — and what a collect pass runs widget bodies
+/// against: such a pass must execute each body so dependencies re-track and
+/// damage is pushed, but must not rasterize, and it has to satisfy
+/// `Renderer<Color = W::Color>` for the *application's* color.
 ///
-/// It carries no state, so `NullRenderer::<C>::default()` is free.
+/// Stateless, so `NullRenderer::<C>::default()` is free.
 pub struct NullRenderer<C = NullColor> {
     _color: PhantomData<C>,
 }
@@ -567,34 +479,23 @@ impl<C: Color> Renderer for NullRenderer<C> {
 /// The [`Renderer`] built around a [`Rasterizer`], with the [`Blitter`] as the
 /// interchangeable sink.
 ///
-/// This is what `EGRenderer` and `TinySkiaRenderer` both become. L1's whole job
-/// is here and it is small: hold the clip stack, reset it per region, cull, and
-/// forward to L2 with a [`RasterCtx`] built from the current clip.
+/// L1's whole job is here and it is small: hold the clip stack, reset it per
+/// region, cull, and forward to L2 with a [`RasterCtx`] built from the current
+/// clip.
 ///
-/// # The renderer is long-lived; the TARGET is what comes and goes
+/// # The renderer is long-lived; the target comes and goes
 ///
-/// `A` is the attachment type-state, and it is on **this** type rather than on
-/// the blitter — which is the correction that matters most about this struct.
+/// A renderer retains state a caller pays to build — the clip stack, and a
+/// rasterizer's caches — so it is created once and lives for the application.
+/// What is *lent* is the caller's paint target: a framebuffer, a pixmap, a
+/// `DrawTarget`, a GPU attachment, each wrapped by a [`Blitter`]. [`attach`]
+/// takes one and [`detach`] gives it back.
 ///
-/// A renderer retains state a caller pays to build: the clip stack, and a
-/// rasterizer's caches (`TinySkiaRasterizer` holds a coverage `Mask` and a
-/// `PathStroker`; `RsactRasterizer` will hold a scanline). So it is created once
-/// and lives for the application. What is *lent* is the caller's paint target —
-/// a framebuffer, a pixmap, a `DrawTarget`, a GPU attachment — and a
-/// [`Blitter`] is exactly the thing that wraps one. So [`attach`] takes a
-/// blitter and [`detach`] gives it back, and a blitter is always in the one
-/// state where it has its target.
-///
-/// **The first shape of this put the type-state on the blitter**
-/// (`FramebufBlitter<C, B, Attached>`), which forced a *specialized* attach and
-/// detach pair on `RasterRenderer` per blitter kind — four impl blocks for two
-/// blitters, each re-stating the capacity proof, and one of them (the framebuf
-/// constructor) was written without the runtime half, so a 240-unit slice
-/// satisfied `Tiles<240, 24>` in silence. That duplication was structural: a
-/// `DirectBlitter` and a DMA2D blitter would each have added another pair and
-/// another chance to forget. It also could not express a target that is not
-/// storage at all — a direct-to-`DrawTarget` blitter has no buffer to hand
-/// back, only itself.
+/// The attachment type-state `A` therefore belongs here and not on the blitter.
+/// Putting it there instead forces a specialized attach/detach pair per blitter
+/// kind, each re-stating the capacity proof and each able to forget half of it,
+/// and it cannot express a target that is not storage at all — a
+/// direct-to-`DrawTarget` blitter has no buffer to hand back, only itself.
 ///
 /// [`attach`]: RasterRenderer::attach
 /// [`detach`]: RasterRenderer::detach
@@ -608,25 +509,20 @@ pub struct RasterRenderer<
     A: Attachment<T> = Attached,
 > {
     rasterizer: R,
-    /// The lent target — and **only** in the [`Attached`] state, where its type
-    /// is `T`. In [`Detached`] it is `()`: not an absent blitter but no field at
-    /// all, so there is nothing to unwrap and no "drawing without a target" case
-    /// for any method to handle.
+    /// The lent target: `T` when [`Attached`], `()` when [`Detached`] — not an
+    /// absent blitter but no field at all, so there is nothing to unwrap.
     blitter: A::Slot,
-    /// The clip stack. A plain `Vec<Rect>`, seeded with the surface rect.
+    /// The clip stack, seeded with the surface rect. Three load-bearing
+    /// properties:
     ///
-    /// Three properties, and each is load-bearing rather than tidy:
-    ///
-    /// - **push stores `area ∩ top`**, so the top IS the effective clip — which
-    ///   is what makes reading it for culling exact rather than approximate, and
-    ///   what stops a widget clip inside a region clip letting drawing escape
-    ///   its tile;
+    /// - **push stores `area ∩ top`**, so the top *is* the effective clip —
+    ///   which makes reading it for culling exact, and stops a widget clip
+    ///   nested inside a region clip from letting drawing escape its tile;
     /// - **pop never pops the root**, so an unbalanced pop degrades rather than
-    ///   leaving the renderer with no clip at all (WS1.8: the UI logs and
-    ///   degrades, it does not abort);
+    ///   leaving the renderer unclipped;
     /// - **a region is the root**, so no clip can escape it.
     ///
-    /// It survives a detach, because it is the renderer's and not the target's.
+    /// It survives a detach, being the renderer's and not the target's.
     clips: alloc::vec::Vec<Rect>,
     /// The display's size — what rsact lays out and culls against, unchanged by
     /// how small the blitter's storage is.
@@ -637,13 +533,11 @@ pub struct RasterRenderer<
 }
 
 impl<R, T, P> RasterRenderer<R, T, P, Detached> {
-    /// A renderer with no target yet — the state a blitter is attached *to*, and
-    /// the one an application builds at boot.
+    /// A renderer with no target yet — what an application builds at boot, and
+    /// what an app whose tiles arrive from a channel waits in.
     ///
-    /// Useful on its own rather than a formality: an app whose tiles arrive from
-    /// a channel constructs this once and waits for the first one. There is no
-    /// bound here at all, so a renderer can be built before its blitter type is
-    /// even known to satisfy [`Blitter`](crate::blitter::Blitter).
+    /// Unbounded, so a renderer can be built before its blitter type is known to
+    /// satisfy [`Blitter`](crate::blitter::Blitter).
     pub fn new(rasterizer: R, viewport: Size) -> Self {
         Self {
             rasterizer,
@@ -691,42 +585,52 @@ where
     /// Lend the renderer a target. Consumes the parked renderer and returns an
     /// [`Attached`] one — the only state that can draw.
     ///
-    /// **One implementation, every blitter**, and the whole capacity proof lives
-    /// here because this is the one place a policy and a target meet. The
-    /// constraint is checked **bottom-up**: the blitter states what it can hold,
-    /// the policy states what the application wants asked of it, and the two are
-    /// compared — statically where the blitter's type can answer, at run time
-    /// where only its value can, and not at all where there is nothing to
-    /// overflow.
+    /// One implementation for every blitter, because this is the one place a
+    /// policy and a target meet. The check runs **bottom-up**: the blitter
+    /// states what it can hold, the policy states what will be asked of it.
     ///
     /// | the target | when it is checked |
     /// |---|---|
     /// | `&'static mut [u16; 5760]` | **compile time** — `UNITS` is `Some` |
     /// | `&'static mut [u16]`, a `Pixmap` | here, as an `Err` |
-    /// | a direct-to-panel blitter | never — `capacity()` is `None`, meaning *unbounded*, and there is no storage to overflow |
+    /// | a direct-to-panel blitter | never — `capacity()` is `None`, meaning *unbounded*: there is no storage to overflow |
     ///
-    /// The **packing agreement** is always a compile error, for every blitter:
-    /// both `P::PIXELS_PER_UNIT` and `T::PIXELS_PER_UNIT` are consts, and
+    /// A **packing** disagreement is always a compile error, for every blitter,
+    /// since both `P::PIXELS_PER_UNIT` and `T::PIXELS_PER_UNIT` are consts and
     /// comparing a budget against a capacity is meaningless unless they count
-    /// the same thing.
+    /// the same thing:
+    ///
+    /// ```compile_fail
+    /// # use rsact_render::{blitter::FramebufBlitter, geometry::Size,
+    /// #                    eg::rasterizer::EgRasterizer, region::Tiles,
+    /// #                    renderer::RasterRenderer};
+    /// # use embedded_graphics::pixelcolor::BinaryColor;
+    /// // 1-bpp storage under a policy counting one pixel per unit. The buffer
+    /// // is far from too small — the refusal is about the packing.
+    /// let buf: &'static mut [u8] = vec![0u8; 4096].leak();
+    /// let _ = RasterRenderer::<
+    ///     EgRasterizer,
+    ///     FramebufBlitter<BinaryColor, &'static mut [u8]>,
+    ///     Tiles<240, 24>,
+    /// >::with_blitter(
+    ///     EgRasterizer, Size::new_equal(240), FramebufBlitter::new(buf),
+    /// );
+    /// ```
     ///
     /// # Errors
     ///
-    /// [`AttachError`] when the target's *value* is too small, with the renderer
-    /// and the target handed back. **Never panics** — whether a memory-plan
-    /// mistake should abort is the application's call, and `unwrap` at the call
-    /// site is that call, written where a reader can see it.
+    /// [`AttachError`] when the target's *value* is too small, with both halves
+    /// handed back. Never panics: whether a memory-plan mistake should abort is
+    /// the application's call, made by an `unwrap` at the call site.
     pub fn attach(
         self,
         blitter: T,
     ) -> Result<RasterRenderer<R, T, P, Attached>, AttachError<R, T, P>> {
         // ── static half ───────────────────────────────────────────────────
         //
-        // Fires once per instantiation, at monomorphization. A `const` block is
-        // invisible to `cargo check` and rust-analyzer — only codegen evaluates
-        // one — so this is a build failure rather than an editor diagnostic, and
-        // `region.rs`'s eager `const _: () = …` doctests remain the only
-        // check-time-visible form.
+        // Fires once per instantiation, at monomorphization. Only codegen
+        // evaluates a `const` block, so this is a build failure and not an
+        // editor diagnostic — `cargo check` and rust-analyzer will not show it.
         const {
             if let Some(needed) = crate::region::policy_units::<P>() {
                 assert!(
@@ -783,11 +687,11 @@ where
 {
     /// The renderer before it has a target — the two-step form of
     /// [`with_blitter`](Self::with_blitter), for an application whose targets
-    /// arrive from a channel and which builds its renderer at boot.
+    /// arrive from a channel.
     ///
-    /// It is spelled on the **attached** type on purpose. That is the type an
-    /// application names (`W::Renderer` is the attached one), so a caller gets a
-    /// parked renderer without having to write `Detached` into a turbofish:
+    /// Spelled on the **attached** type because that is the type an application
+    /// names, so a caller reaches the parked state without writing `Detached`
+    /// into a turbofish:
     ///
     /// ```ignore
     /// let renderer = Screen::parked(EgRasterizer, viewport);
@@ -812,21 +716,18 @@ where
             .attach(blitter)
     }
 
-    /// Take the target back. Consumes the renderer and returns it [`Detached`] —
-    /// the state with no blitter *field*, so nothing can paint into a target the
+    /// Take the target back. Consumes the renderer and returns it [`Detached`],
+    /// which has no blitter field at all, so nothing can paint into a target the
     /// caller is holding.
     ///
-    /// **The blitter is the loan token.** It owns whatever the caller lent it,
-    /// so ownership moves out with it — which is WS6.7's DMA-soundness
-    /// requirement, since a borrow the core can still write through is UB. Where
-    /// the raw buffer is needed, the blitter hands it over
-    /// (`FramebufBlitter::into_storage`, `PixmapBlitter::into_pixmap`); where it
-    /// is not, the blitter can be read in place and re-attached whole.
+    /// **The blitter is the loan token**: it owns what was lent, so ownership
+    /// moves out with it — a borrow the core could still write through would be
+    /// UB once DMA owns the buffer. Unwrap it with
+    /// `FramebufBlitter::into_storage` or `PixmapBlitter::into_pixmap`, or read
+    /// it in place and re-attach it whole.
     ///
-    /// The rect that was painted comes back with it, as
-    /// [`Blitter::bounds`](crate::blitter::Blitter::bounds) — one rect, because
-    /// `begin_region` retargets unconditionally, so a tile and a full-frame
-    /// buffer report the same thing.
+    /// Where it was painted comes back as
+    /// [`Blitter::bounds`](crate::blitter::Blitter::bounds).
     pub fn detach(self) -> (RasterRenderer<R, T, P, Detached>, T) {
         (
             RasterRenderer {
@@ -858,28 +759,22 @@ where
     /// The effective clip — the top of the stack, which `push_clip` keeps
     /// intersected with its parent.
     fn clip(&self) -> Rect {
-        // The root is never popped, so the stack is never empty; `unwrap_or`
-        // rather than `expect` because a panic on the render path is exactly
-        // what WS1.8 forbids, and a zero rect degrades to drawing nothing.
+        // The root is never popped, so the stack is never empty. `unwrap_or`
+        // rather than `expect`: nothing on the render path may panic, and a
+        // zero rect degrades to drawing nothing.
         self.clips.last().copied().unwrap_or(Rect::zero())
     }
 
-    /// Split into the rasterizer and a clip-gated view of the blitter.
+    /// Split into the rasterizer and a clip-gated view of the blitter. The two
+    /// fields are disjoint, so one `&mut self` yields both.
     ///
-    /// `&mut self.rasterizer` and `&mut self.blitter` are disjoint fields, so
-    /// one `&mut self` yields both; elision gives both borrows the same lifetime
-    /// and the tuple return is accepted.
-    ///
-    /// **Hot path.** `Renderer::pixel` comes through here once *per glyph pixel*
-    /// — `DrawTargetProxy::draw_iter` is the only route text takes, and a
-    /// text-heavy frame is O(10⁴) calls. Against the pre-split renderer that
-    /// adds one `Rect::intersection`, inside `RasterCtx::new`. If it ever shows
-    /// up in a profile, note that the intersection is *provably redundant here*:
-    /// `begin_region` seeds the stack with the region and `push_clip`
-    /// intersects, so `clip ⊆ bounds()` already holds for this renderer. It
-    /// could become a `debug_assert!` plus a plain assignment — but only behind
-    /// a second constructor, because the intersection is what makes the
-    /// guarantee structural for any *other* L1 that builds a `RasterCtx`.
+    /// **Hot path**: `Renderer::pixel` arrives here once per glyph pixel, so a
+    /// text-heavy frame is O(10⁴) calls, each paying the `Rect::intersection`
+    /// inside `RasterCtx::new`. That intersection is provably redundant *for
+    /// this* L1 — `begin_region` seeds the stack with the region and `push_clip`
+    /// intersects, so `clip ⊆ bounds()` already holds — but it is what makes the
+    /// guarantee structural for any other L1 building a `RasterCtx`, so
+    /// skipping it needs a second constructor rather than a change here.
     fn split(&mut self) -> (&mut R, crate::raster::RasterCtx<'_, T>) {
         let clip = self.clip();
         (
@@ -911,11 +806,9 @@ where
     }
 }
 
-/// Every geometry method is the same three lines — cull, split, forward — and a
-/// macro is where that belongs: one private expansion inside this crate, over
-/// mechanically identical bodies. Unlike a macro over the *trait* definition it
-/// hides nothing from a reader of the public API, which is the distinction that
-/// makes it acceptable here and not there.
+/// Every geometry method is the same three lines — cull, split, forward. The
+/// macro expands only the impl, so nothing is hidden from a reader of the
+/// public API.
 macro_rules! forward_to_rasterizer {
     (
         $( fn $name:ident ( $( $arg:ident : $ty:ty ),* $(,)? )
@@ -1033,24 +926,6 @@ where
     }
 }
 
-// NOTE (attachment rework): four impl blocks lived here and below —
-// `with_framebuf`/`detach`/`attach` for `FramebufBlitter` and
-// `with_pixmap`/`detach`/`attach` for `PixmapBlitter` — plus an
-// `assert_static_capacity` const block. They are replaced by ONE generic
-// `attach`/`detach` pair, because the type-state moved from the blitter to the
-// renderer (see the struct docs for why).
-//
-// What went with them, deliberately: the **compile-time** half of the capacity
-// proof. It needed `C`, `B` and `P` together, and a generic
-// `attach<T: Blitter>` hides the first two inside `T`. Rather than reintroduce
-// specialization to keep it, `Blitter` gained a defaulted, dyn-safe
-// `pixels_per_unit()` so BOTH halves run at `attach`, for every blitter — which
-// is strictly more coverage than the const block had, since it only ever
-// guarded the framebuf path while the pixmap path compared units against a
-// policy without checking they counted the same thing. The const block was also
-// invisible to `cargo check` and rust-analyzer (only codegen evaluates one), so
-// what it actually bought was a build failure rather than an editor diagnostic.
-
 #[cfg(all(test, feature = "embedded-graphics"))]
 mod raster_renderer_tests {
     use super::*;
@@ -1082,11 +957,8 @@ mod raster_renderer_tests {
             .unwrap()
     }
 
-    /// Build and aim at the whole frame.
-    ///
-    /// A blitter starts aimed at **nothing** — `begin_region` is the only thing
-    /// that ever aims one, and on the real path `Frame` always calls it. A test
-    /// that paints without planning regions has to do the same, or it paints
+    /// Build and aim at the whole frame. A blitter starts aimed at **nothing**,
+    /// so a test that paints without planning regions must aim it or it writes
     /// into a zero-sized target and asserts nothing.
     fn build_full(
         viewport: Size,
@@ -1098,10 +970,8 @@ mod raster_renderer_tests {
         r
     }
 
-    /// Detach and unwrap: the parked renderer, the storage, and the rect it
-    /// covers. The blitter is the loan token, so taking the buffer out of it is
-    /// a second, explicit step — this is that pair, for tests that want the raw
-    /// units.
+    /// Detach and unwrap in one step: the parked renderer, the storage, and the
+    /// rect it covers.
     fn take<P: FramePolicy>(
         r: RasterRenderer<EgRasterizer, Fb, P>,
     ) -> (RasterRenderer<EgRasterizer, Fb, P, Detached>, &'static mut [u32], Rect)
@@ -1168,27 +1038,9 @@ mod raster_renderer_tests {
         }
     }
 
-    // NOTE (layer split, PR C): `the_layered_renderer_paints_what_eg_renderer_paints`
-    // lived here — it ran the same content through `EGRenderer` and through
-    // `RasterRenderer<EgRasterizer, FramebufBlitter<..>>` and compared raw
-    // storage units, pixel for pixel. It passed, which is what licensed this PR
-    // to delete `EGRenderer`; with the reference gone there is nothing left to
-    // compare against, so the test goes with it rather than degenerating into a
-    // renderer compared with itself.
-    //
-    // What survives of its guarantee: the tiling equality below (the same claim
-    // against a *different* configuration of the same renderer), and the fact
-    // that the tile/schedule goldens came out byte-identical across all three
-    // PRs. The differential itself is in the PR B commit, and re-creatable by
-    // checking that commit out.
-
-    /// The tiling equality, on the layered renderer: a surface a fraction of the
-    /// frame's size paints the same pixels as a full one.
-    ///
-    /// Same claim as the pre-split `EGRenderer` test, and it has to be re-proved
-    /// here because the retarget-and-prime that makes it true moved — it is now
-    /// `Blitter::begin_region`, one layer down, with L1 resetting its clip stack
-    /// around it.
+    /// A surface a fraction of the frame's size paints the same pixels as a
+    /// full one — the retarget-and-prime in `Blitter::begin_region`, with L1
+    /// resetting its clip stack around it.
     #[test]
     fn a_tiled_layered_renderer_paints_what_a_full_one_does() {
         const W: u32 = 64;
@@ -1307,13 +1159,12 @@ mod raster_renderer_tests {
         Renderer::pixel(&mut r, Point::new(1, 17), Rgb888::WHITE).unwrap();
     }
 
-    /// WS6.3b, through the new stack: the fast `fill_solid` (whole-word writes
-    /// in the framebuffer) must land the SAME pixels as the per-pixel path.
+    /// The fast `fill_solid` (whole-word writes in the framebuffer) must land
+    /// the same pixels as the per-pixel path.
     ///
-    /// The route is longer than it was — `Renderer::fill_solid` →
-    /// `Rasterizer::fill` → `RasterCtx::rect` → `Blitter::fill_rect` →
-    /// `Framebuf::fill_solid` — and every hop is a place the rect could be
-    /// clipped, shifted or split differently from the per-pixel one.
+    /// Its route is long — `Renderer::fill_solid` → `Rasterizer::fill` →
+    /// `RasterCtx::rect` → `Blitter::fill_rect` → `Framebuf::fill_solid` — and
+    /// every hop can clip, shift or split the rect differently.
     #[test]
     fn fill_solid_matches_per_pixel() {
         let size = Size::new(20, 16);
@@ -1333,15 +1184,8 @@ mod raster_renderer_tests {
         assert_eq!(fast_units, slow_units, "fill_solid != per-pixel fill");
     }
 
-    /// WS6.4d: the renderer **borrows** its surface — it never allocates one and
-    /// always gives it back.
-    ///
-    /// On a device the buffer lives in the application's `StaticCell` pool and
-    /// moves through channels; rsact holds it only while painting.
-    /// `WidgetCtx: 'static` rules out expressing that as a `&'a mut [T]` field,
-    /// so the loan is a move in and a move out — which is also exactly the shape
-    /// DMA wants, since a borrow the core could still write through is UB
-    /// (roadmap 6.7).
+    /// The renderer **borrows** its surface: it never allocates one and always
+    /// gives it back.
     #[test]
     fn the_renderer_gives_the_surface_back() {
         let viewport = Size::new(16, 16);
@@ -1362,20 +1206,18 @@ mod raster_renderer_tests {
             "the owner got back a buffer that does not hold what was painted"
         );
 
-        // `parked` has no drawing methods AT ALL — painting between a detach and
-        // the next attach does not compile. There is nothing to assert here
-        // because there is nothing to call.
+        // Nothing to assert about painting while parked: that state has no
+        // drawing methods, so there is nothing to call.
         let _ =
             parked.attach(FramebufBlitter::new(surface::<Rgb888>(viewport)));
     }
 
-    /// WS6.4d: after `begin_region`, the rect a buffer covers **is** the region
-    /// it was asked to paint — for every surface, not only for tiles.
+    /// After `begin_region`, the rect a buffer covers **is** the region it was
+    /// asked to paint — for every surface, not only for tiles, which is what
+    /// lets a caller carry one rectangle instead of two.
     ///
-    /// This is what lets a caller carry one rectangle instead of two. It held
-    /// only for tiles until `begin_region` stopped exempting full-frame
-    /// surfaces from retargeting, and the asymmetry was invisible in every test
-    /// because each used one surface kind at a time.
+    /// Exempting full-frame surfaces from the retarget breaks this asymmetry
+    /// invisibly, since a test using one surface kind at a time cannot see it.
     #[test]
     fn what_a_buffer_covers_is_the_region_it_painted() {
         let viewport = Size::new(64, 64);
@@ -1397,8 +1239,8 @@ mod raster_renderer_tests {
         assert_eq!(covers, region);
     }
 
-    /// WS6.4d: a region's units are laid out at **its own width**, so a region
-    /// narrower than the frame is contiguous rows of `region.width`.
+    /// A region's units are laid out at **its own width**, so a region narrower
+    /// than the frame is contiguous rows of `region.width`.
     ///
     /// Asserted directly because a differential test cannot reach it: chunking
     /// preserves width, so tiling a full frame yields full-width bands where
@@ -1451,19 +1293,15 @@ mod raster_renderer_tests {
         }
     }
 
-    /// **`begin_region` is the only thing that ever aims a target**, and that
-    /// is what retires a whole bug class rather than fixing one instance.
+    /// **`begin_region` is the only thing that ever aims a target.** A
+    /// reattached one covers nothing until a region is begun, and exactly that
+    /// region after.
     ///
-    /// WS6.4d had a silent failure here: `attach` wrapped every buffer as a tile
-    /// (aimed at `Rect::zero()`) while `begin_region` returned early for a
-    /// full-frame surface — so nothing re-aimed it, and the ordinary flush loop
-    /// reported a zero dirty rect from the second frame onward and sent nothing.
-    /// The fix at the time was to make `attach` aim a full-frame buffer at the
-    /// frame, which needed a `viewport` the blitter had no business knowing.
-    ///
-    /// Now a blitter is aimed by `begin_region` and by nothing else, so "aimed
-    /// wrongly at construction" is not a state that exists. A reattached target
-    /// covers nothing until a region is begun, and exactly the region after.
+    /// Aiming at construction instead makes "aimed wrongly" a reachable state:
+    /// a full-frame surface exempted from the retarget is never re-aimed, so the
+    /// flush loop reports a zero dirty rect from the second frame on and sends
+    /// nothing — and un-exempting it requires the blitter to know a viewport,
+    /// which is not its business.
     #[test]
     fn a_target_is_aimed_by_begin_region_and_by_nothing_else() {
         let viewport = Size::new(16, 16);
@@ -1483,15 +1321,12 @@ mod raster_renderer_tests {
         assert_eq!(after, region, "and exactly the region after");
     }
 
-    /// WS6.4d: a renderer **declares** the largest region it will accept, and
-    /// its surface is checked against that declaration — not the other way
-    /// round.
+    /// A renderer **declares** the largest region it will accept, and its
+    /// surface is checked against that declaration — not the other way round.
     ///
-    /// This closed a hole that went through two shapes: a `usize::MAX` default
-    /// that read as "my surface always covers the frame", and a `PixelBuf for
-    /// Box<[S]>` impl claiming the same, which made **every heap surface**
-    /// exempt — an *empty* boxed slice satisfied a full-frame policy at compile
-    /// time. Capacity a type cannot state is now `None` ("ask the value").
+    /// Spelling an unstatable capacity as `usize::MAX` rather than `None` reads
+    /// as "my surface always covers the frame" and exempts every heap surface:
+    /// an *empty* boxed slice would satisfy a full-frame policy at compile time.
     #[test]
     fn a_renderer_declares_the_regions_it_accepts() {
         use crate::framebuf::FramebufStorage;
@@ -1520,13 +1355,12 @@ mod raster_renderer_tests {
         );
     }
 
-    /// WS6.4b: a nested clip must be **narrowed by** its parent, not replace it.
+    /// A nested clip must be **narrowed by** its parent, not replace it.
     ///
-    /// Asserted where it actually matters — on the framebuffer, not on the
-    /// stack: a pixel inside the inner clip but outside the outer one must not
-    /// land. It used to, because `push_clip` stored the raw area and the write
-    /// filter consulted only the top of the stack, so an inner clip reaching
-    /// beyond its parent *widened* the effective clip. Under tiling that is
+    /// Asserted on the framebuffer rather than on the stack, because that is
+    /// where it matters: a pixel inside the inner clip but outside the outer one
+    /// must not land. Storing the raw area instead lets an inner clip reaching
+    /// beyond its parent *widen* the effective clip — under tiling, that is
     /// drawing escaping its tile.
     #[test]
     fn a_nested_clip_narrows_and_never_widens() {
@@ -1542,10 +1376,9 @@ mod raster_renderer_tests {
             "the effective clip is the intersection, not the inner rect"
         );
 
-        // The probe color must DIFFER from the untouched framebuffer, or the
-        // assertions below hold whatever the clip does: `default_background()`
-        // for RGB is WHITE, so a white probe proves nothing (this test was
-        // written that way first and passed its "rejected" case vacuously).
+        // The probe color must differ from the untouched framebuffer, or the
+        // assertions below hold whatever the clip does — `default_background()`
+        // is WHITE for RGB, so a white probe would pass vacuously.
         let bg = <Rgb888 as Color>::default_background();
         let ink = <Rgb888 as Color>::default_foreground();
         assert_ne!(ink, bg, "the probe color must be visible");
@@ -1581,35 +1414,6 @@ mod raster_renderer_tests {
         );
         assert_eq!(at(15, 15), ink);
     }
-
-    /// **New coverage the per-blitter constructors never had.** A policy's unit
-    /// budget and a target's capacity are only comparable if they count the same
-    /// thing; a 1-bpp target under a `PIXELS_PER_UNIT = 1` policy appears to need
-    /// eight times the storage it does. That agreement used to be asserted only
-    /// in a `const` block on the framebuf path, so the pixmap path compared the
-    /// two without ever checking — now `attach` checks it for every blitter,
-    /// because `Blitter::pixels_per_unit` makes it a value.
-    /// A packing disagreement is a **compile error**, for every blitter — both
-    /// sides are consts. It cannot be asserted at runtime because the code does
-    /// not build, which is the point; this records what the message says.
-    ///
-    /// ```compile_fail
-    /// # use rsact_render::{blitter::FramebufBlitter, geometry::Size,
-    /// #                    eg::rasterizer::EgRasterizer, region::Tiles,
-    /// #                    renderer::RasterRenderer};
-    /// # use embedded_graphics::pixelcolor::BinaryColor;
-    /// // 1-bpp storage under a policy that counts one pixel per unit. The
-    /// // buffer is far from too small — the refusal is about the packing.
-    /// let buf: &'static mut [u8] = vec![0u8; 4096].leak();
-    /// let _ = RasterRenderer::<
-    ///     EgRasterizer,
-    ///     FramebufBlitter<BinaryColor, &'static mut [u8]>,
-    ///     Tiles<240, 24>,
-    /// >::with_blitter(
-    ///     EgRasterizer, Size::new_equal(240), FramebufBlitter::new(buf),
-    /// );
-    /// ```
-    fn _packing_disagreement_is_a_build_error() {}
 
     /// A target too small for the declared policy is refused when it is lent,
     /// before anything paints into it — **as an `Err`, not a panic**. Whether a

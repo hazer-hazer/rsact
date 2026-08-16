@@ -20,41 +20,26 @@ use embedded_graphics::{
 /// A [`RasterCtx`] wearing embedded-graphics' `DrawTarget`, so that crate's
 /// algorithms can emit into a blitter.
 ///
-/// # Two `DrawTarget` adapters coexist, and they are not the same thing
+/// Not to be confused with
+/// [`DrawTargetProxy`](super::interop::DrawTargetProxy), the other
+/// `DrawTarget` adapter here: that one sits **above** L1, feeding glyph pixels
+/// *into* a renderer, while this one feeds *out of* a rasterizer into a blitter.
 ///
-/// Expect to be confused by this exactly once:
+/// Overrides `draw_iter` and `fill_solid`, which are what eg's algorithms call
+/// — `fill_solid` being the one that reaches the whole-word framebuffer path,
+/// without which a styled `Rectangle` fills one pixel at a time.
 ///
-/// - **`BlitTarget`** — here, **below** L1. It lets eg's `StyledDrawable`
-///   algorithms write through the clip gate into an L3 blitter.
-/// - **[`DrawTargetProxy`](super::interop::DrawTargetProxy)** — **above** L1. It
-///   is how `embedded-text`/u8g2 hand glyph pixels to a `Renderer`, one at a
-///   time, and it is unchanged by the split: text still arrives as
-///   `Renderer::pixel` until WS15 gives the rasterizer a `glyphs` method.
-///
-/// # What is and is not overridden
-///
-/// `draw_iter` and `fill_solid`, and deliberately not `fill_contiguous`. The
-/// first two are what eg's algorithms actually call — `fill_solid` being the one
-/// that reaches WS6.3b's whole-word framebuffer path, without which a styled
-/// `Rectangle` bounces through `fill_contiguous` → `draw_iter` and fills a rect
-/// one pixel at a time.
-///
-/// `fill_contiguous` would map onto [`RasterCtx::run`], which the design sketch
-/// proposed, but `run` needs a **slice** while eg hands over an iterator. The
-/// only way to bridge that is a row-sized scratch buffer, and a `BlitTarget` is
-/// constructed per primitive call — so it would be an allocation per primitive
-/// to serve a method whose default (`draw_iter`, i.e. `cx.pixel`) is already
-/// correct. Revisit when a rasterizer holds a scratch line for its own reasons;
-/// `RsactRasterizer` will.
+/// Not `fill_contiguous`: it would map onto [`RasterCtx::run`], but `run` needs
+/// a slice while eg hands over an iterator, and bridging that needs a row-sized
+/// scratch buffer. A `BlitTarget` is built per primitive call, so that would be
+/// an allocation per primitive to serve a method whose default is already
+/// correct. Worth revisiting once a rasterizer holds a scratch line anyway.
 pub struct BlitTarget<'a, T: Blitter>(pub RasterCtx<'a, T>);
 
 impl<'a, T: Blitter> Dimensions for BlitTarget<'a, T> {
-    /// The **clip**, not the blitter's whole extent.
-    ///
-    /// This is the honest answer and also a free optimization: eg's own
-    /// `clipped`/`cropped` adapters and several of its algorithms intersect
-    /// against this box, so reporting the clip turns the advisory "bound your
-    /// loops" row of `RasterCtx`'s table into something eg does for us.
+    /// The **clip**, not the blitter's whole extent — which is both honest and
+    /// free bounding, since eg's own adapters and several of its algorithms
+    /// intersect against this box.
     fn bounding_box(&self) -> Rectangle {
         self.0.clip().into()
     }
@@ -89,28 +74,18 @@ where
 
 /// embedded-graphics' primitive algorithms, as an L2 rasterizer.
 ///
-/// **Overrides** the seven shapes embedded-graphics has primitives for. Each
-/// body is one call: build eg's own primitive from the arguments and
-/// `draw_styled` it into a [`BlitTarget`].
-///
-/// **They used to be seven files.** `eg/primitives/` held a `pub fn draw` per
-/// shape, each taking rsact's `Line`/`Arc`/`Circle`/… and converting to eg's —
-/// a shape left behind when PR A deleted the anti-aliased halves those modules
-/// existed to pair with. Inlining them here removed the intermediate rsact
-/// primitive entirely: the arguments go straight into eg's constructor, which is
-/// what they always did two hops later.
+/// **Overrides** the seven shapes embedded-graphics has primitives for; each
+/// body builds eg's own primitive and `draw_styled`s it into a [`BlitTarget`].
 ///
 /// **Inherits** [`crate::scan`] for `polygon`, `path` and `image`, which
-/// embedded-graphics does not have: its `polygon` and `ImageDrawable` are both
-/// logged no-ops, so the shared default is not a fallback here, it is the only
-/// implementation there has ever been.
+/// embedded-graphics does not have.
 ///
-/// **Does not override `fill`.** The default reaches `cx.rect` →
-/// [`Blitter::fill_rect`] → `Framebuf::fill_solid`, which is WS6.3b's whole-word
-/// path. Routing it through eg's `Rectangle` would add a hop and arrive at the
-/// same place.
+/// **Does not override `fill`**: the default reaches `cx.rect` →
+/// [`Blitter::fill_rect`] → `Framebuf::fill_solid`, the whole-word path, so
+/// routing it through eg's `Rectangle` would add a hop to arrive in the same
+/// place.
 ///
-/// **No `C` parameter.** The color comes from `T::Color`; a `PhantomData<C>`
+/// No `C` parameter — the color comes from `T::Color`, and a `PhantomData<C>`
 /// would add a monomorphization axis with no code difference.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct EgRasterizer;

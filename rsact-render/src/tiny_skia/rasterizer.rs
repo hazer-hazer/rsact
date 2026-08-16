@@ -12,40 +12,26 @@ use tiny_skia::{FillRule, Mask, PathBuilder, Stroke, Transform};
 
 /// tiny-skia's scan conversion, producing **coverage** rather than pixels.
 ///
-/// # Why this is L2 and not a backend of its own
+/// tiny-skia's painting API is fused — `PixmapMut::fill_path` rasterizes and
+/// blends in one call, into a `Pixmap` — so none of it is used here.
+/// [`Mask::fill_path`] is the primitive underneath, and it hands back the
+/// coverage buffer itself. Coverage is therefore produced once and blended once,
+/// in the blitter, and no color is pinned: `impl<T: Blitter> Rasterizer<T>` puts
+/// tiny-skia's anti-aliasing over an Rgb565 framebuffer as readily as over a
+/// `Pixmap`.
 ///
-/// tiny-skia's public painting API is *fused*: `PixmapMut::fill_path` rasterizes
-/// and blends in one call, into a `Pixmap`. Fusing is what this design undoes,
-/// so none of it is used here. [`Mask::fill_path`] is the primitive underneath
-/// those calls — this repo already called it, to build clip masks — and it hands
-/// back the coverage buffer itself. So coverage is produced **once** and blended
-/// **once**, in our blitter.
+/// The mask is keyed on the **clip**, which is the largest rect L2 may write.
+/// It is grow-only and re-used — a `Mask` is `w·h` bytes, so reallocating one
+/// per primitive would dominate everything else — and rows are read at the
+/// *allocated* width.
 ///
-/// The payoff is that no color is pinned. `impl<T: Blitter> Rasterizer<T>` with
-/// no bound on `T::Color` makes tiny-skia's anti-aliasing available over an
-/// **Rgb565 framebuffer**, not only over a `Pixmap` — which an L1-only tiny-skia
-/// backend could never offer.
-///
-/// # The mask is keyed on the clip, not the region
-///
-/// L2 never learns a region exists; the clip is the largest rect it may write
-/// anyway. The buffer is grow-only and re-used, because a `Mask` is `w·h` bytes
-/// and reallocating one per primitive would dominate everything else. Rows are
-/// read at the *allocated* width, and only the clip's own width and height are
-/// emitted.
-///
-/// # What is deliberately not overridden
-///
-/// [`fill`](Rasterizer::fill) and [`pixel`](Rasterizer::pixel). A style-free
-/// axis-aligned rect has no edge to anti-alias, so routing it through a mask
-/// would cost a coverage buffer and a per-pixel blend to arrive at the same
-/// pixels the blitter's own `fill_rect` writes with `slice::fill`.
-/// [`image`](Rasterizer::image) is inherited for the same kind of reason: it is
-/// a decode, not a rasterization.
+/// [`fill`](Rasterizer::fill), [`pixel`](Rasterizer::pixel) and
+/// [`image`](Rasterizer::image) are inherited: an axis-aligned rect has no edge
+/// to anti-alias and a decode is not a rasterization, so a coverage buffer and a
+/// per-pixel blend would buy nothing.
 pub struct TinySkiaRasterizer {
     mask: Option<Mask>,
-    /// The allocated mask's size, which is the high-water mark of every clip
-    /// seen so far — not the current clip.
+    /// The allocated size: the high-water mark of every clip seen so far.
     mask_size: Size,
     /// Reused per stroke so its scratch allocations survive between primitives.
     stroker: tiny_skia::PathStroker,
@@ -140,11 +126,8 @@ impl TinySkiaRasterizer {
             self.emit(cx, path, fill);
         }
         if let (Some(color), width @ 1..) = (style.stroke, style.stroke_width) {
-            // TODO: `StrokeAlignment` is not expressible in tiny-skia, which
-            // always strokes centred on the path. Implementing Inside/Outside
-            // means offsetting the path first. Recorded rather than silently
-            // ignored — it is exactly the kind of *parameter semantics*
-            // divergence the post-refactor rasterizer audit has to collect.
+            // TODO: `StrokeAlignment` is ignored — tiny-skia always strokes
+            // centred on the path, so Inside/Outside need the path offset first.
             let mut stroke = Stroke::default();
             stroke.width = width as f32;
             stroke.line_cap = tiny_skia::LineCap::Round;
@@ -328,13 +311,12 @@ mod tests {
     };
     use tiny_skia::Pixmap;
 
-    /// The pixmap is the TEST's, as it is any caller's — nothing in rsact
+    /// The pixmap is the test's, as it is any caller's — nothing in rsact
     /// allocates one.
     ///
-    /// White, because a fresh tiny-skia canvas is **opaque white** rather than
-    /// transparent: an assertion built on `alpha != 0` is true on every pixel of
-    /// an untouched surface and proves nothing. Every check below looks for
-    /// pixels that are *not* white.
+    /// Filled white so the checks below can look for pixels that are *not*
+    /// white. `Pixmap::new` alone is transparent black, against which an
+    /// `alpha != 0` assertion holds on every untouched pixel and proves nothing.
     fn pixmap(size: Size) -> Pixmap {
         let mut p = Pixmap::new(size.width, size.height).unwrap();
         p.fill(tiny_skia::Color::WHITE);
@@ -359,15 +341,12 @@ mod tests {
             .count()
     }
 
-    /// **The point of making tiny-skia an L2 rasterizer**, as a test.
+    /// Partial coverage must reach the blitter *as* partial coverage, not
+    /// thresholded to on/off — that is what anti-aliasing over foreign storage
+    /// depends on.
     ///
-    /// A `Mask` is colorless, so coverage is produced once and blended once — in
-    /// *our* blitter. What that buys is anti-aliasing over storage tiny-skia has
-    /// never heard of, and this is the check: partial coverage must reach a
-    /// blitter as partial coverage, not as a thresholded on/off.
-    ///
-    /// Asserted on a diagonal, because an axis-aligned edge has no partially
-    /// covered pixels to produce.
+    /// Asserted on a diagonal; an axis-aligned edge has no partially covered
+    /// pixels to produce.
     #[test]
     fn coverage_reaches_the_blitter_as_coverage() {
         use crate::blitter::{Blitter, Span};
@@ -428,10 +407,8 @@ mod tests {
         );
     }
 
-    /// The same rasterizer over a **framebuffer**, which the fused tiny-skia API
-    /// could never do: `Mask` carries no color, so `impl<T: Blitter>` with no
-    /// bound on `T::Color` makes its anti-aliasing available over Rgb888 storage
-    /// as readily as over a `Pixmap`.
+    /// The same rasterizer over a **framebuffer**, which the fused tiny-skia
+    /// API could never do.
     #[cfg(feature = "embedded-graphics")]
     #[test]
     fn tiny_skias_anti_aliasing_works_over_a_framebuffer() {
@@ -477,12 +454,12 @@ mod tests {
         );
     }
 
-    /// WS6.4d: a pixmap smaller than the frame paints the same picture as a
-    /// full-frame one.
+    /// A pixmap smaller than the frame paints the same picture as a full-frame
+    /// one.
     ///
-    /// It catches the class of bug the op logs cannot: the rebase is now
-    /// `PixmapBlitter`'s addressing rather than a `Transform`, and getting a
-    /// sign or a stride wrong yields a plausible image with an intact log.
+    /// Catches what an op log cannot: the rebase is `PixmapBlitter`'s
+    /// addressing, and a wrong sign or stride yields a plausible image with an
+    /// intact log.
     #[test]
     fn a_partial_pixmap_paints_what_a_full_one_would() {
         use crate::geometry::{Point, Rect};
@@ -573,13 +550,12 @@ mod tests {
         );
     }
 
-    /// WS6.4d: a pixmap's bound is a **byte budget**, not a shape — the storage
-    /// is re-strided per region, so any region fitting the bytes is painted.
+    /// A pixmap's bound is a **byte budget**, not a shape: the storage is
+    /// re-strided per region, so any region fitting the bytes is painted.
     ///
-    /// This replaced a test asserting the opposite: a 64×8 pixmap used to
-    /// *refuse* a 32×16 region on the grounds that a pixmap has a fixed
-    /// `width()`. It does — but `take`/`from_vec` let the same allocation be
-    /// re-shaped, and both regions are 512 pixels.
+    /// A pixmap does have a fixed `width()`, which suggests a 64×8 one should
+    /// refuse a 32×16 region — but `take`/`from_vec` re-shape the same
+    /// allocation, and both regions are 512 pixels.
     #[test]
     fn a_pixmap_is_reshaped_per_region_not_bound_to_its_shape() {
         use crate::{

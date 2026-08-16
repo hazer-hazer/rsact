@@ -1,18 +1,12 @@
 #![no_std]
 
-// no_std f32 math backend. Exactly one of `libm` (default) / `micromath` must
-// be enabled — same mutually-exclusive contract as rsact-reactive's storage
-// backends. `FloatExt` is the float-method trait the geometry and primitive
-// code brings into scope with `use crate::FloatExt as _;`. On `std` builds the
-// inherent `f32` methods shadow the trait, so the simulator uses std math with
-// zero cfg; the trait only supplies the methods on no_std targets.
+// The float-math backend. `FloatExt` supplies `sqrt`, `atan2` and friends on
+// no_std; on std the inherent `f32` methods shadow it and a backend is not
+// needed, which is why the second check excludes std.
 #[cfg(all(feature = "libm", feature = "micromath"))]
 compile_error!(
     "rsact-render: features `libm` and `micromath` are mutually exclusive — enable exactly one math backend"
 );
-// A backend is required only on no_std: with `std`, the inherent `f32` methods
-// shadow `FloatExt` and the trait is never called, so a std build needs no math
-// backend feature (a bare `--features std` builds).
 #[cfg(all(
     not(feature = "std"),
     not(any(feature = "libm", feature = "micromath"))
@@ -25,9 +19,7 @@ compile_error!(
 pub use micromath::F32Ext as FloatExt;
 #[cfg(all(feature = "libm", not(feature = "micromath")))]
 pub use num_traits::Float as FloatExt;
-// std with no explicit backend: `FloatExt` must still exist so the unconditional
-// `use crate::FloatExt as _;` imports resolve; it's an empty marker because the
-// inherent `f32` methods do the work.
+// Empty on std-without-a-backend so `use crate::FloatExt as _;` still resolves.
 #[cfg(all(feature = "std", not(feature = "libm"), not(feature = "micromath")))]
 pub trait FloatExt {}
 #[cfg(all(feature = "std", not(feature = "libm"), not(feature = "micromath")))]
@@ -35,44 +27,25 @@ impl FloatExt for f32 {}
 #[cfg(all(feature = "std", not(feature = "libm"), not(feature = "micromath")))]
 impl FloatExt for f64 {}
 
-// The render layer split's L3: `Blitter` (spans -> pixels), `Span`, and the
-// addressing helpers. Unconditional — an L3 blitter must be definable without
-// embedded-graphics, which is what makes a direct-to-panel or DMA2D blitter
-// expressible; only the pixmap blitter is gated.
+// The three drawing layers: `renderer` (L1) drives `raster` (L2), which emits
+// into `blitter` (L3). Each is unconditional; the backend-specific rasterizers
+// and blitters live under `eg` and `tiny_skia`.
 pub mod blitter;
 pub mod color;
-// WS6.4e: packed pixel storage — `Framebuf`, `FramebufStorage`, `PackedColor`.
-// Unconditional, and that is the point of the item: nothing in it is specific
-// to embedded-graphics, and the render layer split's L3 blitter must be able to
-// use it without that dependency. What genuinely needs the crate stayed in
-// `eg/framebuf.rs`.
 pub mod framebuf;
 pub mod geometry;
 pub mod image;
 pub mod output;
 pub mod path;
 pub mod primitives;
-// The render layer split's L2: `Rasterizer` (geometry -> spans) and `RasterCtx`
-// (the clip gate). Unconditional; the concrete rasterizers live in their
-// backend's module (`eg::rasterizer`, `tiny_skia::rasterizer`), so the tree is
-// cut by feature gate rather than by layer.
 pub mod raster;
 pub mod record;
-// WS6.4d(1): damage rects -> the regions a frame is painted in. Pure geometry,
-// no renderer and no steady-state allocation, so it belongs beside the geometry
-// it operates on rather than in the UI crate that drives it.
 pub mod region;
 pub mod renderer;
-// The shared scan conversion every `Rasterizer` default delegates to. A sibling
-// of `raster` rather than a child: that file is the contract, this one is 600
-// lines of algorithm, and the two are read for different reasons.
 pub mod scan;
 pub mod style;
-// Harness code, not API: WS6.4a's tile measurement and WS6.9's golden bless
-// workflow, moved out of `src`'s public surface so the two are not read as
-// peers of `renderer`/`raster`/`blitter`. Gated by a feature rather than
-// `#[cfg(test)]` because every consumer of them is in *another* crate, and
-// `cfg(test)` does not cross a crate boundary — see the module's own docs.
+// Test harness, not API. A feature rather than `#[cfg(test)]` because its users
+// are in other crates and `cfg(test)` does not cross a crate boundary.
 #[cfg(feature = "test-utils")]
 #[doc(hidden)]
 pub mod test_support;
@@ -80,8 +53,7 @@ pub mod test_support;
 #[macro_use]
 extern crate alloc;
 
-// `#![no_std]` drops `std` from the extern prelude; the golden harness's file
-// I/O needs it, so bring it back on std builds only.
+// `#![no_std]` drops `std` from the extern prelude; the golden harness needs it.
 #[cfg(feature = "std")]
 extern crate std;
 

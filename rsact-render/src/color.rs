@@ -32,7 +32,7 @@ pub trait Color: Copy + PartialEq + Debug {
 
     /// Blend `self` toward `other` by `alpha` (0.0 = keep self, 1.0 = other).
     ///
-    /// WS9a.6: 8.8 fixed-point. The API stays `f32` (callers produce coverage /
+    /// 8.8 fixed-point. The API stays `f32` (callers produce coverage /
     /// blend factors as floats), but `alpha` is scaled to `0..=256` once and the
     /// per-channel blend is pure integer — removing ~6 per-blend soft-float ops
     /// that hurt on FPU-less parts (this runs per anti-aliased pixel). `clamp`

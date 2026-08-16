@@ -1,30 +1,16 @@
 //! Packed pixel storage, independent of any backend.
 //!
-//! **WS6.4e: this module used to be `eg/framebuf.rs`.** Nothing in it was ever
-//! specific to embedded-graphics — `PackedColor` describes how a color packs
-//! into a storage word, [`FramebufStorage`] describes a caller-owned buffer,
-//! and [`Framebuf`] is addressing arithmetic over the two. embedded-graphics
-//! was merely its only *current* user, and living under `eg/` meant the
-//! forthcoming `FramebufBlitter` (the render layer split's L3) could not use it
-//! without dragging that dependency in.
+//! [`PackedColor`] says how a color packs into a storage word,
+//! [`FramebufStorage`] is a caller-owned buffer, and [`Framebuf`] is the
+//! addressing arithmetic over the two. The embedded-graphics half — the
+//! `PackedColor` impls for its color types, and the `DrawTarget` impl that lets
+//! a `Framebuf` *be* a draw target — lives in `eg/framebuf.rs`.
 //!
-//! What stayed behind in `eg/framebuf.rs` is exactly what needs the crate: the
-//! [`PackedColor`] impls for embedded-graphics' color types, and the
-//! `Dimensions`/`DrawTarget` impls that let a [`Framebuf`] *be* an
-//! embedded-graphics draw target.
-//!
-//! Two consequences worth knowing before editing this file:
-//!
-//! - **No `embedded_graphics` import may appear here**, not even in a doctest —
-//!   a doctest compiles as its own crate against whatever features the test
-//!   command enabled, so one naming an optional dependency breaks
-//!   `cargo test --features std`. That is why [`units_for`]'s worked example is
-//!   a `text` block with a real unit test behind it.
-//! - The renames that came with the move: `PackedFramebuf` → [`Framebuf`] (the
-//!   `Framebuf` *trait* was dissolved in WS6.4d(9), so the name is free and
-//!   correct — this is the only framebuffer type), and the `Framebuffer` trait
-//!   → [`FramebufStorage`], which is what it is about: capacity plus access
-//!   over a caller-owned buffer.
+//! **No `embedded_graphics` import may appear here, not even in a doctest.** A
+//! doctest compiles as its own crate against whatever features the test command
+//! enabled, so one naming an optional dependency breaks `cargo test --features
+//! std`. That is why [`units_for`]'s example is a `text` block with a unit test
+//! behind it.
 
 use crate::{
     color::Color,
@@ -34,14 +20,11 @@ use crate::{
 pub trait PackedColor {
     type Storage: Clone + Send + Sync + 'static;
 
-    /// Pixels-per-storage for a specific color (e.g. BinaryColor is one bit and
-    /// 8 of it can be stored inside a single byte).
+    /// Pixels per storage unit — 8 for a 1-bit color in a `u8`, 1 for a color
+    /// with a word of its own.
     ///
-    /// WS6.4.0(iii): an associated **const** so it is usable from a `const fn`
-    /// — [`units_for`] needs it inside a `const { assert!(..) }`, and a trait
-    /// *method* cannot be called in a const context on stable. The method form
-    /// below is kept, defaulted, so every existing `C::pps()` call site is
-    /// untouched.
+    /// A const rather than only a method: the capacity proof needs it inside
+    /// `const { assert!(..) }`, and a trait method cannot be called there.
     const PPS: usize;
 
     /// Method form of [`PPS`](PackedColor::PPS). Do not override.
@@ -54,32 +37,29 @@ pub trait PackedColor {
     fn as_color(packed: &Self::Storage, offset: usize) -> Self;
     fn set_color(packed: &mut Self::Storage, offset: usize, color: Self);
 
-    /// WS6.3b: the storage word holding `pps` copies of `color` — a whole word
-    /// entirely of that color. Used by the fast `fill_solid` to `slice::fill`
-    /// the run of storage words fully inside a rect (mono: `0x00`/`0xFF`; RGB
-    /// where `pps == 1`: just the pixel word). Partial edge words still go
-    /// through `set_color`, so this need only cover full words.
+    /// A storage word holding `pps` copies of `color` (mono: `0x00`/`0xFF`;
+    /// one-pixel-per-word colors: the pixel itself).
+    ///
+    /// [`Framebuf::fill_solid`] `slice::fill`s with it. Only whole words are
+    /// filled that way, so partial edge words are not this method's problem.
     fn solid_storage(color: Self) -> Self::Storage;
 }
 
-// ─────────────────────────────── WS6.4.0(iii): tile capacity, checked at attach
+// ──────────────────────────────────── Tile capacity, checked at attach
 //
-// The chain, with no `generic_const_exprs`:
+// Without `generic_const_exprs`, the two halves meet at the hand-off:
 //
 //   buffer type ─────────────▶ FramebufStorage::UNITS ─┐
 //                                                     ├─▶ RasterRenderer::attach
 //   Renderer::Policy + PPS ──▶ policy_units ──────────┘
 //
-// so a surface too small for the policy its renderer declares is rejected
-// before anything paints into it — a **compile error** when the buffer is a
-// fixed-size array (`UNITS` is `Some`), an assert at the hand-off when it is a
-// runtime-length slice (`UNITS` is `None`).
+// A surface too small for the policy its renderer declares is rejected before
+// anything paints into it: a compile error for a fixed-size array (`UNITS` is
+// `Some`), an `attach` error for a runtime-length slice (`UNITS` is `None`).
 //
-// It is deliberately NOT in `UI::start_frame`, where it lived through 6.4d's
-// first shape. That required the `Renderer` trait to expose a capacity, which
-// forced every renderer — including ones with no surface at all — to describe
-// storage just so the ones that have it could be checked. The comparison now
-// happens in the one place that legitimately knows both numbers.
+// `attach` rather than `UI::start_frame` because it is the one place that knows
+// both numbers. Checking in the frame loop would need `Renderer` to expose a
+// capacity, forcing renderers with no surface at all to describe storage.
 
 /// Units of `C::Storage` needed to hold a `w × h` region, **including row
 /// padding**.
@@ -92,13 +72,12 @@ pub trait PackedColor {
 /// units_for::<BinaryColor>(122, 24) == 384    // 1-bpp: 16 bytes per row
 /// ```
 ///
-/// (A `text` block rather than a doctest because this module must not name
-/// embedded-graphics — see the module docs. The equalities are asserted in
-/// [`region_units`]'s own doctest and in this module's tests.)
+/// (A `text` block, not a doctest: this module must not name
+/// embedded-graphics. Both equalities are asserted in [`region_units`]'s
+/// doctest and in this module's tests.)
 ///
-/// The arithmetic itself lives in [`region_units`] — this is the color-typed
-/// wrapper. Deliberately a delegation and not a copy: the same formula is what
-/// [`policy_units`] runs a policy through, and two spellings of it could drift
+/// A delegation to [`region_units`] rather than a copy of it — that is also
+/// what [`policy_units`] runs a policy through, and two spellings could drift
 /// into a check that passes while the buffer is too small.
 ///
 /// [`policy_units`]: crate::region::policy_units
@@ -109,48 +88,31 @@ pub const fn units_for<C: PackedColor>(w: u32, h: u32) -> usize {
 
 /// A caller-owned buffer the renderer can draw into — **capacity plus access**.
 ///
-/// rsact never holds one of these. The user hands it to their concrete renderer
-/// through that backend's own inherent API (roadmap 6.4.0, "surface
-/// ownership"); the renderer borrows it for as long as the user chooses and
-/// gives it back with `detach`. That loan is a move in and a move out rather
-/// than a `&'a mut [T]` field, because `WidgetCtx: 'static` (`el/ctx.rs:5`)
-/// rules out a renderer with a lifetime parameter — and it is also the shape
-/// DMA wants, since a borrow the core could still write through is UB.
-///
-/// **This was two traits**, `Framebuffer` (capacity) and `Surface: PixelBuf`
-/// (access). The split existed for exactly one type — `AsBytes<[u8; N]>`, a
-/// wire-format view that could state a capacity but could not hand out
-/// `&mut [u16]` without an alignment guarantee a byte array does not carry. That
-/// type was never constructed anywhere, so the split cost two names, two bounds
-/// and two impls per buffer to describe a case that did not exist. See the note
-/// where `AsBytes` was removed for what reviving it would take.
+/// rsact never holds one. The user lends it to a renderer and takes it back
+/// with `detach`. The loan is a move in and a move out rather than a
+/// `&'a mut [T]` field, because rsact-ui's `WidgetCtx` is `'static` and so rules
+/// out a renderer with a lifetime parameter — and because DMA needs it: a
+/// borrow the core could still write through is UB.
 pub trait FramebufStorage<C: PackedColor> {
     /// Capacity in storage units when the **type** knows it, `None` when only
     /// the value does.
     ///
-    /// `Some(N)` for a fixed-size array, which is what lets a policy violation
-    /// be a compile error. `None` for a slice or a boxed slice, whose length is
-    /// a runtime fact — those are checked at `attach` instead.
+    /// `Some(N)` for a fixed-size array, which is what makes a policy violation
+    /// a compile error; `None` for a slice, whose length is a runtime fact and
+    /// is checked at `attach` instead.
     ///
-    /// **`None` means "ask the value", never "unbounded".** This was
-    /// `const UNITS: usize` with `usize::MAX` for the heap case, which read as
-    /// "my surface always covers the frame" — the sentinel for *no constraint*.
-    /// The result was a total bypass: an **empty** `Box<[u16]>` satisfied
-    /// `assert_policy_fits::<Tiles<240, 240>>` at compile time and constructed a
-    /// tiled renderer over zero bytes of storage. A capacity a type cannot state
-    /// must be absent, not infinite; [`unit_count`](Self::unit_count) is where
-    /// the real number lives.
+    /// **`None` means "ask the value", never "unbounded".** Spelling the
+    /// unknown case as `usize::MAX` instead reads as "always big enough" and
+    /// bypasses the proof entirely — an empty `Box<[u16]>` then satisfies
+    /// `assert_policy_fits::<Tiles<240, 240>>` at compile time.
     const UNITS: Option<usize>;
 
     fn units(&self) -> &[C::Storage];
     fn units_mut(&mut self) -> &mut [C::Storage];
 
-    /// This buffer's real capacity, in storage units.
-    ///
-    /// Always available, unlike [`UNITS`](Self::UNITS) — a slice knows its own
-    /// length even when its type does not. The backend compares this against
-    /// its frame policy on every `attach`, so a runtime-sized buffer is checked
-    /// exactly once, at the moment it is lent, rather than never.
+    /// This buffer's real capacity, in storage units. Always available, unlike
+    /// [`UNITS`](Self::UNITS) — a slice knows its own length even when its type
+    /// does not.
     fn unit_count(&self) -> usize {
         self.units().len()
     }
@@ -160,15 +122,12 @@ macro_rules! native_framebuf_storage {
     ($($storage:ty),* $(,)?) => {$(
         // ── Statically-sized, and BORROWED ────────────────────────────────
         //
-        // `&mut [T; N]` rather than `[T; N]`: the extent is still in the type,
-        // so a policy violation is still a compile error, but the loan is a
-        // pointer. An owned array was an anti-pattern hiding in plain sight —
-        // `attach` and `detach` move `B` by value, so `[u16; 5760]` memcpy'd
-        // 11.25 KiB **on every hand-off**, i.e. twice per region on the exact
-        // path that exists to avoid copying a framebuffer.
-        //
-        // On a device this is what a `StaticCell`/`ConstStaticCell` yields, which
-        // is where the buffer wants to live anyway.
+        // `&mut [T; N]` rather than `[T; N]`: the extent stays in the type, so
+        // a policy violation is still a compile error, but the loan is a
+        // pointer. `attach`/`detach` move `B` by value, so an owned array would
+        // memcpy the whole framebuffer twice per region — on the path that
+        // exists to avoid copying it. `&'static mut` is also what a
+        // `StaticCell` yields, which is where a device's buffer wants to live.
         impl<C: PackedColor<Storage = $storage>, const N: usize> FramebufStorage<C>
             for &mut [$storage; N]
         {
@@ -192,14 +151,9 @@ macro_rules! native_framebuf_storage {
             fn units_mut(&mut self) -> &mut [$storage] { self }
         }
 
-        // NOTE (WS6.4d): there was a third impl, for `Box<[T]>`, and it earned
-        // its removal twice. It is redundant — a boxed slice reaches the second
-        // impl through `&mut boxed[..]`, so nothing needs a `Box`-shaped
-        // implementation — and before that it was the vehicle for the
-        // `UNITS = usize::MAX` bypass, since a heap buffer has no compile-time
-        // extent to state. Owned storage of any kind is the wrong shape here:
-        // the renderer BORROWS a surface, and a trait implemented for owned
-        // buffers invites moving one per hand-off.
+        // NOTE: no impl for `Box<[T]>`. A boxed slice reaches the impl above
+        // through `&mut boxed[..]`, and a trait implemented for owned buffers
+        // would invite moving one per hand-off.
     )*};
 }
 
@@ -207,69 +161,24 @@ macro_rules! native_framebuf_storage {
 // holds without any negative reasoning.
 native_framebuf_storage!(u8, u16, u32);
 
-// NOTE (WS6.4d): `pub struct AsBytes<B>(pub B)` lived here — a raw byte buffer
-// viewed as storage for a wider color, i.e. an RGB565 tile handed to SPI as
-// bytes. It was removed as **unused and unusable**, but the idea is real and
-// this records what reviving it takes.
-//
-// It only ever implemented the capacity half of the buffer contract, never the
-// access half, so nothing could draw into one: `units_mut` would have to hand
-// out `&mut [u16]` over a `[u8; N]`, and a byte array carries no guarantee it is
-// 2-aligned. Nothing in the workspace ever constructed one, so the type was a
-// capacity claim about a buffer that could not be a buffer — and its existence
-// was the sole reason capacity and access were two traits rather than one (see
-// `FramebufStorage`).
-//
-// The newtype itself was NOT gratuitous, and would be needed again:
-// `impl<C: PackedColor<Storage = u8>> FramebufStorage<C> for [u8; N]` and
-// `impl<C: PackedColor<Storage = u16>> FramebufStorage<C> for [u8; N]` are
-// `E0119` conflicting impls, because Rust does no negative reasoning over
-// associated types and cannot see that a color's `Storage` is only ever one of
-// them.
-//
-// To bring it back, the wrapper has to make alignment true rather than assumed —
-// `#[repr(align(4))]` on the newtype, or a constructor that fails on a
-// misaligned slice — and only then can it implement `FramebufStorage`. That
-// belongs with the transport work (roadmap 6.7), where an actual caller would
-// exist to state what alignment its DMA engine needs.
-
-// NOTE (WS6.4d): `assert_region_fits<C, B>(w, h)` lived here — a `const fn`
-// asserting a `w × h` region fits buffer `B`. Removed as **dead**: its only
-// callers were its own doctests. The check it performed is now
-// `RasterRenderer::assert_static_capacity`, which runs the same comparison against
-// the renderer's declared `FramePolicy` rather than against a rectangle a caller
-// passes by hand — one fewer way to state the same requirement, and the one
-// that cannot disagree with what the planner will actually emit.
-
-// NOTE (WS6.4d): `pub trait Framebuf<C>` lived here — `data`/`data_mut`/
-// `viewport` as required methods, with `pixel`, `set_pixel`, `flat_index`,
-// `row_stride`, `local_bounds` and `point_to_subpart` defaulted on top. It had
-// exactly one real implementor, `PackedFramebuf`, plus one in a test
-// (`OffsetBuf`, which existed only to give the origin term a second value back
-// when `PackedFramebuf`'s viewport was pinned at the origin — no longer true
-// since `retarget`).
-//
-// A trait serving one type's own methods is not an abstraction; it is those
-// methods with an extra name and an extra import. The name cost was real too:
-// `Framebuf` sat two characters from `Framebuffer`, both public in this module,
-// and rustc was already emitting "similarly named trait" hints on a typo.
-//
-// The methods are now inherent on the struct, unchanged — and WS6.4e took the
-// freed name for it. `flat_index` is still the single source of truth for
-// addressing, and its doc still says why.
+// TODO (transport, roadmap 6.7): a byte-buffer view, so an RGB565 tile can be
+// handed to SPI as bytes. It needs a newtype — `FramebufStorage<C: …Storage =
+// u8>` and `<C: …Storage = u16>` for `[u8; N]` are E0119 conflicting impls,
+// since Rust cannot see that a color's `Storage` is only ever one of them — and
+// that newtype must make alignment true rather than assumed (`#[repr(align)]`,
+// or a constructor that rejects a misaligned slice) before it can hand out
+// `&mut [u16]` over a byte array.
 
 /// A packed pixel buffer that addresses an arbitrary rect of the screen.
 ///
-/// **WS6.4d: the rect is not fixed.** `viewport` is the region this buffer
-/// currently stands for, in *absolute* screen coordinates, and its width is the
-/// stride — so one allocation of `N` storage units serves any region needing at
-/// most `N` (see `Self::retarget`). A full-frame buffer is the degenerate
-/// case: origin zero, size the screen, retargeted never.
+/// The rect is not fixed: `viewport` is the region the buffer currently stands
+/// for, in **absolute** screen coordinates, and its width is the stride — so one
+/// allocation of `N` units serves any region needing at most `N` (see
+/// `retarget`). A full-frame buffer is the degenerate case.
 ///
-/// Absolute coordinates throughout is what makes this cheap:
-/// [`flat_index`](Self::flat_index) resolves a point against `viewport`, so
-/// every write, read, fill and flush follows the origin without a single caller
-/// translating by hand.
+/// Working in absolute coordinates is what makes that cheap:
+/// [`flat_index`](Self::flat_index) resolves a point against `viewport`, so no
+/// caller translates by hand.
 pub struct Framebuf<C: Color + PackedColor, B: FramebufStorage<C>> {
     viewport: Rect,
     pixels: B,
@@ -310,34 +219,24 @@ impl<C: Color + PackedColor, B: FramebufStorage<C>> Framebuf<C, B> {
         });
     }
 
-    /// WS6.3b: fill a rectangle with a single color without the per-pixel
-    /// bit-twiddling a `draw_iter` fan-out costs. Every row's pixel range is
-    /// split into a partial head word, a run of WHOLE storage words, and a
-    /// partial tail word: the whole words are `slice::fill`ed (mono: whole-byte
-    /// 0x00/0xFF writes — the 8–32× win; RGB: a `slice::fill` run), and only the
-    /// two edge words go through `set_color`. Whole words are entirely inside
-    /// the row, so filling them can't corrupt a neighbouring row that shares an
-    /// edge byte (mono rows straddle bytes) — those shared bytes are always
-    /// partial, hence bit-precise. This is the render-side counterpart to
-    /// WS6.3a's flush-side region scoping; every clear/background/block fill
-    /// uses it.
+    /// Fill a rectangle with one color, without the per-pixel bit-twiddling a
+    /// pixel-at-a-time fan-out costs.
     ///
-    /// **WS6.4e: inherent, and this is the primary form.** It was a
-    /// `DrawTarget::fill_solid` override, which put the fast path behind a trait
-    /// only the embedded-graphics backend implements — so the layer split's
-    /// `FramebufBlitter::fill_rect` would have inherited a framebuffer without
-    /// the win and re-forked the addressing to get it back. The `DrawTarget`
-    /// override survives as a one-line delegation to this
-    /// (`eg/framebuf.rs`), which is what keeps every existing eg path fast.
+    /// Each row splits into a partial head word, a run of **whole** storage
+    /// words, and a partial tail word. The whole words are `slice::fill`ed; only
+    /// the two edge words go through `set_color`. Whole words lie entirely
+    /// inside their row, so filling them cannot corrupt a neighbour that shares
+    /// an edge byte — shared bytes are always partial, hence bit-precise.
     ///
-    /// `area` is **absolute** and is clipped to this buffer; a rect that misses
+    /// Inherent rather than a `DrawTarget::fill_solid` override, so a blitter
+    /// gets the fast path without depending on embedded-graphics; that override
+    /// delegates here.
+    ///
+    /// `area` is **absolute** and clipped to this buffer, so a rect that misses
     /// it entirely is a no-op.
     pub fn fill_solid(&mut self, area: Rect, color: C) {
-        // WS6.4.0(i-2): clipping and addressing both come from this type now,
-        // not from a second open-coded copy of `y*width + x` — see
-        // [`flat_index`](Self::flat_index). The row start is computed ONCE and
-        // stepped by `row_stride`, so a non-zero buffer origin (the tiled work)
-        // lands here for free.
+        // Row start computed once and stepped by `row_stride`, so a non-zero
+        // buffer origin costs nothing here.
         let area = self.local_bounds(area);
         if area.size.width == 0 || area.size.height == 0 {
             return;
@@ -388,39 +287,27 @@ impl<C: Color + PackedColor, B: FramebufStorage<C>> Framebuf<C, B> {
         }
     }
 
-    // NOTE (WS6.4d): `output` / `output_region` lived here — a loop turning this
-    // buffer into `Pixel`s and pushing them at a `RenderTarget`. They went with
-    // that trait (see `output/mod.rs`): a framebuffer knows how to *be* read,
-    // not where its contents should go.
-    //
-    // Reading is still here, and is the only part that was ever rsact's:
-    // `pixel(point)` resolves an absolute coordinate against `viewport()`, and
-    // `data()` hands out the raw units. A caller flushing a detached buffer walks
-    // rows at `region.size.width` and converts with `PackedColor::as_color` —
-    // which is exactly what a DMA burst does with a `CASET`/`RASET` window, and
-    // what the host tests do to compare frames.
+    // A framebuffer knows how to *be* read, not where its contents should go:
+    // to flush a detached buffer, walk rows at `viewport().size.width` and
+    // convert with `PackedColor::as_color` — what a DMA burst does with a
+    // `CASET`/`RASET` window, and what the host tests do to compare frames.
 
     /// Flat pixel index of `point`, in this buffer's own 0-based space.
     ///
-    /// **WS6.4.0(i-2): the single source of truth for addressing.** Every path
-    /// that turns a coordinate into a storage index must route through this (or
-    /// [`row_stride`] to step between rows). `point` must be inside
-    /// [`viewport`] — callers bounds-check first ([`point_to_subpart`]) or clip
-    /// first ([`local_bounds`]).
+    /// **The single source of truth for addressing.** Every path from a
+    /// coordinate to a storage index goes through this, or through
+    /// [`row_stride`] to step between rows; open-coding `y * width + x` a second
+    /// time means a later change to the origin lands one path in the wrong row
+    /// and leaves the other correct — a plausible image rather than an obvious
+    /// failure.
     ///
-    /// It used to be open-coded in two places: here and in the fast
-    /// [`fill_solid`]'s row loop, whose comment even noted it was "same as
-    /// `point_to_subpart`". That duplication is a trap for the tiled work:
-    /// giving the buffer a non-zero origin and updating only one of them lands
-    /// WS6.3b's fast solid fills in the wrong row while per-pixel writes stay
-    /// correct — a *plausible* image rather than an obvious failure. Fold the
-    /// origin in here and both paths follow.
+    /// `point` must be inside [`viewport`]: bounds-check with
+    /// [`point_to_subpart`] or clip with [`local_bounds`] first.
     ///
     /// [`row_stride`]: Self::row_stride
     /// [`viewport`]: Self::viewport
     /// [`point_to_subpart`]: Self::point_to_subpart
     /// [`local_bounds`]: Self::local_bounds
-    /// [`fill_solid`]: Self::fill_solid
     pub fn flat_index(&self, point: Point) -> usize {
         let viewport = self.viewport();
         let local = point - viewport.top_left;
@@ -456,27 +343,19 @@ impl<C: Color + PackedColor, B: FramebufStorage<C>> Framebuf<C, B> {
 }
 
 impl<C: Color + PackedColor, B: FramebufStorage<C>> Framebuf<C, B> {
-    /// Wrap the caller's `buffer`. **Aimed at nothing** — a color buffer has
-    /// capacity, not a shape, and `retarget` is the only thing
-    /// that ever gives it one. The acceptance target this exists for: a 240×240
-    /// RGB565 frame is 57600 units (112.5 KiB), while a buffer able to hold any
-    /// region up to a 240×24 tile is 5760 (11.25 KiB).
+    /// Wrap the caller's `buffer`, **aimed at nothing** — a color buffer has
+    /// capacity, not a shape, and only `retarget` gives it
+    /// one. That is the point: a 240×240 RGB565 frame is 57600 units
+    /// (112.5 KiB), while a buffer holding any region up to a 240×24 tile is
+    /// 5760 (11.25 KiB).
     ///
-    /// **The buffer is the caller's.** This does not allocate and does not keep
-    /// it — [`into_buffer`](Self::into_buffer) hands it back. rsact is the
-    /// borrower here, which is what lets an embedded app keep its tiles in a
-    /// `StaticCell` pool and pass `&'static mut` slices through channels.
+    /// Does not allocate and does not keep the buffer —
+    /// [`into_buffer`](Self::into_buffer) hands it back, so an embedded app can
+    /// keep its tiles in a `StaticCell` pool and lend out `&'static mut` slices.
     ///
-    /// Infallible, because there is nothing to check: any buffer is a valid
-    /// buffer of its own size, and "is it big enough" is a question about a
-    /// *region* or a *frame policy*, neither of which this type has heard of.
-    /// Those are answered by `FramebufBlitter::begin_region` and
-    /// `RasterRenderer::attach`.
-    ///
-    /// **This was two constructors** — `new(size, buffer)` aimed at a shape, and
-    /// `tile(buffer)` aimed at nothing. The first was API only its own tests
-    /// used: every real caller goes through a blitter, which is aimed by
-    /// `begin_region` and would overwrite any shape given here.
+    /// Infallible: any buffer is a valid buffer of its own size, and "is it big
+    /// enough" is a question about a region or a frame policy, answered by
+    /// `FramebufBlitter::begin_region` and `RasterRenderer::attach`.
     pub fn new(buffer: B) -> Self {
         Self {
             viewport: Rect::zero(),
@@ -498,25 +377,16 @@ impl<C: Color + PackedColor, B: FramebufStorage<C>> Framebuf<C, B> {
     /// Re-aim the buffer at `region` (absolute screen coordinates).
     ///
     /// The region's **own width becomes the stride**, so the sub-rect is
-    /// contiguous by construction and any shape fitting the capacity works. This
-    /// is what lets a frame policy be a byte budget rather than a rectangle.
-    ///
-    /// **Internal bookkeeping, not an API the user drives.** `begin_region`
-    /// calls it; nothing outside the backend should. Re-aiming a buffer is how
-    /// absolute coordinates land in storage smaller than the frame — a
-    /// consequence of where rsact is painting, never a request the caller
-    /// makes. (The caller's operations on a surface are `attach` and `detach`:
-    /// lend it, take it back, flush it, lend the next one.)
+    /// contiguous by construction and any shape fitting the capacity works —
+    /// which is what lets a frame policy be a byte budget rather than a
+    /// rectangle.
     ///
     /// Contents are *not* cleared: a tile arrives holding whatever the last one
-    /// left in it, which is exactly why every region must paint its own
-    /// background before drawing (roadmap 6.4 constraint (b)).
+    /// left in it, so every region must paint its own background first.
     ///
-    /// **Unchecked, and deliberately so.** It used to carry a `debug_assert`
-    /// that the region fits, which was a panic on a path that must never panic.
-    /// The check moved up one layer to `FramebufBlitter::begin_region`, which
-    /// **refuses** an oversized region and logs — the only caller, and the one
-    /// that has a `Result` to return.
+    /// Unchecked. `FramebufBlitter::begin_region` is the only caller and the one
+    /// with a `Result` to return, so it refuses an oversized region there rather
+    /// than panicking here.
     pub(crate) fn retarget(&mut self, region: Rect) {
         self.viewport = region;
     }
@@ -595,9 +465,8 @@ mod tests {
     use super::*;
     use crate::geometry::Size;
 
-    /// A 1-bpp color with **no embedded-graphics anywhere** — which is the
-    /// point of WS6.4e, asserted rather than described. If this stops
-    /// compiling, `PackedColor` (or `Framebuf`) has grown a dependency it must
+    /// A 1-bpp color with **no embedded-graphics anywhere**. If this stops
+    /// compiling, `PackedColor` or `Framebuf` has grown a dependency it must
     /// not have.
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     struct Mono(bool);
@@ -674,10 +543,9 @@ mod tests {
         assert_ne!(units_for::<Mono>(122, 24), 122 * 24 / 8);
     }
 
-    /// WS6.4e / roadmap 6.5(i): a mono panel whose width is not a whole number
-    /// of bytes is **constructible**. `Framebuf::new` used to assert
-    /// `area % pps == 0`, so a real 122×250 e-paper panel panicked — 30500
-    /// pixels is not divisible by 8.
+    /// A mono panel whose width is not a whole number of bytes is
+    /// constructible. Rejecting `area % pps != 0` instead would refuse a real
+    /// 122×250 e-paper panel, whose 30500 pixels are not divisible by 8.
     #[test]
     fn a_122px_wide_mono_panel_is_addressable() {
         let panel = Rect::new(Point::zero(), Size::new(122, 250));
@@ -685,16 +553,13 @@ mod tests {
         let mut fb = Framebuf::<Mono, _>::new(&mut buf[..]);
         fb.retarget(panel);
         assert_eq!(fb.viewport(), panel);
-        // The far corner resolves, which the old `area % pps == 0` assert
-        // refused to let anyone reach.
+        // The far corner resolves.
         assert!(fb.point_to_subpart(Point::new(121, 249)).is_some());
     }
 
-    /// Capacity is **not** this type's question, and that is the design rather
-    /// than an omission: a buffer too small for the region it is aimed at is
-    /// refused by `FramebufBlitter::begin_region`, and one too small for the
-    /// frame policy is refused by `RasterRenderer::attach` — at compile time
-    /// when the storage type knows its own size.
+    /// Capacity is not this type's question: a buffer too small for its region
+    /// is refused by `FramebufBlitter::begin_region`, and one too small for the
+    /// frame policy by `RasterRenderer::attach`.
     #[test]
     fn capacity_is_not_this_types_question() {
         let mut buf = alloc::vec![0u8; 10];

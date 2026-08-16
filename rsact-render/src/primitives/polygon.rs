@@ -46,10 +46,6 @@ impl Polygon {
 // slice, so building a `Polygon` (which owns a `Vec` and a translation) just to
 // ask whether a pixel is inside it would allocate per primitive. The methods
 // below delegate here, so there is one implementation.
-//
-// They moved out of `eg/primitives/polygon.rs` in the layer split's PR C: they
-// were never specific to embedded-graphics, and being gated behind that feature
-// meant `raster::scan` — which is unconditional — could not use them.
 
 /// The smallest rect containing every vertex, or `None` for no vertices.
 ///

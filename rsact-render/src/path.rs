@@ -28,15 +28,13 @@ impl Path {
     /// only [`PathSegment::Close`]).
     ///
     /// Deliberately **conservative**: an [`PathSegment::ArcTo`] contributes its
-    /// whole circle (`center ± radius`), not the swept sub-arc, because the one
-    /// consumer is WS6.4a's tile-invariance contract ([`DrawOp::bounds`]) where
-    /// this bound decides which tiles are *obliged* to redraw the op. Too large
-    /// only costs redundant paint; too small silently permits a culler to drop a
-    /// visible op — so over-approximating is the safe direction.
+    /// whole circle (`center ± radius`), not the swept sub-arc. This bound
+    /// decides which tiles are *obliged* to redraw an op, and too large only
+    /// costs redundant paint where too small lets a culler drop a visible one.
     ///
-    /// Stroke width is not part of a path's geometry, so a stroked path paints up
-    /// to half a stroke outside this bound (same caveat as [`DrawOp::bounds`],
-    /// recorded there).
+    /// Stroke width is not part of a path's geometry, so a stroked path paints
+    /// up to half a stroke outside this bound — same caveat as
+    /// [`DrawOp::bounds`].
     ///
     /// [`DrawOp::bounds`]: crate::record::DrawOp::bounds
     pub fn bounds(&self) -> Option<Rect> {

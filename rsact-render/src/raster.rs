@@ -4,17 +4,13 @@
 //! [`Blitter`] through a [`RasterCtx`], which is the only thing it is ever given
 //! and the reason it cannot write outside the clip.
 //!
-//! **This is a crate-internal seam.** `RasterCtx::new` is `pub(crate)`, so a
-//! downstream crate can write a `Blitter` but cannot drive a `Rasterizer`;
-//! [`Renderer`](crate::renderer::Renderer) is the published backend seam, and
-//! the extension promise binds once, there.
+//! **A crate-internal seam.** `RasterCtx::new` is `pub(crate)`, so a downstream
+//! crate can write a `Blitter` but cannot drive a `Rasterizer`;
+//! [`Renderer`](crate::renderer::Renderer) is the published backend seam.
 //!
-//! The shared scan conversion every default delegates to is [`crate::scan`], a
-//! sibling module rather than a child: this file is the *contract* (the clip
-//! gate and the trait), that one is 600 lines of *algorithm*, and the two are
-//! read for different reasons. The concrete rasterizers live in their backend's
-//! module — `eg::rasterizer`, `tiny_skia::rasterizer` — so the tree is cut by
-//! feature gate, not by layer.
+//! This file is the contract. The shared scan conversion every default
+//! delegates to is [`crate::scan`], and the concrete rasterizers live in their
+//! backend's module.
 
 use crate::{
     blitter::{Blitter, Span},
@@ -37,20 +33,18 @@ use crate::{
 /// | retargeting mid-primitive | **impossible** — `begin_region` is not here |
 /// | *bounding your loops* by the clip | advisory — spray-and-clip is correct, slow |
 ///
-/// The last row cannot be closed by types. It can be measured, and where it is
-/// cheap it is simply taken: [`crate::scan::polygon`]'s fill bounds its scan by
-/// [`clip()`](Self::clip) rather than by the polygon's own box.
+/// The last row cannot be closed by types, only taken where it is cheap:
+/// [`crate::scan::polygon`]'s fill bounds its scan by [`clip()`](Self::clip)
+/// rather than by the polygon's own box.
 pub struct RasterCtx<'a, T: Blitter> {
     blitter: &'a mut T,
     clip: Rect,
 }
 
 impl<'a, T: Blitter> RasterCtx<'a, T> {
-    /// Only a renderer builds one — this is where `clip ⊆ bounds` is made true.
-    ///
-    /// The intersection is what makes the guarantee *structural* rather than a
-    /// convention every L1 has to remember, which is why it is here and not at
-    /// the call site.
+    /// Only a renderer builds one, and this is where `clip ⊆ bounds` is made
+    /// true — here rather than at the call site, so it is structural instead of
+    /// a convention every L1 has to remember.
     pub(crate) fn new(blitter: &'a mut T, clip: Rect) -> Self {
         let clip = clip.intersection(&blitter.bounds());
         Self { blitter, clip }
@@ -112,19 +106,16 @@ impl<'a, T: Blitter> RasterCtx<'a, T> {
 /// Geometry into spans. **Stateless about *where* it draws** — the blitter
 /// arrives per call.
 ///
-/// That is required, not symmetry: a blitter that cannot read its own pixels
+/// Required rather than symmetric: a blitter that cannot read its own pixels
 /// needs anti-aliasing composited into a one-scanline scratch and *then*
 /// emitted, so two blitters are live inside one primitive call. It also lets
 /// caches — a coverage line, a `Mask`, a glyph atlas — survive a blitter swap.
 ///
 /// **One method per primitive, never a `PrimitiveKind` match.** A new variant
-/// breaks every downstream `match` on a version bump, and the `_ =>` wildcard
-/// that silences it turns every future primitive into a permanent silent no-op.
-/// This repo demonstrates the visible alternative twice over: `polygon` and
-/// `image` are logged no-ops in the embedded-graphics backend precisely because
-/// they are named methods, so the hole is findable. The `cx` repetition is the
-/// price; it is load-bearing (it is *why* the clip cannot be escaped) and
-/// confined to this definition.
+/// would break every downstream `match`, and the `_ =>` wildcard silencing it
+/// turns every future primitive into a permanent silent no-op. Named methods
+/// leave the holes findable — `polygon` and `image` are logged no-ops in the
+/// embedded-graphics backend, and visibly so.
 ///
 /// # No primitive is ever unsupported
 ///
@@ -141,10 +132,9 @@ impl<'a, T: Blitter> RasterCtx<'a, T> {
 ///   design. Exact-or-via-`path`, never approximate.
 ///
 /// **"Exact" means geometry, not pixels.** A default calls back through `self`
-/// where it composes, so it inherits *that rasterizer's* quality automatically.
-/// Rasterizer *parity* is explicitly not a goal — differing output is the reason
-/// there is more than one. What must agree between rasterizers is only
-/// **parameter semantics**, and the ones settled so far are:
+/// where it composes, so it inherits that rasterizer's quality. Parity between
+/// rasterizers is not a goal — differing output is the reason there is more than
+/// one — but **parameter semantics** must agree:
 ///
 /// - **Angle zero is `+x`, and a positive sweep runs toward `+y`** — clockwise
 ///   on screen, because `y` grows downward. Same convention as
@@ -280,7 +270,7 @@ pub trait Rasterizer<T: Blitter> {
         self.ellipse(cx, Rect::new(top_left, Size::new_equal(diameter)), style)
     }
 
-    // `glyphs` arrives with WS15. Its default is not geometry: the font layer
+    // TODO: `glyphs`. Its default is not geometry: the font layer
     // supplies a coverage bitmap, so the default blits it row by row through
     // `cx.blend`. Until then text keeps its per-pixel path through the existing
     // `DrawTargetProxy`, and the layering is clean everywhere else.

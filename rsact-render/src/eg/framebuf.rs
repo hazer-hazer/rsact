@@ -1,16 +1,9 @@
-//! What a [`Framebuf`] needs embedded-graphics for.
+//! What a [`Framebuf`] needs embedded-graphics for: the [`PackedColor`] impls
+//! for its color types, where the `IntoStorage`/`RawData` conversions live, and
+//! the `Dimensions` + `DrawTarget` impls that let a [`Framebuf`] *be* an
+//! embedded-graphics draw target.
 //!
-//! **WS6.4e: the framebuffer itself moved to [`crate::framebuf`]** — nothing
-//! about packed storage, capacity or addressing was ever specific to this
-//! crate, and living here meant the render layer split's `FramebufBlitter`
-//! could not use it without depending on embedded-graphics.
-//!
-//! Two things genuinely do need it, and they are what stayed:
-//!
-//! - the [`PackedColor`] impls for embedded-graphics' color types, which is
-//!   where the `IntoStorage`/`RawData` conversions live;
-//! - the `Dimensions` + `DrawTarget` impls that let a [`Framebuf`] *be* an
-//!   embedded-graphics draw target.
+//! The framebuffer itself is in [`crate::framebuf`], which depends on nothing.
 
 use crate::{
     color::Color,
@@ -159,15 +152,12 @@ impl<
         Ok(())
     }
 
-    /// WS6.3b's fast solid fill, reached from embedded-graphics.
+    /// The fast solid fill, reached from embedded-graphics.
     ///
-    /// **WS6.4e: a delegation, not the implementation.** The algorithm is
-    /// inherent on [`Framebuf::fill_solid`] so that a caller who is not an
-    /// embedded-graphics draw target — the layer split's `FramebufBlitter` —
-    /// gets the whole-word writes too, instead of re-forking the addressing to
-    /// find them. This override still has to exist: without it eg's default
-    /// `fill_solid` bounces through `fill_contiguous` → `draw_iter` and the fast
-    /// path is never reached from `Rectangle::draw_styled`.
+    /// A delegation: the algorithm is inherent on [`Framebuf::fill_solid`] so a
+    /// caller that is not a draw target gets the whole-word writes too. The
+    /// override still has to exist — without it eg's default bounces through
+    /// `fill_contiguous` → `draw_iter` and never reaches the fast path.
     fn fill_solid(
         &mut self,
         area: &embedded_graphics::primitives::Rectangle,
@@ -182,17 +172,15 @@ impl<
 mod tests {
     use crate::framebuf::{Framebuf, PackedColor};
 
-    /// Host-side test surfaces. Local to the tests on purpose — see the note in
-    /// `eg/renderer.rs`'s test module: the library exports no allocating helper
-    /// because it must not choose where a framebuffer lives.
-    /// A `&'static mut` loan, which is what both `FramebufStorage` impls are
-    /// for.
+    /// A `&'static mut` loan, which is what both `FramebufStorage` impls take.
+    /// Local to the tests because the library must not choose where a
+    /// framebuffer lives.
     ///
-    /// `Vec::leak` rather than a local `&mut buf[..]`: a leak is honest here and
-    /// a borrow is not, because `WidgetCtx: 'static` means any renderer reachable
-    /// through the UI must hold a `'static` loan anyway — a test that borrowed a
-    /// local would be exercising a shape production cannot use. On a device this
-    /// is a `StaticCell`, which is the same `'static` loan without the leak.
+    /// `Vec::leak` rather than a local `&mut buf[..]`: rsact-ui's `WidgetCtx` is
+    /// `'static`, so any renderer reachable through the UI holds a `'static`
+    /// loan anyway, and a borrowed local would exercise a shape production
+    /// cannot use. On a device this is a `StaticCell` — the same loan without
+    /// the leak.
     fn heap_surface<C: crate::color::Color + PackedColor>(
         size: Size,
     ) -> &'static mut [<C as PackedColor>::Storage] {
@@ -279,17 +267,12 @@ mod tests {
         }
     }
 
-    /// WS6.4d: what survived the flush seam is the **reading** contract, and
-    /// this is it — a buffer answers for the coordinates it covers and refuses
-    /// the rest.
+    /// The reading contract: a buffer answers for the coordinates it covers
+    /// and refuses the rest.
     ///
-    /// Three tests lived here (`output_region_streams_only_the_region`,
-    /// `output_region_clamps_to_viewport`, `output_covers_the_whole_framebuffer`)
-    /// and went with `output`/`output_region`: they asserted which pixels a
-    /// *flush* streamed, and flushing is no longer rsact's. The clamping they
-    /// pinned is not lost, because it was never a property of the loop — it is a
-    /// property of `pixel`, which is what a caller walking a detached buffer
-    /// actually calls.
+    /// Asserted on `pixel` rather than on a flush loop, because that is what a
+    /// caller walking a detached buffer actually calls — the clamping is a
+    /// property of the accessor, not of any loop over it.
     #[test]
     fn a_buffer_answers_only_for_the_region_it_covers() {
         const W: u32 = 10;
@@ -333,18 +316,13 @@ mod tests {
         assert!(tile.pixel(Point::new(10, 6)).is_none());
     }
 
-    /// WS6.4.0(i-2): addressing is origin-aware, in ONE place.
+    /// Addressing is origin-aware, in ONE place.
     ///
     /// `flat_index` / `point_to_subpart` take **absolute** coordinates and
     /// resolve them against `viewport()`, so a buffer that covers a sub-rect of
     /// the screen — a tile — indexes correctly without every caller translating
-    /// by hand. This is what `fill_solid` now inherits instead of open-coding
+    /// by hand — which is what `fill_solid` inherits instead of open-coding
     /// `y*width + x` against an assumed zero origin.
-    /// This used to need a bespoke `OffsetBuf` implementing the old `Framebuf`
-    /// trait, because the buffer's viewport was pinned at the origin and a
-    /// second implementor was the only way to give the origin term a non-zero
-    /// value. `retarget` (WS6.4d) made a real tile expressible, so the test now
-    /// runs against the type that ships — and the trait it needed is gone.
     #[test]
     fn addressing_is_origin_aware() {
         let origin = Point::new(40, 100);
@@ -377,7 +355,7 @@ mod tests {
         assert_eq!(clipped, Rect::new(origin, Size::new(8, 4)));
     }
 
-    /// WS6.4e: the inherent [`Framebuf::fill_solid`] and the `DrawTarget`
+    /// The inherent [`Framebuf::fill_solid`] and the `DrawTarget`
     /// override must be the same fill, because the second is now a delegation
     /// to the first — and because the layer split's blitter will call the
     /// inherent one on the strength of that.
