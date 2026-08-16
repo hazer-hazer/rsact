@@ -161,6 +161,12 @@
     "branch": "ws6.4c-collect-paint",
     "subject": "WS6.4c(A): RenderCtx is the drawing seam; the renderer field goes private"
   },
+  "59b835906914ea65fa51041bc1c6b1f12728ac99": {
+    "date": 1786920966,
+    "parent": "",
+    "branch": "ws6.4e-framebuf-unbind",
+    "subject": "rsact-render: document how to use the code, not how it was designed"
+  },
   "5c0adc31e44848cd1cca3d85123bf4e525c10d83": {
     "date": 1786008194,
     "parent": "",
