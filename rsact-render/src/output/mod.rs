@@ -1,11 +1,9 @@
 pub mod pixel;
 
-// NOTE: `RenderTarget`, `ColorMapper` and `FinishRender` lived here — a second
-// seam, in which a backend both rendered and flushed. Flushing belongs to the
-// application: it owns the transport, the timing, and (since the surface is a
-// loan) the pixels it takes back from `detach`. `RenderTarget` was also a
-// re-declaration of embedded-graphics' `DrawTarget`, so a direct renderer
-// should take that trait rather than a copy of it.
+// NOTE: rsact does not flush. A renderer paints into the surface you lend it
+// and you take that surface back with `detach`, so the transport and the timing
+// are yours. A renderer that writes straight to a display should take
+// embedded-graphics' `DrawTarget` rather than a trait re-declaring it.
 
 /// Convert one color representation into another.
 pub trait MapColor<O> {

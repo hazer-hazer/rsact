@@ -1,10 +1,9 @@
-//! How rsact talks to embedded-graphics **above** the layer split: the
-//! [`DrawTargetProxy`] that lets `embedded-text`/u8g2 hand glyph pixels to a
-//! `Renderer`, and the style conversions every `EgRasterizer` body needs.
+//! Letting embedded-graphics draw *into* rsact: the [`DrawTargetProxy`] that
+//! `embedded-text`/u8g2 hand glyph pixels to, and the style conversions
+//! `EgRasterizer` builds its `PrimitiveStyle`s with.
 //!
-//! [`DrawTargetProxy`] and `eg::rasterizer::BlitTarget` are both `DrawTarget`
-//! adapters pointing in opposite directions: this one feeds *into* a renderer
-//! from above, `BlitTarget` feeds *out of* a rasterizer into a blitter below.
+//! `eg::rasterizer::BlitTarget` is the other `DrawTarget` adapter here and
+//! points the other way — it carries a rasterizer's output out to a blitter.
 
 use crate::{
     color::{Color, RgbColor},

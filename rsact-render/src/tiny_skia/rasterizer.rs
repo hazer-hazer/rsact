@@ -1,4 +1,4 @@
-//! tiny-skia's rasterizer as an L2 citizen.
+//! Anti-aliased rasterization, by tiny-skia.
 
 use crate::{
     blitter::{Blitter, Span},
@@ -20,7 +20,7 @@ use tiny_skia::{FillRule, Mask, PathBuilder, Stroke, Transform};
 /// tiny-skia's anti-aliasing over an Rgb565 framebuffer as readily as over a
 /// `Pixmap`.
 ///
-/// The mask is keyed on the **clip**, which is the largest rect L2 may write.
+/// The mask is keyed on the **clip**, the largest rect a primitive may write.
 /// It is grow-only and re-used — a `Mask` is `w·h` bytes, so reallocating one
 /// per primitive would dominate everything else — and rows are read at the
 /// *allocated* width.

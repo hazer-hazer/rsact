@@ -1,4 +1,4 @@
-//! The desktop/simulator sink: an L3 blitter over a tiny-skia [`Pixmap`].
+//! Drawing into a tiny-skia [`Pixmap`] — the desktop and simulator target.
 
 use crate::{
     blitter::{Blitter, Span, span_range},

@@ -2,13 +2,11 @@
 //!
 //! Unlike [`NullRenderer`](crate::renderer::NullRenderer), a pure no-op, this
 //! keeps an ordered log of every primitive and clip region, so a test can assert
-//! *what* was drawn and *where*. That is the signal damage-driven rendering
-//! needs: "only this rect was touched" is a statement about the draw log, never
-//! about the final image, which looks identical whether one rect or the whole
-//! screen was repainted.
+//! *what* was drawn and *where* — which a finished image cannot show, looking
+//! identical whether one rect or the whole screen was repainted.
 //!
-//! The log is **geometry-only and color-agnostic**, so it stays deterministic
-//! and generic over any [`Color`]. Visual correctness is a pixel snapshot's job.
+//! The log is **geometry-only and color-agnostic**, so it is deterministic and
+//! works with any [`Color`]. Use a pixel snapshot to check colors.
 
 use crate::{
     color::Color,

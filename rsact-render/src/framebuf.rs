@@ -45,21 +45,9 @@ pub trait PackedColor {
     fn solid_storage(color: Self) -> Self::Storage;
 }
 
-// ──────────────────────────────────── Tile capacity, checked at attach
-//
-// Without `generic_const_exprs`, the two halves meet at the hand-off:
-//
-//   buffer type ─────────────▶ FramebufStorage::UNITS ─┐
-//                                                     ├─▶ RasterRenderer::attach
-//   Renderer::Policy + PPS ──▶ policy_units ──────────┘
-//
-// A surface too small for the policy its renderer declares is rejected before
-// anything paints into it: a compile error for a fixed-size array (`UNITS` is
-// `Some`), an `attach` error for a runtime-length slice (`UNITS` is `None`).
-//
-// `attach` rather than `UI::start_frame` because it is the one place that knows
-// both numbers. Checking in the frame loop would need `Renderer` to expose a
-// capacity, forcing renderers with no surface at all to describe storage.
+// A buffer too small for the frame policy it is lent to is rejected by
+// `RasterRenderer::attach` — at compile time for a fixed-size array, as an
+// `Err` for a runtime-length slice. See `FramebufStorage::UNITS`.
 
 /// Units of `C::Storage` needed to hold a `w × h` region, **including row
 /// padding**.
@@ -76,11 +64,6 @@ pub trait PackedColor {
 /// embedded-graphics. Both equalities are asserted in [`region_units`]'s
 /// doctest and in this module's tests.)
 ///
-/// A delegation to [`region_units`] rather than a copy of it — that is also
-/// what [`policy_units`] runs a policy through, and two spellings could drift
-/// into a check that passes while the buffer is too small.
-///
-/// [`policy_units`]: crate::region::policy_units
 /// [`region_units`]: crate::renderer::region_units
 pub const fn units_for<C: PackedColor>(w: u32, h: u32) -> usize {
     crate::renderer::region_units(w, h, C::PPS)

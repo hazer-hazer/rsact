@@ -13,12 +13,6 @@ pub type RenderResult = Result<(), ()>;
 /// Storage units a `w × h` region needs on a surface packing
 /// `pixels_per_unit` pixels per unit — **rows padded**, never area.
 ///
-/// The one place this arithmetic is written:
-/// [`assert_policy_fits`](crate::region::assert_policy_fits) and
-/// [`units_for`](crate::framebuf::units_for) both route through it, because a
-/// capacity check that disagrees with the buffer's real layout is worse than no
-/// check at all.
-///
 /// Per-row padding is what makes sub-byte packing correct: a 122-pixel 1-bpp
 /// row occupies 16 bytes, not 15.25. Area arithmetic gets this wrong.
 ///
@@ -59,14 +53,9 @@ pub const fn region_units(w: u32, h: u32, pixels_per_unit: usize) -> usize {
 //     }
 // }
 
-/// Whether a renderer is holding its surface — a **type-state**, not a flag.
-///
-/// [`Slot`](Attachment::Slot) is what makes it more than decorative: a plain
-/// marker could only guard an `Option<T>` field, leaving the `unwrap` inside. An
-/// associated type lets the field itself change shape — the surface when
-/// attached, `()` when not — so there is no `Option`, no `unwrap`, and no
-/// "drawing while detached" branch. Painting between a `detach` and the next
-/// `attach` is a compile error rather than a silently discarded frame.
+/// Whether a renderer is holding its surface. You never name this yourself —
+/// [`attach`](RasterRenderer::attach) and [`detach`](RasterRenderer::detach)
+/// move a renderer between [`Attached`] and [`Detached`].
 pub trait Attachment<S> {
     /// The surface field's type in this state: `S` attached, `()` detached.
     type Slot;
@@ -74,7 +63,8 @@ pub trait Attachment<S> {
 
 /// The renderer is holding a surface and can draw.
 ///
-/// Every drawing impl is written for this state and no other:
+/// Drawing methods exist only in this state, so painting into a buffer you have
+/// taken back is a compile error rather than a lost frame:
 ///
 /// ```
 /// # use rsact_render::{blitter::FramebufBlitter, geometry::Size,
@@ -136,21 +126,13 @@ impl<S> Attachment<S> for Detached {
 pub trait Renderer {
     type Color: Color;
 
-    /// The largest region this renderer will accept, as a **type**.
+    /// The largest region this renderer will accept.
     ///
-    /// Not a fact about storage: it says *how big a rectangle you may ask me to
-    /// paint*, which a GPU streaming commands and a renderer holding an 11 KiB
-    /// tile can both answer. No buffer type or capacity reaches this trait,
-    /// because a renderer is free to have no surface at all.
-    ///
-    /// [`Unbounded`] for anything that never needed tiling. There is no default
-    /// — associated type defaults are unstable — and writing it out is no loss:
-    /// a renderer that silently inherited a bound it does not have would mislead
-    /// the planner in the expensive direction.
-    ///
-    /// The surface is *not* compared against this here. A backend owns both
-    /// facts, so it makes the comparison itself; see
-    /// [`RasterRenderer::attach`].
+    /// Answer [`Unbounded`] unless the renderer paints through a buffer smaller
+    /// than the frame; a `Tiles<W, H>` answer makes the planner cut regions down
+    /// to that budget. There is no default, so every renderer states it — one
+    /// that silently inherited a bound it does not have would cost the planner
+    /// work it need not do.
     ///
     /// [`Unbounded`]: crate::region::Unbounded
     type Policy: crate::region::FramePolicy;
@@ -159,18 +141,10 @@ pub trait Renderer {
 
     /// rsact is about to paint `region` (absolute screen coordinates).
     ///
-    /// What a backend does with it is its own business: a tile framebuffer sets
-    /// its origin so absolute coordinates land in a surface smaller than the
-    /// frame; a GPU sets a scissor rect; a renderer already covering the frame
-    /// ignores it.
-    ///
-    /// The default is **correct**, not merely permissive — a full-frame surface
-    /// takes absolute coordinates and needs no transform — so [`NullRenderer`],
-    /// [`RecordingRenderer`](crate::record::RecordingRenderer) and a full-frame
-    /// `RasterRenderer` are right with no code.
-    ///
-    /// It says nothing about *tiles*: how many regions there are and what shape
-    /// they take is the frame policy's business.
+    /// Override it if the renderer paints through something smaller than the
+    /// frame — a tile framebuffer sets its origin here so absolute coordinates
+    /// land correctly, a GPU sets a scissor rect. A renderer already covering
+    /// the whole frame needs no transform, so the default is to do nothing.
     fn begin_region(&mut self, region: Rect) -> RenderResult {
         let _ = region;
         Ok(())
@@ -206,20 +180,15 @@ pub trait Renderer {
     /// The absolute rect drawing is currently confined to, or `None` for "not
     /// confined / not reported".
     ///
-    /// This is the **cull rect**, and the contract runs one way: anything whose
-    /// bounds miss it cannot affect the output, so a caller may skip drawing it.
-    /// It must therefore never report *narrower* than what the renderer actually
-    /// clips to — reporting wider, or `None`, only costs redundant paint. Same
-    /// asymmetry as [`DrawOp::bounds`](crate::record::DrawOp::bounds), and the
-    /// same predicate.
+    /// Callers use it to skip drawing that cannot land, so an implementation
+    /// must **never report narrower** than what it really clips to. Reporting
+    /// wider, or `None`, only costs redundant paint.
     ///
-    /// The default is `None`, which disables culling for a backend that does not
-    /// report — the safe direction, and correct for a no-op sink like
-    /// [`NullRenderer`], whose `size()` is zero and would otherwise read as
-    /// "clips everything away".
+    /// The default `None` disables that skipping, which is the safe direction —
+    /// and the right answer for a sink like [`NullRenderer`], whose `size()` is
+    /// zero and would otherwise read as "clips everything away".
     ///
-    /// Not a way to ask "what is my surface": a tile-backed renderer reports its
-    /// **region**, which is what bounds the frame's useful work.
+    /// Report the region being painted, not the surface behind it.
     fn clip_bounds(&self) -> Option<Rect> {
         None
     }
@@ -472,30 +441,44 @@ impl<C: Color> Renderer for NullRenderer<C> {
     }
 }
 
-// ===========================================================================
-// The layered renderer — L1 over a `Rasterizer` and a `Blitter`
-// ===========================================================================
-
-/// The [`Renderer`] built around a [`Rasterizer`], with the [`Blitter`] as the
-/// interchangeable sink.
+/// A [`Renderer`] that draws with a [`Rasterizer`] into a [`Blitter`].
 ///
-/// L1's whole job is here and it is small: hold the clip stack, reset it per
-/// region, cull, and forward to L2 with a [`RasterCtx`] built from the current
-/// clip.
+/// Pick the pair for your hardware: `EgRasterizer` for embedded-graphics'
+/// algorithms, `TinySkiaRasterizer` for anti-aliased output;
+/// [`FramebufBlitter`](crate::blitter::FramebufBlitter) over your own buffer,
+/// `PixmapBlitter` over a tiny-skia `Pixmap`. `P` is the
+/// [`FramePolicy`](crate::region::FramePolicy) — how large a region you will
+/// ask it to paint.
 ///
-/// # The renderer is long-lived; the target comes and goes
+/// # Build it once; lend it a target per frame
 ///
-/// A renderer retains state a caller pays to build — the clip stack, and a
-/// rasterizer's caches — so it is created once and lives for the application.
-/// What is *lent* is the caller's paint target: a framebuffer, a pixmap, a
-/// `DrawTarget`, a GPU attachment, each wrapped by a [`Blitter`]. [`attach`]
-/// takes one and [`detach`] gives it back.
+/// A renderer holds state worth keeping — the clip stack, and a rasterizer's
+/// caches — so build it at startup and keep it. The paint target is what comes
+/// and goes: [`attach`] takes a blitter, [`detach`] gives it back, and only the
+/// attached renderer has drawing methods, so nothing can paint into a buffer you
+/// are holding.
 ///
-/// The attachment type-state `A` therefore belongs here and not on the blitter.
-/// Putting it there instead forces a specialized attach/detach pair per blitter
-/// kind, each re-stating the capacity proof and each able to forget half of it,
-/// and it cannot express a target that is not storage at all — a
-/// direct-to-`DrawTarget` blitter has no buffer to hand back, only itself.
+/// ```
+/// # use rsact_render::{blitter::FramebufBlitter, geometry::{Point, Rect, Size},
+/// #                    eg::rasterizer::EgRasterizer, region::Unbounded,
+/// #                    renderer::{RasterRenderer, Renderer}};
+/// # use embedded_graphics::pixelcolor::Rgb888;
+/// # type Screen = RasterRenderer<
+/// #     EgRasterizer, FramebufBlitter<Rgb888, &'static mut [u32]>, Unbounded>;
+/// # let viewport = Size::new_equal(16);
+/// # let buf: &'static mut [u32] = vec![0; 16 * 16].leak();
+/// let renderer = Screen::parked(EgRasterizer, viewport);   // once, at boot
+/// let mut renderer = renderer.attach(FramebufBlitter::new(buf)).unwrap();
+///
+/// renderer.begin_region(Rect::new(Point::zero(), viewport)).unwrap();
+/// renderer.fill_solid(Rect::new(Point::zero(), viewport), Rgb888::new(0, 0, 0))
+///     .unwrap();
+///
+/// let (renderer, blitter) = renderer.detach();
+/// let (buf, painted) = blitter.into_storage();             // yours again
+/// # assert_eq!(painted, Rect::new(Point::zero(), viewport));
+/// # assert_eq!(buf.len(), 16 * 16);
+/// ```
 ///
 /// [`attach`]: RasterRenderer::attach
 /// [`detach`]: RasterRenderer::detach
@@ -770,11 +753,11 @@ where
     ///
     /// **Hot path**: `Renderer::pixel` arrives here once per glyph pixel, so a
     /// text-heavy frame is O(10⁴) calls, each paying the `Rect::intersection`
-    /// inside `RasterCtx::new`. That intersection is provably redundant *for
-    /// this* L1 — `begin_region` seeds the stack with the region and `push_clip`
-    /// intersects, so `clip ⊆ bounds()` already holds — but it is what makes the
-    /// guarantee structural for any other L1 building a `RasterCtx`, so
-    /// skipping it needs a second constructor rather than a change here.
+    /// inside `RasterCtx::new`. It is redundant here — `begin_region` seeds the
+    /// stack with the region and `push_clip` intersects, so `clip ⊆ bounds()`
+    /// already holds — but removing it would need a second `RasterCtx`
+    /// constructor, since that intersection is what guarantees the clip for
+    /// every other caller.
     fn split(&mut self) -> (&mut R, crate::raster::RasterCtx<'_, T>) {
         let clip = self.clip();
         (
@@ -1039,8 +1022,8 @@ mod raster_renderer_tests {
     }
 
     /// A surface a fraction of the frame's size paints the same pixels as a
-    /// full one — the retarget-and-prime in `Blitter::begin_region`, with L1
-    /// resetting its clip stack around it.
+    /// full one — the retarget-and-prime in `Blitter::begin_region`, with the
+    /// renderer resetting its clip stack around it.
     #[test]
     fn a_tiled_layered_renderer_paints_what_a_full_one_does() {
         const W: u32 = 64;

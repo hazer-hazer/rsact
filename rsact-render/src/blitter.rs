@@ -1,15 +1,9 @@
-//! **Layer 3 — where pixels physically land.**
+//! Where pixels land: a [`Blitter`] writes runs of already-clipped pixels into
+//! whatever it is backed by — a framebuffer, a pixmap, a panel's address window.
 //!
-//! A [`Blitter`] accepts already-clipped, already-rasterized pixel work. Named
-//! in the Skia/AGG sense. It is *not* the buffer itself — that is a
-//! [`FramebufStorage`](crate::framebuf::FramebufStorage), which a
-//! [`FramebufBlitter`] borrows.
-//!
-//! [`Span`] and the addressing helpers live here rather than beside the
-//! rasterizer, because the dependency runs one way: a blitter must be definable
-//! without a rasterizer — that is what makes a direct-to-panel or DMA2D blitter
-//! expressible — while a rasterizer is meaningless without something to emit
-//! into.
+//! It is not the buffer itself. [`FramebufBlitter`] is a blitter *over* a
+//! caller-owned [`FramebufStorage`](crate::framebuf::FramebufStorage), which it
+//! borrows and gives back.
 
 use crate::{
     color::Color,
@@ -24,10 +18,9 @@ use core::ops::Range;
 /// `{y, x, w}` rather than `{y, x: Range}` because [`Range`] is not [`Copy`] and
 /// every defaulted method reads the span twice.
 ///
-/// **Spans never wrap a row.** The case where wrapping would win — a rect
-/// spanning the full width — is [`Blitter::fill_rect`], which coalesces using
-/// the blitter's own stride. A wrapping span would be the rasterizer asserting
-/// it knows that stride, which is L3's private fact.
+/// **A span never wraps a row.** Emit a full-width rect through
+/// [`Blitter::fill_rect`] instead — only the blitter knows its own stride, and
+/// it can coalesce the rows itself.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Span {
     pub y: i32,
@@ -107,13 +100,14 @@ pub const fn span_range(bounds: &Rect, span: Span) -> Range<usize> {
 
 /// Accepts already-clipped, already-rasterized pixel work.
 ///
-/// The single required *drawing* method is a **row run**, because that is what a
-/// packed framebuffer does best (`slice::fill` inside one row) and what a
-/// display window does best (one SPI burst). A `draw_iter`-shaped requirement
-/// inverts it, forcing every fill algorithm to destructure output it already
-/// had in span form.
+/// To write one, implement [`fill_span`](Self::fill_span),
+/// [`bounds`](Self::bounds), [`capacity`](Self::capacity) and
+/// [`begin_region`](Self::begin_region); override any of the defaulted methods
+/// your target does better. A row run is the required primitive because that is
+/// what a packed framebuffer (`slice::fill` inside one row) and a display window
+/// (one SPI burst) are both fastest at.
 ///
-/// # Capacity is stated twice, and the two are not redundant
+/// # Capacity is stated twice
 ///
 /// [`UNITS`](Self::UNITS) is what the **type** knows; [`capacity`](Self::capacity)
 /// is what the **value** knows. A `&'static mut [u16; 5760]` answers the first,
@@ -122,14 +116,12 @@ pub const fn span_range(bounds: &Rect, span: Span) -> Range<usize> {
 /// `Result`. A direct-to-panel target answers `None` to both — its capacity is
 /// *unbounded*, so nothing is checked at all.
 ///
-/// Associated consts make this trait dyn-incompatible (E0038), which is
-/// accepted: an application uses one renderer + rasterizer + blitter
-/// combination, so erasure would buy nothing that monomorphized inlining does
-/// not already give.
+/// The associated consts make this trait dyn-incompatible (E0038), so there is
+/// no `dyn Blitter`; name the concrete type.
 ///
-/// **No error channel on the drawing methods** — each draws or does nothing.
-/// [`begin_region`](Self::begin_region) is the exception, because a region that
-/// does not fit the storage is a refusal rather than a degradation.
+/// The drawing methods return nothing — each draws or does nothing.
+/// [`begin_region`](Self::begin_region) is the exception: a region that does not
+/// fit the storage is refused.
 pub trait Blitter {
     type Color: Color;
 
@@ -186,12 +178,11 @@ pub trait Blitter {
     /// **Required, not defaulted**: a no-op default would not retarget, and
     /// every addressing helper assumes it did.
     ///
-    /// **Priming belongs here, atomically with the retarget.** A region is
-    /// scratch with no history, so it must start at the true background or the
-    /// tile flushes with holes — and L1 pushes the region clip only *after* this
-    /// returns, so the fill cannot go through the clipped path. The background
-    /// is a color-level fact ([`Color::default_background`]), so L3 can supply it
-    /// without a theme.
+    /// **Prime as well as retarget**, in that one call. A region arrives
+    /// holding whatever the last one left in it, so an implementation must fill
+    /// it with [`Color::default_background`] or the frame flushes with holes.
+    /// Do it directly, not through anything that clips: the region's own clip is
+    /// not established until this returns.
     ///
     /// There is no `end_region`: the one real job it could have — a completion
     /// barrier for asynchronous writes — belongs where the loan goes back.
@@ -271,14 +262,9 @@ pub trait Blitter {
 
 /// A blitter over a [`Framebuf`] whose storage the caller owns.
 ///
-/// **A color buffer and nothing else: capacity plus addressing.** It does not
-/// know the display's size, the frame policy, or what a rasterizer is. The rect
-/// it answers for arrives with [`begin_region`](Blitter::begin_region), the only
-/// thing that ever aims it — a construction-time aim would be overwritten before
-/// a pixel lands.
-///
-/// It always has its target: the attached/detached state an application wants
-/// belongs to the *renderer*, and this type is what moves in and out of it.
+/// It starts aimed at nothing: the rect it writes to arrives with
+/// [`begin_region`](Blitter::begin_region), so call that before painting or
+/// everything lands in a zero-sized target.
 ///
 /// This type **is** the loan — it owns `B`, so handing it back hands back the
 /// buffer, which is what DMA needs (a borrow the core can still write through is
@@ -435,8 +421,8 @@ where
             return Err(());
         }
         self.framebuf.retarget(region);
-        // Straight at the framebuf: the region clip is pushed by L1 *after* this
-        // returns, and the whole retargeted buffer is what needs priming.
+        // Straight at the framebuf: the region's clip is not established until
+        // this returns, and the whole retargeted buffer needs priming.
         self.framebuf.fill_solid(region, C::default_background());
         Ok(())
     }

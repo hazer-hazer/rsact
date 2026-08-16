@@ -1,16 +1,12 @@
-//! **Layer 2 — geometry into spans.**
+//! Turning geometry into runs of pixels.
 //!
-//! A [`Rasterizer`] turns a primitive into runs of pixels and hands them to a
-//! [`Blitter`] through a [`RasterCtx`], which is the only thing it is ever given
-//! and the reason it cannot write outside the clip.
+//! A [`Rasterizer`] scan-converts one primitive and emits it through a
+//! [`RasterCtx`], the only thing it is handed and the reason it cannot write
+//! outside the clip.
 //!
-//! **A crate-internal seam.** `RasterCtx::new` is `pub(crate)`, so a downstream
-//! crate can write a `Blitter` but cannot drive a `Rasterizer`;
-//! [`Renderer`](crate::renderer::Renderer) is the published backend seam.
-//!
-//! This file is the contract. The shared scan conversion every default
-//! delegates to is [`crate::scan`], and the concrete rasterizers live in their
-//! backend's module.
+//! `RasterCtx::new` is `pub(crate)`, so a downstream crate can implement this
+//! trait but cannot call one; use [`Renderer`](crate::renderer::Renderer) to
+//! drive rendering. Every default body delegates to [`crate::scan`].
 
 use crate::{
     blitter::{Blitter, Span},
@@ -20,31 +16,24 @@ use crate::{
     style::DrawStyle,
 };
 
-/// The **only** way a rasterizer touches a blitter.
+/// Where a [`Rasterizer`] emits its pixels.
 ///
-/// Both fields are private and the constructor is `pub(crate)`, so a
-/// [`Rasterizer`] impl has no path to `T`, and `clip ⊆ blitter.bounds()` holds
-/// by construction.
+/// Every method clips, so drawing outside [`clip()`](Self::clip) is discarded
+/// rather than forbidden — emitting geometry that lands nowhere is correct, just
+/// wasted. Bound your loops by `clip()` where it is cheap to do so.
 ///
-/// | | enforced? |
-/// |---|---|
-/// | writing outside the blitter | **impossible** — private field |
-/// | writing outside the clip | **impossible** — every method intersects |
-/// | retargeting mid-primitive | **impossible** — `begin_region` is not here |
-/// | *bounding your loops* by the clip | advisory — spray-and-clip is correct, slow |
-///
-/// The last row cannot be closed by types, only taken where it is cheap:
-/// [`crate::scan::polygon`]'s fill bounds its scan by [`clip()`](Self::clip)
-/// rather than by the polygon's own box.
+/// [`span`](Self::span) and [`rect`](Self::rect) are the fast paths;
+/// [`run`](Self::run) takes one color per pixel, [`blend`](Self::blend) takes
+/// coverage, and [`pixel`](Self::pixel) is the fallback. Use
+/// [`reborrow`](Self::reborrow) to pass it on to another primitive's method.
 pub struct RasterCtx<'a, T: Blitter> {
     blitter: &'a mut T,
     clip: Rect,
 }
 
 impl<'a, T: Blitter> RasterCtx<'a, T> {
-    /// Only a renderer builds one, and this is where `clip ⊆ bounds` is made
-    /// true — here rather than at the call site, so it is structural instead of
-    /// a convention every L1 has to remember.
+    /// Narrows `clip` to the blitter's bounds here rather than trusting the
+    /// caller, so no renderer can widen a clip past its own surface.
     pub(crate) fn new(blitter: &'a mut T, clip: Rect) -> Self {
         let clip = clip.intersection(&blitter.bounds());
         Self { blitter, clip }
@@ -103,38 +92,26 @@ impl<'a, T: Blitter> RasterCtx<'a, T> {
     }
 }
 
-/// Geometry into spans. **Stateless about *where* it draws** — the blitter
-/// arrives per call.
+/// Geometry into spans.
 ///
-/// Required rather than symmetric: a blitter that cannot read its own pixels
-/// needs anti-aliasing composited into a one-scanline scratch and *then*
-/// emitted, so two blitters are live inside one primitive call. It also lets
-/// caches — a coverage line, a `Mask`, a glyph atlas — survive a blitter swap.
+/// The blitter arrives per call rather than being held, so a rasterizer may keep
+/// caches — a coverage line, a `Mask`, a glyph atlas — across targets.
 ///
-/// **One method per primitive, never a `PrimitiveKind` match.** A new variant
-/// would break every downstream `match`, and the `_ =>` wildcard silencing it
-/// turns every future primitive into a permanent silent no-op. Named methods
-/// leave the holes findable — `polygon` and `image` are logged no-ops in the
-/// embedded-graphics backend, and visibly so.
+/// # Nothing is required
 ///
-/// # No primitive is ever unsupported
+/// Every method has a default that **draws**, so `impl Rasterizer for X {}` is
+/// a working rasterizer and you override only what you have better algorithms
+/// for. [`fill`](Self::fill) and [`pixel`](Self::pixel) are where every override
+/// chain bottoms out; `fill` is style-free so clears and backgrounds do not pay
+/// for style resolution.
 ///
-/// Every method has a default that **draws**. Consequences:
+/// A default must never be a **lookalike** — a squircle drawn as a rounded rect
+/// — because that renders a plausible wrong image. Decompose exactly onto the
+/// existing methods, or go through [`path`](Self::path), which can express any
+/// 2D shape.
 ///
-/// - A new rasterizer is `impl Rasterizer for X {}` plus the overrides it has
-///   better algorithms for.
-/// - A **new primitive** must arrive with an exact decomposition onto the
-///   existing set — and [`path`](Self::path) makes that always possible, since
-///   every 2D shape is a path. A primitive that cannot be expressed as one is a
-///   new *capability*, not new geometry, and does not go on this trait.
-/// - A default must never be a **lookalike** (a squircle drawn as a rounded
-///   rect): that renders a plausible wrong image, the worst failure mode in this
-///   design. Exact-or-via-`path`, never approximate.
-///
-/// **"Exact" means geometry, not pixels.** A default calls back through `self`
-/// where it composes, so it inherits that rasterizer's quality. Parity between
-/// rasterizers is not a goal — differing output is the reason there is more than
-/// one — but **parameter semantics** must agree:
+/// Rasterizers need not agree pixel for pixel; differing output is the reason
+/// there is more than one. They must agree on **parameter semantics**:
 ///
 /// - **Angle zero is `+x`, and a positive sweep runs toward `+y`** — clockwise
 ///   on screen, because `y` grows downward. Same convention as
@@ -146,11 +123,6 @@ impl<'a, T: Blitter> RasterCtx<'a, T> {
 /// - **An arc is a curve, so `style.fill` is ignored.** The filled-region
 ///   primitives are [`sector`](Self::sector) (center-bounded) and
 ///   [`ellipse`](Self::ellipse) (closed).
-///
-/// The trait therefore requires **nothing**. [`fill`](Self::fill) and
-/// [`pixel`](Self::pixel) are listed first because every override chain bottoms
-/// out in them, and `fill` is style-free because clears, backgrounds and region
-/// priming must not pay for style resolution.
 pub trait Rasterizer<T: Blitter> {
     fn fill(&mut self, cx: &mut RasterCtx<'_, T>, rect: Rect, color: T::Color) {
         crate::scan::fill(cx, rect, color)
@@ -330,14 +302,9 @@ mod tests {
         Rect::new(Point::new(x, y), Size::new(w, h))
     }
 
-    /// **The invariant the whole layer split rests on.** A rasterizer is handed
-    /// nothing but a `RasterCtx`, and no sequence of calls on one can put a
-    /// pixel outside `clip ∩ bounds` — not because implementations check, but
-    /// because the blitter is a private field behind methods that all intersect.
-    ///
-    /// Sprayed deliberately: every method is called with geometry far outside
-    /// both rects, which is the "spray-and-clip is correct, slow" row of the
-    /// table on `RasterCtx` stated as a test.
+    /// No sequence of `RasterCtx` calls can put a pixel outside
+    /// `clip ∩ bounds`, however far outside both the geometry it is given lies.
+    /// Every method is called here with deliberately absurd coordinates.
     #[test]
     fn nothing_escapes_the_clip_however_hard_a_rasterizer_sprays() {
         let bounds = r(10, 10, 20, 20);
@@ -369,8 +336,8 @@ mod tests {
         );
     }
 
-    /// `RasterCtx::new` narrows the clip to the blitter's bounds, so an L1 that
-    /// hands over a clip wider than its surface cannot widen anything.
+    /// `RasterCtx::new` narrows the clip to the blitter's bounds, so a renderer
+    /// handing over a clip wider than its surface cannot widen anything.
     #[test]
     fn a_clip_wider_than_the_blitter_is_narrowed_on_construction() {
         let bounds = r(10, 10, 4, 4);

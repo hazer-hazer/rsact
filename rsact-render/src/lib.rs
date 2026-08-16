@@ -27,9 +27,8 @@ impl FloatExt for f32 {}
 #[cfg(all(feature = "std", not(feature = "libm"), not(feature = "micromath")))]
 impl FloatExt for f64 {}
 
-// The three drawing layers: `renderer` (L1) drives `raster` (L2), which emits
-// into `blitter` (L3). Each is unconditional; the backend-specific rasterizers
-// and blitters live under `eg` and `tiny_skia`.
+// A `renderer` draws with a `raster`izer, which emits into a `blitter`. The
+// backend-specific rasterizers and blitters live under `eg` and `tiny_skia`.
 pub mod blitter;
 pub mod color;
 pub mod framebuf;

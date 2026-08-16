@@ -1,4 +1,5 @@
-//! embedded-graphics as an L2 [`Rasterizer`] — **as-is, no anti-aliasing**.
+//! embedded-graphics' primitive algorithms as a [`Rasterizer`] — as-is, so
+//! aliased.
 
 use crate::{
     blitter::Blitter,
@@ -22,8 +23,8 @@ use embedded_graphics::{
 ///
 /// Not to be confused with
 /// [`DrawTargetProxy`](super::interop::DrawTargetProxy), the other
-/// `DrawTarget` adapter here: that one sits **above** L1, feeding glyph pixels
-/// *into* a renderer, while this one feeds *out of* a rasterizer into a blitter.
+/// `DrawTarget` adapter here: that one feeds glyph pixels *into* a renderer,
+/// while this one carries a rasterizer's output *out* to a blitter.
 ///
 /// Overrides `draw_iter` and `fill_solid`, which are what eg's algorithms call
 /// — `fill_solid` being the one that reaches the whole-word framebuffer path,
@@ -72,7 +73,7 @@ where
     }
 }
 
-/// embedded-graphics' primitive algorithms, as an L2 rasterizer.
+/// embedded-graphics' primitive algorithms, as a rasterizer.
 ///
 /// **Overrides** the seven shapes embedded-graphics has primitives for; each
 /// body builds eg's own primitive and `draw_styled`s it into a [`BlitTarget`].

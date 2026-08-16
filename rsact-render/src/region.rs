@@ -1,76 +1,31 @@
 //! Turning a frame's damage rects into the regions it is painted in.
 //!
-//! Pure geometry — no renderer, no buffer, no widgets. Given what changed
-//! (`&[Rect]`) and what the output can hold ([`RegionLimits`]), it answers
-//! "which rectangles do we paint, in what order".
+//! Pure geometry — no renderer, no buffer, no widgets. [`plan_regions`] takes
+//! what changed and what the surface can hold ([`RegionLimits`]) and answers
+//! which rectangles to paint, sorted top-to-bottom, left-to-right.
 //!
-//! # Region shape sets the repaint set
+//! Three things to know about the output:
 //!
-//! A tile has no history — it arrives holding whatever the last one left in it
-//! — so **everything intersecting a region repaints**, changed or not. The
-//! difference is not marginal: a tight 16×16 rect around one checkbox needs 3
-//! draw ops where the 240×24 full-width band containing it needs 118, because
-//! the band catches every neighbour on those rows.
-//!
-//! Hence tight damage rects with an area-test merge rather than fixed row
-//! bands. Bands remain the degenerate case: when damage covers most of the
-//! screen there is nothing left to be tight about, so one screen rect chunks
-//! into bands and this is a classic strip renderer — arrived at rather than
-//! designed in, which is what makes tiling never *worse* than strips.
-//!
-//! # Merging
-//!
-//! Merging two rects trades paint for transfer: the union pays one region's
-//! command overhead instead of two, but repaints its dead space. The test is
-//! the area ratio `union / (a + b)` against
-//! [`RegionLimits::merge_threshold_percent`], held as percent in a `u32`
-//! because this runs once per frame on cores where every `f32` compare is a
-//! soft-float call.
-//!
-//! The denominator double-counts any overlap deliberately: `a + b` is what
-//! painting them separately costs, and the overlap really is painted twice
-//! there. Note that overlapping rects do **not** always merge — `35,0 2×15`
-//! and `23,4 14×3` share 6 px but their union is ×2.92 the sum of their areas.
-//! What holds unconditionally is containment: if `b ⊆ a` the union is `a`, so
-//! it merges under any threshold ≥ 1.
-//!
-//! Planned regions may therefore overlap, and a pixel can be painted twice.
-//! That is waste, never corruption — painting is a pure function of position —
-//! and it is waste the area test has already priced.
+//! - **Everything intersecting a region repaints**, changed or not. A region
+//!   arrives holding whatever the last one left in it, so region shape decides
+//!   how much work a frame is: a tight 16×16 rect around one checkbox costs 3
+//!   draw ops where a 240×24 full-width band containing it costs 118, having
+//!   caught every neighbour on those rows.
+//! - **Regions may overlap**, so a pixel can be painted twice. That is waste,
+//!   never corruption — painting is a pure function of position — and it is
+//!   waste the planner has already priced against the cost of splitting.
+//! - **Nearby rects are merged** when their union's area is within
+//!   [`merge_threshold_percent`](RegionLimits::merge_threshold_percent) of the
+//!   sum of their own, and a region too big for the surface is then cut into
+//!   full-width bands. Damage covering most of the screen therefore collapses
+//!   to one rect and comes back out as strips.
 //!
 //! # A tile is a budget, not a shape
 //!
-//! The surface constraint is a **unit count**, never a rectangle: a tile is a
-//! byte buffer plus an instruction about where to blit it, and the buffer does
-//! not care whether its 5760 units are laid out 240×24, 120×48 or 16×38. So
-//! `Tiles<240, 24>` reads *"a buffer big enough for a 240×24 tile"*, and a
-//! 16×38 damage region is emitted whole.
-//!
-//! Bounding the *shape* instead invents a constraint the hardware does not
-//! have, and it corrupts the plan: two 16×16 rects 6 px apart merge on area
-//! (×1.19) into a 16×38 union, which a shape-bound 240×24 tile cannot hold, so
-//! chunking cuts it at y = 24 and slices the lower rect across both pieces — 8
-//! draw ops where leaving them alone costs 5.
-//!
-//! # The capacity veto, and its one exemption
-//!
-//! When a union really does need more units than the surface holds it is
-//! rejected **before** the area test, because chunking would undo it: chunking
-//! re-derives the split from the union's own origin rather than from where the
-//! damage was, so a merge capacity will immediately undo can only lose.
-//!
-//! The exemption is **containment**. There the union *is* the container — a
-//! region already in the plan, already chunked this way — so merging adds no
-//! area and no boundary and there is nothing to undo. Vetoing it orphans the
-//! inner rect as a second region whose pixels are then painted twice. See
-//! [`capacity_allows`].
-//!
-//! # Chunking preserves width
-//!
-//! Because the bound is one number, the cut keeps the region's full width and
-//! takes as many rows as fit. That never introduces a vertical seam, so a
-//! widget can only ever be split horizontally and each piece stays one
-//! `set_window` plus one burst.
+//! The surface constraint is a **unit count**. A buffer does not care whether
+//! its 5760 units are laid out 240×24, 120×48 or 16×38, so `Tiles<240, 24>`
+//! reads *"a buffer big enough for a 240×24 tile"* — not *"regions are at most
+//! 240×24"* — and a 16×38 damage region is emitted whole.
 
 use crate::{
     geometry::{Point, Rect, Size},
@@ -274,12 +229,7 @@ impl<const W: u32, const H: u32> FramePolicy for Tiles<W, H> {
 /// error. One handed a runtime-length slice has no such const and calls it at
 /// `attach` instead — same arithmetic, same message.
 ///
-/// [`Unbounded`] short-circuits before any arithmetic, so it cannot overflow
-/// trying to prove the unprovable.
-///
-/// Takes the numbers rather than the renderer type so the proof can be
-/// exercised without standing up a `Renderer` impl; the doctests below are the
-/// real test of the assertion.
+/// [`Unbounded`] always fits, and short-circuits before any arithmetic.
 ///
 /// ```
 /// # use rsact_render::region::{assert_policy_fits, Tiles, Unbounded};

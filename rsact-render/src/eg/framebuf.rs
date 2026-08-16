@@ -357,7 +357,7 @@ mod tests {
 
     /// The inherent [`Framebuf::fill_solid`] and the `DrawTarget`
     /// override must be the same fill, because the second is now a delegation
-    /// to the first — and because the layer split's blitter will call the
+    /// to the first — and because a blitter will call the
     /// inherent one on the strength of that.
     #[test]
     fn the_draw_target_fill_delegates_to_the_inherent_one() {
