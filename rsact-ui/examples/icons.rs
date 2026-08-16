@@ -7,8 +7,8 @@ use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
 use rsact_render::{
-    blitter::framebuf::FramebufBlitter, framebuf::PackedColor,
-    raster::eg::EgRasterizer, region::Unbounded, renderer::RasterRenderer,
+    blitter::FramebufBlitter, eg::rasterizer::EgRasterizer,
+    framebuf::PackedColor, region::Unbounded, renderer::RasterRenderer,
 };
 use rsact_tiny_icons::{IconSet, common::CommonIcon, system::SystemIcon};
 use rsact_ui::{

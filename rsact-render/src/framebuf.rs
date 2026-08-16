@@ -28,7 +28,7 @@
 
 use crate::{
     color::Color,
-    geometry::{Point, Rect, Size},
+    geometry::{Point, Rect},
 };
 
 pub trait PackedColor {
@@ -456,50 +456,28 @@ impl<C: Color + PackedColor, B: FramebufStorage<C>> Framebuf<C, B> {
 }
 
 impl<C: Color + PackedColor, B: FramebufStorage<C>> Framebuf<C, B> {
-    /// Wrap the caller's `buffer`, aimed at `size` from the origin.
+    /// Wrap the caller's `buffer`. **Aimed at nothing** — a color buffer has
+    /// capacity, not a shape, and `retarget` is the only thing
+    /// that ever gives it one. The acceptance target this exists for: a 240×240
+    /// RGB565 frame is 57600 units (112.5 KiB), while a buffer able to hold any
+    /// region up to a 240×24 tile is 5760 (11.25 KiB).
     ///
     /// **The buffer is the caller's.** This does not allocate and does not keep
     /// it — [`into_buffer`](Self::into_buffer) hands it back. rsact is the
     /// borrower here, which is what lets an embedded app keep its tiles in a
     /// `StaticCell` pool and pass `&'static mut` slices through channels.
     ///
-    /// `None` if `buffer` cannot hold a `size`-shaped region.
+    /// Infallible, because there is nothing to check: any buffer is a valid
+    /// buffer of its own size, and "is it big enough" is a question about a
+    /// *region* or a *frame policy*, neither of which this type has heard of.
+    /// Those are answered by `FramebufBlitter::begin_region` and
+    /// `RasterRenderer::attach`.
     ///
-    /// **An `Option`, not an assert.** Whether a too-small buffer should abort
-    /// is the caller's decision, not this crate's — an `unwrap` at the call site
-    /// is that decision, written where a reader can see it. (WS6.4e replaced an
-    /// `area % pps == 0` assert here with a capacity assert; this replaces the
-    /// assert itself.)
-    ///
-    /// The requirement is [`units_for`], the same row-padded formula the policy
-    /// proof uses; three spellings of "does it fit" that could disagree is
-    /// exactly how a capacity check ends up worse than no check at all. Row
-    /// padding makes it very slightly stricter than the addressing needs — a
-    /// 122-px mono row is 16 bytes here and 15.25 to `flat_index` — and that is
-    /// the direction to be strict in: it is the requirement once regions are
-    /// byte-aligned (roadmap 6.5), and identical for every color that does not
-    /// pack.
-    pub fn new(size: Size, buffer: B) -> Option<Self> {
-        if buffer.unit_count() < units_for::<C>(size.width, size.height) {
-            return None;
-        }
-        Some(Self {
-            viewport: Rect::new(Point::zero(), size),
-            pixels: buffer,
-            color: core::marker::PhantomData,
-        })
-    }
-
-    /// WS6.4d: hold `buffer`'s storage units with **no fixed shape**, for a
-    /// buffer that will be `retarget`ed per region.
-    ///
-    /// This is the tiled constructor, and the acceptance target it exists for:
-    /// a 240×240 RGB565 frame is 57600 units (112.5 KiB), while a buffer able to
-    /// hold any region up to a 240×24 tile is 5760 (11.25 KiB).
-    ///
-    /// Starts aimed at nothing (a zero-sized viewport at the origin), because
-    /// there is no meaningful default region — `begin_region` supplies one.
-    pub fn tile(buffer: B) -> Self {
+    /// **This was two constructors** — `new(size, buffer)` aimed at a shape, and
+    /// `tile(buffer)` aimed at nothing. The first was API only its own tests
+    /// used: every real caller goes through a blitter, which is aimed by
+    /// `begin_region` and would overwrite any shape given here.
+    pub fn new(buffer: B) -> Self {
         Self {
             viewport: Rect::zero(),
             pixels: buffer,
@@ -615,6 +593,7 @@ impl<C: Color + PackedColor, B: FramebufStorage<C>> Framebuf<C, B> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::geometry::Size;
 
     /// A 1-bpp color with **no embedded-graphics anywhere** — which is the
     /// point of WS6.4e, asserted rather than described. If this stops
@@ -700,25 +679,26 @@ mod tests {
     /// `area % pps == 0`, so a real 122×250 e-paper panel panicked — 30500
     /// pixels is not divisible by 8.
     #[test]
-    fn a_122px_wide_mono_panel_is_constructible() {
+    fn a_122px_wide_mono_panel_is_addressable() {
+        let panel = Rect::new(Point::zero(), Size::new(122, 250));
         let mut buf = alloc::vec![0u8; units_for::<Mono>(122, 250)];
-        let fb = Framebuf::<Mono, _>::new(Size::new(122, 250), &mut buf[..])
-            .expect("the buffer was sized with units_for");
-        assert_eq!(
-            fb.viewport(),
-            Rect::new(Point::zero(), Size::new(122, 250))
-        );
+        let mut fb = Framebuf::<Mono, _>::new(&mut buf[..]);
+        fb.retarget(panel);
+        assert_eq!(fb.viewport(), panel);
+        // The far corner resolves, which the old `area % pps == 0` assert
+        // refused to let anyone reach.
+        assert!(fb.point_to_subpart(Point::new(121, 249)).is_some());
     }
 
-    /// The check that replaced it is the one that was missing: too small is
-    /// refused, at construction, before anything paints — and as a `None`, not
-    /// a panic. Whether that should abort is the caller's decision.
+    /// Capacity is **not** this type's question, and that is the design rather
+    /// than an omission: a buffer too small for the region it is aimed at is
+    /// refused by `FramebufBlitter::begin_region`, and one too small for the
+    /// frame policy is refused by `RasterRenderer::attach` — at compile time
+    /// when the storage type knows its own size.
     #[test]
-    fn a_buffer_too_small_for_its_size_is_refused() {
+    fn capacity_is_not_this_types_question() {
         let mut buf = alloc::vec![0u8; 10];
-        assert!(
-            Framebuf::<Mono, _>::new(Size::new(122, 250), &mut buf[..])
-                .is_none()
-        );
+        let fb = Framebuf::<Mono, _>::new(&mut buf[..]);
+        assert_eq!(fb.capacity_units(), 10);
     }
 }

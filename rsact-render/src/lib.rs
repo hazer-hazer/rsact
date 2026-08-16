@@ -57,9 +57,10 @@ pub mod image;
 pub mod output;
 pub mod path;
 pub mod primitives;
-// The render layer split's L2: `Rasterizer` (geometry -> spans), `RasterCtx`
-// (the clip gate) and `raster::scan`, the shared scan conversion every default
-// delegates to. Unconditional; the two backend adapters under it are gated.
+// The render layer split's L2: `Rasterizer` (geometry -> spans) and `RasterCtx`
+// (the clip gate). Unconditional; the concrete rasterizers live in their
+// backend's module (`eg::rasterizer`, `tiny_skia::rasterizer`), so the tree is
+// cut by feature gate rather than by layer.
 pub mod raster;
 pub mod record;
 // WS6.4d(1): damage rects -> the regions a frame is painted in. Pure geometry,
@@ -67,6 +68,10 @@ pub mod record;
 // it operates on rather than in the UI crate that drives it.
 pub mod region;
 pub mod renderer;
+// The shared scan conversion every `Rasterizer` default delegates to. A sibling
+// of `raster` rather than a child: that file is the contract, this one is 600
+// lines of algorithm, and the two are read for different reasons.
+pub mod scan;
 // WS6.4a's measurement + tile-invariance arithmetic over `record`'s op logs.
 // Unconditional for the same reason `record` is: pure `alloc` math with no file
 // I/O (unlike `golden`), so a no_std integration test can use it too.
@@ -88,12 +93,14 @@ pub mod eg;
 pub mod tiny_skia;
 
 pub mod prelude {
+    #[cfg(feature = "embedded-graphics")]
+    pub use crate::eg::{interop::DrawTargetProxy, rasterizer::EgRasterizer};
     #[cfg(feature = "tiny-skia")]
-    pub use crate::{
-        blitter::pixmap::PixmapBlitter, raster::tiny_skia::TinySkiaRasterizer,
+    pub use crate::tiny_skia::{
+        blitter::PixmapBlitter, rasterizer::TinySkiaRasterizer,
     };
     pub use crate::{
-        blitter::{Blitter, Span, framebuf::FramebufBlitter},
+        blitter::{Blitter, FramebufBlitter, Span},
         color::{BigEndian, ByteOrder, Color, LittleEndian, RgbColor as _},
         framebuf::{Framebuf, FramebufStorage, PackedColor},
         geometry::{Rect, Size, block_model::BlockModel, padding::Padding, *},
@@ -114,10 +121,5 @@ pub mod prelude {
             RasterRenderer, RenderResult, Renderer, region_units,
         },
         style::{ColorStyle, DrawStyle, StrokeAlignment, block::*},
-    };
-    #[cfg(feature = "embedded-graphics")]
-    pub use crate::{
-        eg::{interop::DrawTargetProxy, primitives::*},
-        raster::eg::EgRasterizer,
     };
 }

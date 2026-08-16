@@ -784,9 +784,9 @@ fn the_traversal_prune_hits_the_modelled_floor() {
 fn an_n_buffered_loop_paints_the_frame_a_full_surface_would() {
     use embedded_graphics::pixelcolor::Rgb888;
     use rsact_render::{
-        blitter::framebuf::FramebufBlitter,
+        blitter::FramebufBlitter,
+        eg::rasterizer::EgRasterizer,
         framebuf::PackedColor,
-        raster::eg::EgRasterizer,
         region::{Tiles, Unbounded},
         renderer::RasterRenderer,
     };
@@ -996,9 +996,9 @@ fn the_loop_the_examples_show_paints_the_frame_the_framebuffer_holds() {
         draw_target::DrawTarget, pixelcolor::Rgb888, prelude::OriginDimensions,
     };
     use rsact_render::{
-        blitter::framebuf::FramebufBlitter,
+        blitter::FramebufBlitter,
+        eg::rasterizer::EgRasterizer,
         framebuf::PackedColor,
-        raster::eg::EgRasterizer,
         region::{Tiles, Unbounded},
         renderer::RasterRenderer,
     };

@@ -5,12 +5,12 @@ use embedded_graphics_simulator::{
 };
 use rsact_render::output::MapColor;
 use rsact_render::{
-    blitter::pixmap::PixmapBlitter,
     image::{DrawImage, ImageOwned},
     primitives::Primitive,
-    raster::tiny_skia::TinySkiaRasterizer,
     region::Unbounded,
     renderer::RasterRenderer,
+    tiny_skia::blitter::PixmapBlitter,
+    tiny_skia::rasterizer::TinySkiaRasterizer,
 };
 use rsact_ui::{prelude::*, widget::canvas::Canvas};
 use std::process;

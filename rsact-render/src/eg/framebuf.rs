@@ -203,6 +203,21 @@ mod tests {
         .leak()
     }
     use crate::geometry::{Point, Rect, Size};
+
+    /// A framebuffer wrapped and then **aimed**, which is the two steps every
+    /// real caller takes: `Framebuf::new` gives it capacity, `retarget` gives it
+    /// a shape. Only the tests need the pair in one call.
+    fn aimed<
+        C: crate::color::Color + PackedColor,
+        B: crate::framebuf::FramebufStorage<C>,
+    >(
+        size: Size,
+        storage: B,
+    ) -> Framebuf<C, B> {
+        let mut fb = Framebuf::new(storage);
+        fb.retarget(Rect::new(Point::zero(), size));
+        fb
+    }
     use alloc::vec::Vec;
     use embedded_graphics::{
         pixelcolor::{BinaryColor, Rgb888},
@@ -217,11 +232,10 @@ mod tests {
         const WIDTH: u32 = 120;
         const HEIGHT: u32 = 180;
 
-        let mut framebuf = Framebuf::new(
+        let mut framebuf = aimed(
             Size::new(WIDTH, HEIGHT),
             heap_surface::<Rgb888>(Size::new(WIDTH, HEIGHT)),
-        )
-        .unwrap();
+        );
 
         for x in 0..WIDTH as i32 {
             for y in 0..HEIGHT as i32 {
@@ -244,11 +258,10 @@ mod tests {
         const WIDTH: u32 = 120;
         const HEIGHT: u32 = 180;
 
-        let mut framebuf = Framebuf::new(
+        let mut framebuf = aimed(
             Size::new(WIDTH, HEIGHT),
             heap_surface::<BinaryColor>(Size::new(WIDTH, HEIGHT)),
-        )
-        .unwrap();
+        );
 
         for x in 0..WIDTH as i32 {
             for y in 0..HEIGHT as i32 {
@@ -281,11 +294,10 @@ mod tests {
     fn a_buffer_answers_only_for_the_region_it_covers() {
         const W: u32 = 10;
         const H: u32 = 10;
-        let framebuf = Framebuf::<Rgb888, _>::new(
+        let framebuf = aimed::<Rgb888, _>(
             Size::new(W, H),
             heap_surface::<Rgb888>(Size::new(W, H)),
-        )
-        .unwrap();
+        );
 
         // Inside: answered.
         assert!(framebuf.pixel(Point::new(0, 0)).is_some());
@@ -309,9 +321,8 @@ mod tests {
 
         // The same contract on a buffer with a non-zero origin — a tile. Only
         // the covered rect answers, and it answers in ABSOLUTE coordinates.
-        let mut tile = Framebuf::<Rgb888, _>::tile(heap_surface::<Rgb888>(
-            Size::new(4, 4),
-        ));
+        let mut tile =
+            Framebuf::<Rgb888, _>::new(heap_surface::<Rgb888>(Size::new(4, 4)));
         tile.retarget(Rect::new(Point::new(6, 6), Size::new(4, 4)));
         assert!(tile.pixel(Point::new(6, 6)).is_some());
         assert!(tile.pixel(Point::new(9, 9)).is_some());
@@ -340,7 +351,7 @@ mod tests {
         let size = Size::new(16, 8);
         // 16x8 mono = 128 px = 16 bytes.
         let mut buf =
-            Framebuf::<BinaryColor, _>::tile(alloc::vec![0u8; 16].leak());
+            Framebuf::<BinaryColor, _>::new(alloc::vec![0u8; 16].leak());
         buf.retarget(Rect::new(origin, size));
 
         // The origin itself is local (0, 0).
@@ -380,18 +391,12 @@ mod tests {
         let area = Rect::new(Point::new(3, 2), Size::new(30, 7));
         let ink = BinaryColor::On;
 
-        let mut inherent = Framebuf::<BinaryColor, _>::new(
-            size,
-            heap_surface::<BinaryColor>(size),
-        )
-        .unwrap();
+        let mut inherent =
+            aimed::<BinaryColor, _>(size, heap_surface::<BinaryColor>(size));
         Framebuf::fill_solid(&mut inherent, area, ink);
 
-        let mut through_eg = Framebuf::<BinaryColor, _>::new(
-            size,
-            heap_surface::<BinaryColor>(size),
-        )
-        .unwrap();
+        let mut through_eg =
+            aimed::<BinaryColor, _>(size, heap_surface::<BinaryColor>(size));
         DrawTarget::fill_solid(&mut through_eg, &area.into(), ink).unwrap();
 
         let inherent: Vec<_> = inherent.data().to_vec();

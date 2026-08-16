@@ -8,15 +8,13 @@
 //! downstream crate can write a `Blitter` but cannot drive a `Rasterizer`;
 //! [`Renderer`](crate::renderer::Renderer) is the published backend seam, and
 //! the extension promise binds once, there.
-
-pub mod scan;
-
-#[cfg(feature = "embedded-graphics")]
-pub mod eg;
-#[cfg(feature = "tiny-skia")]
-pub mod tiny_skia;
-
-pub use scan::*;
+//!
+//! The shared scan conversion every default delegates to is [`crate::scan`], a
+//! sibling module rather than a child: this file is the *contract* (the clip
+//! gate and the trait), that one is 600 lines of *algorithm*, and the two are
+//! read for different reasons. The concrete rasterizers live in their backend's
+//! module — `eg::rasterizer`, `tiny_skia::rasterizer` — so the tree is cut by
+//! feature gate, not by layer.
 
 use crate::{
     blitter::{Blitter, Span},
@@ -40,7 +38,7 @@ use crate::{
 /// | *bounding your loops* by the clip | advisory — spray-and-clip is correct, slow |
 ///
 /// The last row cannot be closed by types. It can be measured, and where it is
-/// cheap it is simply taken: [`scan::polygon`]'s fill bounds its scan by
+/// cheap it is simply taken: [`crate::scan::polygon`]'s fill bounds its scan by
 /// [`clip()`](Self::clip) rather than by the polygon's own box.
 pub struct RasterCtx<'a, T: Blitter> {
     blitter: &'a mut T,
@@ -165,7 +163,7 @@ impl<'a, T: Blitter> RasterCtx<'a, T> {
 /// priming must not pay for style resolution.
 pub trait Rasterizer<T: Blitter> {
     fn fill(&mut self, cx: &mut RasterCtx<'_, T>, rect: Rect, color: T::Color) {
-        scan::fill(cx, rect, color)
+        crate::scan::fill(cx, rect, color)
     }
 
     fn pixel(&mut self, cx: &mut RasterCtx<'_, T>, p: Point, color: T::Color) {
@@ -179,7 +177,7 @@ pub trait Rasterizer<T: Blitter> {
         to: Point,
         style: &DrawStyle<T::Color>,
     ) {
-        scan::line(cx, from, to, style)
+        crate::scan::line(cx, from, to, style)
     }
 
     fn rect(
@@ -188,7 +186,7 @@ pub trait Rasterizer<T: Blitter> {
         rect: Rect,
         style: &DrawStyle<T::Color>,
     ) {
-        scan::rect(cx, rect, style)
+        crate::scan::rect(cx, rect, style)
     }
 
     fn rounded_rect(
@@ -198,7 +196,7 @@ pub trait Rasterizer<T: Blitter> {
         corners: CornerRadii,
         style: &DrawStyle<T::Color>,
     ) {
-        scan::rounded_rect(cx, rect, corners, style)
+        crate::scan::rounded_rect(cx, rect, corners, style)
     }
 
     fn arc(
@@ -210,7 +208,7 @@ pub trait Rasterizer<T: Blitter> {
         sweep: Angle,
         style: &DrawStyle<T::Color>,
     ) {
-        scan::arc(cx, top_left, diameter, start, sweep, style)
+        crate::scan::arc(cx, top_left, diameter, start, sweep, style)
     }
 
     fn sector(
@@ -222,7 +220,7 @@ pub trait Rasterizer<T: Blitter> {
         sweep: Angle,
         style: &DrawStyle<T::Color>,
     ) {
-        scan::sector(cx, top_left, diameter, start, sweep, style)
+        crate::scan::sector(cx, top_left, diameter, start, sweep, style)
     }
 
     fn ellipse(
@@ -231,7 +229,7 @@ pub trait Rasterizer<T: Blitter> {
         bounding_box: Rect,
         style: &DrawStyle<T::Color>,
     ) {
-        scan::ellipse(cx, bounding_box, style)
+        crate::scan::ellipse(cx, bounding_box, style)
     }
 
     fn polygon(
@@ -240,7 +238,7 @@ pub trait Rasterizer<T: Blitter> {
         points: &[Point],
         style: &DrawStyle<T::Color>,
     ) {
-        scan::polygon(cx, points, style)
+        crate::scan::polygon(cx, points, style)
     }
 
     fn path(
@@ -249,7 +247,7 @@ pub trait Rasterizer<T: Blitter> {
         path: &Path,
         style: &DrawStyle<T::Color>,
     ) {
-        scan::path(cx, path, style)
+        crate::scan::path(cx, path, style)
     }
 
     fn image(
@@ -257,7 +255,7 @@ pub trait Rasterizer<T: Blitter> {
         cx: &mut RasterCtx<'_, T>,
         image: DrawImage<'_, T::Color>,
     ) {
-        scan::image(cx, image)
+        crate::scan::image(cx, image)
     }
 
     /// Exact: a circle is an ellipse with equal axes.

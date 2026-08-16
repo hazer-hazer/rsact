@@ -321,10 +321,10 @@ impl<T: Blitter> Rasterizer<T> for TinySkiaRasterizer {
 mod tests {
     use super::*;
     use crate::{
-        blitter::pixmap::PixmapBlitter,
         geometry::Size,
         region::Unbounded,
         renderer::{RasterRenderer, Renderer},
+        tiny_skia::blitter::PixmapBlitter,
     };
     use tiny_skia::Pixmap;
 
@@ -436,7 +436,7 @@ mod tests {
     #[test]
     fn tiny_skias_anti_aliasing_works_over_a_framebuffer() {
         use crate::{
-            blitter::framebuf::FramebufBlitter,
+            blitter::FramebufBlitter,
             color::Color,
             framebuf::PackedColor,
             geometry::{Point, Rect},

@@ -88,8 +88,8 @@ pub trait Attachment<S> {
 /// and no other, so the guarantee is structural:
 ///
 /// ```
-/// # use rsact_render::{blitter::framebuf::FramebufBlitter, geometry::Size,
-/// #                    raster::eg::EgRasterizer, region::Unbounded,
+/// # use rsact_render::{blitter::FramebufBlitter, geometry::Size,
+/// #                    eg::rasterizer::EgRasterizer, region::Unbounded,
 /// #                    renderer::{RasterRenderer, Renderer}};
 /// # use embedded_graphics::pixelcolor::Rgb888;
 /// # type Screen = RasterRenderer<
@@ -107,8 +107,8 @@ pub trait Attachment<S> {
 /// and painting after a `detach` is not a logged no-op but a compile error:
 ///
 /// ```compile_fail
-/// # use rsact_render::{blitter::framebuf::FramebufBlitter, geometry::Size,
-/// #                    raster::eg::EgRasterizer, region::Unbounded,
+/// # use rsact_render::{blitter::FramebufBlitter, geometry::Size,
+/// #                    eg::rasterizer::EgRasterizer, region::Unbounded,
 /// #                    renderer::{RasterRenderer, Renderer}};
 /// # use embedded_graphics::pixelcolor::Rgb888;
 /// # type Screen = RasterRenderer<
@@ -1055,9 +1055,9 @@ where
 mod raster_renderer_tests {
     use super::*;
     use crate::{
-        blitter::framebuf::FramebufBlitter,
+        blitter::FramebufBlitter,
+        eg::rasterizer::EgRasterizer,
         framebuf::PackedColor,
-        raster::eg::EgRasterizer,
         region::{FramePolicy, Tiles, Unbounded},
         style::DrawStyle,
     };
@@ -1594,8 +1594,8 @@ mod raster_renderer_tests {
     /// not build, which is the point; this records what the message says.
     ///
     /// ```compile_fail
-    /// # use rsact_render::{blitter::framebuf::FramebufBlitter, geometry::Size,
-    /// #                    raster::eg::EgRasterizer, region::Tiles,
+    /// # use rsact_render::{blitter::FramebufBlitter, geometry::Size,
+    /// #                    eg::rasterizer::EgRasterizer, region::Tiles,
     /// #                    renderer::RasterRenderer};
     /// # use embedded_graphics::pixelcolor::BinaryColor;
     /// // 1-bpp storage under a policy that counts one pixel per unit. The

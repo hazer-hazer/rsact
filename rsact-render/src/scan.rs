@@ -1,4 +1,4 @@
-//! Shared scan conversion — the bodies every [`Rasterizer`] default delegates
+//! Shared scan conversion — the bodies every [`Rasterizer`](crate::raster::Rasterizer) default delegates
 //! to.
 //!
 //! Two reasons this is a module of free functions rather than provided trait
@@ -23,7 +23,7 @@
 //! a rasterizer stands on before it overrides anything, and the reason
 //! `impl Rasterizer for X {}` is a legal, drawing rasterizer.
 //!
-//! [`Rasterizer`]: super::Rasterizer
+//! [`Rasterizer`]: crate::raster::Rasterizer
 
 #[allow(unused)]
 use crate::FloatExt as _;

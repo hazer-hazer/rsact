@@ -1,10 +1,14 @@
 //! What rsact needs from tiny-skia, once it stopped being a renderer.
 //!
 //! **PR D deleted `TinySkiaRenderer`.** tiny-skia is an L2 `Rasterizer` now —
-//! [`TinySkiaRasterizer`](crate::raster::tiny_skia::TinySkiaRasterizer) — over
-//! an L3 [`PixmapBlitter`](crate::blitter::pixmap::PixmapBlitter). What is left
-//! here is conversion: colors, geometry, and the `PathBuilder` extensions the
-//! rasterizer builds its paths with.
+//! [`TinySkiaRasterizer`](rasterizer::TinySkiaRasterizer) — over an L3
+//! [`PixmapBlitter`](blitter::PixmapBlitter). Both live here, in the module
+//! gated on the crate they need: the tree is cut by **feature gate**, not by
+//! architectural layer, so `blitter.rs` and `raster.rs` in `src/` stay
+//! unconditional and free of `#[cfg]`.
+//!
+//! The rest is conversion: colors, geometry, and the `PathBuilder` extensions
+//! the rasterizer builds its paths with.
 //!
 //! # Why the clip mask went with it
 //!
@@ -28,6 +32,8 @@
 //! trap has now appeared twice in this project — the other time was a golden
 //! test drawing `WHITE` on a `WHITE` background.)
 
+pub mod blitter;
 pub mod color;
 pub mod geometry;
 pub mod path;
+pub mod rasterizer;

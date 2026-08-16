@@ -12,7 +12,7 @@
 //! - The style conversions, which every `EgRasterizer` body needs to build an
 //!   embedded-graphics `PrimitiveStyle`.
 //!
-//! Do not confuse [`DrawTargetProxy`] with `raster::eg::BlitTarget`. They are
+//! Do not confuse [`DrawTargetProxy`] with `eg::rasterizer::BlitTarget`. They are
 //! both `DrawTarget` adapters and they point in opposite directions: this one
 //! feeds *into* a renderer from above, `BlitTarget` feeds *out of* a rasterizer
 //! into a blitter below. Expect to be confused by this exactly once.

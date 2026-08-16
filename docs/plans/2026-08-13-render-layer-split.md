@@ -820,26 +820,39 @@ Only the ones an implementer might otherwise re-decide.
 Proposed, and the implementer may move things — but decide it once, up front,
 rather than per type.
 
+**The tree is cut by feature gate, not by layer** (maintainer decision). A
+directory exists because its contents cannot compile without a backend crate;
+everything unconditional is a flat file in `src/`. That is what keeps `#[cfg]`
+out of the shared files entirely — enabling a feature adds a directory rather
+than activating scattered attributes.
+
 ```text
 rsact-render/src/
-  framebuf.rs            Framebuf · FramebufStorage · PackedColor   [WS6.4e puts these here]
-  renderer.rs            Renderer trait (unchanged) · NullRenderer · RasterRenderer
-  blitter/
-    mod.rs               Blitter · local · pixel_index · span_range
-    framebuf.rs          FramebufBlitter
-    pixmap.rs            PixmapBlitter                              [feature tiny-skia]
-  raster/
-    mod.rs               Span · RasterCtx · Rasterizer
-    scan.rs              the shared algorithms, re-exported so `raster::fill` resolves
-    eg.rs                EgRasterizer · BlitTarget                  [feature embedded-graphics]
-    tiny_skia.rs         TinySkiaRasterizer                         [feature tiny-skia]
+  framebuf.rs            Framebuf · FramebufStorage · PackedColor   [WS6.4e]
+  blitter.rs             Blitter · Span · local/pixel_index/span_range · FramebufBlitter
+  raster.rs              RasterCtx · Rasterizer            (the contract)
+  scan.rs                the shared scan conversion        (the algorithms)
+  renderer.rs            Renderer trait · NullRenderer · RasterRenderer
+  eg/                    [feature embedded-graphics]
+    color.rs · framebuf.rs · image.rs
+    interop.rs           DrawTargetProxy · the style conversions
+    rasterizer.rs        EgRasterizer · BlitTarget
+  tiny_skia/             [feature tiny-skia]
+    color.rs · geometry.rs · path.rs
+    blitter.rs           PixmapBlitter
+    rasterizer.rs        TinySkiaRasterizer
 ```
 
-**Feature gating.** `blitter/{mod,framebuf}.rs` and `raster/{mod,scan}.rs` are
-**unconditional** — they pull only `crate::{color, geometry, framebuf}`, which is
-the same reason WS6.4e makes `framebuf.rs` unconditional, and it is what lets a
-future backend use them without depending on embedded-graphics. Only the two
-backend adapters and `PixmapBlitter` are gated.
+`scan` is a **sibling** of `raster`, not a child: `raster.rs` is the contract
+(the clip gate and the trait), `scan.rs` is 600 lines of algorithm, and the two
+are read for different reasons.
+
+**`eg/primitives/` is gone.** It held seven files of `pub fn draw`, each taking
+an rsact `Line`/`Arc`/`Circle` and converting to embedded-graphics' — a shape
+left behind when PR A deleted the anti-aliased halves those modules paired with.
+Inlined into `EgRasterizer`, each body is one `draw_styled` call and the
+intermediate rsact primitive disappears: the arguments go straight into eg's
+constructor, which is where they always ended up two hops later.
 
 **Two `DrawTarget` adapters coexist, and they are not the same thing.** Expect to
 be confused by this once:

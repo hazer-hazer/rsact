@@ -3,32 +3,33 @@
 use crate::{
     blitter::Blitter,
     color::Color,
-    eg::primitives,
     geometry::{Angle, CornerRadii, Point, Rect},
-    primitives::{
-        arc::Arc, circle::Circle, ellipse::Ellipse, line::Line,
-        rounded_rect::RoundedRect, sector::Sector,
-    },
     raster::{RasterCtx, Rasterizer},
     style::DrawStyle,
 };
 use embedded_graphics::{
-    geometry::Dimensions, pixelcolor::PixelColor, prelude::DrawTarget,
+    geometry::Dimensions,
+    pixelcolor::PixelColor,
+    prelude::DrawTarget,
+    primitives::{
+        Arc, Circle, Ellipse, Line, Rectangle, RoundedRectangle, Sector,
+        StyledDrawable,
+    },
 };
 
 /// A [`RasterCtx`] wearing embedded-graphics' `DrawTarget`, so that crate's
 /// algorithms can emit into a blitter.
 ///
-/// # Two `DrawTarget` adapters now coexist, and they are not the same thing
+/// # Two `DrawTarget` adapters coexist, and they are not the same thing
 ///
 /// Expect to be confused by this exactly once:
 ///
 /// - **`BlitTarget`** — here, **below** L1. It lets eg's `StyledDrawable`
 ///   algorithms write through the clip gate into an L3 blitter.
-/// - **`DrawTargetProxy`** (`eg/renderer.rs`) — **above** L1. It is how
-///   `embedded-text`/u8g2 hand glyph pixels to a `Renderer`, one at a time, and
-///   it is unchanged by the split: text still arrives as `Renderer::pixel` until
-///   WS15 gives the rasterizer a `glyphs` method.
+/// - **[`DrawTargetProxy`](super::interop::DrawTargetProxy)** — **above** L1. It
+///   is how `embedded-text`/u8g2 hand glyph pixels to a `Renderer`, one at a
+///   time, and it is unchanged by the split: text still arrives as
+///   `Renderer::pixel` until WS15 gives the rasterizer a `glyphs` method.
 ///
 /// # What is and is not overridden
 ///
@@ -54,7 +55,7 @@ impl<'a, T: Blitter> Dimensions for BlitTarget<'a, T> {
     /// `clipped`/`cropped` adapters and several of its algorithms intersect
     /// against this box, so reporting the clip turns the advisory "bound your
     /// loops" row of `RasterCtx`'s table into something eg does for us.
-    fn bounding_box(&self) -> embedded_graphics::primitives::Rectangle {
+    fn bounding_box(&self) -> Rectangle {
         self.0.clip().into()
     }
 }
@@ -78,7 +79,7 @@ where
 
     fn fill_solid(
         &mut self,
-        area: &embedded_graphics::primitives::Rectangle,
+        area: &Rectangle,
         color: Self::Color,
     ) -> Result<(), Self::Error> {
         self.0.rect(Rect::from(*area), color);
@@ -88,11 +89,18 @@ where
 
 /// embedded-graphics' primitive algorithms, as an L2 rasterizer.
 ///
-/// **Overrides** the seven shapes embedded-graphics has primitives for; each
-/// body is the delegation PR A left behind, with the receiver changed to a
-/// [`BlitTarget`] — a substitution, not a rewrite.
+/// **Overrides** the seven shapes embedded-graphics has primitives for. Each
+/// body is one call: build eg's own primitive from the arguments and
+/// `draw_styled` it into a [`BlitTarget`].
 ///
-/// **Inherits** `scan::` for `polygon`, `path` and `image`, which
+/// **They used to be seven files.** `eg/primitives/` held a `pub fn draw` per
+/// shape, each taking rsact's `Line`/`Arc`/`Circle`/… and converting to eg's —
+/// a shape left behind when PR A deleted the anti-aliased halves those modules
+/// existed to pair with. Inlining them here removed the intermediate rsact
+/// primitive entirely: the arguments go straight into eg's constructor, which is
+/// what they always did two hops later.
+///
+/// **Inherits** [`crate::scan`] for `polygon`, `path` and `image`, which
 /// embedded-graphics does not have: its `polygon` and `ImageDrawable` are both
 /// logged no-ops, so the shared default is not a fallback here, it is the only
 /// implementation there has ever been.
@@ -118,10 +126,9 @@ where
         to: Point,
         style: &DrawStyle<T::Color>,
     ) {
-        let _ = primitives::line::draw(
+        let _ = Line::new(from.into(), to.into()).draw_styled(
+            &style.into_primitive_style(),
             &mut BlitTarget(cx.reborrow()),
-            &Line::new(from, to),
-            style,
         );
     }
 
@@ -131,9 +138,7 @@ where
         rect: Rect,
         style: &DrawStyle<T::Color>,
     ) {
-        let eg_rect: embedded_graphics::primitives::Rectangle = rect.into();
-        let _ = embedded_graphics::primitives::StyledDrawable::draw_styled(
-            &eg_rect,
+        let _ = Rectangle::from(rect).draw_styled(
             &style.into_primitive_style(),
             &mut BlitTarget(cx.reborrow()),
         );
@@ -146,13 +151,15 @@ where
         corners: CornerRadii,
         style: &DrawStyle<T::Color>,
     ) {
-        let _ = primitives::rounded_rect::draw(
+        let _ = RoundedRectangle::new(rect.into(), corners.into()).draw_styled(
+            &style.into_primitive_style(),
             &mut BlitTarget(cx.reborrow()),
-            &RoundedRect::new(rect, corners),
-            style,
         );
     }
 
+    /// Overridden rather than inherited on purpose: the default decomposes a
+    /// circle onto `ellipse`, and embedded-graphics has its own circle
+    /// algorithm — taking the default would silently discard it.
     fn circle(
         &mut self,
         cx: &mut RasterCtx<'_, T>,
@@ -160,10 +167,9 @@ where
         diameter: u32,
         style: &DrawStyle<T::Color>,
     ) {
-        let _ = primitives::circle::draw(
+        let _ = Circle::new(top_left.into(), diameter).draw_styled(
+            &style.into_primitive_style(),
             &mut BlitTarget(cx.reborrow()),
-            &Circle::new(top_left, diameter),
-            style,
         );
     }
 
@@ -176,11 +182,11 @@ where
         sweep: Angle,
         style: &DrawStyle<T::Color>,
     ) {
-        let _ = primitives::arc::draw(
-            &mut BlitTarget(cx.reborrow()),
-            &Arc::new(top_left, diameter, start, sweep),
-            style,
-        );
+        let _ = Arc::new(top_left.into(), diameter, start.into(), sweep.into())
+            .draw_styled(
+                &style.into_primitive_style(),
+                &mut BlitTarget(cx.reborrow()),
+            );
     }
 
     fn sector(
@@ -192,11 +198,12 @@ where
         sweep: Angle,
         style: &DrawStyle<T::Color>,
     ) {
-        let _ = primitives::sector::draw(
-            &mut BlitTarget(cx.reborrow()),
-            &Sector::new(top_left, diameter, start, sweep),
-            style,
-        );
+        let _ =
+            Sector::new(top_left.into(), diameter, start.into(), sweep.into())
+                .draw_styled(
+                    &style.into_primitive_style(),
+                    &mut BlitTarget(cx.reborrow()),
+                );
     }
 
     fn ellipse(
@@ -205,10 +212,13 @@ where
         bounding_box: Rect,
         style: &DrawStyle<T::Color>,
     ) {
-        let _ = primitives::ellipse::draw(
+        let _ = Ellipse::new(
+            bounding_box.top_left.into(),
+            bounding_box.size.into(),
+        )
+        .draw_styled(
+            &style.into_primitive_style(),
             &mut BlitTarget(cx.reborrow()),
-            &Ellipse::new(bounding_box.top_left, bounding_box.size),
-            style,
         );
     }
 }
