@@ -149,46 +149,51 @@ impl TileProbe {
         TileSchedule::from_regions(self.viewport(), self.page.damage_snapshot())
     }
 
-    /// One frame: the whole viewport as a forced [`Fused`] pass, or one region
-    /// as a real [`Paint`] pass.
+    /// One frame as a single [`Paint`] region, or one region of a schedule —
+    /// **the same call either way**, differing only in how big the region is.
     ///
     /// **WS6.4c: the region path is no longer a simulation.** It used to force a
     /// redraw and re-run the probe-gated pass under a hand-pushed clip, because
     /// a second pass over an already-painted frame otherwise finds every probe
     /// clean and draws nothing — `force_redraw` was the only way through before
-    /// the collect/paint split existed. It now calls [`Page::paint_region`], the
-    /// same entry point WS6.4d's frame driver will use: untracked, probe-free,
-    /// selected by geometry, with `begin_region`/`push_clip` handled inside.
+    /// the collect/paint split existed. It now calls [`Page::paint_region`]:
+    /// untracked, probe-free, selected by geometry, with
+    /// `begin_region`/`push_clip` handled inside.
     ///
-    /// The full-frame reference stays `Fused`, which is exactly the comparison
-    /// tile-invariance wants: *does the union of the region passes reconstruct
-    /// the frame the full-framebuffer path would have painted?*
+    /// The reference used to be a forced [`Fused`] pass instead, on the grounds
+    /// that tile-invariance asks *does the union of the region passes reconstruct
+    /// what the full-framebuffer path would have painted?* That path no longer
+    /// exists: WS6.4d deleted `UI::render`, and a full-framebuffer frame is now
+    /// `Unbounded` planning **one region covering the viewport** — so the honest
+    /// reference is `paint_region` over the whole viewport, which is what this
+    /// is. The comparison also stopped being apples-to-apples once erasing
+    /// became per-region rather than per-part: a `Fused` pass clears every
+    /// part's `outer` where a region pass clears the region once, so the two
+    /// disagree about ops that produce identical pixels.
     ///
     /// [`Fused`]: crate::el::render::RenderMode::Fused
     /// [`Paint`]: crate::el::render::RenderMode::Paint
     /// [`Page::paint_region`]: crate::page::Page::paint_region
     fn frame(&mut self, region: Option<Rect>) -> Vec<DrawOp> {
+        let region = region.unwrap_or(self.viewport());
         self.recorder.clear();
-
-        match region {
-            Some(region) => {
-                // Unwrapped, not logged-and-continued: a region the renderer
-                // refused to enter makes every number below meaningless, and
-                // this is a harness, not the UI path WS1.8 governs.
-                self.page.paint_region(region).expect("paint_region failed");
-                // The full-frame reference below is a `Fused` pass, which does
-                // not go through `paint_region` and so paints no region
-                // background. Dropping it here is what keeps the two sides
-                // comparable — see `without_region_background`.
-                return without_region_background(region, self.recorder.ops());
-            },
-            None => {
-                self.page.force_redraw();
-                self.page.use_renderer(|_| {});
-            },
+        // Unwrapped, not logged-and-continued: a region the renderer refused to
+        // enter makes every number below meaningless, and this is a harness, not
+        // the UI path WS1.8 governs.
+        self.page.paint_region(region).expect("paint_region failed");
+        // The region background is the one op a whole-frame pass and a band
+        // pass cannot agree on — its geometry IS the region. Stripped, but only
+        // when it was actually painted: a covering `clear_outer` cancels it and
+        // emits a fill with the *same rect and colour*, which an op log cannot
+        // distinguish. Stripping unconditionally would delete that legitimate op
+        // from whichever side happened to elide, and report the difference as a
+        // tile-invariance violation.
+        let ops = self.recorder.ops();
+        if self.page.background_painted() {
+            without_region_background(region, ops)
+        } else {
+            ops
         }
-
-        self.recorder.ops()
     }
 
     /// The traversal term: how many widget nodes a region schedule visits — the

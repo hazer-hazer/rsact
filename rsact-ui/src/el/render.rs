@@ -139,6 +139,44 @@ impl RenderMode {
     }
 }
 
+/// The life of one region's background fill, which `Page::paint_region` defers
+/// rather than paints.
+///
+/// Deferring is what lets it be *skipped*: a themed page fills a region-sized
+/// rect up to three times — this background, a part's `clear_outer`, and a
+/// widget's own opaque block — and every one past the first writes pixels the
+/// next overwrites. Handing the fill to the walk as a pending one lets the first
+/// op that provably covers the region take its place.
+///
+/// A state rather than an `Option` plus a bool: `Painted` and `Cancelled` are
+/// both "no longer pending" but only one of them means a fill happened, and the
+/// tile harness needs to tell them apart — an op log cannot, a root part's
+/// `clear_outer` over the region having the same rect and colour.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum RegionBackground<C> {
+    /// Not wanted: the page declares no background colour.
+    #[default]
+    None,
+    /// Wanted, not yet painted, and still cancellable.
+    Pending(Rect, C),
+    /// Painted, because nothing covered the region in time.
+    Painted,
+    /// Skipped, because some op wrote every pixel of the region. The win.
+    Cancelled,
+}
+
+impl<C> RegionBackground<C> {
+    pub fn pending(&self) -> Option<(Rect, C)>
+    where
+        C: Copy,
+    {
+        match self {
+            Self::Pending(region, color) => Some((*region, *color)),
+            _ => None,
+        }
+    }
+}
+
 pub struct RenderShared<'a, W: WidgetCtx> {
     /// What this pass is for (WS6.4c). Carried down the walk as a plain value,
     /// like `force_redraw`.
@@ -168,6 +206,16 @@ pub struct RenderShared<'a, W: WidgetCtx> {
     /// via `finish_frame_regions`. A shared `&RefCell` so it rides `Copy`
     /// `RenderShared` and every sibling in the walk appends to the one list.
     pub damage: &'a RefCell<Vec<Rect>>,
+    /// This region's deferred background — see [`RegionBackground`].
+    ///
+    /// A shared `&Cell` for the same reason [`Self::damage`] is a shared
+    /// `&RefCell`: `RenderShared` is `Copy` and is copied into every child ctx,
+    /// so a plain field would be settled per part rather than per region — the
+    /// background would be painted once for every drawing part. `Cell` rather
+    /// than `RefCell` because the state is `Copy + Default` (`Color: Copy`),
+    /// which keeps a borrow counter and its panic arm off the hottest path in
+    /// the walk.
+    pub region_background: &'a Cell<RegionBackground<W::Color>>,
     /// WS6.4c(E): how many nodes this pass actually processed, i.e. survived the
     /// traversal prune.
     ///
@@ -389,6 +437,74 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
 /// real renderer's region bound through the seam.
 ///
 /// [`Policy`]: Renderer::Policy
+impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxReady> {
+    /// The area a styled rect writes every pixel of, or `None` for no solid
+    /// area.
+    ///
+    /// A fill covers the rect and nothing else has to be reasoned about: with no
+    /// effective stroke the fill *is* the whole rect
+    /// ([`crate::render::scan::rect`] uses `(rect, rect)` then), and with one the
+    /// stroke bands cover exactly what the inset fill does not — under every
+    /// [`StrokeAlignment`], since `Inside` insets the fill by the width it then
+    /// strokes and the other two only grow outward.
+    ///
+    /// [`StrokeAlignment`]: rsact_render::style::StrokeAlignment
+    fn solid_area(rect: Rect, style: &DrawStyle<W::Color>) -> Option<Rect> {
+        style.fill.is_some().then_some(rect)
+    }
+
+    /// Same, for a rounded rect: the rect **minus its corner cut-outs**.
+    ///
+    /// Reported as coverage of `rect` only when `region` misses all four corner
+    /// boxes, because inside a corner box the shape is an ellipse arc and the
+    /// pixels outside it are not written. This is why tiling helps rather than
+    /// hurts here: a 5 px radius on a 240x240 container spoils only the two
+    /// bands that touch a corner, and the other eight are covered exactly.
+    fn solid_area_rounded(
+        rect: Rect,
+        corners: CornerRadii,
+        style: &DrawStyle<W::Color>,
+        region: Rect,
+    ) -> Option<Rect> {
+        style.fill.is_some().then_some(rect).filter(|rect| {
+            let c = corners.clamp_for(rect.size);
+            let (x, y) = (rect.top_left.x, rect.top_left.y);
+            let (w, h) = (rect.size.width as i32, rect.size.height as i32);
+            let corner_boxes = [
+                Rect::new(Point::new(x, y), c.top_left),
+                Rect::new(
+                    Point::new(x + w - c.top_right.width as i32, y),
+                    c.top_right,
+                ),
+                Rect::new(
+                    Point::new(
+                        x + w - c.bottom_right.width as i32,
+                        y + h - c.bottom_right.height as i32,
+                    ),
+                    c.bottom_right,
+                ),
+                Rect::new(
+                    Point::new(x, y + h - c.bottom_left.height as i32),
+                    c.bottom_left,
+                ),
+            ];
+            !corner_boxes.iter().any(|box_| box_.intersects(&region))
+        })
+    }
+
+    /// The region a deferred background is waiting on, for the two predicates
+    /// that need it. `Rect::zero()` when nothing is pending, which no corner box
+    /// intersects — so the rounded predicate degrades to "covered", and the
+    /// settle it feeds is a no-op anyway.
+    fn pending_region(&self) -> Rect {
+        self.shared
+            .region_background
+            .get()
+            .pending()
+            .map_or(Rect::zero(), |(region, _)| region)
+    }
+}
+
 impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
     type Color = W::Color;
 
@@ -436,6 +552,7 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         if self.shared.mode.is_muted() {
             return Ok(());
         }
+        self.settle_region_background(Some(rect));
         self.renderer.fill_solid(rect, color)
     }
 
@@ -446,6 +563,7 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         if self.shared.mode.is_muted() {
             return Ok(());
         }
+        self.settle_region_background(None);
         self.renderer.pixel(point, color)
     }
 
@@ -461,6 +579,7 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         if self.shared.mode.is_muted() {
             return Ok(());
         }
+        self.settle_region_background(None);
         self.renderer.line(from, to, style)
     }
 
@@ -475,6 +594,7 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         if self.shared.mode.is_muted() {
             return Ok(());
         }
+        self.settle_region_background(Self::solid_area(rect, style));
         self.renderer.rect(rect, style)
     }
 
@@ -490,6 +610,10 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         if self.shared.mode.is_muted() {
             return Ok(());
         }
+        let region = self.pending_region();
+        self.settle_region_background(Self::solid_area_rounded(
+            rect, corners, style, region,
+        ));
         self.renderer.rounded_rect(rect, corners, style)
     }
 
@@ -505,6 +629,7 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         if self.shared.mode.is_muted() {
             return Ok(());
         }
+        self.settle_region_background(None);
         self.renderer.circle(top_left, diameter, style)
     }
 
@@ -522,6 +647,7 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         if self.shared.mode.is_muted() {
             return Ok(());
         }
+        self.settle_region_background(None);
         self.renderer.arc(top_left, diameter, start, sweep, style)
     }
 
@@ -536,6 +662,7 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         if self.shared.mode.is_muted() {
             return Ok(());
         }
+        self.settle_region_background(None);
         self.renderer.ellipse(bounding_box, style)
     }
 
@@ -553,6 +680,7 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         if self.shared.mode.is_muted() {
             return Ok(());
         }
+        self.settle_region_background(None);
         self.renderer
             .sector(top_left, diameter, start, sweep, style)
     }
@@ -568,6 +696,7 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         if self.shared.mode.is_muted() {
             return Ok(());
         }
+        self.settle_region_background(None);
         self.renderer.polygon(points, style)
     }
 
@@ -582,6 +711,7 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         if self.shared.mode.is_muted() {
             return Ok(());
         }
+        self.settle_region_background(None);
         self.renderer.path(path, style)
     }
 
@@ -592,6 +722,7 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         if self.shared.mode.is_muted() {
             return Ok(());
         }
+        self.settle_region_background(None);
         self.renderer.image(image)
     }
 }
@@ -812,6 +943,57 @@ impl<'a, W: WidgetCtx> RenderCtx<'a, W, CtxUnready> {
 }
 
 impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
+    /// Resolve the deferred region background, given what the draw call about
+    /// to run will cover.
+    ///
+    /// `covers` is the area this primitive writes **every pixel of** — `None`
+    /// when it writes no solid area at all (a line, a glyph, an arc). If it
+    /// contains the region, the background is redundant and dropped; otherwise
+    /// it is painted first, and this is the last chance to do so in the right
+    /// order.
+    ///
+    /// Called once per draw call and cheap after the first: the slot is `None`
+    /// for the rest of the region, so this is a `Cell::get` and a branch.
+    ///
+    /// **The clip is part of the predicate.** A primitive's rect only covers
+    /// what the clip lets through, so a narrowed clip (a `CLIPS_SELF` widget, a
+    /// scrollable) can never cover the region however large the rect is. `None`
+    /// from `clip_bounds` — a renderer that does not report — denies coverage,
+    /// which is the safe direction.
+    ///
+    /// That clip test is a **precondition, not a live path**: `clear_outer`
+    /// settles the slot before any widget draws, and a part's `outer` is bounded
+    /// by the surface, so "the rect covers the region but the clip does not"
+    /// cannot arise through the walk today. Verified by deleting it — no test
+    /// fails, and `a_region_larger_than_the_surface_still_gets_its_background`
+    /// says so where a reader will look. It stays because the predicate is
+    /// otherwise unsound the moment anything settles the slot from inside a
+    /// pushed clip (`render_subtree_body`'s `LayoutChange` fill is one line away
+    /// from being that caller).
+    fn settle_region_background(&mut self, covers: Option<Rect>) {
+        let Some((region, bg)) = self.shared.region_background.get().pending()
+        else {
+            return;
+        };
+        let unclipped = self
+            .renderer
+            .clip_bounds()
+            .is_some_and(|clip| clip.contains_rect(&region));
+        let covered =
+            unclipped && covers.is_some_and(|c| c.contains_rect(&region));
+
+        if covered {
+            self.shared
+                .region_background
+                .set(RegionBackground::Cancelled);
+        } else {
+            self.shared.region_background.set(RegionBackground::Painted);
+            // Straight at the renderer: going through `self` would re-enter
+            // this method, and the mute has already been checked by the caller.
+            let _ = self.renderer.fill_solid(region, bg);
+        }
+    }
+
     fn clear_outer(&mut self) -> RenderResult {
         // TODO: Feature-gated or debug-redraw flag
         // Debug redraws, works good only for colors with alpha. But we can use
@@ -839,13 +1021,18 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
             return Ok(());
         }
 
+        // A draw call like any other, so it settles the deferred region
+        // background first — and may cancel it: a root part's `outer` covers the
+        // whole region on a full-frame pass, which is the common case and the
+        // one where the two fills were pure duplication.
+        let outer = self.layout.outer;
+        self.settle_region_background(Some(outer));
+
         self.shared
             .page_style
             .try_with(|style| {
                 if let Some(bg) = style.background_color {
-                    self.renderer
-                        .fill_solid(self.layout.outer, bg)
-                        .map_err(|_| ())
+                    self.renderer.fill_solid(outer, bg).map_err(|_| ())
                 } else {
                     Ok(())
                 }

@@ -140,6 +140,31 @@ impl Rect {
         !self.intersection(other).is_zero_sized()
     }
 
+    /// Whether every pixel of `other` is inside `self`.
+    ///
+    /// Half-open on both sides, like [`Self::contains`] and
+    /// [`Self::intersection`], so a rect flush against the far edge is still
+    /// inside. An empty `other` asks for no pixel and is therefore contained by
+    /// anything — which is what lets "nothing left to paint" fall out as a
+    /// covered case instead of needing its own branch.
+    ///
+    /// Not `intersection(other) == *other`: that allocates the same answer
+    /// through four `min`/`max`es and a construction.
+    pub fn contains_rect(&self, other: &Self) -> bool {
+        if other.is_zero_sized() {
+            return true;
+        }
+        if self.is_zero_sized() {
+            return false;
+        }
+        other.top_left.x >= self.top_left.x
+            && other.top_left.y >= self.top_left.y
+            && other.top_left.x + other.size.width as i32
+                <= self.top_left.x + self.size.width as i32
+            && other.top_left.y + other.size.height as i32
+                <= self.top_left.y + self.size.height as i32
+    }
+
     /// Grow this rect outward by `by` on each side.
     ///
     /// The arithmetic behind `paint_bounds` — a widget's painted area
@@ -337,6 +362,65 @@ impl Sided<u32> for Rect {
 
 #[cfg(test)]
 mod tests {
+
+    /// A rect contains another when the other's every pixel is inside it. The
+    /// bounds it is asked about are half-open, so the far edge is exclusive on
+    /// both sides — and an empty rect is contained by anything, which is what
+    /// makes "nothing left to paint" a covered case rather than a special one.
+    #[test]
+    fn containment_is_pixelwise_and_half_open() {
+        let outer = Rect::new(Point::new(10, 10), Size::new(20, 20));
+
+        assert!(outer.contains_rect(&outer), "a rect contains itself");
+        assert!(
+            outer.contains_rect(&Rect::new(
+                Point::new(11, 11),
+                Size::new(18, 18)
+            ))
+        );
+        assert!(
+            outer.contains_rect(&Rect::new(
+                Point::new(10, 10),
+                Size::new(20, 20)
+            )),
+            "flush against every edge is still inside"
+        );
+
+        // One pixel over each edge in turn.
+        assert!(
+            !outer.contains_rect(&Rect::new(
+                Point::new(9, 10),
+                Size::new(20, 20)
+            ))
+        );
+        assert!(
+            !outer.contains_rect(&Rect::new(
+                Point::new(10, 9),
+                Size::new(20, 20)
+            ))
+        );
+        assert!(
+            !outer.contains_rect(&Rect::new(
+                Point::new(10, 10),
+                Size::new(21, 20)
+            ))
+        );
+        assert!(
+            !outer.contains_rect(&Rect::new(
+                Point::new(10, 10),
+                Size::new(20, 21)
+            ))
+        );
+
+        assert!(
+            outer.contains_rect(&Rect::zero()),
+            "an empty rect asks for no pixel, so it is always contained"
+        );
+        assert!(
+            !Rect::zero().contains_rect(&outer),
+            "and an empty rect contains nothing but the empty rect"
+        );
+    }
     use super::Rect;
     use crate::geometry::{point::Point, size::Size};
 

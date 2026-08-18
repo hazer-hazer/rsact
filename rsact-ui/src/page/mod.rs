@@ -147,6 +147,10 @@ pub struct Page<W: WidgetCtx> {
     damage: RefCell<Vec<Rect>>,
     /// WS6.4c(E): nodes processed by the last pass (see `RenderShared::visits`).
     nodes_visited: Cell<usize>,
+    /// This region's deferred background, and whether the walk consumed it.
+    ///
+    /// [`RegionBackground`]: crate::el::render::RegionBackground
+    region_background: Cell<RegionBackground<W::Color>>,
     /// The page's reactive scope (WS3.1). Everything the page built —
     /// `init_page()`'s widgets (run before `Page::new` while this scope is
     /// current) and `Page::new`'s per-page nodes (`force_redraw`, the layout
@@ -435,6 +439,7 @@ impl<W: WidgetCtx> Page<W> {
             render_probe,
             damage: RefCell::new(Vec::new()),
             nodes_visited: Cell::new(0),
+            region_background: Cell::new(RegionBackground::None),
             scope,
         }
     }
@@ -1073,6 +1078,7 @@ impl<W: WidgetCtx> Page<W> {
 
                         damage: &self.damage,
                         visits: &self.nodes_visited,
+                        region_background: &self.region_background,
                     },
                 )
                 .render(
@@ -1161,6 +1167,15 @@ impl<W: WidgetCtx> Page<W> {
         self.nodes_visited.get()
     }
 
+    /// Whether the last [`paint_region`](Self::paint_region) painted the region
+    /// background, or a covering op made it redundant.
+    ///
+    /// `false` is the win: some op wrote every pixel of the region, so the
+    /// background would have been overwritten entirely.
+    pub fn background_painted(&self) -> bool {
+        self.region_background.get() == RegionBackground::Painted
+    }
+
     pub fn paint_region(
         &mut self,
         renderer: &mut W::Renderer,
@@ -1178,14 +1193,30 @@ impl<W: WidgetCtx> Page<W> {
         // question, so it is answered here rather than by a blitter inventing
         // `Color::default_background()`.
         //
-        // Inside the clip, unlike the prime it replaces: the clip IS the region
-        // at this point, so no unclipped path is needed.
-        if let Some(bg) = self.background() {
-            renderer.fill_solid(region, bg)?;
-        }
+        // **Deferred, not painted.** Two other things fill a region-sized rect
+        // on a themed page — a part's `clear_outer` and a widget's own opaque
+        // block — and each of the three writes pixels the next one overwrites.
+        // Handing the fill to the walk as a *pending* one lets the first op that
+        // provably covers the region cancel it, which on a page with a
+        // background is about half the frame's pixel writes. The walk settles it
+        // through `RenderCtx::settle_pending_clear`; whatever is left is flushed
+        // below, so a region nothing drew into still gets its background.
+        self.region_background.set(match self.background() {
+            Some(bg) => RegionBackground::Pending(region, bg),
+            None => RegionBackground::None,
+        });
 
         // `untrack` is load-bearing, not hygiene — see the doc comment.
         let result = untrack(|| self.render_pass(renderer, RenderMode::Paint));
+
+        // Nothing covered it. Without this the deferred fill is simply dropped,
+        // and a merged region's dead space flushes as the previous region's
+        // pixels — the failure `begin_region`'s unconditional prime used to make
+        // impossible.
+        if let Some((region, bg)) = self.region_background.get().pending() {
+            self.region_background.set(RegionBackground::Painted);
+            renderer.fill_solid(region, bg)?;
+        }
 
         renderer.pop_clip();
         renderer.end_region()?;
@@ -2495,6 +2526,7 @@ mod tests {
         use super::culling::{RecWtf, two_checkbox_page};
         use super::*;
         use crate::render::record::{DrawOp, RecordingRenderer};
+        use crate::widget::canvas::Canvas;
         use rsact_reactive::runtime::with_new_runtime;
 
         const VIEWPORT: Rect =
@@ -2693,6 +2725,7 @@ mod tests {
         use super::culling::RecWtf;
         use super::*;
         use crate::render::record::{DrawOp, RecordingRenderer};
+        use crate::widget::canvas::Canvas;
         use rsact_reactive::runtime::with_new_runtime;
 
         #[test]
@@ -4113,6 +4146,7 @@ mod tests {
     mod region_background {
         use super::*;
         use crate::render::record::{DrawOp, RecordingRenderer};
+        use crate::widget::canvas::Canvas;
         use rsact_reactive::runtime::with_new_runtime;
 
         type RecWtf = Wtf<RecordingRenderer<NullColor>, (), (), ()>;
@@ -4139,6 +4173,138 @@ mod tests {
                 renderer,
             );
             (page, recorder)
+        }
+
+        /// A widget whose own opaque fill covers the region makes the
+        /// background redundant, and it must be skipped rather than painted and
+        /// overwritten.
+        ///
+        /// Asserted on [`Page::background_painted`] and not on the op log,
+        /// because the log cannot tell the two apart: a root part's
+        /// `clear_outer` over the region emits a fill with the same rect and the
+        /// same colour.
+        ///
+        /// `Canvas` because it draws through the same `RenderCtx` proxy every
+        /// widget does, with the geometry stated here rather than inferred from
+        /// a theme.
+        #[test]
+        fn a_covering_opaque_fill_cancels_the_region_background() {
+            with_new_runtime(|_| {
+                let viewport = Size::new_equal(64);
+                let region = Rect::new(Point::zero(), viewport);
+                let (mut page, _recorder) = rec_page(
+                    viewport,
+                    Canvas::new(move |ctx| {
+                        Renderer::fill_solid(ctx, region, NullColor)
+                    })
+                    .fill(),
+                );
+
+                page.paint_region(region).unwrap();
+
+                assert!(
+                    !page.background_painted(),
+                    "every pixel of the region was written by the walk, so the \
+                     background must not have been painted too"
+                );
+            });
+        }
+
+        /// …and when nothing covers the region, the background is what does.
+        ///
+        /// This is the half that keeps the elision sound: cancel on a partial
+        /// fill and the uncovered pixels flush as the previous region's.
+        #[test]
+        fn a_partial_fill_does_not_cancel_the_region_background() {
+            with_new_runtime(|_| {
+                let viewport = Size::new_equal(64);
+                let region = Rect::new(Point::zero(), viewport);
+                // A quarter-sized root: neither its own fill nor its
+                // `clear_outer` can cover the region.
+                let (mut page, _recorder) = rec_page(
+                    viewport,
+                    Canvas::new(move |ctx| {
+                        Renderer::fill_solid(
+                            ctx,
+                            Rect::new(Point::zero(), Size::new_equal(32)),
+                            NullColor,
+                        )
+                    })
+                    .width(32u32)
+                    .height(32u32),
+                );
+
+                page.paint_region(region).unwrap();
+
+                assert!(
+                    page.background_painted(),
+                    "a 32x32 root leaves three quarters of the region \
+                     unwritten, so the background is still needed"
+                );
+            });
+        }
+
+        /// A region larger than the surface still gets its background.
+        ///
+        /// The root's `clear_outer` covers only its own 64x64 outer, so it
+        /// cannot stand in for a 128x128 region, and the canvas's request for a
+        /// covering fill arrives after the slot is already settled.
+        ///
+        /// This does **not** exercise the clip guard in
+        /// `settle_region_background` — verified by removing the guard, after
+        /// which this still passes. The guard is unreachable today: `clear_outer`
+        /// settles the slot before any widget draws, and a part's `outer` is
+        /// bounded by the surface, so "rect covers the region but the clip does
+        /// not" cannot arise through the walk. It is kept as a soundness
+        /// precondition for the predicate, not as a live path — see the note on
+        /// `settle_region_background`.
+        #[test]
+        fn a_region_larger_than_the_surface_still_gets_its_background() {
+            with_new_runtime(|_| {
+                let viewport = Size::new_equal(64);
+                let region = Rect::new(Point::zero(), Size::new_equal(128));
+                let (mut page, _recorder) = rec_page(
+                    viewport,
+                    Canvas::new(move |ctx| {
+                        Renderer::fill_solid(ctx, region, NullColor)
+                    })
+                    .fill(),
+                );
+
+                page.paint_region(region).unwrap();
+
+                assert!(page.background_painted());
+            });
+        }
+
+        /// A region nothing draws into still gets its background. Without this
+        /// a deferred fill is simply dropped, and a merged region's dead space
+        /// flushes as whatever the previous region left there.
+        #[test]
+        fn a_region_nothing_draws_into_still_gets_its_background() {
+            with_new_runtime(|_| {
+                let viewport = Size::new_equal(64);
+                let (mut page, recorder) = rec_page(
+                    viewport,
+                    Flex::<RecWtf>::col(Vec::<El<RecWtf>>::new()).fill(),
+                );
+
+                // Outside the tree entirely, so the walk culls everything.
+                let region = Rect::new(Point::new(0, 512), Size::new(64, 32));
+                recorder.clear();
+                page.paint_region(region).unwrap();
+
+                assert!(
+                    page.background_painted(),
+                    "ops were {:?}",
+                    recorder.ops()
+                );
+                assert!(
+                    recorder.ops().contains(&DrawOp::FillSolid(region)),
+                    "and it reached the renderer: ops were {:?}",
+                    recorder.ops()
+                );
+            });
         }
 
         /// A region arrives holding the previous region's pixels, so every
