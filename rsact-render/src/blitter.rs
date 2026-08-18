@@ -138,13 +138,14 @@ pub trait Blitter {
     /// (`RasterCtx`), so implementations need not re-check it.
     fn fill_span(&mut self, span: Span, color: Self::Color);
 
-    /// Aim at `region` — retarget the buffer, open the panel's address window
-    /// — **and prime it**. Unconditional, so `bounds() == region` afterwards.
+    /// Aim at `region` — retarget the buffer, open the panel's address window.
+    /// Unconditional, so `bounds() == region` afterwards.
     ///
-    /// A region arrives holding whatever the last one left in it, so fill it
-    /// with [`Color::default_background`](crate::color::Color::default_background)
-    /// or the frame flushes with holes. Fill it directly: the region's own clip
-    /// is not established until this returns.
+    /// **Aiming only: this must not paint.** A region arrives holding whatever
+    /// the last one left in it, so *someone* has to write every pixel before the
+    /// region is flushed — but which colour an unpainted pixel takes is a style
+    /// question, and a blitter has no style. The caller owns it; rsact-ui paints
+    /// its page background as the first thing in `Page::paint_region`.
     fn begin_region(&mut self, region: Rect) -> RenderResult;
 
     // ── defaulted; override where the layout or hardware helps ──────────────
@@ -320,9 +321,8 @@ where
         self.framebuf.set_pixel(p, color);
     }
 
-    /// Retarget to `region`'s own width and prime with the background, so a
-    /// merged region's dead space does not flush as the previous region's
-    /// pixels.
+    /// Retarget to `region`'s own width. Contents are **not** cleared — see
+    /// [`Blitter::begin_region`]: the caller paints the region's background.
     ///
     /// # Errors
     ///
@@ -340,8 +340,6 @@ where
             return Err(());
         }
         self.framebuf.retarget(region);
-        // Straight at the framebuf: the region's clip is not established yet.
-        self.framebuf.fill_solid(region, C::default_background());
         Ok(())
     }
 }

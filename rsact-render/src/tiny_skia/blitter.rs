@@ -142,7 +142,14 @@ impl Blitter for PixmapBlitter {
         self.set(index, Self::premultiplied(color));
     }
 
-    /// Reshape the storage to `region`, then prime it.
+    /// Reshape the storage to `region`. Does **not** paint — see
+    /// [`Blitter::begin_region`].
+    ///
+    /// The reshape zeroes any bytes the new region adds, but nothing more: a
+    /// region that shrinks and grows again is left holding the previous
+    /// region's pixels, so the caller's background fill is what makes an
+    /// anti-aliased edge composite against its own background rather than an
+    /// unrelated one.
     ///
     /// # Errors
     ///
@@ -161,10 +168,6 @@ impl Blitter for PixmapBlitter {
         }
         self.pixels.resize(want, 0);
         self.region = region;
-        // A region arrives holding the previous one's pixels, and every blend
-        // composites against the destination: an anti-aliased edge would
-        // otherwise mix with an unrelated pixel.
-        self.fill_rect(region, Self::Color::default_background());
         Ok(())
     }
 }

@@ -700,10 +700,10 @@ where
 
     /// Aim the blitter, then make the region the **root** of the clip stack.
     ///
-    /// The order matters and is the reason `begin_region` is a blitter method
-    /// too: the blitter retargets *and primes* atomically, and the priming fill
-    /// must not go through the clipped path — the region clip does not exist
-    /// until the line after.
+    /// Neither step paints. The caller writes the region's background itself,
+    /// through the normal clipped path, which is why the clip is established
+    /// here and nothing needs an unclipped one — see
+    /// [`Blitter::begin_region`](crate::blitter::Blitter::begin_region).
     fn begin_region(&mut self, region: Rect) -> RenderResult {
         self.blitter.begin_region(region)?;
         self.clips.clear();
@@ -804,15 +804,26 @@ mod raster_renderer_tests {
             .unwrap()
     }
 
-    /// Build and aim at the whole frame. A blitter starts aimed at nothing, so
-    /// a test that skips this writes into a zero-sized target.
+    /// Build, aim at the whole frame, and paint its background — the three
+    /// things `Page::paint_region` does, in its order.
+    ///
+    /// A blitter starts aimed at nothing, so a test that skips the aim writes
+    /// into a zero-sized target; and `begin_region` no longer primes, so a test
+    /// that skips the fill compares against whatever the storage held.
     fn build_full(
         viewport: Size,
         storage: &'static mut [u32],
     ) -> RasterRenderer<EgRasterizer, Fb, Unbounded> {
         let mut r = build::<Unbounded>(viewport, storage);
-        r.begin_region(Rect::new(Point::zero(), viewport))
+        let frame = Rect::new(Point::zero(), viewport);
+        r.begin_region(frame)
             .expect("a full-frame buffer holds the full frame");
+        Renderer::fill_solid(
+            &mut r,
+            frame,
+            <Rgb888 as Color>::default_background(),
+        )
+        .expect("the background fill is the caller's, not the blitter's");
         r
     }
 
@@ -931,6 +942,15 @@ mod raster_renderer_tests {
             );
             tiled.begin_region(region).unwrap();
             tiled.push_clip(region);
+            // The caller's background fill. Load-bearing from the second band
+            // on: buffers are recycled below, so a region arrives holding the
+            // previous one's pixels and `begin_region` no longer clears them.
+            Renderer::fill_solid(
+                &mut tiled,
+                region,
+                <Rgb888 as Color>::default_background(),
+            )
+            .unwrap();
             content(&mut tiled);
             tiled.pop_clip();
             tiled.end_region().unwrap();
@@ -1137,6 +1157,36 @@ mod raster_renderer_tests {
         r.begin_region(region).unwrap();
         let (_, _, after) = take(r);
         assert_eq!(after, region, "and exactly the region after");
+    }
+
+    /// **Aiming is all `begin_region` does.** It used to prime the surface with
+    /// `Color::default_background()`, which put a style decision in this crate:
+    /// a page whose background is not the colour default could not paint it,
+    /// because the prime had already run and the page's own fill was the one
+    /// that got discarded. rsact-ui paints the region background now
+    /// (`Page::paint_region`), so what remains here is pure addressing.
+    ///
+    /// The invariant moves with it: **the caller must write every pixel of a
+    /// region before flushing it.** Nothing here can enforce that — a colour to
+    /// enforce it with is exactly what does not belong in a renderer.
+    #[test]
+    fn beginning_a_region_writes_no_pixels() {
+        let viewport = Size::new(16, 16);
+        // Zeroed, not background-filled: `surface` pre-fills with the colour
+        // default, which is what a prime would have written — indistinguishable.
+        let buffer: &'static mut [u32] = alloc::vec![0u32; 16 * 16].leak();
+
+        let mut r = build::<Unbounded>(viewport, buffer);
+        r.begin_region(Rect::new(Point::zero(), viewport)).unwrap();
+        let (_, units, at) = take(r);
+
+        assert_eq!(at, Rect::new(Point::zero(), viewport), "aimed");
+        assert!(
+            units.iter().all(|&u| u == 0),
+            "and wrote nothing: {} of {} units were touched",
+            units.iter().filter(|&&u| u != 0).count(),
+            units.len()
+        );
     }
 
     /// A surface is checked against the policy the renderer declares. Spelling

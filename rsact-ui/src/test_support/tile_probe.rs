@@ -47,7 +47,9 @@ use crate::{
     prelude::*,
     render::{
         record::{DrawOp, RecordingRenderer},
-        test_support::schedule::{ScheduleLog, TilePass, TileSchedule},
+        test_support::schedule::{
+            ScheduleLog, TilePass, TileSchedule, without_region_background,
+        },
     },
     test_support::TestPage,
 };
@@ -174,6 +176,11 @@ impl TileProbe {
                 // refused to enter makes every number below meaningless, and
                 // this is a harness, not the UI path WS1.8 governs.
                 self.page.paint_region(region).expect("paint_region failed");
+                // The full-frame reference below is a `Fused` pass, which does
+                // not go through `paint_region` and so paints no region
+                // background. Dropping it here is what keeps the two sides
+                // comparable — see `without_region_background`.
+                return without_region_background(region, self.recorder.ops());
             },
             None => {
                 self.page.force_redraw();

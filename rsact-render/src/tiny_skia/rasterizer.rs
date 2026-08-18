@@ -408,8 +408,9 @@ mod tests {
         use embedded_graphics::pixelcolor::Rgb888;
 
         let size = Size::new_equal(32);
-        // `begin_region` primes the target with the background, so the buffer's
-        // initial contents do not matter.
+        // Zeroed. `begin_region` aims and nothing more, so the background below
+        // is what the anti-aliased edge composites against — which is the whole
+        // subject of this test.
         let buf: &'static mut [u32] = alloc::vec![0u32; 32 * 32].leak();
         let mut r =
             RasterRenderer::<_, FramebufBlitter<Rgb888, _>, Unbounded>::with_blitter(
@@ -419,7 +420,14 @@ mod tests {
             )
             .unwrap();
         // A blitter is aimed by `begin_region` and by nothing else.
-        Renderer::begin_region(&mut r, Rect::new(Point::zero(), size)).unwrap();
+        let frame = Rect::new(Point::zero(), size);
+        Renderer::begin_region(&mut r, frame).unwrap();
+        Renderer::fill_solid(
+            &mut r,
+            frame,
+            <Rgb888 as Color>::default_background(),
+        )
+        .unwrap();
         Renderer::polygon(
             &mut r,
             &[Point::new(2, 2), Point::new(29, 8), Point::new(8, 29)],
@@ -499,6 +507,11 @@ mod tests {
         for i in 0..(H / BAND) as i32 {
             let region = Rect::new(Point::new(0, i * BAND as i32), band);
             tiled.begin_region(region).unwrap();
+            // The caller's background fill: pixmaps are recycled below, so from
+            // the second band on the region arrives holding the previous one's
+            // pixels.
+            Renderer::fill_solid(&mut tiled, region, tiny_skia::Color::WHITE)
+                .unwrap();
             content(&mut tiled);
             tiled.end_region().unwrap();
 

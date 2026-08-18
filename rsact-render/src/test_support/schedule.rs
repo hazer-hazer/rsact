@@ -157,6 +157,35 @@ impl fmt::Display for Violation {
     }
 }
 
+/// Drop the **region background** from a region's op log.
+///
+/// `Page::paint_region` fills the region with the page background before the
+/// walk runs, and that op is the one thing in a frame that cannot be
+/// tile-invariant — by construction, not by accident: its geometry *is* the
+/// region, so a whole-frame pass fills 240x240 where a band fills 240x24.
+/// Comparing it would assert that a band paints a background ten times its own
+/// size, and counting it would put a region-shaped constant into every
+/// per-object measurement.
+///
+/// Only the first match is dropped, so a widget that genuinely fills the region
+/// still counts.
+pub fn without_region_background(
+    region: Rect,
+    ops: Vec<DrawOp>,
+) -> Vec<DrawOp> {
+    let background = DrawOp::FillSolid(region);
+    let mut dropped = false;
+    ops.into_iter()
+        .filter(|op| {
+            if !dropped && *op == background {
+                dropped = true;
+                return false;
+            }
+            true
+        })
+        .collect()
+}
+
 /// Check that a region-by-region replay reproduces the full frame: nothing
 /// obliged is missing, nothing foreign appears. Returns every violation.
 ///
