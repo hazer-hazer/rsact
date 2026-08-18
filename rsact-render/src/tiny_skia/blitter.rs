@@ -2,7 +2,6 @@
 
 use crate::{
     blitter::{Blitter, Span, span_range},
-    color::Color,
     geometry::{Point, Rect, Size},
     renderer::RenderResult,
 };
