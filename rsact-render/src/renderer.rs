@@ -484,6 +484,12 @@ where
     /// | `&'static mut [u16]`, a `Pixmap` | here, as an `Err` |
     /// | a direct-to-panel blitter | never — no storage to overflow |
     ///
+    /// …and against **what**: the policy's largest region where it names one,
+    /// the viewport where it does not. [`Unbounded`](crate::region::Unbounded) is
+    /// the second case, and it is a real bound rather than a waiver —
+    /// `plan_regions` clamps every region to the viewport, so a viewport-sized
+    /// region is the largest that can arrive.
+    ///
     /// A **packing** disagreement is always a compile error, both
     /// `PIXELS_PER_UNIT` being consts:
     ///
@@ -536,9 +542,26 @@ where
 
         // Only for a target whose type could not answer. `capacity() == None`
         // is *unbounded*, unlike `UNITS`'s "ask the value".
+        //
+        // The bound is the policy's largest region where it states one, and the
+        // **viewport** where it does not. `Unbounded` is the latter: it means
+        // "any region fits", so `policy_units` is `None`, so neither half of the
+        // const check above runs and an undersized slice used to be accepted
+        // outright. `plan_regions` clamps every region to the viewport, so a
+        // viewport-sized region is exactly the largest that can ever arrive —
+        // this is the honest bound, not a heuristic.
+        //
+        // A target with no storage at all (`capacity() == None`) stays exempt:
+        // there is nothing to overflow.
+        let needed = crate::region::policy_units::<P>().unwrap_or_else(|| {
+            region_units(
+                self.viewport.width,
+                self.viewport.height,
+                T::PIXELS_PER_UNIT,
+            )
+        });
         if T::UNITS.is_none()
-            && let (Some(available), Some(needed)) =
-                (blitter.capacity(), crate::region::policy_units::<P>())
+            && let Some(available) = blitter.capacity()
             && available < needed
         {
             return Err(AttachError {
@@ -1187,6 +1210,71 @@ mod raster_renderer_tests {
             units.iter().filter(|&&u| u != 0).count(),
             units.len()
         );
+    }
+
+    /// **`Unbounded` still bounds the surface — by the viewport.**
+    ///
+    /// `policy_units::<Unbounded>()` is `None` ("any region fits"), so neither
+    /// half of the policy check runs and a 4-unit slice used to be accepted for
+    /// a 64x64 frame. `plan_regions` then emitted a 64x64 region,
+    /// `begin_region` refused it, and `Frame::render` had already advanced its
+    /// cursor — so the damage was dropped for good and nothing repainted that
+    /// rectangle until whatever is underneath happened to change.
+    ///
+    /// The viewport is the right bound and an exact one, not a guess:
+    /// `plan_regions` clamps every region to it
+    /// (`damage_outside_the_viewport_is_clipped_away`, and the fuzz assertion
+    /// `planned.iter().all(|r| r.intersection(&viewport) == *r)`), so the
+    /// viewport-sized region is the largest that can ever arrive.
+    #[test]
+    fn an_unbounded_policy_still_needs_a_surface_the_viewport_fits() {
+        let viewport = Size::new_equal(64);
+        let tiny: &'static mut [u32] = alloc::vec![0u32; 4].leak();
+
+        let parked = Full::parked(EgRasterizer, viewport);
+        // `Result::expect_err` would need the Ok side to be `Debug`, and
+        // `RasterRenderer` deliberately is not (`R`/`T` need not be).
+        let Err(err) = parked.attach(FramebufBlitter::new(tiny)) else {
+            panic!("4 units cannot hold a 64x64 frame");
+        };
+        assert_eq!(err.needed, 64 * 64);
+        assert_eq!(err.available, 4);
+
+        // Exactly enough is enough — the bound is the viewport, not more.
+        let exact: &'static mut [u32] = alloc::vec![0u32; 64 * 64].leak();
+        assert!(
+            Full::parked(EgRasterizer, viewport)
+                .attach(FramebufBlitter::new(exact))
+                .is_ok()
+        );
+    }
+
+    /// A target with no storage bound at all is still exempt: there is nothing
+    /// to overflow, and a direct-to-panel blitter has no capacity to state.
+    #[test]
+    fn a_storage_free_target_is_not_measured_against_the_viewport() {
+        struct Panel(Rect);
+        impl crate::blitter::Blitter for Panel {
+            type Color = Rgb888;
+            fn bounds(&self) -> Rect {
+                self.0
+            }
+            fn capacity(&self) -> Option<usize> {
+                None
+            }
+            fn fill_span(&mut self, _span: crate::blitter::Span, _c: Rgb888) {}
+            fn begin_region(&mut self, region: Rect) -> RenderResult {
+                self.0 = region;
+                Ok(())
+            }
+        }
+
+        let r = RasterRenderer::<EgRasterizer, Panel, Unbounded>::parked(
+            EgRasterizer,
+            Size::new_equal(240),
+        )
+        .attach(Panel(Rect::zero()));
+        assert!(r.is_ok(), "a panel with no storage cannot be too small");
     }
 
     /// A surface is checked against the policy the renderer declares. Spelling

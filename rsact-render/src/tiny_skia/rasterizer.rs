@@ -748,7 +748,17 @@ mod tests {
 
         let mut composed = pixmap(viewport);
         let band = Size::new(W, BAND);
-        let mut tiled = Skia::with_blitter(
+        // `Tiles<W, BAND>` and not `Unbounded`: the surface really is one band,
+        // and `attach` now measures a runtime-sized surface against the largest
+        // region its policy admits — the viewport, where the policy names no
+        // bound. Declaring `Unbounded` here was a lie that happened to work
+        // because the loop below only ever begins band-sized regions.
+        type Banded = RasterRenderer<
+            TinySkiaRasterizer,
+            PixmapBlitter,
+            crate::region::Tiles<W, BAND>,
+        >;
+        let mut tiled = Banded::with_blitter(
             TinySkiaRasterizer::new(),
             viewport,
             PixmapBlitter::new(pixmap(band)),
