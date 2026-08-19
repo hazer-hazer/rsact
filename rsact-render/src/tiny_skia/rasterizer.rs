@@ -17,15 +17,17 @@ use tiny_skia::{FillRule, Mask, PathBuilder, Stroke, Transform};
 /// pinned, which puts its anti-aliasing over an Rgb565 framebuffer as readily as
 /// over a `Pixmap`.
 ///
-/// The mask is grow-only and keyed on the clip, so rows are read at the
-/// *allocated* width, not the clip's.
+/// The mask is grow-only and keyed on the **primitive** — the high-water mark of
+/// every `round_out(path.bounds()) ∩ clip` seen so far, not of every clip — so a
+/// page of small widgets never allocates a viewport-sized one. Rows are read at
+/// the *allocated* width, not the primitive's.
 ///
 /// [`fill`](Rasterizer::fill), [`pixel`](Rasterizer::pixel) and
 /// [`image`](Rasterizer::image) are inherited — none has an edge to
 /// anti-alias.
 pub struct TinySkiaRasterizer {
     mask: Option<Mask>,
-    /// The allocated size: the high-water mark of every clip seen so far.
+    /// The allocated size: the high-water mark of every primitive's paint box.
     mask_size: Size,
     /// Reused per stroke so its scratch allocations survive between primitives.
     stroker: tiny_skia::PathStroker,
@@ -46,8 +48,20 @@ impl TinySkiaRasterizer {
         }
     }
 
-    /// Rasterize `path` into the mask and blit its coverage as `color`. The
-    /// transform puts the clip's top-left at the mask's `(0, 0)`.
+    /// Rasterize `path` into the mask and blit its coverage as `color`.
+    ///
+    /// Everything is bounded by the **primitive**, not the clip: the mask's
+    /// `(0, 0)` is the top-left of `round_out(path.bounds()) ∩ clip`, only those
+    /// rows are cleared, and only those spans are blended. Bounding it by the
+    /// clip instead — which is the *region* during a paint pass — cost a 16x16
+    /// circle 129600 coverage bytes on a 480x270 page, per primitive and per
+    /// pass, to ink 301 pixels.
+    ///
+    /// Sound because `bounds()` is the control-point hull (over-covering a curve
+    /// rather than under-covering it) and `round_out` is floor/ceil, so the box
+    /// includes every pixel an anti-aliased edge can touch. The failure mode if
+    /// that were wrong is a dropped edge, which no op count shows, so
+    /// `bounding_the_mask_does_not_change_the_picture` pins the pixels by value.
     fn emit<T: Blitter>(
         &mut self,
         cx: &mut RasterCtx<'_, T>,
@@ -55,44 +69,68 @@ impl TinySkiaRasterizer {
         color: T::Color,
     ) {
         let clip = cx.clip();
-        if clip.is_zero_sized() {
+        // `round_out` widens a degenerate axis to 1 rather than returning
+        // nothing, so `None` here means the coordinates overflowed `i32`.
+        let Some(bounds) = path.bounds().round_out() else { return };
+        let paint = Rect::new(
+            Point::new(bounds.x(), bounds.y()),
+            Size::new(bounds.width(), bounds.height()),
+        )
+        .intersection(&clip);
+        // A primitive outside the clip now costs nothing. It used to allocate,
+        // clone, transform and rasterize the path, then blend the whole clip.
+        if paint.is_zero_sized() {
             return;
         }
 
-        if self.mask_size.width < clip.size.width
-            || self.mask_size.height < clip.size.height
+        // Grow-only, and keyed on the primitive rather than the clip: a page of
+        // small widgets never allocates a viewport-sized mask.
+        if self.mask_size.width < paint.size.width
+            || self.mask_size.height < paint.size.height
         {
             self.mask_size = Size::new(
-                self.mask_size.width.max(clip.size.width),
-                self.mask_size.height.max(clip.size.height),
+                self.mask_size.width.max(paint.size.width),
+                self.mask_size.height.max(paint.size.height),
             );
             self.mask = Mask::new(self.mask_size.width, self.mask_size.height);
         }
         let Some(mask) = self.mask.as_mut() else { return };
 
+        let stride = mask.width() as usize;
+        let width = paint.size.width as usize;
+        let height = paint.size.height as usize;
+
         // `fill_path` draws on top of existing content, so without this every
-        // shape would inherit the last one's edges.
-        mask.clear();
+        // shape would inherit the last one's edges. Only the rows about to be
+        // read: `Mask::clear` zeroes the whole grow-only allocation, which is
+        // the high-water mark of every primitive so far.
+        let data = mask.data_mut();
+        for row in 0..height {
+            data[row * stride..row * stride + width].fill(0);
+        }
+
+        // An integer translate, so subpixel positions — and therefore the
+        // anti-aliasing — are unchanged by the re-origin. `fill_path` clips to
+        // the mask, which is what makes a path hanging off `paint`'s left or top
+        // safe rather than wrapped.
         mask.fill_path(
             path,
             FillRule::Winding,
             true,
             Transform::from_translate(
-                -clip.top_left.x as f32,
-                -clip.top_left.y as f32,
+                -paint.top_left.x as f32,
+                -paint.top_left.y as f32,
             ),
         );
 
-        let stride = mask.width() as usize;
-        let width = clip.size.width as usize;
         let data = mask.data();
-        for row in 0..clip.size.height as usize {
+        for row in 0..height {
             let start = row * stride;
             cx.blend(
                 Span::new(
-                    clip.top_left.y + row as i32,
-                    clip.top_left.x,
-                    clip.size.width,
+                    paint.top_left.y + row as i32,
+                    paint.top_left.x,
+                    paint.size.width,
                 ),
                 color,
                 &data[start..start + width],
@@ -391,6 +429,220 @@ mod tests {
             "only {partial} pixels arrived with partial coverage — the \
              rasterizer is thresholding, not anti-aliasing, and the whole \
              reason it is L2 rather than a fused backend is gone"
+        );
+    }
+
+    /// Records which absolute pixels arrived with non-zero coverage, and how
+    /// much per-pixel work reaching them cost.
+    struct Traffic {
+        bounds: Rect,
+        inked: alloc::vec::Vec<Point>,
+        blend_calls: usize,
+        coverage_bytes: usize,
+    }
+
+    impl Traffic {
+        fn new(bounds: Rect) -> Self {
+            Self {
+                bounds,
+                inked: alloc::vec::Vec::new(),
+                blend_calls: 0,
+                coverage_bytes: 0,
+            }
+        }
+    }
+
+    impl Blitter for Traffic {
+        type Color = tiny_skia::Color;
+        fn bounds(&self) -> Rect {
+            self.bounds
+        }
+        fn capacity(&self) -> Option<usize> {
+            None
+        }
+        fn fill_span(&mut self, span: Span, _color: Self::Color) {
+            for x in span.x_range() {
+                self.inked.push(Point::new(x, span.y));
+            }
+        }
+        fn blend_span(
+            &mut self,
+            span: Span,
+            _color: Self::Color,
+            coverage: &[u8],
+        ) {
+            self.blend_calls += 1;
+            self.coverage_bytes += coverage.len();
+            for (i, cov) in coverage.iter().enumerate() {
+                if *cov != 0 {
+                    self.inked.push(Point::new(span.x + i as i32, span.y));
+                }
+            }
+        }
+        fn begin_region(
+            &mut self,
+            region: Rect,
+        ) -> crate::renderer::RenderResult {
+            self.bounds = region;
+            Ok(())
+        }
+    }
+
+    /// The five shapes below, drawn once each, as (inked pixel count, checksum).
+    ///
+    /// A value golden rather than a file: the point is only that bounding
+    /// `emit`'s work to the primitive did not change the picture, and a
+    /// mismatch here says which shape moved.
+    const PICTURE: [(&str, usize, u64); 5] = [
+        ("circle", 301, 0x8020_bfe6_06dc_1e66),
+        ("rounded_rect", 1168, 0x26ab_a746_3382_6118),
+        ("line", 732, 0x2aca_3687_6b55_eeaa),
+        ("sector", 875, 0x6f84_15ec_250e_ebf9),
+        ("off the left edge", 620, 0x1ddd_19ba_ca13_4d58),
+    ];
+
+    /// Order-independent, position-sensitive: swapping two pixels' positions
+    /// changes it, reordering the *reports* does not.
+    fn checksum(inked: &[Point]) -> u64 {
+        inked
+            .iter()
+            .map(|p| {
+                let k = (p.y as i64 * 4096 + p.x as i64) as u64;
+                k.wrapping_mul(0x9E37_79B9_7F4A_7C15)
+            })
+            .fold(0u64, u64::wrapping_add)
+    }
+
+    /// **Bounding `emit` must not change the picture.**
+    ///
+    /// `emit` clears and blends the whole clip today, so a small shape in a
+    /// large clip costs the clip's area. Bounding that to the primitive's own
+    /// `round_out(path.bounds())` is only sound if tiny-skia never inks outside
+    /// the bounds it reports — and the failure mode if it does is a thin dropped
+    /// edge, which no op count would show. So the picture is pinned by value,
+    /// captured before the bound existed.
+    ///
+    /// The clip is far larger than every shape, and one shape hangs off its
+    /// left edge so the `bounds ∩ clip` intersection is exercised.
+    #[test]
+    fn bounding_the_mask_does_not_change_the_picture() {
+        let clip = Rect::new(Point::zero(), Size::new(200, 120));
+        let style = DrawStyle::default()
+            .fill(tiny_skia::Color::BLACK)
+            .stroke(tiny_skia::Color::BLACK)
+            .stroke_width(3);
+
+        type Draw = fn(
+            &mut TinySkiaRasterizer,
+            &mut RasterCtx<'_, Traffic>,
+            &DrawStyle<tiny_skia::Color>,
+        );
+        // One case per path through `draw`: circle, rounded corners, a
+        // stroke-only line, a curve with an interior, and a clipped shape.
+        let cases: [Draw; 5] = [
+            |r, cx, st| r.circle(cx, Point::new(20, 20), 16, st),
+            |r, cx, st| {
+                r.rounded_rect(
+                    cx,
+                    Rect::new(Point::new(60, 30), Size::new(40, 24)),
+                    CornerRadii::new_equal(Size::new_equal(6)),
+                    st,
+                )
+            },
+            |r, cx, st| {
+                r.line(cx, Point::new(10, 100), Point::new(190, 60), st)
+            },
+            |r, cx, st| {
+                r.sector(
+                    cx,
+                    Point::new(120, 20),
+                    50,
+                    Angle::ZERO,
+                    Angle::from_degrees(120.0),
+                    st,
+                )
+            },
+            |r, cx, st| r.circle(cx, Point::new(-10, 40), 30, st),
+        ];
+
+        let mut actual = alloc::vec::Vec::new();
+        for (draw, (name, _, _)) in cases.iter().zip(PICTURE) {
+            let mut traffic = Traffic::new(clip);
+            let mut rasterizer = TinySkiaRasterizer::new();
+            {
+                let mut cx = RasterCtx::new(&mut traffic, clip);
+                draw(&mut rasterizer, &mut cx, &style);
+            }
+            traffic.inked.sort_by_key(|p| (p.y, p.x));
+            traffic.inked.dedup();
+            actual.push((
+                name,
+                traffic.inked.len(),
+                checksum(&traffic.inked),
+                traffic.blend_calls,
+                traffic.coverage_bytes,
+            ));
+        }
+
+        for (name, inked, sum, calls, bytes) in &actual {
+            std::eprintln!(
+                "{name:<20} inked={inked:<6} checksum={sum:#018x} \
+                 blend_calls={calls:<5} coverage_bytes={bytes}"
+            );
+        }
+
+        for ((name, want_inked, want_sum), (_, got_inked, got_sum, _, _)) in
+            PICTURE.iter().zip(&actual)
+        {
+            assert_eq!(
+                (*got_inked, *got_sum),
+                (*want_inked, *want_sum),
+                "{name}: the picture changed"
+            );
+        }
+    }
+
+    /// **A primitive costs its own size, not the clip's.**
+    ///
+    /// `emit` used to clear the whole grow-only mask and blend every row of the
+    /// clip at full clip width, per primitive and per pass. On a 200x120 clip a
+    /// 16x16 circle therefore cost 240 `blend_span` calls over 48000 coverage
+    /// bytes to ink 301 pixels — and the clip is the *region* during a paint
+    /// pass, so on a whole-frame 480x270 page that is 129600 bytes per
+    /// primitive.
+    ///
+    /// The bound is the primitive's own `round_out(path.bounds())`;
+    /// `bounding_the_mask_does_not_change_the_picture` is what says it is the
+    /// right one.
+    #[test]
+    fn a_primitive_costs_its_own_size_not_the_clips() {
+        let clip = Rect::new(Point::zero(), Size::new(200, 120));
+        // Fill only, so this is one pass and the arithmetic is checkable by
+        // hand: a 16x16 circle is 16 rows, not the clip's 120.
+        let style = DrawStyle::default().fill(tiny_skia::Color::BLACK);
+
+        let mut traffic = Traffic::new(clip);
+        let mut rasterizer = TinySkiaRasterizer::new();
+        {
+            let mut cx = RasterCtx::new(&mut traffic, clip);
+            rasterizer.circle(&mut cx, Point::new(20, 20), 16, &style);
+        }
+
+        assert!(
+            traffic.blend_calls <= 18,
+            "a 16x16 circle took {} blend_span calls; bounded by its own \
+             extent it is at most 16 rows plus a pixel of anti-aliased spill \
+             on each side",
+            traffic.blend_calls
+        );
+        assert!(
+            traffic.coverage_bytes <= 18 * 18,
+            "and {} coverage bytes, against 18*18 for its own box",
+            traffic.coverage_bytes
+        );
+        assert!(
+            !traffic.inked.is_empty(),
+            "it must still have drawn something"
         );
     }
 
