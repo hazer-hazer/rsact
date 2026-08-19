@@ -12,6 +12,7 @@ use crate::{
     geometry::{Angle, CornerRadii, Point, Rect, Size},
     image::DrawImage,
     path::Path,
+    primitives::polygon::bounds_of,
     renderer::{RenderResult, Renderer},
     style::DrawStyle,
 };
@@ -273,24 +274,6 @@ impl<C, P> RecordingRenderer<C, P> {
     }
 }
 
-/// The bounding box of a point set. `None` for empty input, which draws
-/// nothing.
-fn points_bounds(points: &[Point]) -> Rect {
-    let Some(first) = points.first() else {
-        return Rect::zero();
-    };
-    let (mut min, mut max) = (*first, *first);
-    for point in &points[1..] {
-        min = Point::new(min.x.min(point.x), min.y.min(point.y));
-        max = Point::new(max.x.max(point.x), max.y.max(point.y));
-    }
-    // Inclusive corners, exclusive rect edge (see `Path::bounds`).
-    Rect::new(
-        min,
-        Size::new((max.x - min.x + 1) as u32, (max.y - min.y + 1) as u32),
-    )
-}
-
 impl<C: Color, P: crate::region::FramePolicy> Renderer
     for RecordingRenderer<C, P>
 {
@@ -414,7 +397,12 @@ impl<C: Color, P: crate::region::FramePolicy> Renderer
     ) -> RenderResult {
         self.push(DrawOp::Polygon {
             points: points.len(),
-            bounds: points_bounds(points),
+            // `bounds_of` is the same arithmetic the drawing side culls with,
+            // which is the point of borrowing it: a recorded bound that
+            // disagreed with the real one would make tile-invariance test the
+            // wrong rect. `None` is no vertices, i.e. nothing drawn, and
+            // `Rect::zero` intersects no region.
+            bounds: bounds_of(points).unwrap_or(Rect::zero()),
         });
         Ok(())
     }
