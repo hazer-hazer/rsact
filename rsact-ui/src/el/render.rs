@@ -72,7 +72,7 @@ pub fn paint_bounds(layout: &LayoutModelNode<'_>, ext: Padding) -> Rect {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RenderMode {
     /// Full-frame: tracked, probe-gated, **and** painting, pushing damage for
-    /// the flush. Today's behaviour and still the default — see the type docs
+    /// the flush. Today's behavior and still the default — see the type docs
     /// for why probe-gating is right when the surface has history.
     Fused,
     /// Plan the frame: tracked and probe-gated exactly like [`Fused`], but the
@@ -151,11 +151,15 @@ impl RenderMode {
 /// A state rather than an `Option` plus a bool: `Painted` and `Cancelled` are
 /// both "no longer pending" but only one of them means a fill happened, and the
 /// tile harness needs to tell them apart — an op log cannot, a root part's
-/// `clear_outer` over the region having the same rect and colour.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+/// `clear_outer` over the region having the same rect and color.
+/// `PartialEq` only, and no `Default`: `Color` guarantees `Copy + PartialEq +
+/// Debug` and nothing more, so deriving `Eq`/`Default` would add `C: Eq` /
+/// `C: Default` bounds that `tiny_skia::Color` (four `f32`s) cannot satisfy —
+/// giving impls that exist for the embedded-graphics backends and not for the
+/// desktop one.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RegionBackground<C> {
-    /// Not wanted: the page declares no background colour.
-    #[default]
+    /// Not wanted: the page declares no background color.
     None,
     /// Wanted, not yet painted, and still cancellable.
     Pending(Rect, C),
@@ -265,7 +269,7 @@ pub struct RenderCtx<'a, W: WidgetCtx, S = CtxUnready> {
     debug_name: &'a str,
     dirten: &'a mut bool,
     needs_redraw: Option<RedrawReason>,
-    /// This widget's declared behaviour (WS6.4c(F) reads `CLIPS_SELF` here).
+    /// This widget's declared behavior (WS6.4c(F) reads `CLIPS_SELF` here).
     flags: WidgetFlags,
     /// How far outside `layout.outer` this widget paints (WS6.4c(G)). Zero for
     /// every widget today; see [`Widget::ext_draw`].
@@ -546,24 +550,16 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
     }
 
     fn fill_solid(&mut self, rect: Rect, color: Self::Color) -> RenderResult {
-        // WS6.4c: the mute. Collect runs bodies for their tracked reads
-        // and discards the drawing, short-circuiting BEFORE the primitive
-        // rasterizes — no backend knows the mode exists.
-        if self.shared.mode.is_muted() {
+        if !self.enter(Some(rect)) {
             return Ok(());
         }
-        self.settle_region_background(Some(rect));
         self.renderer.fill_solid(rect, color)
     }
 
     fn pixel(&mut self, point: Point, color: Self::Color) -> RenderResult {
-        // WS6.4c: the mute. Collect runs bodies for their tracked reads
-        // and discards the drawing, short-circuiting BEFORE the primitive
-        // rasterizes — no backend knows the mode exists.
-        if self.shared.mode.is_muted() {
+        if !self.enter(None) {
             return Ok(());
         }
-        self.settle_region_background(None);
         self.renderer.pixel(point, color)
     }
 
@@ -573,13 +569,9 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         to: Point,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        // WS6.4c: the mute. Collect runs bodies for their tracked reads
-        // and discards the drawing, short-circuiting BEFORE the primitive
-        // rasterizes — no backend knows the mode exists.
-        if self.shared.mode.is_muted() {
+        if !self.enter(None) {
             return Ok(());
         }
-        self.settle_region_background(None);
         self.renderer.line(from, to, style)
     }
 
@@ -588,13 +580,9 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         rect: Rect,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        // WS6.4c: the mute. Collect runs bodies for their tracked reads
-        // and discards the drawing, short-circuiting BEFORE the primitive
-        // rasterizes — no backend knows the mode exists.
-        if self.shared.mode.is_muted() {
+        if !self.enter(Self::solid_area(rect, style)) {
             return Ok(());
         }
-        self.settle_region_background(Self::solid_area(rect, style));
         self.renderer.rect(rect, style)
     }
 
@@ -604,16 +592,10 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         corners: CornerRadii,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        // WS6.4c: the mute. Collect runs bodies for their tracked reads
-        // and discards the drawing, short-circuiting BEFORE the primitive
-        // rasterizes — no backend knows the mode exists.
-        if self.shared.mode.is_muted() {
+        let region = self.pending_region();
+        if !self.enter(Self::solid_area_rounded(rect, corners, style, region)) {
             return Ok(());
         }
-        let region = self.pending_region();
-        self.settle_region_background(Self::solid_area_rounded(
-            rect, corners, style, region,
-        ));
         self.renderer.rounded_rect(rect, corners, style)
     }
 
@@ -623,13 +605,9 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         diameter: u32,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        // WS6.4c: the mute. Collect runs bodies for their tracked reads
-        // and discards the drawing, short-circuiting BEFORE the primitive
-        // rasterizes — no backend knows the mode exists.
-        if self.shared.mode.is_muted() {
+        if !self.enter(None) {
             return Ok(());
         }
-        self.settle_region_background(None);
         self.renderer.circle(top_left, diameter, style)
     }
 
@@ -641,13 +619,9 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         sweep: Angle,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        // WS6.4c: the mute. Collect runs bodies for their tracked reads
-        // and discards the drawing, short-circuiting BEFORE the primitive
-        // rasterizes — no backend knows the mode exists.
-        if self.shared.mode.is_muted() {
+        if !self.enter(None) {
             return Ok(());
         }
-        self.settle_region_background(None);
         self.renderer.arc(top_left, diameter, start, sweep, style)
     }
 
@@ -656,13 +630,9 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         bounding_box: Rect,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        // WS6.4c: the mute. Collect runs bodies for their tracked reads
-        // and discards the drawing, short-circuiting BEFORE the primitive
-        // rasterizes — no backend knows the mode exists.
-        if self.shared.mode.is_muted() {
+        if !self.enter(None) {
             return Ok(());
         }
-        self.settle_region_background(None);
         self.renderer.ellipse(bounding_box, style)
     }
 
@@ -674,13 +644,9 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         sweep: Angle,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        // WS6.4c: the mute. Collect runs bodies for their tracked reads
-        // and discards the drawing, short-circuiting BEFORE the primitive
-        // rasterizes — no backend knows the mode exists.
-        if self.shared.mode.is_muted() {
+        if !self.enter(None) {
             return Ok(());
         }
-        self.settle_region_background(None);
         self.renderer
             .sector(top_left, diameter, start, sweep, style)
     }
@@ -690,13 +656,9 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         points: &[Point],
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        // WS6.4c: the mute. Collect runs bodies for their tracked reads
-        // and discards the drawing, short-circuiting BEFORE the primitive
-        // rasterizes — no backend knows the mode exists.
-        if self.shared.mode.is_muted() {
+        if !self.enter(None) {
             return Ok(());
         }
-        self.settle_region_background(None);
         self.renderer.polygon(points, style)
     }
 
@@ -705,24 +667,16 @@ impl<'a, W: WidgetCtx> Renderer for RenderCtx<'a, W, CtxReady> {
         path: &Path,
         style: &DrawStyle<Self::Color>,
     ) -> RenderResult {
-        // WS6.4c: the mute. Collect runs bodies for their tracked reads
-        // and discards the drawing, short-circuiting BEFORE the primitive
-        // rasterizes — no backend knows the mode exists.
-        if self.shared.mode.is_muted() {
+        if !self.enter(None) {
             return Ok(());
         }
-        self.settle_region_background(None);
         self.renderer.path(path, style)
     }
 
     fn image<'i>(&mut self, image: DrawImage<'i, Self::Color>) -> RenderResult {
-        // WS6.4c: the mute. Collect runs bodies for their tracked reads
-        // and discards the drawing, short-circuiting BEFORE the primitive
-        // rasterizes — no backend knows the mode exists.
-        if self.shared.mode.is_muted() {
+        if !self.enter(None) {
             return Ok(());
         }
-        self.settle_region_background(None);
         self.renderer.image(image)
     }
 }
@@ -970,27 +924,66 @@ impl<'a, W: WidgetCtx, S> RenderCtx<'a, W, S> {
     /// otherwise unsound the moment anything settles the slot from inside a
     /// pushed clip (`render_subtree_body`'s `LayoutChange` fill is one line away
     /// from being that caller).
+    /// Every primitive's prologue, in one place: discard the call in
+    /// [`Collect`], otherwise settle the deferred region background against what
+    /// this call is about to cover. `false` means drop the call.
+    ///
+    /// One function rather than twelve copies (AGENTS.md: "repetitive logic must
+    /// be carried out to some wrapper function"). It is not only length: the
+    /// cost of the copies had already landed — the one painting site outside the
+    /// `Renderer` impl, `render_subtree_body`'s `LayoutChange` fill, does not
+    /// settle, and the module's own doc promises two more cross-cutting concerns
+    /// (ISSUE-3's bounds `debug_assert`, 6.4d's per-region translation) that
+    /// would each have been a thirteenth and fourteenth edit across twelve sites.
+    ///
+    /// [`Collect`]: RenderMode::Collect
+    #[inline]
+    fn enter(&mut self, covers: Option<Rect>) -> bool {
+        if self.shared.mode.is_muted() {
+            // Collect runs bodies for their tracked reads and discards the
+            // drawing, short-circuiting BEFORE the primitive rasterizes — no
+            // backend knows the mode exists.
+            return false;
+        }
+        self.settle_region_background(covers);
+        true
+    }
+
     fn settle_region_background(&mut self, covers: Option<Rect>) {
         let Some((region, bg)) = self.shared.region_background.get().pending()
         else {
             return;
         };
-        let unclipped = self
+        // A clip narrower than the region means this call can neither cover it
+        // NOR paint it — the fill would be trimmed to that same narrow clip. So
+        // leave the slot `Pending` and let `Page::paint_region`'s flush do it:
+        // that runs with the region clip on top of the stack, the only place the
+        // whole region can be written. Claiming `Painted` for a trimmed fill is
+        // the one outcome that loses pixels for good.
+        if !self
             .renderer
             .clip_bounds()
-            .is_some_and(|clip| clip.contains_rect(&region));
-        let covered =
-            unclipped && covers.is_some_and(|c| c.contains_rect(&region));
+            .is_some_and(|clip| clip.contains_rect(&region))
+        {
+            return;
+        }
 
-        if covered {
+        if covers.is_some_and(|c| c.contains_rect(&region)) {
             self.shared
                 .region_background
                 .set(RegionBackground::Cancelled);
-        } else {
-            self.shared.region_background.set(RegionBackground::Painted);
-            // Straight at the renderer: going through `self` would re-enter
-            // this method, and the mute has already been checked by the caller.
-            let _ = self.renderer.fill_solid(region, bg);
+            return;
+        }
+
+        // Straight at the renderer: going through `self` would re-enter this
+        // method, and the mute has already been checked by the caller.
+        match self.renderer.fill_solid(region, bg) {
+            // Left `Pending` on failure, so the flush retries it rather than
+            // leaving the region with nothing written at all.
+            Err(_) => log::error!("region background {region:?} failed"),
+            Ok(()) => {
+                self.shared.region_background.set(RegionBackground::Painted)
+            },
         }
     }
 

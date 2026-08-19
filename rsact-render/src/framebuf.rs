@@ -254,7 +254,7 @@ impl<C: Color + PackedColor, B: FramebufStorage<C>> Framebuf<C, B> {
     /// So a row never straddles a unit — the invariant the whole module rests
     /// on. It is what [`units_for`] counts, what makes
     /// [`fill_solid`](Self::fill_solid)'s whole-word run safe to `slice::fill`
-    /// without touching a neighbouring row, and what lets a driver send a
+    /// without touching a neighboring row, and what lets a driver send a
     /// detached buffer to a panel row-wise without repacking. For a color with
     /// a word of its own (`PPS == 1`) it is simply the width.
     pub fn row_stride(&self) -> usize {

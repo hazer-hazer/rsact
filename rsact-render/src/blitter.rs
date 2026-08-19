@@ -143,7 +143,7 @@ pub trait Blitter {
     ///
     /// **Aiming only: this must not paint.** A region arrives holding whatever
     /// the last one left in it, so *someone* has to write every pixel before the
-    /// region is flushed — but which colour an unpainted pixel takes is a style
+    /// region is flushed — but which color an unpainted pixel takes is a style
     /// question, and a blitter has no style. The caller owns it; rsact-ui paints
     /// its page background as the first thing in `Page::paint_region`.
     fn begin_region(&mut self, region: Rect) -> RenderResult;

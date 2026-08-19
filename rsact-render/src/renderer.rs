@@ -560,7 +560,13 @@ where
                 T::PIXELS_PER_UNIT,
             )
         });
-        if T::UNITS.is_none()
+        // NOT `T::UNITS.is_none()`: the const block above only runs when the
+        // POLICY states a bound, so under `Unbounded` a fixed-size array — the
+        // `StaticCell` loan `UNITS` exists for — was checked by neither half.
+        // Skip the runtime check only where the const one actually ran.
+        let proved_at_compile_time =
+            crate::region::policy_units::<P>().is_some() && T::UNITS.is_some();
+        if !proved_at_compile_time
             && let Some(available) = blitter.capacity()
             && available < needed
         {
@@ -1184,18 +1190,18 @@ mod raster_renderer_tests {
 
     /// **Aiming is all `begin_region` does.** It used to prime the surface with
     /// `Color::default_background()`, which put a style decision in this crate:
-    /// a page whose background is not the colour default could not paint it,
+    /// a page whose background is not the color default could not paint it,
     /// because the prime had already run and the page's own fill was the one
     /// that got discarded. rsact-ui paints the region background now
     /// (`Page::paint_region`), so what remains here is pure addressing.
     ///
     /// The invariant moves with it: **the caller must write every pixel of a
-    /// region before flushing it.** Nothing here can enforce that — a colour to
+    /// region before flushing it.** Nothing here can enforce that — a color to
     /// enforce it with is exactly what does not belong in a renderer.
     #[test]
     fn beginning_a_region_writes_no_pixels() {
         let viewport = Size::new(16, 16);
-        // Zeroed, not background-filled: `surface` pre-fills with the colour
+        // Zeroed, not background-filled: `surface` pre-fills with the color
         // default, which is what a prime would have written — indistinguishable.
         let buffer: &'static mut [u32] = alloc::vec![0u32; 16 * 16].leak();
 

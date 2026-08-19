@@ -77,6 +77,20 @@ impl<W: WidgetCtx> Frame<'_, W> {
         Some(region)
     }
 
+    /// Whether the region just painted had its background painted, or a
+    /// covering op made it redundant.
+    ///
+    /// For a harness comparing a whole-frame pass against a banded one: the
+    /// background is the one op whose geometry IS the region, so it has to be
+    /// excluded — and an op log cannot identify it, a covering `clear_outer`
+    /// emitting the same rect in the same color.
+    pub fn background_painted(&self) -> bool {
+        self.ui
+            .active_page
+            .as_ref()
+            .is_some_and(|page| page.background_painted())
+    }
+
     /// How many regions this frame was planned into. Constant for the frame.
     pub fn regions(&self) -> usize {
         self.ui.frame_regions.len()
@@ -937,10 +951,18 @@ mod tests {
                 "an unbounded policy must plan a forced full redraw as ONE \
                  region, or this is not a full-frame reference"
             );
-            without_region_background(
-                Rect::new(Point::zero(), viewport),
-                recorder.ops(),
-            )
+            // Guarded exactly as `TileProbe::frame` guards it, and for the
+            // reason stated there: a covering `clear_outer` cancels the
+            // background and emits a fill with the SAME rect and color, so
+            // stripping unconditionally would delete that legitimate op from
+            // whichever side happened to elide. Vacuous while this page's root
+            // is a transparent `Flex`; wrong the moment it is not.
+            let region = Rect::new(Point::zero(), viewport);
+            if ui.current_page().background_painted() {
+                without_region_background(region, recorder.ops())
+            } else {
+                recorder.ops()
+            }
         });
         assert!(!full.is_empty(), "the reference frame drew nothing");
 
@@ -971,10 +993,13 @@ mod tests {
                 let Some(region) = frame.render(&mut renderer) else {
                     break;
                 };
-                passes.push(TilePass {
-                    tile: region,
-                    ops: without_region_background(region, recorder.ops()),
-                });
+                let painted = frame.background_painted();
+                let ops = if painted {
+                    without_region_background(region, recorder.ops())
+                } else {
+                    recorder.ops()
+                };
+                passes.push(TilePass { tile: region, ops });
             }
             passes
         });

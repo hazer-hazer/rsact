@@ -184,7 +184,7 @@ impl TileProbe {
         // The region background is the one op a whole-frame pass and a band
         // pass cannot agree on — its geometry IS the region. Stripped, but only
         // when it was actually painted: a covering `clear_outer` cancels it and
-        // emits a fill with the *same rect and colour*, which an op log cannot
+        // emits a fill with the *same rect and color*, which an op log cannot
         // distinguish. Stripping unconditionally would delete that legitimate op
         // from whichever side happened to elide, and report the difference as a
         // tile-invariance violation.
@@ -262,7 +262,7 @@ pub struct VisitReport {
     /// children" was unavailable: `ElState::clip_path` was initialised to `None`
     /// and set nowhere, so the clip arm was unreachable and overflowing content
     /// was bounded only by the framebuffer viewport. Clipping is now declared
-    /// behaviour (`WidgetFlags::CLIPS_CHILDREN`, set by `Scrollable`), the
+    /// behavior (`WidgetFlags::CLIPS_CHILDREN`, set by `Scrollable`), the
     /// framework pushes it around the children loop, and `Renderer::clip_bounds`
     /// composes it — so containment is structural and the prune needs no
     /// per-node storage at all.

@@ -88,11 +88,26 @@ impl TinySkiaRasterizer {
         if self.mask_size.width < paint.size.width
             || self.mask_size.height < paint.size.height
         {
-            self.mask_size = Size::new(
+            let want = Size::new(
                 self.mask_size.width.max(paint.size.width),
                 self.mask_size.height.max(paint.size.height),
             );
-            self.mask = Mask::new(self.mask_size.width, self.mask_size.height);
+            // `mask_size` rises only if the allocation did. Raising it first
+            // latches the rasterizer off: `mask` would be `None` while every
+            // later, smaller primitive passed the grow test, so the `else`
+            // below would return forever and anti-aliasing would silently stop.
+            match Mask::new(want.width, want.height) {
+                Some(mask) => {
+                    self.mask_size = want;
+                    self.mask = Some(mask);
+                },
+                None => {
+                    log::error!(
+                        "no mask for a {want:?} primitive; skipping it"
+                    );
+                    return;
+                },
+            }
         }
         let Some(mask) = self.mask.as_mut() else { return };
 
@@ -152,7 +167,7 @@ impl TinySkiaRasterizer {
         }
         if let (Some(color), width @ 1..) = (style.stroke, style.stroke_width) {
             // TODO: `StrokeAlignment` is ignored — tiny-skia always strokes
-            // centred on the path, so Inside/Outside need the path offset first.
+            // centered on the path, so Inside/Outside need the path offset first.
             let mut stroke = Stroke::default();
             stroke.width = width as f32;
             stroke.line_cap = tiny_skia::LineCap::Round;
@@ -575,23 +590,10 @@ mod tests {
             }
             traffic.inked.sort_by_key(|p| (p.y, p.x));
             traffic.inked.dedup();
-            actual.push((
-                name,
-                traffic.inked.len(),
-                checksum(&traffic.inked),
-                traffic.blend_calls,
-                traffic.coverage_bytes,
-            ));
+            actual.push((name, traffic.inked.len(), checksum(&traffic.inked)));
         }
 
-        for (name, inked, sum, calls, bytes) in &actual {
-            std::eprintln!(
-                "{name:<20} inked={inked:<6} checksum={sum:#018x} \
-                 blend_calls={calls:<5} coverage_bytes={bytes}"
-            );
-        }
-
-        for ((name, want_inked, want_sum), (_, got_inked, got_sum, _, _)) in
+        for ((name, want_inked, want_sum), (_, got_inked, got_sum)) in
             PICTURE.iter().zip(&actual)
         {
             assert_eq!(

@@ -305,7 +305,7 @@ fn compute_layout<W: WidgetCtx>(
     // Whether the caller must do a BLANKET repaint + whole-viewport flush —
     // true unless the incremental path already did a TARGETED repaint above
     // (WS6.1). The default (non-incremental) build has no targeted path, so it
-    // is always blanket: the historical behaviour. Covers first build,
+    // is always blanket: the historical behavior. Covers first build,
     // fonts/viewport change, structure change, and any relayout that reached
     // the root.
     #[cfg(feature = "incremental-layout")]
@@ -604,7 +604,7 @@ impl<W: WidgetCtx> Page<W> {
         f(&self.damage.borrow())
     }
 
-    /// The page's background colour, or `None` when it declares none.
+    /// The page's background color, or `None` when it declares none.
     ///
     /// TODO: Will not work without background, must always have a background
     ///
@@ -1189,7 +1189,7 @@ impl<W: WidgetCtx> Page<W> {
         // longer primes: a region arrives holding whatever the last one left in
         // it, so every pixel must be written or the frame flushes with another
         // region's pixels showing through wherever no widget paints — and a
-        // `Flex` root paints nothing at all. What colour that is, is a *style*
+        // `Flex` root paints nothing at all. What color that is, is a *style*
         // question, so it is answered here rather than by a blitter inventing
         // `Color::default_background()`.
         //
@@ -1199,7 +1199,7 @@ impl<W: WidgetCtx> Page<W> {
         // Handing the fill to the walk as a *pending* one lets the first op that
         // provably covers the region cancel it, which on a page with a
         // background is about half the frame's pixel writes. The walk settles it
-        // through `RenderCtx::settle_pending_clear`; whatever is left is flushed
+        // through `RenderCtx::settle_region_background`; whatever is left is flushed
         // below, so a region nothing drew into still gets its background.
         self.region_background.set(match self.background() {
             Some(bg) => RegionBackground::Pending(region, bg),
@@ -1213,15 +1213,27 @@ impl<W: WidgetCtx> Page<W> {
         // and a merged region's dead space flushes as the previous region's
         // pixels — the failure `begin_region`'s unconditional prime used to make
         // impossible.
-        if let Some((region, bg)) = self.region_background.get().pending() {
-            self.region_background.set(RegionBackground::Painted);
-            renderer.fill_solid(region, bg)?;
-        }
+        // Folded into `result` rather than `?`-ed: this sits between `push_clip`
+        // and `pop_clip`, so returning here would leak the region clip and skip
+        // `end_region` — which the trait documents as where a batching backend
+        // flushes, i.e. the region would never ship.
+        let result = result.and_then(|()| {
+            match self.region_background.get().pending() {
+                Some((region, bg)) => {
+                    let painted = renderer.fill_solid(region, bg);
+                    if painted.is_ok() {
+                        self.region_background.set(RegionBackground::Painted);
+                    }
+                    painted
+                },
+                None => Ok(()),
+            }
+        });
 
         renderer.pop_clip();
-        renderer.end_region()?;
+        let ended = renderer.end_region();
 
-        result
+        result.and(ended)
     }
 
     /// The shared body of [`use_renderer`] and [`collect`]: everything a
@@ -2496,7 +2508,7 @@ mod tests {
     // (maintainer decision D8): they assert nothing about the layered renderer,
     // and the harness they exercised end-to-end is exercised by
     // `tests/tile_schedule.rs`, which KEEPS its goldens and becomes the
-    // refactor's behaviour-neutrality proof.
+    // refactor's behavior-neutrality proof.
     //
     // The bless workflow is untouched — `rsact_render::test_support::golden` is
     // still there and the tile/schedule goldens still use it. What comes back
@@ -2511,7 +2523,7 @@ mod tests {
     // depends on exactly which parts the interaction happened to dirty.
 
     /// WS6.4b: the geometry cull in `render_part`. What the op-log measurements
-    /// (`tests/tile_schedule.rs`) cannot show is the *behaviour* around a culled
+    /// (`tests/tile_schedule.rs`) cannot show is the *behavior* around a culled
     /// part — that it comes back, and that skipping it does not leave the page
     /// spinning. Both are properties of the reactive graph, so they are asserted
     /// here rather than counted there.
@@ -2526,7 +2538,6 @@ mod tests {
         use super::culling::{RecWtf, two_checkbox_page};
         use super::*;
         use crate::render::record::{DrawOp, RecordingRenderer};
-        use crate::widget::canvas::Canvas;
         use rsact_reactive::runtime::with_new_runtime;
 
         const VIEWPORT: Rect =
@@ -2703,9 +2714,9 @@ mod tests {
         }
     }
 
-    /// WS6.4c(F): clipping is widget behaviour the framework reads, not a call a
+    /// WS6.4c(F): clipping is widget behavior the framework reads, not a call a
     /// widget makes inside its own `render`.
-    /// WS5.5: box-model and border behaviour after the retained layout copy was
+    /// WS5.5: box-model and border behavior after the retained layout copy was
     /// deleted.
     ///
     /// **On what these do and do not prove.** The drift `button.rs` admitted —
@@ -2725,7 +2736,6 @@ mod tests {
         use super::culling::RecWtf;
         use super::*;
         use crate::render::record::{DrawOp, RecordingRenderer};
-        use crate::widget::canvas::Canvas;
         use rsact_reactive::runtime::with_new_runtime;
 
         #[test]
@@ -2914,7 +2924,7 @@ mod tests {
                 // NOTE: this one is enforced by the traversal PRUNE (the
                 // scrollable's own rect misses the cursor, so the subtree is
                 // never walked), not by `hit_bounds`. It is the end-to-end
-                // behaviour; `a_clipped_away_widget_cannot_be_clicked` is what
+                // behavior; `a_clipped_away_widget_cannot_be_clicked` is what
                 // pins the hit rect itself.
             });
         }
@@ -2925,7 +2935,7 @@ mod tests {
         /// A `MouseMove` over clipped-away content never arrives, because the
         /// prune stops at the scrollable whose own rect misses the cursor — so
         /// the hover test above passes even with `hit_bounds` clip-blind, and
-        /// proves the end-to-end behaviour rather than the mechanism. A **click**
+        /// proves the end-to-end behavior rather than the mechanism. A **click**
         /// is deliberately not pruned (`ButtonUp` must reach a pressed widget
         /// wherever the cursor went), so it walks all the way to the clipped
         /// checkbox and only `hit_bounds` can stop it.
@@ -3924,7 +3934,7 @@ mod tests {
     // two — so the probe should now hold no sources at all and a settled page
     // should never relayout again, no matter how often it is asked.
     //
-    // Asserted through behaviour rather than by counting sources, because the
+    // Asserted through behavior rather than by counting sources, because the
     // runtime's profile is global and cannot attribute a source to one probe.
     // A page whose only content is INERT has nothing that could legitimately
     // dirty the probe, so any recompute after the first is the bug.
@@ -4140,7 +4150,7 @@ mod tests {
     /// `Blitter::begin_region` used to prime the surface with
     /// `Color::default_background()`, which put a *style* decision in
     /// rsact-render and made `PageStyle::background_color` unreachable — the
-    /// discarded fill in the old `Page::clear` happened to be the same colour,
+    /// discarded fill in the old `Page::clear` happened to be the same color,
     /// so nothing showed. Painting it here is what makes the page's own
     /// background the one that lands.
     mod region_background {
@@ -4182,7 +4192,7 @@ mod tests {
         /// Asserted on [`Page::background_painted`] and not on the op log,
         /// because the log cannot tell the two apart: a root part's
         /// `clear_outer` over the region emits a fill with the same rect and the
-        /// same colour.
+        /// same color.
         ///
         /// `Canvas` because it draws through the same `RenderCtx` proxy every
         /// widget does, with the geometry stated here rather than inferred from
