@@ -107,6 +107,12 @@
     "branch": "ws6.4e-framebuf-unbind",
     "subject": "Cut the module tree by feature gate, and four smaller corrections"
   },
+  "37545bf2f5b8a3498efc295d9634fcfdbfc4c0dd": {
+    "date": 1787176842,
+    "parent": "",
+    "branch": "ws6.4e-framebuf-unbind",
+    "subject": "Review fixes: four correctness holes, one broken build, one rule I broke"
+  },
   "37731598dad6d746bd63e4f1f9744a3a4f0dee0c": {
     "date": 1785866016,
     "parent": "",
