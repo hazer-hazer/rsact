@@ -229,8 +229,9 @@ impl<C: Color + PackedColor, B: FramebufStorage<C>> Framebuf<C, B> {
         }
     }
 
-    // To flush a detached buffer, walk rows at `viewport().size.width` and
-    // convert with `PackedColor::as_color`.
+    // To flush a detached buffer, walk rows at `row_stride()` — NOT at
+    // `viewport().size.width`, which is short of it whenever the width is not a
+    // whole number of storage units — and convert with `PackedColor::as_color`.
 
     /// Flat pixel index of `point`, in this buffer's own 0-based space.
     ///
@@ -243,15 +244,22 @@ impl<C: Color + PackedColor, B: FramebufStorage<C>> Framebuf<C, B> {
     /// [`point_to_subpart`](Self::point_to_subpart) or clip with
     /// [`local_bounds`](Self::local_bounds) first.
     pub fn flat_index(&self, point: Point) -> usize {
-        let viewport = self.viewport();
-        let local = point - viewport.top_left;
-        local.y as usize * viewport.size.width as usize + local.x as usize
+        let local = point - self.viewport().top_left;
+        local.y as usize * self.row_stride() + local.x as usize
     }
 
     /// Flat-index distance between vertically adjacent pixels: the viewport's
-    /// own width, which is the stride.
+    /// width **padded to a whole storage unit**.
+    ///
+    /// So a row never straddles a unit — the invariant the whole module rests
+    /// on. It is what [`units_for`] counts, what makes
+    /// [`fill_solid`](Self::fill_solid)'s whole-word run safe to `slice::fill`
+    /// without touching a neighbouring row, and what lets a driver send a
+    /// detached buffer to a panel row-wise without repacking. For a color with
+    /// a word of its own (`PPS == 1`) it is simply the width.
     pub fn row_stride(&self) -> usize {
-        self.viewport().size.width as usize
+        let pps = C::pps();
+        (self.viewport().size.width as usize).div_ceil(pps) * pps
     }
 
     /// `area` clipped to this buffer. A zero-sized result means nothing to do.
@@ -457,6 +465,46 @@ mod tests {
         assert_eq!(units_for::<Mono>(128, 24), 16 * 24);
         // Area arithmetic would say 122 * 24 / 8 = 366.
         assert_ne!(units_for::<Mono>(122, 24), 122 * 24 / 8);
+    }
+
+    /// **A row never straddles a storage unit.**
+    ///
+    /// [`units_for`] pads each row to a whole unit and says so ("a 122-pixel
+    /// 1-bpp row occupies 16 bytes, not 15.25"), but addressing was
+    /// `y * width + x` — unpadded — so on a 122x250 mono panel row 1 began at
+    /// byte 15 bit 2. Two things that breaks: a driver flushing the detached
+    /// buffer row-wise at the documented stride reads shifted, garbled rows, and
+    /// `begin_region` refuses a buffer sized for the packed layout because it
+    /// compares it against the padded figure.
+    ///
+    /// Padded is the layout to keep: it is what a mono panel driver (SSD1680,
+    /// SH1106) expects, so a detached buffer can go out over SPI unrepacked.
+    #[test]
+    fn a_row_never_straddles_a_storage_unit() {
+        let panel = Rect::new(Point::zero(), Size::new(122, 250));
+        let mut buf = alloc::vec![0u8; units_for::<Mono>(122, 250)];
+        let mut fb = Framebuf::<Mono, _>::new(&mut buf[..]);
+        fb.retarget(panel);
+
+        // 122 pixels is 15.25 bytes, so a padded row is 16 bytes = 128 pixels.
+        assert_eq!(fb.row_stride(), 128, "the stride is padded, in pixels");
+
+        // Row n starts on a byte boundary, for every row.
+        for y in 0..250 {
+            let (unit, offset) = fb
+                .point_to_subpart(Point::new(0, y))
+                .expect("the first pixel of every row is addressable");
+            assert_eq!(
+                (unit, offset),
+                (y as usize * 16, 0),
+                "row {y} must start at byte {} bit 0",
+                y * 16
+            );
+        }
+
+        // And the last pixel of a row is inside that row's own bytes.
+        let (unit, offset) = fb.point_to_subpart(Point::new(121, 0)).unwrap();
+        assert_eq!((unit, offset), (15, 1), "121 = byte 15, bit 1");
     }
 
     /// A mono panel whose width is not a whole number of bytes is

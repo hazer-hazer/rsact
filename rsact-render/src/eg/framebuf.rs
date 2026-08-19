@@ -314,7 +314,9 @@ mod tests {
         assert_eq!(buf.flat_index(origin), 0);
         assert_eq!(buf.point_to_subpart(origin), Some((0, 0)));
 
-        // Stride is the buffer's own width, so one row down is +width.
+        // Stride is the width padded to a whole storage unit — the same 16
+        // here only because 16 pixels is exactly two 1-bpp bytes. See
+        // `a_row_never_straddles_a_storage_unit` for a width that is not.
         assert_eq!(buf.row_stride(), 16);
         assert_eq!(buf.flat_index(origin + Point::new(0, 1)), 16);
         assert_eq!(buf.flat_index(origin + Point::new(3, 2)), 2 * 16 + 3);

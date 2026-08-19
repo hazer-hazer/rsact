@@ -236,9 +236,15 @@ where
         Self { framebuf: Framebuf::new(storage) }
     }
 
-    /// Give the storage back, with the region painted into it. Rows are strided
-    /// at that region's width, so it is both how to read the buffer and where to
-    /// send it.
+    /// Give the storage back, with the region painted into it, and the rect it
+    /// covers — both how to read the buffer and where to send it.
+    ///
+    /// Rows are strided at [`Framebuf::row_stride`], which is the region's width
+    /// **padded to a whole storage unit**: a 122-pixel 1-bpp row is 16 bytes, so
+    /// a row never straddles a byte and a mono panel takes the buffer
+    /// unrepacked. Equal to the width whenever a pixel has a word of its own.
+    ///
+    /// [`Framebuf::row_stride`]: crate::framebuf::Framebuf::row_stride
     pub fn into_storage(self) -> (B, Rect) {
         let at = self.framebuf.viewport();
         (self.framebuf.into_buffer(), at)
