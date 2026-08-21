@@ -40,5 +40,20 @@ tiny-skia = ["dep:tiny-skia"]
 embedded-graphics = ["dep:embedded-graphics", "dep:embedded-text"]
 defmt = ["dep:defmt", "embedded-graphics?/defmt"]
 
+# The `test_support` module: WS6.4a's tile measurement and WS6.9's golden bless
+# workflow. Neither is reachable from a drawing path and neither is API, so a
+# production build graph should not contain them. A feature and not
+# `#[cfg(test)]` because `cfg(test)` holds only for the crate being
+# test-compiled — rsact-ui's tests link *this* crate built normally — and every
+# consumer of these modules is in another crate. Downstream enables it through
+# dev-dependencies only (the same WS1.2 decision as rsact-reactive's).
+test-utils = []
+
+[dev-dependencies]
+# Turn on `test-utils` for this crate's *own* dev targets. A package may depend
+# on itself as a dev-dependency purely to enable a feature for those targets;
+# resolver 3 keeps it out of normal builds and out of downstream dependents.
+rsact-render = { path = ".", features = ["test-utils"] }
+
 [lints]
 workspace = true

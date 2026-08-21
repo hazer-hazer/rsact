@@ -132,26 +132,23 @@ where
 pub struct BorderStyle<C: Color> {
     pub color: ColorStyle<C>,
     pub radius: BorderRadius,
-    /// WS5.5: the border's width, **a style property** — it used to live in
-    /// `BlockModel` (the box model) and inset content the way CSS does.
+    /// The border's width — **a style property**, not part of the box model,
+    /// so it does not inset content the way CSS does.
     ///
-    /// The rule this follows: *does it change the box, or only the pixels
-    /// inside it?* A border is drawn with [`StrokeAlignment::Inside`], so it
-    /// paints over the padding ring and changes no geometry — same side of the
-    /// rule as its color and radius, and the same side [`OutlineStyle::width`]
-    /// was already on. The user-side remedy for a border that overlaps content
-    /// is one line of padding.
+    /// The rule: *does it change the box, or only the pixels inside it?* A
+    /// border drawn with [`StrokeAlignment::Inside`] paints over the padding
+    /// ring and changes no geometry — the same side of the rule as its color,
+    /// its radius and [`OutlineStyle::width`]. The remedy for a border that
+    /// overlaps content is one line of padding.
     ///
-    /// What moving it *buys* is the reason for the change: styles resolve per
-    /// pseudo-class, so a border width can now answer `hovered`/`pressed`/
-    /// `focused`. It could never do that from the layout side — and equally, it
-    /// must not become layout-affecting from here, or hovering a widget would
+    /// Being a style is what lets a width answer `hovered`/`pressed`/`focused`.
+    /// It must equally never become layout-affecting, or hovering a widget would
     /// relayout the page.
     ///
     /// **Inside-only for now.** `Center`/`Outside` alignment paints beyond the
     /// widget's rect by `width/2` and `width`, which is only expressible once a
-    /// widget can declare its overhang through `Widget::ext_draw` (roadmap
-    /// 5.5's proposition, gated on ISSUE-3).
+    /// widget can declare its overhang through `Widget::ext_draw` (gated on
+    /// ISSUE-3).
     ///
     /// [`StrokeAlignment::Inside`]: crate::style::StrokeAlignment::Inside
     /// [`OutlineStyle::width`]: OutlineStyle::width
@@ -188,7 +185,7 @@ impl<C: Color> BorderStyle<C> {
         self
     }
 
-    /// WS5.5: set the border width. Drawn inside the widget's rect.
+    /// Set the border width. Drawn inside the widget's rect.
     pub fn width(mut self, width: u32) -> Self {
         self.width = width;
         self

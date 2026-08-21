@@ -1,19 +1,11 @@
-//! Golden-file test harness (WS6.9) — the blessed-reference machinery behind
-//! the render tests.
+//! The blessed-reference machinery behind the render tests.
 //!
-//! A *golden* is a committed reference file. A test produces some current
-//! output (a [`format_ops`](crate::record::format_ops) draw-call log, or an
-//! encoded PNG) and asserts it equals the golden. When the output legitimately
-//! changes, you **bless** the new output by re-running with `UPDATE_GOLDENS=1`,
-//! which rewrites the golden instead of failing — so a render change is
-//! reviewed as a diff of the golden file, exactly what WS6's damage work and
-//! WS6.10's renderer-parity audit need.
+//! A test asserts its output equals a committed reference file. Re-running with
+//! `UPDATE_GOLDENS=1` rewrites that file instead of failing, so a render change
+//! is reviewed as a diff.
 //!
-//! This module is `std`-gated (file I/O) and lives here — not in a `#[cfg(test)]`
-//! block — so it is reusable from *other* crates' tests: `rsact-ui` asserts
-//! page-render goldens, and `rsact-render` itself will assert EG-vs-tiny-skia
-//! PNG parity goldens. Each caller passes its own `env!("CARGO_MANIFEST_DIR")`
-//! so goldens live under that crate's `tests/goldens/`.
+//! Each caller passes its own `env!("CARGO_MANIFEST_DIR")`, so goldens live
+//! under that crate's `tests/goldens/`.
 
 use alloc::string::String;
 use std::{fs, path::PathBuf};
@@ -32,8 +24,7 @@ fn blessing() -> bool {
     std::env::var("UPDATE_GOLDENS").ok().as_deref() == Some("1")
 }
 
-/// Write `bytes` to `path`, creating `tests/goldens/` if needed. Used by the
-/// bless path of both asserts.
+/// Write `bytes` to `path`, creating `tests/goldens/` if needed.
 fn bless(path: &PathBuf, bytes: &[u8]) {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).unwrap_or_else(|e| {

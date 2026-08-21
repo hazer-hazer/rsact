@@ -1,5 +1,8 @@
 use cap::Cap;
-use embedded_graphics::{pixelcolor::BinaryColor, prelude::Dimensions};
+use embedded_graphics::{
+    pixelcolor::{BinaryColor, Rgb888},
+    prelude::Dimensions,
+};
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
@@ -359,11 +362,16 @@ fn main() {
 
     let mut ui = UI::new(
         Theme::default(),
-        EGRenderer::new(
+        RasterRenderer::<_, FramebufBlitter<Rgb888, _>, Unbounded>::with_blitter(
+            EgRasterizer,
             display.bounding_box().size.into(),
             // The framebuffer is the APPLICATION's — rsact borrows it and gives
             // it back. On a device this would be a `StaticCell` array instead.
-            heap_surface::<Rgb888>(display.bounding_box().size.into()),
+            // The blitter IS the loan: it owns the buffer, and `detach` hands
+            // the whole thing back.
+            FramebufBlitter::new(
+                heap_surface::<Rgb888>(display.bounding_box().size.into()),
+            ),
         )
     )
         // .with_renderer_options(
@@ -456,9 +464,10 @@ fn main() {
         {
             let mut frame = ui.start_frame(&mut renderer);
             while frame.render(&mut renderer).is_some() {
-                let (parked, buf, at) = renderer.detach();
+                let (parked, blitter) = renderer.detach();
+                let (buf, at) = blitter.into_storage();
                 flush(&mut display, &buf, at);
-                renderer = parked.attach(buf);
+                renderer = parked.attach(FramebufBlitter::new(buf));
             }
         }
         mem_leaked += GLOBAL.allocated().saturating_sub(mem_start);

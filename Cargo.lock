@@ -1331,6 +1331,7 @@ dependencies = [
  "micromath",
  "num-traits",
  "rsact-reactive",
+ "rsact-render",
  "slotmap",
  "tiny-skia 0.12.0",
 ]
@@ -1375,6 +1376,7 @@ dependencies = [
  "rsact-reactive",
  "rsact-render",
  "rsact-tiny-icons",
+ "rsact-ui",
  "slotmap",
  "tiny-skia 0.12.0",
  "tinyvec",

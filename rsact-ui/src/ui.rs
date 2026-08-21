@@ -77,6 +77,20 @@ impl<W: WidgetCtx> Frame<'_, W> {
         Some(region)
     }
 
+    /// Whether the region just painted had its background painted, or a
+    /// covering op made it redundant.
+    ///
+    /// For a harness comparing a whole-frame pass against a banded one: the
+    /// background is the one op whose geometry IS the region, so it has to be
+    /// excluded — and an op log cannot identify it, a covering `clear_outer`
+    /// emitting the same rect in the same color.
+    pub fn background_painted(&self) -> bool {
+        self.ui
+            .active_page
+            .as_ref()
+            .is_some_and(|page| page.background_painted())
+    }
+
     /// How many regions this frame was planned into. Constant for the frame.
     pub fn regions(&self) -> usize {
         self.ui.frame_regions.len()
@@ -213,13 +227,6 @@ pub struct UI<W: WidgetCtx, P: HasPages> {
     /// into the next frame's damage and re-planned, so it merges rather than
     /// accumulates and cannot grow without bound.
     deferred_regions: Vec<Rect>,
-    /// WS6.4d: a page change happened and the framebuffer still holds the old
-    /// page's pixels — clear it at the start of the next render.
-    ///
-    /// The renderer is not available at navigation time (see
-    /// [`Self::on_page_change`]), so the *intent* is recorded and acted on where
-    /// a renderer is in hand.
-    pending_clear: bool,
 }
 
 impl<R, I, S, E> UI<Wtf<R, I, S, E>, NoPages>
@@ -261,7 +268,6 @@ where
             fonts,
             frame_regions: Vec::new(),
             deferred_regions: Vec::new(),
-            pending_clear: false,
         }
     }
 
@@ -319,7 +325,6 @@ impl<W: WidgetCtx, P: HasPages> UI<W, P> {
             fonts: self.fonts,
             frame_regions: self.frame_regions,
             deferred_regions: self.deferred_regions,
-            pending_clear: self.pending_clear,
         };
 
         // Go to page if it is the first one
@@ -463,18 +468,11 @@ impl<W: WidgetCtx> UI<W, WithPages> {
     // The whole-frame path is not a different mode; it is this one with a
     // surface big enough that no chunking happens.
 
-    /// Repaint the background over the whole viewport if a page change asked
-    /// for it, and forget the request.
-    ///
-    /// The framebuffer outlives every page, so a new page inherits whatever the
-    /// old one left wherever its own widgets do not paint — and a `Flex` root
-    /// paints nothing at all. Deferred to here because navigation happens in
-    /// `tick`/`goto`, which hold no renderer (see [`Self::on_page_change`]).
-    fn take_pending_clear(&mut self, renderer: &mut W::Renderer) {
-        if core::mem::take(&mut self.pending_clear) {
-            self.current_page().clear(renderer);
-        }
-    }
+    // NOTE (priming): `take_pending_clear` lived here — it ran `Page::clear` at
+    // the top of every frame if a page change had asked for one. Both are gone;
+    // `Page::paint_region` paints each region's background from the page style,
+    // which is the only point in a tiled frame where a surface is aimed. See the
+    // note where `Page::clear` was.
 
     /// WS6.4d: begin a **tiled frame** — plan it once, then paint and ship one
     /// region at a time.
@@ -518,8 +516,6 @@ impl<W: WidgetCtx> UI<W, WithPages> {
     /// [`Page::collect`]: crate::page::Page::collect
     /// [`Renderer::Policy`]: rsact_render::renderer::Renderer::Policy
     pub fn start_frame(&mut self, renderer: &mut W::Renderer) -> Frame<'_, W> {
-        self.take_pending_clear(renderer);
-
         let viewport = Rect::new(Point::zero(), self.viewport);
 
         // Plan the frame: one tracked, probe-gated walk that paints nothing.
@@ -644,32 +640,26 @@ impl<W: WidgetCtx> UI<W, WithPages> {
     /// [`Self::current_page`], which is invoked here.
     fn on_page_change(&mut self) {
         info!("UI: Page changed to {:?}", self.current_page_id());
-        // WS6.4.0(iv): `clear` only. The `.force_redraw()` that used to follow it
-        // was residue from stored pages, and BOTH of the things it did are now
-        // redundant here, because `current_page` above BUILDS a
-        // fresh `Page` on a change:
+        // Nothing to do for the repaint. `current_page` above BUILDS a fresh
+        // `Page` on a change, and that covers every part of it:
         //
-        //   - its invalidation broadcast: every probe in a fresh page is newborn
-        //     and therefore dirty, so the whole tree renders on the first poll
-        //     regardless. (When pages persisted, their probes came back CLEAN
-        //     from the previous visit and the broadcast was load-bearing.)
-        //   - its whole-viewport flush: `Page::new`'s first-build relayout is
-        //     always blanket, so it sets `full_flush` itself.
-        //
-        // `clear` is still needed, for the framebuffer rather than the flush: the
-        // framebuffer is one `UI`-owned value outliving every page, so without it
-        // the previous page's pixels stay under anything the new page's widgets
-        // do not paint — and a `Flex` root paints nothing at all.
+        //   - **Invalidation.** Every probe in a fresh page is newborn and
+        //     therefore dirty, so the whole tree renders on the first poll.
+        //     (When pages persisted, their probes came back CLEAN from the
+        //     previous visit and an explicit broadcast was load-bearing. The
+        //     `.force_redraw()` that used to be here was that residue.)
+        //   - **The flush.** `Page::new`'s first-build relayout is always
+        //     blanket, so it sets `full_flush` itself.
+        //   - **The framebuffer.** It is one `UI`-owned value outliving every
+        //     page, so the old page's pixels do sit under anything the new one's
+        //     widgets do not paint — and a `Flex` root paints nothing at all.
+        //     `Page::paint_region` overwrites them: every region gets the page
+        //     background before the walk runs. That used to be a `pending_clear`
+        //     flag draining into `Page::clear` at frame start, which could not
+        //     work — see the note where `Page::clear` was.
         //
         // `page_change_flushes_the_whole_viewport` (in this module's tests) pins
-        // the observable end of this, which had NO coverage before.
-        //
-        // WS6.4d: *deferred*, because there is no renderer here any more —
-        // navigation is driven by `tick`/`goto`, which handle input and own no
-        // transport. The next render pass consumes the flag. Deferring is not a
-        // compromise: the clear only has to happen before the new page paints,
-        // and both entry points below run it first thing.
-        self.pending_clear = true;
+        // the observable end of this.
 
         // TODO
         // if self.options.auto_focus {
@@ -908,7 +898,10 @@ mod tests {
             record::RecordingRenderer,
             region::{Tiles, Unbounded},
             renderer::NullColor,
-            schedule::{ScheduleLog, TilePass, tile_invariance},
+            test_support::schedule::{
+                ScheduleLog, TilePass, tile_invariance,
+                without_region_background,
+            },
         };
 
         let viewport = Size::new_equal(64);
@@ -958,7 +951,18 @@ mod tests {
                 "an unbounded policy must plan a forced full redraw as ONE \
                  region, or this is not a full-frame reference"
             );
-            recorder.ops()
+            // Guarded exactly as `TileProbe::frame` guards it, and for the
+            // reason stated there: a covering `clear_outer` cancels the
+            // background and emits a fill with the SAME rect and color, so
+            // stripping unconditionally would delete that legitimate op from
+            // whichever side happened to elide. Vacuous while this page's root
+            // is a transparent `Flex`; wrong the moment it is not.
+            let region = Rect::new(Point::zero(), viewport);
+            if ui.current_page().background_painted() {
+                without_region_background(region, recorder.ops())
+            } else {
+                recorder.ops()
+            }
         });
         assert!(!full.is_empty(), "the reference frame drew nothing");
 
@@ -989,7 +993,13 @@ mod tests {
                 let Some(region) = frame.render(&mut renderer) else {
                     break;
                 };
-                passes.push(TilePass { tile: region, ops: recorder.ops() });
+                let painted = frame.background_painted();
+                let ops = if painted {
+                    without_region_background(region, recorder.ops())
+                } else {
+                    recorder.ops()
+                };
+                passes.push(TilePass { tile: region, ops });
             }
             passes
         });

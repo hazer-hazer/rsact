@@ -26,6 +26,15 @@ Instead of this model must have had add layout to `render_child` method paramete
    stay readable when tests grow. Same for helper `fn`s that exist only for
    tests: they belong inside that trailing `mod tests`.
 
+## Spelling
+
+1. **American English in code and comments: `color`, not `colour`.** The public
+   API is already `Color`/`PackedColor`/`ColorStyle`, so British spellings in
+   prose put two words for one concept into the same file and break a reader's
+   `grep`. Same for the rest of the family — `behavior`, `initialize`,
+   `normalize`, `center`. (Prose in `docs/plans/` is the maintainer's and is not
+   covered by this.)
+
 ## Never-do restrictions
 
 1. Never delete any `Note:` or `TODO:` comments until it is 100% done `TODO` or `Note` to a deleted code part.

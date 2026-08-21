@@ -111,11 +111,6 @@ impl<W: WidgetCtx> TestPage<W> {
         self.page.use_renderer(&mut self.renderer, f)
     }
 
-    /// Clear the page background, lending it the owned renderer.
-    pub fn clear(&mut self) -> &mut Page<W> {
-        self.page.clear(&mut self.renderer)
-    }
-
     /// WS6.4c: plan the frame, lending it the owned renderer.
     pub fn collect(&mut self) -> bool {
         self.page.collect(&mut self.renderer)

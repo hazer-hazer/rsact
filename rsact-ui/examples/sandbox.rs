@@ -38,10 +38,18 @@ fn main() {
     // The framebuffer is the APPLICATION's — rsact never allocates one
     // and never owns one. On a device this would be a `StaticCell` array
     // placed wherever that board wants it (SDRAM, DTCM, a DMA pool).
-    let mut renderer = EGRenderer::<Rgb888, AntiAliasingDisabled, _>::new(
-        viewport,
-        vec![0u32; viewport.area() as usize].into_boxed_slice(),
-    );
+    let mut renderer =
+        RasterRenderer::<_, FramebufBlitter<Rgb888, _>, Unbounded>::with_blitter(
+            EgRasterizer,
+            viewport,
+            // The blitter IS the loan: it owns the buffer, and `detach` hands
+            // the whole thing back. `.leak()` rather than `into_boxed_slice()`
+            // because the buffer contract is a `&'static mut` loan (a
+            // `StaticCell` on a device) — a renderer BORROWS a surface.
+            FramebufBlitter::new(
+                vec![0u32; viewport.area() as usize].leak(),
+            ),
+        );
 
     let mut ui = UI::new(Theme::default(), viewport)
         .with_page(SinglePage, page.el())
@@ -74,9 +82,10 @@ fn main() {
         {
             let mut frame = ui.start_frame(&mut renderer);
             while frame.render(&mut renderer).is_some() {
-                let (parked, buf, at) = renderer.detach();
+                let (parked, blitter) = renderer.detach();
+                let (buf, at) = blitter.into_storage();
                 flush(&mut display, &buf, at);
-                renderer = parked.attach(buf);
+                renderer = parked.attach(FramebufBlitter::new(buf));
             }
         }
         window.update(&display);

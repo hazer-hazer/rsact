@@ -6,7 +6,10 @@ use embedded_graphics::{
 use embedded_graphics_simulator::{
     OutputSettingsBuilder, SimulatorDisplay, Window,
 };
-use rsact_render::eg::{framebuf::PackedColor, renderer::EGRenderer};
+use rsact_render::{
+    blitter::FramebufBlitter, eg::rasterizer::EgRasterizer,
+    framebuf::PackedColor, region::Unbounded, renderer::RasterRenderer,
+};
 use rsact_tiny_icons::{IconSet, common::CommonIcon, system::SystemIcon};
 use rsact_ui::{
     page::id::SinglePage,
@@ -45,11 +48,16 @@ fn main() {
 
     let mut ui = UI::new(
         Theme::default(),
-        EGRenderer::new(
+        RasterRenderer::<_, FramebufBlitter<Rgb888, _>, Unbounded>::with_blitter(
+            EgRasterizer,
             display.bounding_box().size.into(),
             // The framebuffer is the APPLICATION's — rsact borrows it and gives
             // it back. On a device this would be a `StaticCell` array instead.
-            heap_surface::<Rgb888>(display.bounding_box().size.into()),
+            // The blitter IS the loan: it owns the buffer, and `detach` hands
+            // the whole thing back.
+            FramebufBlitter::new(
+                heap_surface::<Rgb888>(display.bounding_box().size.into()),
+            ),
         )
     ).no_events().with_page(SinglePage,
         Flex::col([
@@ -70,9 +78,10 @@ fn main() {
     {
         let mut frame = ui.start_frame(&mut renderer);
         while frame.render(&mut renderer).is_some() {
-            let (parked, buf, at) = renderer.detach();
+            let (parked, blitter) = renderer.detach();
+            let (buf, at) = blitter.into_storage();
             flush(&mut display, &buf, at);
-            renderer = parked.attach(buf);
+            renderer = parked.attach(FramebufBlitter::new(buf));
         }
     }
 

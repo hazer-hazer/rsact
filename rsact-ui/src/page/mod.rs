@@ -147,6 +147,10 @@ pub struct Page<W: WidgetCtx> {
     damage: RefCell<Vec<Rect>>,
     /// WS6.4c(E): nodes processed by the last pass (see `RenderShared::visits`).
     nodes_visited: Cell<usize>,
+    /// This region's deferred background, and whether the walk consumed it.
+    ///
+    /// [`RegionBackground`]: crate::el::render::RegionBackground
+    region_background: Cell<RegionBackground<W::Color>>,
     /// The page's reactive scope (WS3.1). Everything the page built —
     /// `init_page()`'s widgets (run before `Page::new` while this scope is
     /// current) and `Page::new`'s per-page nodes (`force_redraw`, the layout
@@ -301,7 +305,7 @@ fn compute_layout<W: WidgetCtx>(
     // Whether the caller must do a BLANKET repaint + whole-viewport flush —
     // true unless the incremental path already did a TARGETED repaint above
     // (WS6.1). The default (non-incremental) build has no targeted path, so it
-    // is always blanket: the historical behaviour. Covers first build,
+    // is always blanket: the historical behavior. Covers first build,
     // fonts/viewport change, structure change, and any relayout that reached
     // the root.
     #[cfg(feature = "incremental-layout")]
@@ -435,6 +439,7 @@ impl<W: WidgetCtx> Page<W> {
             render_probe,
             damage: RefCell::new(Vec::new()),
             nodes_visited: Cell::new(0),
+            region_background: Cell::new(RegionBackground::None),
             scope,
         }
     }
@@ -599,6 +604,30 @@ impl<W: WidgetCtx> Page<W> {
         f(&self.damage.borrow())
     }
 
+    /// The page's background color, or `None` when it declares none.
+    ///
+    /// TODO: Will not work without background, must always have a background
+    ///
+    /// Untracked: [`paint_region`](Self::paint_region) reads this *outside* its
+    /// `untrack` block, and a tracked read there would donate the style to
+    /// whatever observer is ambient — the 6.4c(2) hazard the paint walk is
+    /// wrapped to avoid. A page style change reaches the screen through the
+    /// damage channel, not through a subscription taken while painting.
+    fn background(&self) -> Option<W::Color> {
+        match self
+            .style
+            .try_with_untracked(|style| style.background_color)
+        {
+            Some(bg) => bg,
+            None => {
+                log::error!(
+                    "page background skipped: the style signal was disposed"
+                );
+                None
+            },
+        }
+    }
+
     pub fn take_draw_calls(&mut self) -> usize {
         core::mem::replace(&mut self.render_calls, 0)
     }
@@ -612,55 +641,26 @@ impl<W: WidgetCtx> Page<W> {
     //     self
     // }
 
-    /// WS5.0b: takes the renderer as a borrow (it is owned by `UI`, not the
-    /// page).
-    pub fn clear(&mut self, renderer: &mut W::Renderer) -> &mut Self {
-        let viewport = self.viewport;
-        self.style.with(|style| {
-            // TODO: Will not work without background, must always have a
-            // background
-            if let Some(bg) = style.background_color {
-                // NOTE (WS5.0b): behaviour preserved verbatim, including this
-                // `.ok().unwrap()`. It is a panic site on a UI path and so
-                // violates WS1.8 ("the UI must log and degrade, never panic") —
-                // left as-is to keep this refactor behaviour-identical rather
-                // than smuggling in a semantic change. Belongs to WSi.2's
-                // unwrap burn-down.
-                Renderer::fill_solid(
-                    renderer,
-                    Rect::new(Point::zero(), viewport),
-                    bg,
-                )
-                .ok()
-                .unwrap();
-
-                // WS6.4.0(iv): whoever paints pixels declares them. This just
-                // repainted the WHOLE viewport in the framebuffer, so the whole
-                // viewport must reach the display; otherwise a damage-driven
-                // flush sends only the widget rects and everything the widgets do
-                // not cover keeps whatever the framebuffer held. That matters
-                // because the framebuffer is one `UI`-owned value outliving every
-                // page, and a `Flex` root's `render` is a literal no-op — so
-                // container padding and inter-child gaps are painted by no widget.
-                //
-                // NOT load-bearing in production today, and the comment should
-                // say so: `clear`'s only caller is `UI::on_page_change`, which
-                // runs on a freshly built page whose first-build blanket already
-                // sets this flag. It is here so `clear` is correct in isolation
-                // for any future caller, and `clear_declares_a_full_viewport_flush`
-                // pins it (verified: that test fails with `[]` damage without it).
-                //
-                // It must be this flag rather than a damage rect: `use_renderer`
-                // clears the damage list at frame start, so a rect pushed before
-                // the frame would be silently dropped.
-                //
-                // Inside the `if let` on purpose — with no background color
-                // nothing was painted, so nothing needs flushing.
-                self.full_flush = true;
-            }
-        });
-        self
-    }
+    // NOTE (priming): `Page::clear` lived here — one full-viewport
+    // `fill_solid` plus `full_flush = true`, called from `UI::on_page_change`
+    // through a deferred `pending_clear` flag. Both halves are gone because both
+    // became redundant:
+    //
+    //   - Its FILL could never land. It ran before the frame's first
+    //     `begin_region`, and a blitter starts aimed at `Rect::zero()`, so
+    //     `RasterCtx` narrowed the clip to nothing and wrote zero pixels
+    //     (`beginning_a_region_writes_no_pixels` in rsact-render pins the aiming
+    //     half). It only looked correct because `PageStyle::base()`'s background
+    //     is `Color::default_background()` — exactly what the blitter primed
+    //     with. `Page::paint_region` paints the background per region now, which
+    //     is the only place it *can* be painted.
+    //   - Its FLAG was already set. `on_page_change` builds a fresh `Page`, and
+    //     `Page::new`'s first-build relayout is always blanket, so `full_flush`
+    //     is set without help. `page_change_flushes_the_whole_viewport` (in
+    //     `ui.rs`) pins that end and passes without this method.
+    //
+    // The `.ok().unwrap()` it carried — a WS1.8 panic site kept verbatim through
+    // WS5.0b — goes with it rather than needing WSi.2 to find it.
 
     // Focus //
 
@@ -1078,6 +1078,7 @@ impl<W: WidgetCtx> Page<W> {
 
                         damage: &self.damage,
                         visits: &self.nodes_visited,
+                        region_background: &self.region_background,
                     },
                 )
                 .render(
@@ -1166,6 +1167,15 @@ impl<W: WidgetCtx> Page<W> {
         self.nodes_visited.get()
     }
 
+    /// Whether the last [`paint_region`](Self::paint_region) painted the region
+    /// background, or a covering op made it redundant.
+    ///
+    /// `false` is the win: some op wrote every pixel of the region, so the
+    /// background would have been overwritten entirely.
+    pub fn background_painted(&self) -> bool {
+        self.region_background.get() == RegionBackground::Painted
+    }
+
     pub fn paint_region(
         &mut self,
         renderer: &mut W::Renderer,
@@ -1175,13 +1185,55 @@ impl<W: WidgetCtx> Page<W> {
         renderer.begin_region(region)?;
         renderer.push_clip(region);
 
+        // The region's background, and the reason `Blitter::begin_region` no
+        // longer primes: a region arrives holding whatever the last one left in
+        // it, so every pixel must be written or the frame flushes with another
+        // region's pixels showing through wherever no widget paints — and a
+        // `Flex` root paints nothing at all. What color that is, is a *style*
+        // question, so it is answered here rather than by a blitter inventing
+        // `Color::default_background()`.
+        //
+        // **Deferred, not painted.** Two other things fill a region-sized rect
+        // on a themed page — a part's `clear_outer` and a widget's own opaque
+        // block — and each of the three writes pixels the next one overwrites.
+        // Handing the fill to the walk as a *pending* one lets the first op that
+        // provably covers the region cancel it, which on a page with a
+        // background is about half the frame's pixel writes. The walk settles it
+        // through `RenderCtx::settle_region_background`; whatever is left is flushed
+        // below, so a region nothing drew into still gets its background.
+        self.region_background.set(match self.background() {
+            Some(bg) => RegionBackground::Pending(region, bg),
+            None => RegionBackground::None,
+        });
+
         // `untrack` is load-bearing, not hygiene — see the doc comment.
         let result = untrack(|| self.render_pass(renderer, RenderMode::Paint));
 
-        renderer.pop_clip();
-        renderer.end_region()?;
+        // Nothing covered it. Without this the deferred fill is simply dropped,
+        // and a merged region's dead space flushes as the previous region's
+        // pixels — the failure `begin_region`'s unconditional prime used to make
+        // impossible.
+        // Folded into `result` rather than `?`-ed: this sits between `push_clip`
+        // and `pop_clip`, so returning here would leak the region clip and skip
+        // `end_region` — which the trait documents as where a batching backend
+        // flushes, i.e. the region would never ship.
+        let result = result.and_then(|()| {
+            match self.region_background.get().pending() {
+                Some((region, bg)) => {
+                    let painted = renderer.fill_solid(region, bg);
+                    if painted.is_ok() {
+                        self.region_background.set(RegionBackground::Painted);
+                    }
+                    painted
+                },
+                None => Ok(()),
+            }
+        });
 
-        result
+        renderer.pop_clip();
+        let ended = renderer.end_region();
+
+        result.and(ended)
     }
 
     /// The shared body of [`use_renderer`] and [`collect`]: everything a
@@ -2449,126 +2501,29 @@ mod tests {
         });
     }
 
-    // WS6.9: page-render draw-op goldens. Build a page through the *reusable*
-    // RecordingRenderer (rsact-render), render one full frame, and lock its
-    // draw-op log against a blessed golden file under `tests/goldens/`. This
-    // exercises the whole harness end-to-end and makes every later WS6 damage
-    // change reviewable as a golden diff — a damage frame will be a strict
-    // subset of this full-frame log.
+    // NOTE (layer split, PR A): `mod render_goldens` lived here — two page-level
+    // draw-op goldens (`checkbox_unchecked_64.txt`, `checkbox_checked_64.txt`)
+    // built through rsact-render's `RecordingRenderer`, forced to one full frame
+    // and locked against a blessed file. Deleted with their golden files
+    // (maintainer decision D8): they assert nothing about the layered renderer,
+    // and the harness they exercised end-to-end is exercised by
+    // `tests/tile_schedule.rs`, which KEEPS its goldens and becomes the
+    // refactor's behavior-neutrality proof.
     //
-    // Deterministic by construction: fixed 64x64 viewport, the geometry-only
-    // (color-agnostic) op log, and a `Checkbox` (which resolves to the null
-    // theme's *default* colors — a bare `Container` would hit the
-    // `ColorStyle::expect` panic). Bless/update with `UPDATE_GOLDENS=1`.
-    mod render_goldens {
-        use super::*;
-        use crate::render::{
-            golden::assert_text_golden,
-            record::{RecordingRenderer, format_ops},
-        };
-        use crate::widget::checkbox::Checkbox;
-        use rsact_reactive::runtime::with_new_runtime;
-
-        type RecWtf = Wtf<RecordingRenderer<NullColor>, (), (), ()>;
-
-        /// Build a `RecWtf` page for `root`, settle its reactive render, run
-        /// `interact` (input/state changes to reach the state under test), then
-        /// force exactly one full frame and return its draw-op log as text.
-        ///
-        /// `force_redraw()` re-arms every part (WS6.4.0(iv): the flag is OR-ed
-        /// into each part's gate, no longer tracked by its probe), so the captured
-        /// frame is the complete paint — not a partial, probe-gated one — and
-        /// independent of exactly which parts `interact` happened to dirty.
-        fn full_frame_log_after(
-            root: impl View<RecWtf>,
-            interact: impl FnOnce(&mut Page<RecWtf>),
-        ) -> String {
-            let renderer =
-                RecordingRenderer::<NullColor>::new(Size::new_equal(64));
-            let recorder = renderer.clone(); // shares the op log via Rc
-            let arena = create_signal(ElArena::new()).name("Page arena");
-            let scope = new_scope();
-            let mut page: TestPage<RecWtf> = TestPage::new(
-                Page::new(
-                    (),
-                    root,
-                    arena,
-                    Size::new_equal(64),
-                    ().inert(),
-                    DevTools::default().signal(),
-                    Rc::new(FontCtx::new()),
-                    scope,
-                ),
-                renderer,
-            );
-
-            // Settle: the first frames may run the render observer a few times
-            // as reactive state stabilises. We discard those and capture a
-            // single forced frame below.
-            for _ in 0..4 {
-                page.use_renderer(|_| {});
-            }
-
-            interact(&mut page);
-
-            recorder.clear();
-            page.force_redraw();
-            page.use_renderer(|_| {});
-
-            format_ops(&recorder.ops())
-        }
-
-        /// No-interaction convenience wrapper.
-        fn full_frame_log(root: impl View<RecWtf>) -> String {
-            full_frame_log_after(root, |_| {})
-        }
-
-        #[test]
-        fn checkbox_unchecked_page() {
-            with_new_runtime(|_| {
-                let log = full_frame_log(Checkbox::<RecWtf>::new(false));
-                assert_text_golden(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "checkbox_unchecked_64.txt",
-                    &log,
-                );
-            });
-        }
-
-        /// The same checkbox after a click toggles it to checked — the golden
-        /// must now include the check-icon `Path` the unchecked frame omits.
-        /// This is the harness proving it distinguishes a real visual state
-        /// change, not just that *something* drew.
-        #[test]
-        fn checkbox_checked_page() {
-            use crate::event::{Event, PressEvent};
-
-            with_new_runtime(|_| {
-                let log = full_frame_log_after(
-                    Checkbox::<RecWtf>::new(false),
-                    |page| {
-                        // Focus the checkbox, then press+release to toggle it.
-                        page.state.focused = Some((page.root, 0));
-                        let _ = page.handle_events(
-                            [
-                                Event::Press(PressEvent::Press),
-                                Event::Press(PressEvent::Release),
-                            ]
-                            .into_iter(),
-                        );
-                    },
-                );
-                assert_text_golden(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "checkbox_checked_64.txt",
-                    &log,
-                );
-            });
-        }
-    }
+    // The bless workflow is untouched — `rsact_render::test_support::golden` is
+    // still there and the tile/schedule goldens still use it. What comes back
+    // here is WS6.9's deferred **PNG** half, which is worth most after the split: it is the only
+    // golden that can see anti-aliasing or spans, i.e. the only one that could
+    // tell `EgRasterizer` from `RsactRasterizer`.
+    //
+    // Two properties of the deleted harness are worth having written down,
+    // because whoever writes that half needs both: the page must be settled by
+    // running it a few frames and discarding them, and the captured frame must be
+    // FORCED (`force_redraw`) — otherwise it is a partial, probe-gated paint that
+    // depends on exactly which parts the interaction happened to dirty.
 
     /// WS6.4b: the geometry cull in `render_part`. What the op-log measurements
-    /// (`tests/tile_schedule.rs`) cannot show is the *behaviour* around a culled
+    /// (`tests/tile_schedule.rs`) cannot show is the *behavior* around a culled
     /// part — that it comes back, and that skipping it does not leave the page
     /// spinning. Both are properties of the reactive graph, so they are asserted
     /// here rather than counted there.
@@ -2759,9 +2714,9 @@ mod tests {
         }
     }
 
-    /// WS6.4c(F): clipping is widget behaviour the framework reads, not a call a
+    /// WS6.4c(F): clipping is widget behavior the framework reads, not a call a
     /// widget makes inside its own `render`.
-    /// WS5.5: box-model and border behaviour after the retained layout copy was
+    /// WS5.5: box-model and border behavior after the retained layout copy was
     /// deleted.
     ///
     /// **On what these do and do not prove.** The drift `button.rs` admitted —
@@ -2969,7 +2924,7 @@ mod tests {
                 // NOTE: this one is enforced by the traversal PRUNE (the
                 // scrollable's own rect misses the cursor, so the subtree is
                 // never walked), not by `hit_bounds`. It is the end-to-end
-                // behaviour; `a_clipped_away_widget_cannot_be_clicked` is what
+                // behavior; `a_clipped_away_widget_cannot_be_clicked` is what
                 // pins the hit rect itself.
             });
         }
@@ -2980,7 +2935,7 @@ mod tests {
         /// A `MouseMove` over clipped-away content never arrives, because the
         /// prune stops at the scrollable whose own rect misses the cursor — so
         /// the hover test above passes even with `hit_bounds` clip-blind, and
-        /// proves the end-to-end behaviour rather than the mechanism. A **click**
+        /// proves the end-to-end behavior rather than the mechanism. A **click**
         /// is deliberately not pruned (`ButtonUp` must reach a pressed widget
         /// wherever the cursor went), so it walks all the way to the clipped
         /// checkbox and only `hit_bounds` can stop it.
@@ -3286,46 +3241,11 @@ mod tests {
         });
     }
 
-    /// WS6.4.0(iv): `clear` repaints the whole viewport, so it declares the whole
-    /// viewport.
-    ///
-    /// Nothing in production depends on this *today* — `clear` is only called
-    /// from `UI::on_page_change`, on a freshly built page whose first-build
-    /// blanket already sets `full_flush`. It is here because damage-driven
-    /// flushing only composes if whoever writes a pixel records it, and a `clear`
-    /// that painted the viewport while declaring nothing would be a trap for the
-    /// next caller.
-    #[test]
-    fn clear_declares_a_full_viewport_flush() {
-        use crate::widget::checkbox::Checkbox;
-        use rsact_reactive::runtime::with_new_runtime;
-
-        with_new_runtime(|_| {
-            let viewport = Size::new_equal(64);
-            let full = Rect::new(Point::zero(), viewport);
-            let mut page =
-                create_null_page_sized(viewport, Checkbox::new(false));
-
-            // Drain the first-build blanket so the assertion below is about
-            // `clear` and nothing else.
-            for _ in 0..6 {
-                page.use_renderer(|_| {});
-            }
-            assert_ne!(
-                page.damage.borrow().clone(),
-                vec![full],
-                "page must settle to something other than a full flush first"
-            );
-
-            page.clear();
-            page.use_renderer(|_| {});
-            assert_eq!(
-                page.damage.borrow().clone(),
-                vec![full],
-                "clear repainted the viewport, so it must flush the viewport"
-            );
-        });
-    }
+    // NOTE (priming): `clear_declares_a_full_viewport_flush` lived here. Its
+    // subject (`Page::clear`) is gone; the property it guarded — a page change
+    // flushes the whole viewport — is pinned by
+    // `page_change_flushes_the_whole_viewport` in `ui.rs`, which does not go
+    // through `clear` and passes without it.
 
     // WS6.2 escape hatch: a full invalidate (first render / `force_redraw` /
     // layout change) flushes the WHOLE viewport, not just the redraw-root rects
@@ -4014,7 +3934,7 @@ mod tests {
     // two — so the probe should now hold no sources at all and a settled page
     // should never relayout again, no matter how often it is asked.
     //
-    // Asserted through behaviour rather than by counting sources, because the
+    // Asserted through behavior rather than by counting sources, because the
     // runtime's profile is global and cannot attribute a source to one probe.
     // A page whose only content is INERT has nothing that could legitimately
     // dirty the probe, so any recompute after the first is the bug.
@@ -4223,5 +4143,208 @@ mod tests {
                  — that mark is the relayout request"
             );
         });
+    }
+
+    /// WS6.x (priming): the region background belongs to rsact-ui.
+    ///
+    /// `Blitter::begin_region` used to prime the surface with
+    /// `Color::default_background()`, which put a *style* decision in
+    /// rsact-render and made `PageStyle::background_color` unreachable — the
+    /// discarded fill in the old `Page::clear` happened to be the same color,
+    /// so nothing showed. Painting it here is what makes the page's own
+    /// background the one that lands.
+    mod region_background {
+        use super::*;
+        use crate::render::record::{DrawOp, RecordingRenderer};
+        use crate::widget::canvas::Canvas;
+        use rsact_reactive::runtime::with_new_runtime;
+
+        type RecWtf = Wtf<RecordingRenderer<NullColor>, (), (), ()>;
+
+        fn rec_page(
+            viewport: Size,
+            root: impl View<RecWtf>,
+        ) -> (TestPage<RecWtf>, RecordingRenderer<NullColor>) {
+            let renderer = RecordingRenderer::<NullColor>::new(viewport);
+            let recorder = renderer.clone(); // shares the op log via Rc
+            let arena = create_signal(ElArena::new()).name("Page arena");
+            let scope = new_scope();
+            let page = TestPage::new(
+                Page::new(
+                    (),
+                    root,
+                    arena,
+                    viewport,
+                    ().inert(),
+                    DevTools::default().signal(),
+                    Rc::new(FontCtx::new()),
+                    scope,
+                ),
+                renderer,
+            );
+            (page, recorder)
+        }
+
+        /// A widget whose own opaque fill covers the region makes the
+        /// background redundant, and it must be skipped rather than painted and
+        /// overwritten.
+        ///
+        /// Asserted on [`Page::background_painted`] and not on the op log,
+        /// because the log cannot tell the two apart: a root part's
+        /// `clear_outer` over the region emits a fill with the same rect and the
+        /// same color.
+        ///
+        /// `Canvas` because it draws through the same `RenderCtx` proxy every
+        /// widget does, with the geometry stated here rather than inferred from
+        /// a theme.
+        #[test]
+        fn a_covering_opaque_fill_cancels_the_region_background() {
+            with_new_runtime(|_| {
+                let viewport = Size::new_equal(64);
+                let region = Rect::new(Point::zero(), viewport);
+                let (mut page, _recorder) = rec_page(
+                    viewport,
+                    Canvas::new(move |ctx| {
+                        Renderer::fill_solid(ctx, region, NullColor)
+                    })
+                    .fill(),
+                );
+
+                page.paint_region(region).unwrap();
+
+                assert!(
+                    !page.background_painted(),
+                    "every pixel of the region was written by the walk, so the \
+                     background must not have been painted too"
+                );
+            });
+        }
+
+        /// …and when nothing covers the region, the background is what does.
+        ///
+        /// This is the half that keeps the elision sound: cancel on a partial
+        /// fill and the uncovered pixels flush as the previous region's.
+        #[test]
+        fn a_partial_fill_does_not_cancel_the_region_background() {
+            with_new_runtime(|_| {
+                let viewport = Size::new_equal(64);
+                let region = Rect::new(Point::zero(), viewport);
+                // A quarter-sized root: neither its own fill nor its
+                // `clear_outer` can cover the region.
+                let (mut page, _recorder) = rec_page(
+                    viewport,
+                    Canvas::new(move |ctx| {
+                        Renderer::fill_solid(
+                            ctx,
+                            Rect::new(Point::zero(), Size::new_equal(32)),
+                            NullColor,
+                        )
+                    })
+                    .width(32u32)
+                    .height(32u32),
+                );
+
+                page.paint_region(region).unwrap();
+
+                assert!(
+                    page.background_painted(),
+                    "a 32x32 root leaves three quarters of the region \
+                     unwritten, so the background is still needed"
+                );
+            });
+        }
+
+        /// A region larger than the surface still gets its background.
+        ///
+        /// The root's `clear_outer` covers only its own 64x64 outer, so it
+        /// cannot stand in for a 128x128 region, and the canvas's request for a
+        /// covering fill arrives after the slot is already settled.
+        ///
+        /// This does **not** exercise the clip guard in
+        /// `settle_region_background` — verified by removing the guard, after
+        /// which this still passes. The guard is unreachable today: `clear_outer`
+        /// settles the slot before any widget draws, and a part's `outer` is
+        /// bounded by the surface, so "rect covers the region but the clip does
+        /// not" cannot arise through the walk. It is kept as a soundness
+        /// precondition for the predicate, not as a live path — see the note on
+        /// `settle_region_background`.
+        #[test]
+        fn a_region_larger_than_the_surface_still_gets_its_background() {
+            with_new_runtime(|_| {
+                let viewport = Size::new_equal(64);
+                let region = Rect::new(Point::zero(), Size::new_equal(128));
+                let (mut page, _recorder) = rec_page(
+                    viewport,
+                    Canvas::new(move |ctx| {
+                        Renderer::fill_solid(ctx, region, NullColor)
+                    })
+                    .fill(),
+                );
+
+                page.paint_region(region).unwrap();
+
+                assert!(page.background_painted());
+            });
+        }
+
+        /// A region nothing draws into still gets its background. Without this
+        /// a deferred fill is simply dropped, and a merged region's dead space
+        /// flushes as whatever the previous region left there.
+        #[test]
+        fn a_region_nothing_draws_into_still_gets_its_background() {
+            with_new_runtime(|_| {
+                let viewport = Size::new_equal(64);
+                let (mut page, recorder) = rec_page(
+                    viewport,
+                    Flex::<RecWtf>::col(Vec::<El<RecWtf>>::new()).fill(),
+                );
+
+                // Outside the tree entirely, so the walk culls everything.
+                let region = Rect::new(Point::new(0, 512), Size::new(64, 32));
+                recorder.clear();
+                page.paint_region(region).unwrap();
+
+                assert!(
+                    page.background_painted(),
+                    "ops were {:?}",
+                    recorder.ops()
+                );
+                assert!(
+                    recorder.ops().contains(&DrawOp::FillSolid(region)),
+                    "and it reached the renderer: ops were {:?}",
+                    recorder.ops()
+                );
+            });
+        }
+
+        /// A region arrives holding the previous region's pixels, so every
+        /// region must have its background painted — by rsact-ui, from the page
+        /// style, as the first thing that writes into it.
+        #[test]
+        fn painting_a_region_fills_it_with_the_page_background() {
+            with_new_runtime(|_| {
+                let viewport = Size::new_equal(64);
+                let (mut page, recorder) = rec_page(
+                    viewport,
+                    Flex::<RecWtf>::col(Vec::<El<RecWtf>>::new()).fill(),
+                );
+
+                let region = Rect::new(Point::new(0, 32), Size::new(64, 32));
+                recorder.clear();
+                page.paint_region(region).unwrap();
+
+                let filled = recorder
+                    .ops()
+                    .into_iter()
+                    .find(|op| matches!(op, DrawOp::FillSolid(_)));
+                assert_eq!(
+                    filled,
+                    Some(DrawOp::FillSolid(region)),
+                    "the first fill of a region must cover the whole region: \
+                     ops were {:?}",
+                    recorder.ops()
+                );
+            });
+        }
     }
 }

@@ -1,18 +1,12 @@
 #![no_std]
 
-// no_std f32 math backend. Exactly one of `libm` (default) / `micromath` must
-// be enabled — same mutually-exclusive contract as rsact-reactive's storage
-// backends. `FloatExt` is the float-method trait the geometry and primitive
-// code brings into scope with `use crate::FloatExt as _;`. On `std` builds the
-// inherent `f32` methods shadow the trait, so the simulator uses std math with
-// zero cfg; the trait only supplies the methods on no_std targets.
+// The float-math backend. `FloatExt` supplies `sqrt`, `atan2` and friends on
+// no_std; on std the inherent `f32` methods shadow it and a backend is not
+// needed, which is why the second check excludes std.
 #[cfg(all(feature = "libm", feature = "micromath"))]
 compile_error!(
     "rsact-render: features `libm` and `micromath` are mutually exclusive — enable exactly one math backend"
 );
-// A backend is required only on no_std: with `std`, the inherent `f32` methods
-// shadow `FloatExt` and the trait is never called, so a std build needs no math
-// backend feature (a bare `--features std` builds).
 #[cfg(all(
     not(feature = "std"),
     not(any(feature = "libm", feature = "micromath"))
@@ -25,9 +19,7 @@ compile_error!(
 pub use micromath::F32Ext as FloatExt;
 #[cfg(all(feature = "libm", not(feature = "micromath")))]
 pub use num_traits::Float as FloatExt;
-// std with no explicit backend: `FloatExt` must still exist so the unconditional
-// `use crate::FloatExt as _;` imports resolve; it's an empty marker because the
-// inherent `f32` methods do the work.
+// Empty on std-without-a-backend so `use crate::FloatExt as _;` still resolves.
 #[cfg(all(feature = "std", not(feature = "libm"), not(feature = "micromath")))]
 pub trait FloatExt {}
 #[cfg(all(feature = "std", not(feature = "libm"), not(feature = "micromath")))]
@@ -35,34 +27,32 @@ impl FloatExt for f32 {}
 #[cfg(all(feature = "std", not(feature = "libm"), not(feature = "micromath")))]
 impl FloatExt for f64 {}
 
+// A `renderer` draws with a `raster`izer, which emits into a `blitter`. The
+// backend-specific rasterizers and blitters live under `eg` and `tiny_skia`.
+pub mod blitter;
 pub mod color;
+pub mod framebuf;
 pub mod geometry;
-// `golden` is a std-only test-support module (file I/O for the WS6.9 golden
-// harness). It is reusable across crates — hence a real `#[cfg(feature="std")]`
-// module, not `#[cfg(test)]` (downstream crates' tests can't see test code).
-#[cfg(feature = "std")]
-pub mod golden;
 pub mod image;
 pub mod output;
 pub mod path;
 pub mod primitives;
+pub mod raster;
 pub mod record;
-// WS6.4d(1): damage rects -> the regions a frame is painted in. Pure geometry,
-// no renderer and no steady-state allocation, so it belongs beside the geometry
-// it operates on rather than in the UI crate that drives it.
 pub mod region;
 pub mod renderer;
-// WS6.4a's measurement + tile-invariance arithmetic over `record`'s op logs.
-// Unconditional for the same reason `record` is: pure `alloc` math with no file
-// I/O (unlike `golden`), so a no_std integration test can use it too.
-pub mod schedule;
+pub mod scan;
 pub mod style;
+// Test harness, not API. A feature rather than `#[cfg(test)]` because its users
+// are in other crates and `cfg(test)` does not cross a crate boundary.
+#[cfg(feature = "test-utils")]
+#[doc(hidden)]
+pub mod test_support;
 
 #[macro_use]
 extern crate alloc;
 
-// `#![no_std]` drops `std` from the extern prelude; the golden harness's file
-// I/O needs it, so bring it back on std builds only.
+// `#![no_std]` drops `std` from the extern prelude; the golden harness needs it.
 #[cfg(feature = "std")]
 extern crate std;
 
@@ -74,15 +64,15 @@ pub mod tiny_skia;
 
 pub mod prelude {
     #[cfg(feature = "embedded-graphics")]
-    pub use crate::eg::{
-        framebuf::{Framebuffer, PackedColor, PackedFramebuf},
-        primitives::*,
-        renderer::EGRenderer,
-    };
+    pub use crate::eg::{interop::DrawTargetProxy, rasterizer::EgRasterizer};
     #[cfg(feature = "tiny-skia")]
-    pub use crate::tiny_skia::TinySkiaRenderer;
+    pub use crate::tiny_skia::{
+        blitter::PixmapBlitter, rasterizer::TinySkiaRasterizer,
+    };
     pub use crate::{
+        blitter::{Blitter, FramebufBlitter, Span},
         color::{BigEndian, ByteOrder, Color, LittleEndian, RgbColor as _},
+        framebuf::{Framebuf, FramebufStorage, PackedColor},
         geometry::{Rect, Size, block_model::BlockModel, padding::Padding, *},
         output::MapColor,
         path::*,
@@ -91,13 +81,14 @@ pub mod prelude {
             ellipse::Ellipse, line::Line, polygon::Polygon,
             rounded_rect::RoundedRect, sector::Sector,
         },
+        raster::{RasterCtx, Rasterizer},
         region::{
-            FramePolicy, RegionLimits, Tiles, Unbounded, Whole,
-            assert_policy_fits, plan_regions, plan_regions_into, policy_units,
+            FramePolicy, RegionLimits, Tiles, Unbounded, assert_policy_fits,
+            plan_regions, plan_regions_into, policy_units,
         },
         renderer::{
-            AntiAliasing, Attached, Attachment, Detached, NullColor,
-            NullRenderer, RenderResult, Renderer, ViewportKind, region_units,
+            Attached, Attachment, Detached, NullColor, NullRenderer,
+            RasterRenderer, RenderResult, Renderer, region_units,
         },
         style::{ColorStyle, DrawStyle, StrokeAlignment, block::*},
     };

@@ -22,7 +22,15 @@ version.workspace = true
 # dev-only helper as a normal feature here is fine — it never reaches a
 # shippable crate (WS1.2).
 rsact-reactive = { workspace = true, features = ["std", "test-utils"] }
-rsact-ui = { workspace = true, features = ["std", "embedded-graphics"] }
+# Same, for rsact-ui's `test_support`: the scenarios ARE the headless pages the
+# harness builds (`TestUi`, `labels_page`, `NullWtf`), and this is the one
+# non-test consumer of them. A normal-dependency feature rather than a dev one
+# because the record path is `main`, not `#[test]`.
+rsact-ui = { workspace = true, features = [
+    "std",
+    "embedded-graphics",
+    "test-utils",
+] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Reads .text/.rodata/.bss from the linked thumb size-probe ELFs (Layer 2).

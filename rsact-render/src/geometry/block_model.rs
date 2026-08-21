@@ -2,13 +2,12 @@ use super::padding::Padding;
 
 /// The box model: what a widget's own geometry reserves around its content.
 ///
-/// **WS5.5: `border_width` used to live here and no longer does.** The rule the
-/// codebase follows is *does it change the box, or only the pixels inside it?* —
-/// and a border, drawn `StrokeAlignment::Inside`, paints over the padding ring
-/// without moving anything. It is a [`BorderStyle`] property now, which is what
-/// lets it answer `hovered`/`pressed`/`focused` like every other style value;
-/// from here it never could, because layout must not depend on the stylist (a
-/// hover-driven relayout would be thrash).
+/// **`border_width` does not live here.** The rule is *does it change the box,
+/// or only the pixels inside it?* — and a border drawn `StrokeAlignment::Inside`
+/// paints over the padding ring without moving anything. It is a
+/// [`BorderStyle`] property, which is what lets it answer
+/// `hovered`/`pressed`/`focused`; from here it could not, because layout must
+/// not depend on the stylist or a hover would relayout the page.
 ///
 /// The practical consequence for users is the SwiftUI one: a thick border over
 /// content is fixed by adding padding, explicitly, rather than by the framework

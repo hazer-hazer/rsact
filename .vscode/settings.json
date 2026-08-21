@@ -16,6 +16,7 @@
     "pixelcolor",
     "Pixmap",
     "premultiply",
+    "rasterizer",
     "rects",
     "renderable",
     "rsact",
@@ -25,6 +26,7 @@
     "tinyvec",
     "unfocusable",
     "Uninit",
+    "ungated",
     "vals",
     "viewports",
     "worklist",
@@ -43,7 +45,8 @@
     "u8g2-fonts",
     "layout-diagnostics",
     "defmt",
-    "tiny-icons"
+    "tiny-icons",
+    "test-utils"
   ],
   "rust-analyzer.check.noDefaultFeatures": true,
   "rust-analyzer.check.features": [

@@ -1,5 +1,7 @@
+//! Everything that needs embedded-graphics.
+
 pub mod color;
 pub mod framebuf;
 pub mod image;
-pub mod primitives;
-pub mod renderer;
+pub mod interop;
+pub mod rasterizer;

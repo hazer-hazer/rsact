@@ -14,7 +14,11 @@ use std::{
 };
 
 type Color = tiny_skia::Color;
-type W = Wtf<TinySkiaRenderer<Color>, SinglePage, Theme<Color>, ()>;
+/// The layer split's tiny-skia stack: tiny-skia rasterizes to coverage, our
+/// pixmap blitter blends it. Spelled out rather than aliased in the library —
+/// the three parameters are the architecture.
+type Skia = RasterRenderer<TinySkiaRasterizer, PixmapBlitter, Unbounded>;
+type W = Wtf<Skia, SinglePage, Theme<Color>, ()>;
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 enum WidgetTab {
@@ -162,10 +166,14 @@ fn main() {
 
     let viewport: Size = display.bounding_box().size.into();
     // The pixmap is the application's — rsact borrows it (WS6.4d).
-    let mut renderer = TinySkiaRenderer::new(
+    let mut renderer = Skia::with_blitter(
+        TinySkiaRasterizer::new(),
         viewport,
-        tiny_skia::Pixmap::new(viewport.width, viewport.height).unwrap(),
-    );
+        PixmapBlitter::new(
+            tiny_skia::Pixmap::new(viewport.width, viewport.height).unwrap(),
+        ),
+    )
+    .unwrap();
 
     let mut ui = UI::new(Theme::<tiny_skia::Color>::default(), viewport)
         .with_page(SinglePage, page)
@@ -194,9 +202,10 @@ fn main() {
         {
             let mut frame = ui.start_frame(&mut renderer);
             while frame.render(&mut renderer).is_some() {
-                let (parked, pixmap, at) = renderer.detach();
+                let (parked, blitter) = renderer.detach();
+                let (pixmap, at) = blitter.into_pixmap().unwrap();
                 flush(&mut display, &pixmap, at);
-                renderer = parked.attach(pixmap);
+                renderer = parked.attach(PixmapBlitter::new(pixmap));
             }
         }
         window.update(&display);
