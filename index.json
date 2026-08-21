@@ -107,6 +107,12 @@
     "branch": "ws6.4e-framebuf-unbind",
     "subject": "Review: blend_span's doc, and units/unit_count -> data/capacity"
   },
+  "34fcdb0951993b60d4cb638ccff439064ac97569": {
+    "date": 1787350536,
+    "parent": "",
+    "branch": "ws6.4e-framebuf-unbind",
+    "subject": "Review: one loop in blend_span's default, and a test that reaches it"
+  },
   "363362730cbd33facff08ff7721f8500be46c344": {
     "date": 1786912066,
     "parent": "",
