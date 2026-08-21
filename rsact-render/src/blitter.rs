@@ -173,11 +173,18 @@ pub trait Blitter {
         }
     }
 
-    /// Anti-aliased run. `coverage.len() == span.len()`; 0 = untouched.
+    /// One color at a per-pixel weight. `coverage.len() == span.len()`;
+    /// 0 = untouched, 255 = replace.
     ///
-    /// The default merely thresholds at 128, which leaves a *gapped* hairline on
-    /// a 45° edge — both pixels of each step fall below it. Override wherever
-    /// the target can really blend.
+    /// Coverage is just per-pixel alpha, so this is the general weighted write,
+    /// not an anti-aliasing hook: a rasterizer's edge coverage is one producer,
+    /// a gradient mask, a fade or a dissolve are others, and `PixmapBlitter`
+    /// implements it as full `SourceOver`.
+    ///
+    /// The default merely thresholds at 128, which is the one case that IS
+    /// anti-aliasing-specific and bad at it — a 45° edge comes out a *gapped*
+    /// hairline, both pixels of each step falling below the threshold. Override
+    /// wherever the target can really blend.
     fn blend_span(&mut self, span: Span, color: Self::Color, coverage: &[u8]) {
         debug_assert_eq!(coverage.len(), span.len());
         // Coalesce into runs: a thresholded edge is mostly runs, and a run is
@@ -274,7 +281,7 @@ where
     }
 
     fn capacity(&self) -> Option<usize> {
-        Some(self.framebuf.capacity_units())
+        Some(self.framebuf.capacity())
     }
 
     /// A one-row rect, so this is the whole-word fill at height one. Goes
@@ -337,7 +344,7 @@ where
     /// skips rather than aborting the device.
     fn begin_region(&mut self, region: Rect) -> RenderResult {
         let want = units_for::<C>(region.size.width, region.size.height);
-        let have = self.framebuf.capacity_units();
+        let have = self.framebuf.capacity();
         if want > have {
             log::error!(
                 "region {region:?} needs {want} storage units, the attached \

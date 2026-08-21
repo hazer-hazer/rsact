@@ -69,13 +69,13 @@ pub trait FramebufStorage<C: PackedColor> {
     /// **`None` means "ask the value", never "unbounded".**
     const UNITS: Option<usize>;
 
-    fn units(&self) -> &[C::Storage];
-    fn units_mut(&mut self) -> &mut [C::Storage];
+    fn data(&self) -> &[C::Storage];
+    fn data_mut(&mut self) -> &mut [C::Storage];
 
-    /// This buffer's real capacity. Always available, unlike
-    /// [`UNITS`](Self::UNITS).
-    fn unit_count(&self) -> usize {
-        self.units().len()
+    /// This buffer's real capacity, in `C::Storage` units. Always available,
+    /// unlike [`UNITS`](Self::UNITS).
+    fn capacity(&self) -> usize {
+        self.data().len()
     }
 }
 
@@ -89,8 +89,8 @@ macro_rules! native_framebuf_storage {
         {
             const UNITS: Option<usize> = Some(N);
 
-            fn units(&self) -> &[$storage] { &self[..] }
-            fn units_mut(&mut self) -> &mut [$storage] { &mut self[..] }
+            fn data(&self) -> &[$storage] { &self[..] }
+            fn data_mut(&mut self) -> &mut [$storage] { &mut self[..] }
         }
 
         // Runtime-sized: checked at `attach` instead of at compile time.
@@ -99,8 +99,8 @@ macro_rules! native_framebuf_storage {
         {
             const UNITS: Option<usize> = None;
 
-            fn units(&self) -> &[$storage] { self }
-            fn units_mut(&mut self) -> &mut [$storage] { self }
+            fn data(&self) -> &[$storage] { self }
+            fn data_mut(&mut self) -> &mut [$storage] { self }
         }
 
         // NOTE: no impl for `Box<[T]>` — reach the one above via
@@ -129,11 +129,11 @@ pub struct Framebuf<C: Color + PackedColor, B: FramebufStorage<C>> {
 
 impl<C: Color + PackedColor, B: FramebufStorage<C>> Framebuf<C, B> {
     pub fn data(&self) -> &[C::Storage] {
-        self.pixels.units()
+        self.pixels.data()
     }
 
     pub fn data_mut(&mut self) -> &mut [C::Storage] {
-        self.pixels.units_mut()
+        self.pixels.data_mut()
     }
 
     /// The absolute rect this buffer currently covers.
@@ -201,7 +201,7 @@ impl<C: Color + PackedColor, B: FramebufStorage<C>> Framebuf<C, B> {
                 // The row spans fewer than one whole word — all per-pixel.
                 for i in start..end {
                     C::set_color(
-                        &mut self.pixels.units_mut()[i / pps],
+                        &mut self.pixels.data_mut()[i / pps],
                         i % pps,
                         color,
                     );
@@ -209,16 +209,16 @@ impl<C: Color + PackedColor, B: FramebufStorage<C>> Framebuf<C, B> {
             } else {
                 for i in start..head_end {
                     C::set_color(
-                        &mut self.pixels.units_mut()[i / pps],
+                        &mut self.pixels.data_mut()[i / pps],
                         i % pps,
                         color,
                     );
                 }
-                self.pixels.units_mut()[head_end / pps..tail_start / pps]
+                self.pixels.data_mut()[head_end / pps..tail_start / pps]
                     .fill(solid.clone());
                 for i in tail_start..end {
                     C::set_color(
-                        &mut self.pixels.units_mut()[i / pps],
+                        &mut self.pixels.data_mut()[i / pps],
                         i % pps,
                         color,
                     );
@@ -301,9 +301,10 @@ impl<C: Color + PackedColor, B: FramebufStorage<C>> Framebuf<C, B> {
         self.pixels
     }
 
-    /// Storage units this buffer can hold, independent of shape.
-    pub fn capacity_units(&self) -> usize {
-        self.pixels.unit_count()
+    /// Storage units this buffer can hold, independent of shape. `units` is
+    /// implied by the type, hence not in the name.
+    pub fn capacity(&self) -> usize {
+        self.pixels.capacity()
     }
 
     /// Re-aim the buffer at `region` (absolute screen coordinates).
@@ -527,6 +528,6 @@ mod tests {
     fn capacity_is_not_this_types_question() {
         let mut buf = alloc::vec![0u8; 10];
         let fb = Framebuf::<Mono, _>::new(&mut buf[..]);
-        assert_eq!(fb.capacity_units(), 10);
+        assert_eq!(fb.capacity(), 10);
     }
 }
