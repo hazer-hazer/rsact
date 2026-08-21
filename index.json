@@ -101,6 +101,12 @@
     "branch": "ws6.4e-framebuf-unbind",
     "subject": "Move the harness out of src: rsact-render::test_support, behind test-utils"
   },
+  "32789ae4efb45a587eacfb58ffa989c10474a48b": {
+    "date": 1787346640,
+    "parent": "",
+    "branch": "ws6.4e-framebuf-unbind",
+    "subject": "Review: blend_span's doc, and units/unit_count -> data/capacity"
+  },
   "363362730cbd33facff08ff7721f8500be46c344": {
     "date": 1786912066,
     "parent": "",
