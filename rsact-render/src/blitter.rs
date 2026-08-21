@@ -189,10 +189,16 @@ pub trait Blitter {
         debug_assert_eq!(coverage.len(), span.len());
         // Coalesce into runs: a thresholded edge is mostly runs, and a run is
         // cheaper than its pixels.
+        //
+        // The `chain` is a virtual sub-threshold pixel one past the end, so a
+        // run reaching the last pixel closes inside the loop like every other.
+        // Without it that one case needs a copy of the flush after the loop —
+        // the same three lines, reachable only by the input that ends mid-run,
+        // which is the input a test is least likely to have.
         let mut run: Option<i32> = None;
-        for (i, cov) in coverage.iter().enumerate() {
+        for (i, cov) in coverage.iter().copied().chain(Some(0)).enumerate() {
             let x = span.x + i as i32;
-            if *cov >= 128 {
+            if cov >= 128 {
                 run.get_or_insert(x);
             } else if let Some(start) = run.take() {
                 self.fill_span(
@@ -200,13 +206,6 @@ pub trait Blitter {
                     color,
                 );
             }
-        }
-        if let Some(start) = run {
-            let end = span.x + span.w as i32;
-            self.fill_span(
-                Span::new(span.y, start, (end - start) as u32),
-                color,
-            );
         }
     }
 
@@ -397,6 +396,69 @@ mod tests {
         assert!(Span::new(7, 20, 10).clip_to(&clip).is_none(), "right");
         assert!(Span::new(7, 10, 0).clip_to(&clip).is_none(), "empty");
         assert!(Span::new(7, 10, 5).clip_to(&Rect::zero()).is_none());
+    }
+
+    /// A blitter that records the runs it is handed, and nothing else.
+    struct Runs {
+        bounds: Rect,
+        spans: alloc::vec::Vec<(i32, i32, u32)>,
+    }
+
+    impl Blitter for Runs {
+        type Color = crate::renderer::NullColor;
+        fn bounds(&self) -> Rect {
+            self.bounds
+        }
+        fn capacity(&self) -> Option<usize> {
+            None
+        }
+        fn fill_span(&mut self, span: Span, _color: Self::Color) {
+            self.spans.push((span.y, span.x, span.w));
+        }
+        fn begin_region(
+            &mut self,
+            region: Rect,
+        ) -> crate::renderer::RenderResult {
+            self.bounds = region;
+            Ok(())
+        }
+    }
+
+    fn blend(coverage: &[u8]) -> alloc::vec::Vec<(i32, i32, u32)> {
+        let mut runs =
+            Runs { bounds: r(0, 0, 64, 64), spans: alloc::vec::Vec::new() };
+        runs.blend_span(
+            Span::new(5, 10, coverage.len() as u32),
+            crate::renderer::NullColor,
+            coverage,
+        );
+        runs.spans
+    }
+
+    /// [`Blitter::blend_span`]'s default coalesces a thresholded edge into runs.
+    ///
+    /// The case worth pinning is the **last** one: a run reaching the final
+    /// pixel has no following sub-threshold pixel to close it, so it closes
+    /// outside the loop — and that flush is easy to get wrong or to lose in a
+    /// rewrite, since nothing else in the crate exercises this default.
+    #[test]
+    fn the_default_blend_coalesces_runs_including_the_last() {
+        // Leading run, gap, single pixel, then a run that ends the span.
+        assert_eq!(
+            blend(&[200, 200, 0, 0, 130, 0, 255, 255]),
+            alloc::vec![(5, 10, 2), (5, 14, 1), (5, 16, 2)]
+        );
+
+        // A run reaching the end is the only way to reach the trailing flush.
+        assert_eq!(blend(&[0, 0, 255]), alloc::vec![(5, 12, 1)]);
+        assert_eq!(blend(&[255, 255, 255]), alloc::vec![(5, 10, 3)]);
+
+        // Below the threshold on every pixel writes nothing at all.
+        assert_eq!(blend(&[0, 1, 127]), alloc::vec![]);
+        assert_eq!(blend(&[]), alloc::vec![]);
+
+        // 128 is inclusive, 127 is not — the boundary the default thresholds on.
+        assert_eq!(blend(&[127, 128]), alloc::vec![(5, 11, 1)]);
     }
 
     /// Addressing is relative to `bounds`, whose width is the stride.
